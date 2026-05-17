@@ -3,6 +3,29 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.0.3 — fix MackesApp import (2026-05-17)
+
+Install + launch flow surfaced an ImportError immediately after install:
+
+    ImportError: cannot import name 'MackesApp' from 'mackes.app'
+        File "mackes/__main__.py", line 14, in <module>
+            from mackes.app import MackesApp
+
+When `mackes.app` was refactored in 1.0 to lazy-import GTK (so headless
+installs don't drag GTK into memory), the `MackesApp` class moved inside
+an internal `_make_gui_app()` builder function — no longer a top-level
+symbol. `mackes/__main__.py` still expected the old top-level import.
+
+Fix: `__main__.py` now delegates to `mackes.app.main(argv[1:])` directly.
+The `--uninstall` / `--yes` fast-path is preserved (still handled in
+__main__ so the uninstall sequence can run without going through the
+GUI router). Everything else — `--gui`, `--headless`, subcommands,
+auto-detection — goes through `mackes.app.main`, which already knows
+how to instantiate the GUI when it needs to.
+
+Verified: `python3 -m mackes --version` prints `mackes 1.0.3`;
+`python3 -m mackes help` prints the topic list.
+
 ## 1.0.2 — headscale.service file conflict (2026-05-17)
 
 `dnf install` failed on the v1.0.1 RPM with:
