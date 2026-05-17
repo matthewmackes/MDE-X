@@ -1126,6 +1126,79 @@ def apply_qnm(preset: Preset) -> List[str]:
     return actions
 
 
+# ---------------------------------------------------------------------------
+# 15. LightDM greeter — promoted from apply_appearance (v1.6.0 birthright)
+# ---------------------------------------------------------------------------
+
+
+def apply_lightdm(preset: Preset) -> List[str]:
+    """Configure the LightDM GTK greeter to match the active preset.
+
+    This was previously folded into apply_appearance — promoted to its
+    own step in v1.6.0 so the wizard rail surfaces it explicitly.
+    Writes /etc/lightdm/lightdm-gtk-greeter.conf via AdminSession so
+    the sudoers NOPASSWD drop-in covers it without a prompt.
+    """
+    actions: List[str] = []
+    try:
+        from mackes.lightdm import configure_from_preset
+        from pathlib import Path as _P
+        wp = preset.appearance.get("wallpaper") if preset.appearance else None
+        wp_path = _P(str(wp)) if wp else None
+        actions.extend(configure_from_preset(preset.name, wallpaper=wp_path))
+    except Exception as e:
+        actions.append(f"lightdm: {e}")
+    for line in actions:
+        log_action(line)
+    return actions
+
+
+# ---------------------------------------------------------------------------
+# 16. Thunar @ QNM-Mesh — open mesh file browser every graphical login
+# ---------------------------------------------------------------------------
+
+
+_THUNAR_AUTOSTART_PATH = Path(os.path.expanduser(
+    "~/.config/autostart/mackes-thunar-mesh.desktop"))
+
+
+def apply_thunar_autostart(_preset: Preset) -> List[str]:
+    """Write an XDG autostart entry that opens Thunar at ~/QNM-Mesh."""
+    actions: List[str] = []
+    if shutil.which("thunar") is None:
+        actions.append("thunar: not installed - skipping autostart entry")
+        return actions
+    home = Path(os.path.expanduser("~"))
+    mesh_dir = home / "QNM-Mesh"
+    try:
+        mesh_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        actions.append(f"thunar: could not create {mesh_dir}: {e}")
+    _THUNAR_AUTOSTART_PATH.parent.mkdir(parents=True, exist_ok=True)
+    contents = (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Mackes Mesh Files\n"
+        "Comment=Open Thunar at the mesh root every graphical login\n"
+        f"Exec=thunar {mesh_dir}\n"
+        "Icon=folder-remote\n"
+        "Categories=System;FileManager;\n"
+        "Terminal=false\n"
+        "X-GNOME-Autostart-enabled=true\n"
+        "X-Mackes-Managed=1\n"
+        "StartupNotify=false\n"
+        "NoDisplay=false\n"
+    )
+    try:
+        _THUNAR_AUTOSTART_PATH.write_text(contents, encoding="utf-8")
+        actions.append(f"thunar: installed autostart at {_THUNAR_AUTOSTART_PATH}")
+    except OSError as e:
+        actions.append(f"thunar: autostart write failed: {e}")
+    for line in actions:
+        log_action(line)
+    return actions
+
+
 def apply_flathub(_preset: Preset) -> List[str]:
     """Add the Flathub remote so flatpak apps are discoverable.
 
