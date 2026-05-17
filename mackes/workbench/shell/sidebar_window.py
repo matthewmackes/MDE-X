@@ -461,7 +461,8 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         # screen minus the xfce4-panel strip).
         mon_w, mon_h = _primary_monitor_size()
         self.set_default_size(mon_w, mon_h)
-        self.set_title("Mackes Shell")
+        from mackes.workbench._common import versioned_title
+        self.set_title(versioned_title("Mackes Shell"))
         self.state = state
         # Maximize on first show. We connect to `realize` so the
         # WM has a window manager state to manipulate.

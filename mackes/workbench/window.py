@@ -167,12 +167,13 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application, state: MackesState) -> None:
         super().__init__(application=application)
         self.set_default_size(1180, 740)
-        self.set_title("Mackes Shell")
+        from mackes.workbench._common import versioned_title
+        self.set_title(versioned_title("Mackes Shell"))
         self.state = state
 
         header = Gtk.HeaderBar()
         header.set_show_close_button(True)
-        header.set_title("Mackes Shell")
+        header.set_title(versioned_title("Mackes Shell"))
         if state.active_preset:
             header.set_subtitle(f"Preset: {state.active_preset}")
         self.set_titlebar(header)

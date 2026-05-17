@@ -67,7 +67,8 @@ class WizardWindow(Gtk.ApplicationWindow):
 
     def __init__(self, application: Gtk.Application, state: MackesState) -> None:
         super().__init__(application=application)
-        self.set_title("Mackes Shell — Setup")
+        from mackes.workbench._common import versioned_title
+        self.set_title(versioned_title("Mackes Shell — Setup"))
         # v1.4.2 — Fit the workstation resolution perfectly. Open at the
         # primary monitor's exact size and maximize on realize so the
         # WM finishes the job.

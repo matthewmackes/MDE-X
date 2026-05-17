@@ -134,3 +134,19 @@ def section_description(text: str) -> Gtk.Widget:
     ctx = lbl.get_style_context()
     ctx.add_class("mackes-section-description")
     return lbl
+
+
+def versioned_title(base: str) -> str:
+    """Return `<base> — Mackes <version>` — the canonical titlebar
+    format every Mackes window uses. Read by Gtk.Window.set_title()
+    callers and the header bar's set_title()."""
+    try:
+        from mackes import __version__
+    except Exception:  # noqa: BLE001
+        __version__ = "?"
+    return f"{base} — Mackes {__version__}"
+
+
+def set_versioned_title(window: "Gtk.Window", base: str) -> None:
+    """Convenience: set window's titlebar to `<base> — Mackes <version>`."""
+    window.set_title(versioned_title(base))

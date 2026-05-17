@@ -123,7 +123,8 @@ class _Step:
 class HeadscaleSetupWindow(Gtk.Window):
     def __init__(self, parent: Optional[Gtk.Window] = None) -> None:
         super().__init__()
-        self.set_title("Mesh VPN — Headscale Setup Wizard")
+        from mackes.workbench._common import versioned_title
+        self.set_title(versioned_title("Mesh VPN — Headscale Setup Wizard"))
         self.set_default_size(1100, 720)
         self.set_modal(False)
         if parent is not None:
