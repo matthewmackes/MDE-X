@@ -53,6 +53,8 @@ def build(ctx) -> Gtk.Widget:
     summary.append("  Flathub:             add per-user Flathub flatpak remote")
     summary.append("  Remote desktop:      xrdp + x11vnc + guacd + tomcat + Guacamole")
     summary.append("                       (mesh-only; no Guacamole login)")
+    summary.append("  Fleet management:    ansible-core + 7 curated playbooks")
+    summary.append("                       (ansible-pull every 30 min, drift correction)")
     summary.append("")
     if ctx.missing_packages:
         summary.append("WARNING: missing required binaries: " + ", ".join(ctx.missing_packages))

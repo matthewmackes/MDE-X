@@ -1,0 +1,24 @@
+# Role: xfconf-baseline
+# Re-apply the active preset's declared xfconf state — theme/icons/cursor/
+# fonts/panel layout. Equivalent to Maintain → Reset to Preset but
+# scheduled, so configuration drift never persists more than 30 min.
+---
+- name: Read active preset name
+  ansible.builtin.slurp:
+    src: "{{ mackes_state_file }}"
+  register: state_blob
+  failed_when: false
+
+- name: Decode active preset
+  ansible.builtin.set_fact:
+    active_preset: "{{ (state_blob.content | b64decode | from_json).active_preset | default('hashbang') }}"
+  when: state_blob is defined and state_blob.content is defined
+
+- name: Call mackes CLI to apply preset xfconf state
+  # mackes' headless CLI knows how to map preset YAML → xfconf-query.
+  # `mackes apply` is idempotent: it only writes keys that diverge.
+  ansible.builtin.command:
+    cmd: mackes apply --preset {{ active_preset | default('hashbang') }} --section appearance,devices,system,panel
+  register: mackes_apply
+  changed_when: "'changed' in (mackes_apply.stdout | default(''))"
+  failed_when: mackes_apply.rc != 0 and 'preset not found' not in (mackes_apply.stderr | default(''))

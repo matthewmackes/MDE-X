@@ -1,0 +1,39 @@
+# Mackes Fleet — site playbook.
+#
+# Each peer's mackes-ansible-pull.service runs `ansible-pull` against this
+# tree (replicated through QNM-Shared/.qnm-sync/playbooks/). The default
+# tag set runs the safe, fast roles every cycle; expensive ones
+# (system-update, container-runtime-setup) are tag-gated so they don't
+# run on every 30-min tick.
+#
+# Run on a single peer manually:
+#   ansible-pull -U QNM-Shared/.qnm-sync/playbooks -i 'localhost,' \
+#       --connection=local site.yml --tags system-update
+#
+# Or run from the Mackes Fleet → Playbooks panel.
+
+- name: Mackes Fleet — drift correction + steady-state baseline
+  hosts: all
+  connection: local           # ansible-pull → local apply
+  become: true
+  gather_facts: true
+  vars_files:
+    - group_vars/all.yml
+  roles:
+    # Default tags — run on every cycle
+    - role: xfconf-baseline
+      tags: [xfconf, default]
+    - role: bloat-removal
+      tags: [bloat, default]
+    - role: apps-install
+      tags: [apps, default]
+
+    # Tag-gated — run only when explicitly requested
+    - role: system-update
+      tags: [update, never]
+    - role: mesh-state-snapshot
+      tags: [snapshot, never]
+    - role: selinux-permissive-toggle
+      tags: [selinux, never]
+    - role: container-runtime-setup
+      tags: [containers, never]

@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        1.2.0
+Version:        1.3.0
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -67,6 +67,18 @@ Requires:       x11vnc
 Requires:       guacd
 Requires:       tomcat
 Requires:       curl
+
+# Fleet management birthright (v1.3.0) — ansible-pull on every node,
+# playbook tree replicated through QNM-Shared. The 7 curated roles ship
+# under /usr/share/mackes-shell/data/ansible/playbooks/.
+Requires:       ansible-core
+Requires:       python3-ansible-runner
+Requires:       podman
+# Container-runtime-setup playbook uses these too, but they're optional
+# (the playbook tolerates failures via the dnf module's state=present).
+Recommends:     buildah
+Recommends:     skopeo
+Recommends:     toolbox
 
 # Mesh fabric (§8.11–§8.14): WireGuard via Tailscale + self-hosted Headscale
 Requires:       tailscale
@@ -160,6 +172,8 @@ cp -r data/presets        %{buildroot}%{_datadir}/%{name}/data/
 cp -r data/wallpapers     %{buildroot}%{_datadir}/%{name}/data/
 cp -r data/css            %{buildroot}%{_datadir}/%{name}/data/
 cp -r data/dnf            %{buildroot}%{_datadir}/%{name}/data/
+# Fleet management (v1.3.0) — 7 curated Ansible roles
+cp -r data/ansible        %{buildroot}%{_datadir}/%{name}/data/
 cp -r data/systemd        %{buildroot}%{_datadir}/%{name}/data/
 # Vendored PadOS GTK theme + Carbon GTK icon theme — system-wide install
 install -d %{buildroot}%{_datadir}/themes
@@ -217,6 +231,9 @@ install -d %{buildroot}%{_unitdir}
 install -m 0644 data/systemd/mackes-node.service             %{buildroot}%{_unitdir}/
 install -m 0644 data/systemd/mackes-tailscale-bootstrap.service %{buildroot}%{_unitdir}/
 install -m 0644 data/systemd/mackes-mdns-relay.service       %{buildroot}%{_unitdir}/
+# Fleet management (v1.3.0) — ansible-pull timer + service
+install -m 0644 data/systemd/mackes-ansible-pull.service     %{buildroot}%{_unitdir}/
+install -m 0644 data/systemd/mackes-ansible-pull.timer       %{buildroot}%{_unitdir}/
 # headscale.service is owned by the upstream `headscale` RPM at the same
 # path; shipping our copy would cause a file-conflict on dnf install.
 # Our data/systemd/headscale.service is kept in the source tree as a
@@ -294,6 +311,8 @@ fi
 %{_unitdir}/mackes-node.service
 %{_unitdir}/mackes-tailscale-bootstrap.service
 %{_unitdir}/mackes-mdns-relay.service
+%{_unitdir}/mackes-ansible-pull.service
+%{_unitdir}/mackes-ansible-pull.timer
 %{_userunitdir}/mackes-gvfsd-mesh.service
 # C panel plugin + its descriptor
 %{_libdir}/xfce4/panel/plugins/mackes-clipboard

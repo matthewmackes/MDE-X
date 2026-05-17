@@ -3,6 +3,82 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.3.0 — Mesh Fleet (Ansible-pull) (2026-05-17)
+
+Cross-peer fleet management lands as a 10th wizard birthright step.
+Ten design decisions locked via the 1.3.0 question survey:
+
+  1. Transport: **ansible-pull** on every peer (no central controller)
+  2. Playbook store: **QNM-Shared/.qnm-sync/playbooks/** (replicated by
+     the existing file substrate)
+  3. Install: 10th wizard step `apply_fleet` — always on
+  4. Curated playbooks: 7 roles ship — system-update, bloat-removal,
+     apps-install, xfconf-baseline, mesh-state-snapshot,
+     selinux-permissive-toggle, container-runtime-setup
+  5. Schedule: systemd timer — OnBootSec=10min,
+     OnUnitActiveSec=30min, RandomizedDelaySec=5min
+  6. GUI: new top-level **Fleet** sidebar group with 3 items
+     (Inventory / Playbooks / Run history)
+  7. Editor: read-only YAML preview + `xdg-open` to user's editor
+  8. Secrets: none — playbooks are plaintext
+  9. Run history: 30-day retention, one JSON per run at
+     `QNM-Shared/.qnm-sync/ansible-runs/<peer>/<ts>.json`
+ 10. Ad-hoc: yes — Inventory has multi-select + "Run on selection"
+     SSH-push over mesh-SSH identity
+
+### What was added
+
+**New birthright step** `apply_fleet` in `mackes/birthright.py`:
+  - dnf install: ansible-core, python3-ansible-runner, podman
+  - Seeds the playbook tree into QNM-Shared/.qnm-sync/playbooks/
+  - Installs + enables mackes-ansible-pull.{service,timer}
+  - Queues an initial pull (non-blocking)
+
+**New module** `mackes/fleet.py`:
+  - `build_inventory()` — Headscale roster → FleetPeer list with
+    per-peer last-pull timestamp + 24h pull count
+  - `list_playbooks()` — discovers roles under the QNM-Shared tree
+  - `list_runs()` / `write_run_record()` / `prune_runs()` — full
+    30-day-retention history reader/writer
+  - `run_local_pull()` — local ansible-pull, parses the PLAY RECAP,
+    writes a JSON record
+  - `run_push()` — ansible-playbook SSH push to selected peers via
+    a generated ephemeral inventory.ini
+  - CLI: `python -m mackes.fleet --pull / --push / --list / --history / --prune`
+
+**7 curated playbooks** under `data/ansible/playbooks/`:
+  - system-update          (tag-gated `never`; opt-in via GUI)
+  - bloat-removal          (default-tagged; runs on every cycle)
+  - apps-install           (default-tagged)
+  - xfconf-baseline        (default-tagged; the steady-state drift corrector)
+  - mesh-state-snapshot    (tag-gated `never`)
+  - selinux-permissive-toggle (tag-gated `never`)
+  - container-runtime-setup (tag-gated `never`)
+
+**Systemd units** at `data/systemd/`:
+  - mackes-ansible-pull.service (Type=oneshot, ConditionPathExists
+    fleet.disabled escape hatch)
+  - mackes-ansible-pull.timer (30-min cycle with 5-min jitter)
+
+**Fleet GUI** — new top-level `Fleet` sidebar group with 3 Carbon panels:
+
+  - `mackes/workbench/fleet/inventory.py` — Carbon page header, live
+    status notification, action row with Run-on-selection /
+    Local-pull / Select-all-online / Clear, peer ListBox with
+    checkbox + status dot + last-pull age + per-peer status tag.
+    Multi-select drives the SSH-push playbook picker Modal.
+  - `mackes/workbench/fleet/playbooks.py` — grid of Carbon tiles per
+    playbook with description, tag chips (default / never), last-run
+    summary, YAML preview, Run-now and Open-in-editor buttons.
+  - `mackes/workbench/fleet/run_history.py` — stat tiles (Total /
+    Successful / Failed / Changes applied), peer + playbook filters,
+    Carbon DataTable of every run across the mesh. Click any row to
+    see the full JSON in a Carbon Modal (timestamp, trigger, duration,
+    counts, log tail).
+
+**Spec Requires:** ansible-core, python3-ansible-runner, podman.
+**Spec Recommends:** buildah, skopeo, toolbox.
+
 ## 1.2.0 — Mesh Remote Desktop (2026-05-17)
 
 Every Mackes node now ships browser-accessible remote desktop. Five

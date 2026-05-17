@@ -1,0 +1,32 @@
+# Role: bloat-removal
+# Apply the active preset's apps.remove_bloat list. Idempotent — dnf
+# silently skips packages that are already absent.
+---
+- name: Read active preset name
+  ansible.builtin.slurp:
+    src: "{{ mackes_state_file }}"
+  register: state_blob
+  failed_when: false
+
+- name: Decode active preset
+  ansible.builtin.set_fact:
+    active_preset: "{{ (state_blob.content | b64decode | from_json).active_preset | default('hashbang') }}"
+  when: state_blob is defined and state_blob.content is defined
+
+- name: Load preset YAML
+  ansible.builtin.slurp:
+    src: "{{ mackes_preset_dir }}/{{ active_preset | default('hashbang') }}.yaml"
+  register: preset_blob
+  failed_when: false
+
+- name: Decode preset
+  ansible.builtin.set_fact:
+    preset_doc: "{{ preset_blob.content | b64decode | from_yaml }}"
+  when: preset_blob is defined and preset_blob.content is defined
+
+- name: Remove bloat packages declared by the active preset
+  ansible.builtin.dnf:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ (preset_doc.apps.remove_bloat | default([])) }}"
+  when: preset_doc is defined

@@ -238,6 +238,18 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         from mackes.workbench.maintain.snapshots import SnapshotsPanel
         return _wrap_in_scroller(SnapshotsPanel(state))
 
+    def _fleet_inventory():
+        from mackes.workbench.fleet.inventory import FleetInventoryPanel
+        return _wrap_in_scroller(FleetInventoryPanel())
+
+    def _fleet_playbooks():
+        from mackes.workbench.fleet.playbooks import FleetPlaybooksPanel
+        return _wrap_in_scroller(FleetPlaybooksPanel())
+
+    def _fleet_runs():
+        from mackes.workbench.fleet.run_history import FleetRunHistoryPanel
+        return _wrap_in_scroller(FleetRunHistoryPanel())
+
     def _help():
         from mackes.workbench.help import HelpPanel
         return HelpPanel()
@@ -260,6 +272,11 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
             NavItem("mesh_services", "Mesh Services", "applications-internet-symbolic", _mesh_services),
             NavItem("mesh_remote", "Mesh Remote", "video-display-symbolic", _remote_desktop),
             NavItem("firewall", "Firewall", "network-firewall-symbolic", _firewall),
+        ]),
+        NavGroup("Fleet", [
+            NavItem("fleet_inventory", "Inventory", "view-list-symbolic", _fleet_inventory),
+            NavItem("fleet_playbooks", "Playbooks", "text-x-script-symbolic", _fleet_playbooks),
+            NavItem("fleet_runs", "Run history", "document-open-recent-symbolic", _fleet_runs),
         ]),
         NavGroup("Apps & Maintenance", [
             NavItem("apps", "Apps", "applications-other-symbolic", _apps),

@@ -1,0 +1,15 @@
+[Unit]
+Description=Mackes Fleet — schedule ansible-pull every 30 min
+Documentation=https://github.com/matthewmackes/MAP2-RELEASES
+
+[Timer]
+# Fires 10 min after boot, then every 30 min. Random jitter avoids a
+# thundering-herd if every peer in the mesh boots at the same instant
+# (the file-substrate replication amplifies that risk).
+OnBootSec=10min
+OnUnitActiveSec=30min
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

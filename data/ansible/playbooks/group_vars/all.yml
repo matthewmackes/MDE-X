@@ -1,0 +1,25 @@
+# Mackes Fleet — global variables (consumed by every role).
+#
+# Defaults are tuned for a typical Mackes peer. Override per-peer by
+# adding host_vars/<hostname>.yml in QNM-Shared/.qnm-sync/playbooks/.
+
+# Path to Mackes' active preset state file (single source of truth for
+# which preset this peer should converge to).
+mackes_state_file: /etc/mackes-shell/state.json
+mackes_preset_dir: /usr/share/mackes-shell/data/presets
+
+# Fonts that should always be present (matches the wizard's apply_fonts).
+mackes_fonts_required:
+  - ibm-plex-sans-fonts
+  - ibm-plex-mono-fonts
+
+# Container runtime stack (Fedora-native; per reference material).
+mackes_container_runtimes:
+  - podman
+  - buildah
+  - skopeo
+  - toolbox
+
+# SELinux: enforcing is the locked default. The permissive playbook
+# is opt-in and tagged 'never' so a regular pull won't flip it.
+mackes_selinux_default_policy: enforcing

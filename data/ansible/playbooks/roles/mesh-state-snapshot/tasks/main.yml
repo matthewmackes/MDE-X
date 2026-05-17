@@ -1,0 +1,19 @@
+# Role: mesh-state-snapshot
+# Capture a snapshot of xfconf + panel layout + theme stack + mesh state
+# on every peer. The Mackes snapshot machinery writes to:
+#   ~/.local/share/mackes-shell/snapshots/<timestamp>_<label>/
+# and the file substrate replicates whatever else is shared. This role
+# triggers `mackes snapshot create` per peer and tags the snapshot.
+---
+- name: Resolve mackes user home
+  ansible.builtin.set_fact:
+    mackes_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
+
+- name: Trigger Mackes snapshot
+  ansible.builtin.command:
+    cmd: mackes snapshot create --label fleet-{{ ansible_date_time.epoch }}
+  become: true
+  become_user: "{{ mackes_user }}"
+  register: snap_result
+  changed_when: snap_result.rc == 0
+  failed_when: snap_result.rc != 0 and 'not provisioned' not in (snap_result.stderr | default(''))

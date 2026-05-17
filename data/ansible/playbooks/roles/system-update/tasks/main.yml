@@ -1,0 +1,21 @@
+# Role: system-update
+# Runs dnf upgrade -y --refresh. Tag-gated to 'never' in site.yml so
+# the steady-state pull won't reboot-trigger this; user opts in via the
+# Mackes Fleet panel ("Run playbook on selection → system-update").
+---
+- name: Refresh dnf metadata
+  ansible.builtin.dnf:
+    update_cache: true
+
+- name: dnf upgrade everything
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+  register: dnf_result
+
+- name: Report
+  ansible.builtin.debug:
+    msg: >-
+      System update complete.
+      Changed: {{ dnf_result.changed }}.
+      {{ dnf_result.results | length }} package(s) touched.

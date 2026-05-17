@@ -3,7 +3,7 @@
 Each function is idempotent (safe to re-run via Maintain → Reset to Preset)
 and returns a `list[str]` of action lines for the wizard's apply page log.
 
-These are the nine "birthright" items the v1.2.0 wizard runs in addition
+These are the ten "birthright" items the v1.3.0 wizard runs in addition
 to the v1.0.x xfconf-only apply pipeline:
 
   1. apply_themes              — deploy PadOS GTK theme + Carbon icon theme files
@@ -16,8 +16,10 @@ to the v1.0.x xfconf-only apply pipeline:
   8. apply_flathub             — add the Flathub flatpak remote (per-user)
   9. apply_remote_desktop      — xrdp + x11vnc + guacd + tomcat + Guacamole web app
                                   + mackes-remote-sync (Headscale→Guacamole config)
+ 10. apply_fleet               — ansible-core + ansible-pull timer + seeded
+                                  QNM-Shared playbook tree (v1.3.0 lock)
 
-All nine are wired into mackes/wizard/pages/apply.py between Panel and Mesh.
+All ten are wired into mackes/wizard/pages/apply.py between Panel and Mesh.
 """
 from __future__ import annotations
 
@@ -703,6 +705,95 @@ def _write_root_file(path: Path, content: str) -> None:
             os.unlink(tmp_path)
         except OSError:
             pass
+
+
+# ---------------------------------------------------------------------------
+# 10. Fleet management — ansible-pull on every peer (v1.3.0 birthright)
+# ---------------------------------------------------------------------------
+
+
+def apply_fleet(_preset: Preset) -> List[str]:
+    """Install ansible-core + python3-ansible-runner; seed the QNM-Shared
+    playbook tree from the Mackes-shipped curated set; install + enable
+    the mackes-ansible-pull systemd timer.
+
+    Locks v1.3.0 design decisions:
+      - Transport: ansible-pull (no central controller)
+      - Playbook store: ~/QNM-Shared/.qnm-sync/playbooks/
+      - Schedule: 30-min timer with 5-min jitter
+      - Run history: 30-day retention
+    """
+    actions: List[str] = []
+    if shutil.which("dnf") is None:
+        actions.append("fleet: dnf not available — skipping")
+        return actions
+
+    # ---- 1. dnf install ----------------------------------------------
+    needed_pkgs = ["ansible-core", "python3-ansible-runner", "podman"]
+    to_install = [p for p in needed_pkgs if _run(["rpm", "-q", p])[0] != 0]
+    if to_install:
+        actions.append(f"fleet: installing {', '.join(to_install)} via dnf")
+        rc, out = _run_root(["dnf", "install", "-y", *to_install], timeout=900)
+        if rc != 0:
+            last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
+            actions.append(f"fleet: dnf install failed: {last}")
+            return actions
+    else:
+        actions.append("fleet: ansible-core + ansible-runner + podman already installed")
+
+    # ---- 2. Seed QNM-Shared/.qnm-sync/playbooks/ ---------------------
+    src = _find_data("ansible", "playbooks")
+    if src is None:
+        actions.append("fleet: curated playbook source missing — skipping seed")
+    else:
+        home = Path(os.path.expanduser("~"))
+        dst = home / "QNM-Shared" / ".qnm-sync" / "playbooks"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists():
+            actions.append(f"fleet: playbook tree already present at {dst}")
+        else:
+            rc, out = _run(["cp", "-rT", str(src), str(dst)])
+            if rc == 0:
+                actions.append(f"fleet: seeded curated playbooks → {dst}")
+            else:
+                actions.append(f"fleet: seed failed: {out.strip().splitlines()[-1] if out.strip() else rc}")
+
+    # ---- 3. systemd units -------------------------------------------
+    service_src = _find_data("systemd", "mackes-ansible-pull.service")
+    timer_src   = _find_data("systemd", "mackes-ansible-pull.timer")
+    if service_src and timer_src:
+        actions.append("fleet: installing systemd service + timer")
+        _run_root(["install", "-m", "0644", str(service_src),
+                   "/etc/systemd/system/mackes-ansible-pull.service"])
+        _run_root(["install", "-m", "0644", str(timer_src),
+                   "/etc/systemd/system/mackes-ansible-pull.timer"])
+        _run_root(["systemctl", "daemon-reload"])
+    else:
+        actions.append("fleet: systemd unit source missing — skipping install")
+
+    # ---- 4. Enable + start timer ------------------------------------
+    rc, _ = _run_root(["systemctl", "enable", "--now",
+                       "mackes-ansible-pull.timer"], timeout=30)
+    if rc == 0:
+        actions.append("fleet: mackes-ansible-pull.timer enabled + started")
+    else:
+        actions.append(f"fleet: timer enable failed (rc={rc})")
+
+    # ---- 5. Initial pull (background, non-blocking) -----------------
+    # Kick off the first pull right away so the wizard exit lands with
+    # the fleet already converged. We don't wait for it.
+    if shutil.which("systemctl"):
+        _run_root(["systemctl", "start", "--no-block",
+                   "mackes-ansible-pull.service"])
+        actions.append("fleet: initial pull queued (runs in background)")
+
+    actions.append(
+        "fleet: ready — view runs in Mackes → Fleet → Run history, "
+        "or trigger ad-hoc with Fleet → Inventory → Run on selection"
+    )
+    for line in actions:
+        log_action(line)
+    return actions
 
 
 def apply_flathub(_preset: Preset) -> List[str]:

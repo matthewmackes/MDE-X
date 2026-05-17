@@ -10,7 +10,7 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from mackes.logging import log_action
 from mackes.birthright import (
-    apply_apps, apply_dnf_update, apply_flathub, apply_fonts,
+    apply_apps, apply_dnf_update, apply_flathub, apply_fleet, apply_fonts,
     apply_panel_layout, apply_plymouth, apply_remote_desktop,
     apply_themes, apply_third_party_repos,
 )
@@ -113,6 +113,7 @@ class ApplyPage(Gtk.Box):
             ("Third-party repos", lambda: apply_third_party_repos(merged)),
             ("Flathub",           lambda: apply_flathub(merged)),
             ("Remote desktop",    lambda: apply_remote_desktop(merged)),
+            ("Fleet management",  lambda: apply_fleet(merged)),
             # ---------------------------------------------------------------
             ("Mesh",              lambda: apply_mesh(merged)),
             ("VPN import",     self._step_vpn),

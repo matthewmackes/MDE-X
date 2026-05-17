@@ -1,0 +1,26 @@
+# Role: container-runtime-setup
+# Install Fedora's native container runtime stack — podman, buildah,
+# skopeo, toolbox. Per reference material: this is the "Fedora-native
+# container runtime" recommendation. Tag-gated to 'never' so it doesn't
+# run on every 30-min cycle.
+---
+- name: Install Fedora-native container runtimes
+  ansible.builtin.dnf:
+    name: "{{ mackes_container_runtimes }}"
+    state: present
+
+- name: Enable podman.socket for the active user (rootless)
+  ansible.builtin.systemd:
+    name: podman.socket
+    enabled: true
+    state: started
+    scope: user
+  become: true
+  become_user: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
+  failed_when: false        # podman.socket may not exist in older builds
+
+- name: Report
+  ansible.builtin.debug:
+    msg: >-
+      Container runtime installed:
+      {{ mackes_container_runtimes | join(', ') }}.

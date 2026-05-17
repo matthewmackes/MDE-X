@@ -1,0 +1,20 @@
+# Role: selinux-permissive-toggle
+# Set SELinux to permissive (or back to enforcing). Tag-gated to 'never'
+# in site.yml — only runs when the user explicitly invokes
+# `--tags selinux` from the Fleet panel "Run playbook on selection".
+#
+# Default behavior: switch this peer to permissive for debugging.
+# Override to enforcing by setting `mackes_selinux_target: enforcing`
+# in host_vars/<hostname>.yml.
+---
+- name: Set SELinux mode
+  ansible.posix.selinux:
+    state: "{{ mackes_selinux_target | default('permissive') }}"
+    policy: targeted
+  register: selinux_result
+
+- name: Report
+  ansible.builtin.debug:
+    msg: >-
+      SELinux is now {{ mackes_selinux_target | default('permissive') }}.
+      Reboot needed: {{ selinux_result.reboot_required | default(false) }}.
