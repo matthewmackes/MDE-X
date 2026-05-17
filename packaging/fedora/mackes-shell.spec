@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -42,7 +42,10 @@ Requires:       xfce4-session
 Requires:       xfce4-whiskermenu-plugin
 Requires:       xfce4-docklike-plugin
 Requires:       xfce4-pulseaudio-plugin
-Requires:       xfce4-power-manager-plugin
+# Note: on Fedora 44+ the power-manager panel plugin ships inside the
+# parent xfce4-power-manager package (libxfce4powermanager.so); there
+# is no separate xfce4-power-manager-plugin RPM.
+Requires:       xfce4-power-manager
 
 # SSH enabled by default on every Mackes install
 Requires:       openssh-server
@@ -52,7 +55,9 @@ Requires:       tailscale
 Requires:       headscale
 
 # Mesh filesystem (SSHFS-over-QNM, §8.10)
-Requires:       sshfs
+# Fedora packages sshfs as `fuse-sshfs` (deliberately namespaced to
+# disambiguate fuse2/fuse3 binaries).
+Requires:       fuse-sshfs
 Requires:       fuse
 Requires:       fuse3
 
@@ -69,7 +74,11 @@ Recommends:     avahi-tools
 Recommends:     caddy
 
 # Native media clients with mesh autoconfig (§8.13 Layer 4)
-Recommends:     jellyfin-media-player
+# jellyfin-media-player isn't in Fedora's mainline repos — users
+# install it from Flathub or RPM Fusion. Not Recommended here to keep
+# the dep resolver clean on stock Fedora. Mackes' Media-Hub discovery
+# still surfaces Jellyfin instances on the mesh regardless of local
+# client install.
 Recommends:     strawberry
 
 # Network / firewall / audio

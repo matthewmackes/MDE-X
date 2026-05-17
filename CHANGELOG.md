@@ -3,6 +3,23 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.0.1 — Fedora 44 dep hotfix (2026-05-17)
+
+`curl … install.sh | bash` was failing on stock Fedora 44 because three
+of the spec's `Requires:` resolved to packages that don't exist on F44
+under those names. Fixed:
+
+- `Requires: xfce4-power-manager-plugin` → `Requires: xfce4-power-manager`
+  (the panel plugin ships inside the parent package as
+  `libxfce4powermanager.so`; there's no separate plugin RPM)
+- `Requires: sshfs` → `Requires: fuse-sshfs` (Fedora-specific name)
+- `Recommends: jellyfin-media-player` → removed (not in Fedora repos;
+  users install via Flathub instead). Mackes' Media-Hub discovery still
+  surfaces Jellyfin servers on the mesh whether or not a local native
+  client is installed.
+
+No code changes. RPM spec + version bump only.
+
 ## 1.0.0 — "XFCE Provisioner" (2026-05-16)
 
 ### Identity
