@@ -5,6 +5,31 @@ unreleased; tag versions get a date when they ship.
 
 ## 1.6.2 — 1.6.2 rollup (unreleased)
 
+**Mesh test coverage.** Five new `tests/test_mesh*.py` files cover the
+state machines and parsers in the mesh stack — zero tests existed
+across 8 mesh modules before this. Coverage:
+
+* `test_mesh.py` — `LayerHealth.to_dict` round-trip, `overall_state`
+  state ranking (worst wins; missing degrades to warn, not fail),
+  `summary` count formatting, `with_retry` success / retry / exhaust
+  / propagate-unlisted-exception paths, `diagnose` smoke test.
+* `test_mesh_vpn.py` — `MeshState` JSON round-trip including
+  forward-compatibility (unknown fields ignored), `parse_join_link`
+  query-string parsing including wrong-scheme + malformed-pair cases.
+* `test_mesh_services.py` — `_probe_tcp` against a real listening
+  socket and a closed port, `ServiceHit` round-trip through the
+  registry JSON, corrupt-JSON guard.
+* `test_mesh_ssh.py` — `PolicyRule` defaults, `AuditRecord` JSONL
+  round-trip, corrupt-line skipping in the audit log.
+* `test_mesh_sync.py` — bucket put/get/list_keys, automatic
+  versioning (v1 → v2), JSON dict encoding, retention via
+  `max_versions`.
+
+Under `make test-nodeps`: 24 pass / 26 skip (fixture-dependent, run
+under real pytest) / 0 fail.
+
+
+
 **Mesh rock-solid pass — unified health surface.** New module
 `mackes.mesh` exposes `health()` returning a `LayerHealth` per layer
 (`vpn`, `ssh`, `services`, `fs`, `sync`, `notifications`, `browser`,
