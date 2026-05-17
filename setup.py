@@ -12,7 +12,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="mackes-shell",
-    version="1.4.6",
+    version="1.4.7",
     description="Mackes Shell — XFCE control panel and shell manager",
     long_description=(
         "GTK3 / PyGObject control panel that replaces xfce4-settings as the "

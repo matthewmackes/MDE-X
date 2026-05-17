@@ -68,68 +68,97 @@ conky.config = {
 
 -- Helpers. Plain Lua string concatenation — no string.format, no
 -- execpi-printf hacks. U+2503 BOX DRAWINGS HEAVY VERTICAL is embedded
--- directly as a UTF-8 literal.
+-- directly as a UTF-8 literal. Nerd Font glyphs (v1.4.7) are also
+-- embedded directly as UTF-8 from the Private Use Area.
 local A   = mackes.accent
 local TP  = mackes.text_primary
 local TH  = mackes.text_helper
 local BAR = '${color ' .. A  .. '}┃${color}  '
-local function section(label)
-  return '${voffset 8}${color ' .. A .. '}${font IBM Plex Sans Bold:size=8}'
+-- Nerd-Font Cascadia Code NF for the icon glyphs; IBM Plex Sans Bold
+-- for the section label. The font switches mid-line via ${font …}.
+local function section(glyph, label)
+  return '${voffset 8}${color ' .. A .. '}'
+      .. '${font Cascadia Code NF:bold:size=10}'
+      .. glyph
+      .. '  ${font IBM Plex Sans Bold:size=8}'
       .. label:upper()
       .. '${font}${color}${voffset 4}\n'
 end
+-- Nerd Font glyphs (Devicons + FontAwesome subset). Bytes are valid
+-- UTF-8 of codepoints in the U+E000–U+F8FF Private Use Area.
+local NF = {
+  shell        = '\xef\x84\x8a',  --   U+F10A  terminal
+  preset       = '\xef\x84\x86',  --   U+F086  swap
+  unlocked     = '\xef\x82\x9c',  --   U+F09C  unlock
+  locked       = '\xef\x80\xa3',  --   U+F023  lock
+  mesh         = '\xef\x87\xab',  --   U+F1EB  wifi
+  fleet        = '\xef\x82\x85',  --   U+F085  cogs
+  drift        = '\xef\x81\xb1',  --   U+F071  warning
+  storage      = '\xef\x83\xa1',  --   U+F0E1  archive
+  notif        = '\xef\x83\xb3',  --   U+F0F3  bell
+  media        = '\xef\x80\x81',  --   U+F001  music
+  remote       = '\xef\x84\xa0',  --   U+F120  terminal
+  services     = '\xef\x88\xb3',  --   U+F233  server
+  cpu          = '\xef\x8b\x9b',  --   U+F2DB  CPU
+  clock        = '\xef\x80\x97',  --   U+F017  clock
+}
 local HELPERS = '/usr/share/mackes-shell/data/conky/helpers'
 
 
 conky.text = ''
   -- Header band ----------------------------------------------------------
-  .. '${color ' .. TP .. '}${font IBM Plex Sans Bold:size=14}Mackes '
+  .. '${color ' .. A  .. '}${font Cascadia Code NF:bold:size=14}' .. NF.shell
+  .. '  ${font IBM Plex Sans Bold:size=14}${color ' .. TP .. '}Mackes '
   .. '${font IBM Plex Sans:size=14}Shell${font}${color}\n'
   .. '${color ' .. A .. '}${stippled_hr 1}${color}\n'
   .. BAR .. 'v${execi 86400 mackes --version 2>/dev/null | awk \'{print $NF}\'}\n'
-  .. BAR .. 'preset · ${color ' .. A .. '}'
+  .. BAR .. '${font Cascadia Code NF:size=10}' .. NF.preset
+            .. '${font}  preset · ${color ' .. A .. '}'
         .. '${execi 30 cat /etc/mackes-shell/state.json 2>/dev/null '
         ..      '| python3 -c "import sys,json;'
         ..      'print(json.load(sys.stdin).get(\\"active_preset\\",\\"—\\"))" 2>/dev/null}'
         .. '${color}\n'
-  .. BAR .. 'admin · ${execi 5 ' .. HELPERS .. '/admin-lock.sh 2>/dev/null}\n'
+  .. BAR .. '${font Cascadia Code NF:size=10}${execi 5 '
+            .. HELPERS .. '/admin-lock-glyph.sh 2>/dev/null}'
+            .. '${font}  admin · ${execi 5 '
+            .. HELPERS .. '/admin-lock.sh 2>/dev/null}\n'
 
   -- Mesh -----------------------------------------------------------------
-  .. section('Mesh')
+  .. section(NF.mesh, 'Mesh')
   .. BAR .. '${execi 30 ' .. HELPERS .. '/mesh.sh 2>/dev/null}\n'
 
   -- Fleet ----------------------------------------------------------------
-  .. section('Fleet')
+  .. section(NF.fleet, 'Fleet')
   .. BAR .. '${execi 30 ' .. HELPERS .. '/fleet.sh 2>/dev/null}\n'
 
   -- Drift ----------------------------------------------------------------
-  .. section('Drift')
+  .. section(NF.drift, 'Drift')
   .. BAR .. '${execi 30 ' .. HELPERS .. '/drift.sh 2>/dev/null}\n'
 
   -- Shared storage -------------------------------------------------------
-  .. section('Shared storage')
+  .. section(NF.storage, 'Shared storage')
   .. BAR .. '${execi 60 ' .. HELPERS .. '/storage.sh 2>/dev/null}\n'
 
   -- Notifications --------------------------------------------------------
-  .. section('Notifications')
+  .. section(NF.notif, 'Notifications')
   .. BAR .. '${execi 30 ' .. HELPERS .. '/notifications.sh 2>/dev/null}\n'
 
   -- Media services -------------------------------------------------------
-  .. section('Media services')
+  .. section(NF.media, 'Media services')
   .. BAR .. '${execi 30 ' .. HELPERS .. '/media.sh 2>/dev/null}\n'
 
   -- Remote desktop -------------------------------------------------------
-  .. section('Remote desktop')
+  .. section(NF.remote, 'Remote desktop')
   .. BAR .. '${execi 30 ' .. HELPERS .. '/remote.sh 2>/dev/null}\n'
 
   -- Services dot grid ----------------------------------------------------
-  .. section('Services')
+  .. section(NF.services, 'Services')
   .. '${color ' .. TH .. '}'
   .. '${execi 10 ' .. HELPERS .. '/services.sh 2>/dev/null}'
   .. '${color}\n'
 
   -- Hardware -------------------------------------------------------------
-  .. section('Hardware')
+  .. section(NF.cpu, 'Hardware')
   .. '${color ' .. TP .. '}${nodename}${color}  '
   .. '${color ' .. TH .. '}${execi 30 uname -r | cut -d. -f1-2}${color}\n'
   .. 'CPU  ${color ' .. A  .. '}${cpu cpu0}%${color}  '
@@ -137,4 +166,5 @@ conky.text = ''
   .. 'RAM  ${color ' .. A  .. '}${memperc}%${color}  '
         .. '$alignr${membar 6,140 ' .. A .. ' ' .. mackes.gray_80 .. '}\n'
   .. 'LOAD ${color ' .. A  .. '}${loadavg 1} ${loadavg 2} ${loadavg 3}${color}\n'
-  .. '${color ' .. TH .. '}${time %Y-%m-%d  %H:%M:%S}${color}\n'
+  .. '${color ' .. TH .. '}${font Cascadia Code NF:size=10}' .. NF.clock
+  .. '${font}  ${time %Y-%m-%d  %H:%M:%S}${color}\n'

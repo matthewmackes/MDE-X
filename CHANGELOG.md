@@ -3,6 +3,66 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.4.7 — Conky Nerd Font glyphs (2026-05-17)
+
+The Conky HUD now uses Nerd Font (Cascadia Code NF, the only patched
+NF in stock Fedora 44) for icon glyphs alongside IBM Plex Sans for
+prose. Every section header gets a glyph prefix:
+
+  Shell (header)        terminal
+  Mesh                  wifi
+  Fleet                 cogs
+  Drift                 warning
+  Shared storage        archive
+  Notifications         bell
+  Media services        music
+  Remote desktop        terminal-secure
+  Services dot grid     server
+  Hardware              CPU
+  Clock                 clock
+  Admin lock /        unlock / lock indicator
+
+Glyphs are embedded directly as UTF-8 from the Private Use Area
+(no ${execpi printf} hack — that one already burned us in v1.4.6).
+The font switches mid-line via `${font Cascadia Code NF:size=10}` /
+`${font IBM Plex Sans:size=N}` blocks so prose stays readable.
+New helper `admin-lock-glyph.sh` emits the lock/unlock glyph only.
+
+Spec: `Requires: cascadia-code-nf-fonts`.
+
+## 1.4.6 — Panel layout / wallpaper / Conky / QNM (2026-05-17)
+
+Four user-reported issues fixed in one cut:
+
+* **Whisker menu missing from the panel.** `apply_panel_layout`
+  wrote `/panels/panel-0/plugin-ids` as an empty single-value field
+  instead of a proper uint array — fixed via `_set_array()` helper
+  using `xfconf-query --create --force-array --type uint --set 101 …`.
+  Array reset first so a default panel-0 doesn't conflict.
+
+* **Whisker menu modifications not visible.** Added a Mackes-branded
+  Whisker config block — button title "Mackes", button icon
+  `mackes-shell`, search-position alternate (top), categories
+  alternate, recent-items 10, menu 440×560, IBM Plex item names,
+  `mackes-shell.desktop` favorited by default.
+
+* **Wallpaper not applied.** `apply_appearance` silently skipped the
+  wallpaper when the preset's path didn't exist. Now falls back to
+  `/usr/share/mackes-shell/branding/standard-wallpaper.png` and
+  stamps five common per-monitor xfconf keys (HDMI-1 / HDMI-A-1 /
+  eDP-1 / LVDS-1 / VGA-1) in addition to the canonical
+  `screen0/monitor0/workspace0/last-image`.
+
+* **Conky never started.** The v1.4.0 template used
+  `string.format([[…]], 35 args)` plus a fragile
+  `${execpi 99999 printf "┃"}` Lua escape — both broke conky's
+  Lua parser. Template rewritten as plain Lua concatenation;
+  U+2503 embedded as a UTF-8 literal. Tested with `conky -c` —
+  parses + forks cleanly.
+
+* **QNM "where is it?" UX.** Sidebar nav item renamed from "QNM"
+  to "Quick Network Mesh (QNM)" for new users.
+
 ## 1.4.5 — Toggle-button init-order crashes (2026-05-17)
 
 Two `AttributeError` traceback surfaced during the first-run wizard
