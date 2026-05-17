@@ -106,13 +106,27 @@ def _make_gui_app():
             state = MackesState.load()
             _install_css(state.active_preset)
             if self._force_wizard or not state.provisioned:
-                from mackes.wizard.window import WizardWindow
-                win = WizardWindow(application=self, state=state)
+                # v1.4.0: play the bundled MP4 splash before the wizard
+                # surfaces. If the splash can't open (missing video,
+                # GStreamer not installed, etc.) we fall through to the
+                # wizard immediately.
+                def _open_wizard() -> None:
+                    from mackes.wizard.window import WizardWindow
+                    win = WizardWindow(application=self, state=state)
+                    win.connect("destroy", lambda *_: self.quit())
+                    win.show_all()
+
+                try:
+                    from mackes.wizard.splash import show_splash
+                    if not show_splash(self, on_done=_open_wizard):
+                        _open_wizard()
+                except Exception:  # noqa: BLE001
+                    _open_wizard()
             else:
                 from mackes.workbench.shell.sidebar_window import WorkbenchWindow
                 win = WorkbenchWindow(application=self, state=state)
-            win.connect("destroy", lambda *_: self.quit())
-            win.show_all()
+                win.connect("destroy", lambda *_: self.quit())
+                win.show_all()
 
     return MackesApp
 

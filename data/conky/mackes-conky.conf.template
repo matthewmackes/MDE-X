@@ -1,0 +1,138 @@
+-- Mackes Shell — Conky HUD (v1.4.0)
+--
+-- Generated from mackes/conky_hud.py:render_config_from_template — the
+-- {accent_hex} placeholder is replaced with the active preset's accent
+-- color so the left-edge stripe + section dividers track preset swaps.
+--
+-- Geometry: top-right, 400 × ⅔ of screen height (Q1 v1.4.0 lock).
+-- Style:    opaque Carbon Gray 90 (#262626) with a 3px accent
+--           left-edge (Q5 lock).
+-- Refresh:  tiered — 1s for system, 30s for Mackes state, 60s for rare
+--           (Q3 lock).
+--
+-- Color tokens — kept in sync with data/css/tokens.css
+local mackes = {
+  gray_100      = '161616',
+  gray_90       = '262626',
+  gray_80       = '393939',
+  text_primary  = 'f4f4f4',
+  text_helper   = 'a8a8a8',
+  accent        = '{accent_hex}',
+  success       = '42be65',
+  warning       = 'f1c21b',
+  error         = 'fa4d56',
+}
+
+conky.config = {
+  -- ---- window ----
+  alignment       = 'top_right',
+  background      = true,
+  border_inner_margin = 12,
+  border_outer_margin = 0,
+  border_width    = 0,
+  default_color   = mackes.text_primary,
+  double_buffer   = true,
+  draw_borders    = false,
+  draw_graph_borders = false,
+  draw_outline    = false,
+  draw_shades     = false,
+  gap_x           = 24,
+  gap_y           = 48,        -- below xfce4-panel
+  maximum_width   = 400,
+  minimum_width   = 400,
+  minimum_height  = {height_px},   -- ⅔ of screen height
+  no_buffers      = true,
+  out_to_console  = false,
+  out_to_stderr   = false,
+  own_window      = true,
+  own_window_argb_visual    = false,
+  own_window_argb_value     = 255,
+  own_window_class          = 'mackes-conky',
+  own_window_colour         = mackes.gray_90,
+  own_window_hints          = 'undecorated,below,sticky,skip_taskbar,skip_pager',
+  own_window_title          = 'Mackes Conky',
+  own_window_transparent    = false,
+  own_window_type           = 'desktop',
+  show_graph_range          = false,
+  show_graph_scale          = false,
+  update_interval           = 1.0,
+  uppercase                 = false,
+  use_spacer                = 'none',
+  use_xft                   = true,
+  font                      = 'IBM Plex Sans:size=10',
+  xftalpha                  = 1.0,
+  pad_percents              = 2,
+}
+
+-- Reusable formatters --------------------------------------------------------
+local fmt_accent_rule = '${color ' .. mackes.accent .. '}${voffset 0}'
+                     .. '${stippled_hr 1}${color}'
+local fmt_section     = function (label)
+  return '${voffset 8}${color ' .. mackes.accent .. '}${font IBM Plex Sans Bold:size=8}'
+      .. label:upper()
+      .. '${font}${color}${voffset 4}\n'
+end
+local fmt_dim         = function (text)
+  return '${color ' .. mackes.text_helper .. '}' .. text .. '${color}'
+end
+local accent_bar      = '${offset 0}${color ' .. mackes.accent .. '}'
+                     .. '${execpi 99999 printf "\\u2503"}${color}  '
+
+conky.text = string.format([[
+${color %s}${font IBM Plex Sans Bold:size=14}Mackes ${font IBM Plex Sans:size=14}Shell${font}${color}
+%s
+%s v${execi 86400 mackes --version 2>/dev/null | awk '{print $NF}'}
+%s preset · ${color %s}${execi 30 cat /etc/mackes-shell/state.json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('active_preset','—'))" 2>/dev/null}${color}
+%s admin · ${execi 5 /usr/share/mackes-shell/data/conky/helpers/admin-lock.sh 2>/dev/null}
+%s
+%s${execi 30 /usr/share/mackes-shell/data/conky/helpers/mesh.sh 2>/dev/null}
+%s
+%s${execi 30 /usr/share/mackes-shell/data/conky/helpers/fleet.sh 2>/dev/null}
+%s
+%s${execi 30 /usr/share/mackes-shell/data/conky/helpers/drift.sh 2>/dev/null}
+%s
+%s${execi 60 /usr/share/mackes-shell/data/conky/helpers/storage.sh 2>/dev/null}
+%s
+%s${execi 30 /usr/share/mackes-shell/data/conky/helpers/notifications.sh 2>/dev/null}
+%s
+%s${execi 30 /usr/share/mackes-shell/data/conky/helpers/media.sh 2>/dev/null}
+%s
+%s${execi 30 /usr/share/mackes-shell/data/conky/helpers/remote.sh 2>/dev/null}
+%s
+${color %s}${execi 10 /usr/share/mackes-shell/data/conky/helpers/services.sh 2>/dev/null}${color}
+%s
+${color %s}${nodename}${color}   ${color %s}${execi 30 uname -r | cut -d. -f1-2}${color}
+CPU  ${color %s}${cpu cpu0}%%${color}  $alignr${cpubar cpu0 6,140 %s %s}
+RAM  ${color %s}${memperc}%%${color}  $alignr${membar 6,140 %s %s}
+LOAD ${color %s}${loadavg 1} ${loadavg 2} ${loadavg 3}${color}
+${color %s}${time %Y-%m-%d  %H:%M:%S}${color}
+]],
+  -- Header (4 substitutions)
+  mackes.text_primary,
+  fmt_accent_rule,
+  accent_bar,
+  accent_bar, mackes.accent,
+  accent_bar,
+  -- Section: Mesh
+  fmt_section('Mesh'), accent_bar,
+  -- Section: Fleet
+  fmt_section('Fleet'), accent_bar,
+  -- Section: Drift
+  fmt_section('Drift'), accent_bar,
+  -- Section: Shared storage
+  fmt_section('Shared storage'), accent_bar,
+  -- Section: Notifications
+  fmt_section('Notifications'), accent_bar,
+  -- Section: Media services
+  fmt_section('Media services'), accent_bar,
+  -- Section: Remote desktop
+  fmt_section('Remote desktop'), accent_bar,
+  -- Section: Services dot grid
+  fmt_section('Services'), mackes.text_helper,
+  -- Section: Hardware
+  fmt_section('Hardware'), mackes.text_primary, mackes.text_helper,
+  mackes.accent, mackes.accent, mackes.gray_80,
+  mackes.accent, mackes.accent, mackes.gray_80,
+  mackes.accent,
+  mackes.text_helper
+)

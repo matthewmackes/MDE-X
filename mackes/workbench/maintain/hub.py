@@ -78,6 +78,8 @@ _CARDS = [
      "Wipe back to chosen preset's declared state.", ""),
     ("uninstall",    "Uninstall",       "user-trash-symbolic",
      "Complete removal + final snapshot tarball.", "danger"),
+    ("debloat",      "Debloat levels",  "edit-clear-all-symbolic",
+     "5 cumulative tiers of XFCE-desktop slimming.", "warn"),
 ]
 
 

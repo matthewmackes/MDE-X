@@ -1,0 +1,30 @@
+Mackes Shell — authors and acknowledgements
+
+Maintainer
+  Matt Mackes <matthewmackes@gmail.com>
+
+Contributors
+  (See `git shortlog -sne` for the full list)
+
+AI contributors
+  Claude Opus 4.7 (1M context) — co-author of substantial portions of
+  the v1.0 → v1.4 development arc per Co-Authored-By lines in commits.
+
+Upstream projects Mackes depends on (alphabetical)
+
+  ansible-core              Red Hat                 GPL-3.0-only
+  Carbon Design System      IBM                     Apache-2.0
+  Caddy                     Cloudflare              Apache-2.0
+  Guacamole                 Apache Software Foundation  Apache-2.0
+  Headscale                 Juan Font Alonso        BSD-3-Clause
+  IBM Plex                  IBM                     SIL OFL 1.1
+  noauth (Guacamole ext)    Frédéric Cogny          Apache-2.0
+  PadOS theme (Carbon Gray) Mackes-vendored         GPL-3.0-or-later
+  Plymouth                  Red Hat                 GPL-2.0-or-later
+  Podman / buildah / skopeo Red Hat                 Apache-2.0
+  Tailscale (client)        Tailscale Inc.          BSD-3-Clause
+  Textual                   Textualize.io           MIT
+  Tomcat                    Apache Software Foundation  Apache-2.0
+  x11vnc                    Karl Runge              GPL-2.0-or-later
+  xrdp                      xrdp project            Apache-2.0
+  XFCE 4.x                  Xfce dev team           GPL/LGPL-2.0+

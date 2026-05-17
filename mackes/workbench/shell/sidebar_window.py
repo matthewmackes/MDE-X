@@ -185,6 +185,7 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         from mackes.workbench.maintain.reset_to_preset import ResetToPresetPanel
         from mackes.workbench.maintain.system_update import SystemUpdatePanel
         from mackes.workbench.maintain.uninstall import UninstallPanel
+        from mackes.workbench.maintain.debloat import DebloatPanel
 
         # Inner Gtk.Stack — hub view + sub-panels. Tile clicks call
         # stack.set_visible_child_name(<key>); a "← Back to Maintain" link
@@ -231,6 +232,7 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         inner_stack.add_named(_wrap_with_back(RepairPanel(state), "Repair"), "repair")
         inner_stack.add_named(_wrap_with_back(ResetToPresetPanel(state), "Reset to Preset"), "reset")
         inner_stack.add_named(_wrap_with_back(UninstallPanel(), "Uninstall"), "uninstall")
+        inner_stack.add_named(_wrap_with_back(DebloatPanel(), "Debloat levels"), "debloat")
         inner_stack.set_visible_child_name("__hub")
         return inner_stack
 
@@ -328,11 +330,7 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         root.pack_start(self._status_bar, False, False, 0)
         self.add(root)
 
-        # ---- Floating Tweaks button (anchored bottom-right) ---------------
-        # Use a GtkOverlay so the button floats above the body without
-        # eating layout space.
-        overlay_holder = self.get_child()
-        # We've already added root to self; rewrap with an overlay.
+        # ---- Floating overlays (Tweaks + toast host, anchored b-r) ---------
         self.remove(root)
         self._overlay = Gtk.Overlay()
         self._overlay.add(root)
@@ -341,16 +339,27 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
             self._tweaks_overlay = TweaksOverlay(self, self._tweaks, on_change=self._on_tweaks_change)
             self._overlay.add_overlay(self._tweaks_overlay)
         except Exception:  # noqa: BLE001
-            # Don't block window creation if tweaks panel import fails.
             self._tweaks_overlay = None
+        try:
+            from mackes.workbench.shell.toasts import install_host
+            install_host(self._overlay)
+        except Exception:  # noqa: BLE001
+            pass
         self.add(self._overlay)
 
-        # Apply initial tweaks (chrome / status bar visibility).
+        # Apply initial tweaks (chrome / status bar visibility / density).
         self._apply_tweaks(self._tweaks)
 
         # ---- Activate initial panel ---------------------------------------
         initial = self._tweaks.get("active_panel") or "dashboard"
         self.go_to(initial)
+
+        # ---- Live nav-badge refresh (every 30s) ---------------------------
+        self._refresh_nav_badges()
+        GLib.timeout_add_seconds(30, self._refresh_nav_badges_tick)
+
+        # ---- Auto-lock the admin session on window close ------------------
+        self.connect("destroy", self._on_destroy_lock)
 
     # ----- Build helpers ---------------------------------------------------
 
@@ -433,7 +442,54 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         help_btn.connect("clicked", lambda *_: self.go_to("help"))
         header.pack_end(help_btn, False, False, 0)
 
+        # ---- Admin session lock/unlock button (v1.4.0) -------------------
+        from mackes.admin_session import AdminSession
+        self._admin = AdminSession.instance()
+        self._unlock_btn = Gtk.Button()
+        self._unlock_btn.get_style_context().add_class("mackes-header-action")
+        self._unlock_btn.set_relief(Gtk.ReliefStyle.NONE)
+        self._unlock_btn.connect("clicked", self._on_unlock_clicked)
+        self._update_unlock_button()
+        self._admin.add_listener(lambda _ok: self._update_unlock_button())
+        header.pack_end(self._unlock_btn, False, False, 0)
+
         return header
+
+    def _update_unlock_button(self) -> None:
+        if self._admin.is_unlocked():
+            icon = "changes-allow-symbolic"
+            tip = ("Admin session unlocked — privileged actions won't "
+                   "prompt for a password until you lock or close Mackes")
+            label = "Locked ▾"
+            label = "Unlocked"
+        else:
+            icon = "changes-prevent-symbolic"
+            tip = ("Click to unlock the admin session — authorize once, "
+                   "then everything runs without further prompts")
+            label = "Unlock"
+        img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.BUTTON)
+        # Replace the existing child
+        for c in list(self._unlock_btn.get_children()):
+            self._unlock_btn.remove(c)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row.set_margin_start(8); row.set_margin_end(8)
+        row.pack_start(img, False, False, 0)
+        row.pack_start(Gtk.Label(label=label), False, False, 0)
+        self._unlock_btn.add(row)
+        self._unlock_btn.show_all()
+        self._unlock_btn.set_tooltip_text(tip)
+
+    def _on_unlock_clicked(self, *_) -> None:
+        if self._admin.is_unlocked():
+            # Confirm-less lock — instant.
+            self._admin.lock()
+            return
+        # Async unlock to avoid blocking the GTK main loop on the password
+        # prompt.
+        import threading
+        def runner() -> None:
+            self._admin.unlock()  # listener will refresh the button
+        threading.Thread(target=runner, daemon=True).start()
 
     def _build_sidenav(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -495,26 +551,82 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         bar.set_size_request(-1, 24)
         bar.set_margin_start(16); bar.set_margin_end(16)
 
-        def _item(text: str, kind: Optional[str] = None) -> Gtk.Widget:
-            lab = Gtk.Label(label=text)
-            lab.set_xalign(0)
-            lab.get_style_context().add_class("mackes-status-bar-item")
-            if kind:
-                lab.get_style_context().add_class(kind)
-            return lab
+        # 4 live items + 2 fixed right-aligned items. Built once, refreshed
+        # in place via _refresh_status_bar() every 30s.
+        self._sb_mesh = _status_item("● mesh: …")
+        self._sb_services = _status_item("● services: …")
+        self._sb_sshd = _status_item("● sshd: …")
+        self._sb_drift = _status_item("● drift: …")
+        bar.pack_start(self._sb_mesh, False, False, 0)
+        bar.pack_start(self._sb_services, False, False, 0)
+        bar.pack_start(self._sb_sshd, False, False, 0)
+        bar.pack_start(self._sb_drift, False, False, 0)
 
-        bar.pack_start(_item("● mesh", "ok"), False, False, 0)
-        bar.pack_start(_item("● services", "ok"), False, False, 0)
-        bar.pack_start(_item("● sshd", "ok"), False, False, 0)
-        bar.pack_start(_item("● drift", "warn"), False, False, 0)
-
-        # right side
         right = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
-        right.pack_end(_item(f"v{__version__}"), False, False, 0)
-        right.pack_end(_item(f"preset: {self.state.active_preset or '—'}"), False, False, 0)
+        right.pack_end(_status_item(f"v{__version__}"), False, False, 0)
+        right.pack_end(_status_item(
+            f"preset: {self.state.active_preset or '—'}"), False, False, 0)
         bar.pack_end(right, True, True, 0)
 
+        # Kick off the 30s refresh loop
+        self._refresh_status_bar()
+        GLib.timeout_add_seconds(30, self._refresh_status_bar_tick)
         return bar
+
+    def _refresh_status_bar_tick(self) -> bool:
+        self._refresh_status_bar()
+        return True   # keep firing
+
+    def _refresh_status_bar(self) -> None:
+        """Pull live values from service_health / Headscale / drift detector."""
+        try:
+            from mackes.state import service_health
+            sh = service_health()
+        except Exception:  # noqa: BLE001
+            sh = {}
+        try:
+            from mackes.mesh_vpn import headscale_list_peers, MESH_CAP
+            peers = headscale_list_peers()
+            mesh_total = len(peers)
+            mesh_online = sum(1 for p in peers if p.online)
+            mesh_cap = MESH_CAP
+        except Exception:  # noqa: BLE001
+            mesh_online = mesh_total = mesh_cap = 0
+        try:
+            from mackes.mesh_services import load_registry
+            services_n = len(load_registry())
+        except Exception:  # noqa: BLE001
+            services_n = 0
+        try:
+            from mackes.presets import active_preset_drift
+            _preset, items = active_preset_drift()
+            drift_n = len(items or [])
+        except Exception:  # noqa: BLE001
+            drift_n = 0
+
+        # Mesh
+        _set_status_item(
+            self._sb_mesh,
+            f"● mesh: {mesh_online}/{mesh_cap or 16}",
+            "ok" if mesh_online > 0 else "warn",
+        )
+        # Services
+        _set_status_item(
+            self._sb_services, f"● services: {services_n}",
+            "ok" if services_n else "warn",
+        )
+        # sshd
+        sshd_state = sh.get("sshd", "missing")
+        _set_status_item(
+            self._sb_sshd, f"● sshd",
+            {"ok": "ok", "warn": "warn", "fail": "fail",
+             "missing": "warn"}.get(sshd_state, "warn"),
+        )
+        # Drift
+        _set_status_item(
+            self._sb_drift, f"● drift: {drift_n}",
+            "warn" if drift_n else "ok",
+        )
 
     # ----- Navigation ------------------------------------------------------
 
@@ -574,17 +686,117 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
             self._status_bar.show_all()
         else:
             self._status_bar.hide()
-        # preset swap — reload preset CSS, restyle root class
+        # density — propagates to carbon-layout.css via root style class
+        ctx = self.get_style_context()
+        for d in ("compact", "cozy", "comfortable"):
+            ctx.remove_class(f"mackes-density-{d}")
+        density = tweaks.get("density") or "cozy"
+        ctx.add_class(f"mackes-density-{density}")
+        # preset swap — reload preset CSS, restyle root class, bounce conky
         new_preset = tweaks.get("preset")
         if new_preset and new_preset != self.state.active_preset:
             from mackes.app import _install_css
-            ctx = self.get_style_context()
             if self.state.active_preset:
                 ctx.remove_class(f"preset-{self.state.active_preset}")
             ctx.add_class(f"preset-{new_preset}")
             self.state.active_preset = new_preset
             self.state.save()
             _install_css(new_preset)
+            # Repaint the Conky HUD with the new accent (if it's running)
+            try:
+                from mackes.conky_hud import is_running, restart_with
+                if is_running():
+                    restart_with()
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Conky HUD toggle (Q2 v1.4.0 — birthright + Tweaks toggle)
+        try:
+            from mackes.conky_hud import apply_tweak
+            apply_tweak(bool(tweaks.get("show_conky", True)))
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---- live nav badges --------------------------------------------------
+
+    def _refresh_nav_badges_tick(self) -> bool:
+        self._refresh_nav_badges()
+        return True
+
+    def _refresh_nav_badges(self) -> None:
+        """Update peer/service/fleet/drift counts on the side-nav badges."""
+        badges: dict[str, str] = {}
+        try:
+            from mackes.mesh_vpn import headscale_list_peers
+            peers = headscale_list_peers()
+            online = sum(1 for p in peers if p.online)
+            if online:
+                badges["mesh_vpn"] = str(online)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from mackes.mesh_services import load_registry
+            n = len(load_registry())
+            if n:
+                badges["mesh_services"] = str(n)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from mackes.fleet import list_runs
+            recent = list_runs(limit=200, since=__import__("time").time() - 86400)
+            failures = sum(1 for r in recent if r.exit_code != 0)
+            if failures:
+                badges["fleet_runs"] = str(failures)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from mackes.presets import active_preset_drift
+            _preset, items = active_preset_drift()
+            n = len(items or [])
+            if n:
+                badges["maintain"] = str(n)
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Apply to live buttons
+        for key, badge_text in badges.items():
+            btn = self._nav_buttons.get(key)
+            if btn is None:
+                continue
+            self._set_nav_button_badge(btn, badge_text)
+        # Clear badges that are no longer present
+        for key, btn in self._nav_buttons.items():
+            if key not in badges:
+                self._set_nav_button_badge(btn, "")
+
+    @staticmethod
+    def _set_nav_button_badge(btn: Gtk.Button, text: str) -> None:
+        """Replace any existing trailing badge label on a side-nav button."""
+        row = btn.get_child()
+        if not isinstance(row, Gtk.Box):
+            return
+        # Remove existing badge (last child with .mackes-sn-badge class)
+        for child in row.get_children():
+            classes = child.get_style_context().list_classes() if hasattr(
+                child.get_style_context(), "list_classes") else []
+            if "mackes-sn-badge" in classes:
+                row.remove(child)
+        if text:
+            badge = Gtk.Label(label=text)
+            badge.get_style_context().add_class("mackes-sn-badge")
+            row.pack_end(badge, False, False, 0)
+        row.show_all()
+
+    # ---- admin session auto-lock on close ---------------------------------
+
+    def _on_destroy_lock(self, *_) -> None:
+        try:
+            from mackes.admin_session import AdminSession
+            sess = AdminSession.instance()
+            if sess.is_unlocked():
+                sess.lock()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _on_preset_chip(self, *_) -> None:
         if self._tweaks_overlay is not None:
@@ -609,6 +821,7 @@ def _load_tweaks() -> dict:
         "density": "cozy",          # compact / cozy / comfortable
         "show_status_bar": True,
         "show_xfce_frame": True,    # client-side; XFCE frame is OS-managed but we keep the flag
+        "show_conky": True,         # v1.4.0: birthright Conky HUD on by default
         "active_panel": "dashboard",
     }
     if not p.exists():
@@ -639,6 +852,26 @@ def _save_tweaks(tweaks: dict) -> None:
 def _vsep() -> Gtk.Widget:
     s = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
     return s
+
+
+def _status_item(text: str, kind: Optional[str] = None) -> Gtk.Widget:
+    """Build a single .mackes-status-bar-item Label."""
+    lab = Gtk.Label(label=text)
+    lab.set_xalign(0)
+    lab.get_style_context().add_class("mackes-status-bar-item")
+    if kind:
+        lab.get_style_context().add_class(kind)
+    return lab
+
+
+def _set_status_item(widget: Gtk.Label, text: str, kind: Optional[str]) -> None:
+    """Update an existing status item's text + class (called every 30s)."""
+    widget.set_text(text)
+    ctx = widget.get_style_context()
+    for k in ("ok", "warn", "fail"):
+        ctx.remove_class(k)
+    if kind:
+        ctx.add_class(kind)
 
 
 def _make_error_placeholder(name: str, err: str) -> Gtk.Widget:

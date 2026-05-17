@@ -295,8 +295,51 @@
     color: @cds_text_primary;
     padding: 12px 16px;
 }
-.mackes-toast.success { border-left-color: @cds_support_success; }
-.mackes-toast.error   { border-left-color: @cds_support_error; }
+.mackes-toast.success  { border-left-color: @cds_support_success; }
+.mackes-toast.error    { border-left-color: @cds_support_error; }
+.mackes-toast.warning  { border-left-color: @cds_support_warning; }
+.mackes-toast.info     { border-left-color: @cds_support_info; }
+
+
+/* =========================================================================
+   Density modes — Tweaks panel sets one of these classes on the app window
+   ========================================================================= */
+
+.mackes-density-compact .mackes-side-nav-item {
+    min-height: 32px;
+}
+.mackes-density-compact .mackes-stat-tile {
+    padding: 8px;
+}
+.mackes-density-compact .mackes-app-card {
+    padding: 8px;
+}
+.mackes-density-compact .mackes-dt row {
+    padding: 4px 8px;
+}
+
+.mackes-density-cozy .mackes-side-nav-item {
+    min-height: 40px;
+}
+.mackes-density-cozy .mackes-stat-tile {
+    padding: 16px;
+}
+.mackes-density-cozy .mackes-app-card {
+    padding: 16px;
+}
+
+.mackes-density-comfortable .mackes-side-nav-item {
+    min-height: 48px;
+}
+.mackes-density-comfortable .mackes-stat-tile {
+    padding: 24px;
+}
+.mackes-density-comfortable .mackes-app-card {
+    padding: 24px;
+}
+.mackes-density-comfortable .mackes-dt row {
+    padding: 12px 16px;
+}
 
 
 /* Code block */

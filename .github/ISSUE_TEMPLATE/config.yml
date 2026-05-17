@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discussions
+    url: https://github.com/matthewmackes/MAP2-RELEASES/discussions
+    about: Questions, ideas, and conversations that aren't a bug or a feature request.
+  - name: Security report
+    url: https://github.com/matthewmackes/MAP2-RELEASES/blob/main/SECURITY.md
+    about: For security issues, do NOT open a public issue — see SECURITY.md for the disclosure protocol.

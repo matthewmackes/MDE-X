@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        1.3.0
+Version:        1.4.0
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -79,6 +79,33 @@ Requires:       podman
 Recommends:     buildah
 Recommends:     skopeo
 Recommends:     toolbox
+
+# Textual TUI — headless entry point (v1.4.0). Falls back to argparse
+# CLI when textual is missing, so this is a Recommends not a Requires.
+Recommends:     python3-textual
+Recommends:     python3-rich
+
+# Wizard boot splash (v1.4.0) — plays branding/MACKES-XFCE-LOGO.mp4
+# before the first-run wizard. Splash is opt-in: if GStreamer or its
+# codecs aren't installed, mackes/wizard/splash.py silently skips it.
+# We only Recommend the runtime stack to keep the install footprint
+# reasonable for headless nodes.
+Recommends:     gstreamer1
+Recommends:     gstreamer1-plugins-base
+Recommends:     gstreamer1-plugins-good
+Recommends:     gstreamer1-plugins-bad-free
+# openh264 (Cisco) decodes H.264 — shipped by Fedora via the codeina
+# mozilla-openh264 repo, not the main collection. Recommends without
+# the repo will silently skip; documented in CHANGELOG so the user
+# knows how to enable.
+Recommends:     mozilla-openh264
+Recommends:     gstreamer1-plugin-openh264
+
+# Conky HUD (v1.4.0 birthright) — right-side Carbon-themed desktop panel
+# with live Mackes state (mesh, fleet, drift, storage, services). The
+# wizard's apply_conky step installs the user config + XDG autostart.
+# The Tweaks panel toggle turns the HUD on/off without uninstalling.
+Requires:       conky
 
 # Mesh fabric (§8.11–§8.14): WireGuard via Tailscale + self-hosted Headscale
 Requires:       tailscale
@@ -174,6 +201,12 @@ cp -r data/css            %{buildroot}%{_datadir}/%{name}/data/
 cp -r data/dnf            %{buildroot}%{_datadir}/%{name}/data/
 # Fleet management (v1.3.0) — 7 curated Ansible roles
 cp -r data/ansible        %{buildroot}%{_datadir}/%{name}/data/
+# Conky HUD (v1.4.0) — config template + helper scripts
+cp -r data/conky          %{buildroot}%{_datadir}/%{name}/data/
+chmod 0755 %{buildroot}%{_datadir}/%{name}/data/conky/helpers/*.sh
+# Mackes Conky autostart .desktop
+install -D -m 0644 data/applications/mackes-conky.desktop \
+    %{buildroot}%{_datadir}/applications/mackes-conky.desktop
 cp -r data/systemd        %{buildroot}%{_datadir}/%{name}/data/
 # Vendored PadOS GTK theme + Carbon GTK icon theme — system-wide install
 install -d %{buildroot}%{_datadir}/themes
@@ -304,6 +337,7 @@ fi
 %{_datadir}/%{name}/
 %{_datadir}/applications/mackes-shell.desktop
 %{_datadir}/applications/mackes-clipboard.desktop
+%{_datadir}/applications/mackes-conky.desktop
 %{_datadir}/applications/mackes-mesh-uri-handler.desktop
 %{_datadir}/gvfs/mounts/mesh.mount
 %{_datadir}/icons/hicolor/scalable/apps/mackes-shell.svg

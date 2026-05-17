@@ -3,8 +3,8 @@
 Each function is idempotent (safe to re-run via Maintain → Reset to Preset)
 and returns a `list[str]` of action lines for the wizard's apply page log.
 
-These are the ten "birthright" items the v1.3.0 wizard runs in addition
-to the v1.0.x xfconf-only apply pipeline:
+These are the eleven "birthright" items the v1.4.0 wizard runs in
+addition to the v1.0.x xfconf-only apply pipeline:
 
   1. apply_themes              — deploy PadOS GTK theme + Carbon icon theme files
   2. apply_fonts               — install IBM Plex Sans + Mono via dnf
@@ -18,8 +18,11 @@ to the v1.0.x xfconf-only apply pipeline:
                                   + mackes-remote-sync (Headscale→Guacamole config)
  10. apply_fleet               — ansible-core + ansible-pull timer + seeded
                                   QNM-Shared playbook tree (v1.3.0 lock)
+ 11. apply_conky               — Mackes Conky HUD: top-right Carbon-styled
+                                  desktop HUD with live mesh/fleet/drift
+                                  state (v1.4.0 lock)
 
-All ten are wired into mackes/wizard/pages/apply.py between Panel and Mesh.
+All eleven are wired into mackes/wizard/pages/apply.py between Panel and Mesh.
 """
 from __future__ import annotations
 
@@ -67,18 +70,14 @@ def _branding(*rel: str) -> Path | None:
 
 
 def _run_root(cmd: list[str], *, timeout: int = 300) -> tuple[int, str]:
-    """Run a command with root privileges (pkexec preferred, sudo fallback)."""
-    if shutil.which("pkexec"):
-        full = ["pkexec", *cmd]
-    elif shutil.which("sudo"):
-        full = ["sudo", *cmd]
-    else:
-        full = cmd
-    try:
-        proc = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
-        return proc.returncode, (proc.stdout + proc.stderr)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return 1, str(e)
+    """Run a command with root privileges.
+
+    v1.4.0: routes through AdminSession so the user only authenticates
+    ONCE per Mackes session (sudo timestamp keepalive). Falls back to
+    per-call pkexec when the session is locked or sudo is unavailable.
+    """
+    from mackes.admin_session import AdminSession
+    return AdminSession.instance().run(cmd, timeout=timeout)
 
 
 def _run(cmd: list[str], *, timeout: int = 60) -> tuple[int, str]:
@@ -791,6 +790,66 @@ def apply_fleet(_preset: Preset) -> List[str]:
         "fleet: ready — view runs in Mackes → Fleet → Run history, "
         "or trigger ad-hoc with Fleet → Inventory → Run on selection"
     )
+    for line in actions:
+        log_action(line)
+    return actions
+
+
+# ---------------------------------------------------------------------------
+# 11. Conky HUD — Mackes-themed right-side desktop panel (v1.4.0 birthright)
+# ---------------------------------------------------------------------------
+
+
+def apply_conky(_preset: Preset) -> List[str]:
+    """Install conky + write the Mackes config + register XDG autostart.
+
+    Q2 lock: birthright autostart + Tweaks toggle. The Tweaks panel can
+    later flip it off without uninstalling conky.
+    """
+    actions: List[str] = []
+
+    # ---- 1. Install Fedora package ------------------------------------
+    if shutil.which("dnf") is None:
+        actions.append("conky: dnf not available — skipping")
+        return actions
+    if shutil.which("conky") is None:
+        actions.append("conky: installing via dnf")
+        rc, out = _run_root(["dnf", "install", "-y", "conky"], timeout=300)
+        if rc != 0:
+            last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
+            actions.append(f"conky: install failed: {last}")
+            return actions
+    else:
+        actions.append("conky: already installed")
+
+    # ---- 2. Write user config + autostart ----------------------------
+    try:
+        from mackes.conky_hud import (
+            write_config, install_autostart, start, USER_CONFIG, AUTOSTART_FILE,
+        )
+    except Exception as e:  # noqa: BLE001
+        actions.append(f"conky: orchestrator import failed: {e}")
+        return actions
+
+    try:
+        cfg = write_config()
+        actions.append(f"conky: wrote user config to {cfg}")
+    except Exception as e:  # noqa: BLE001
+        actions.append(f"conky: config write failed: {e}")
+        return actions
+
+    try:
+        a = install_autostart()
+        actions.append(f"conky: installed autostart at {a}")
+    except Exception as e:  # noqa: BLE001
+        actions.append(f"conky: autostart install failed: {e}")
+
+    # ---- 3. Start it now so the user sees it immediately -------------
+    if start(force=True):
+        actions.append("conky: HUD started")
+    else:
+        actions.append("conky: HUD will start at next login (autostart)")
+
     for line in actions:
         log_action(line)
     return actions

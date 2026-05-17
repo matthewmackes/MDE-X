@@ -52,11 +52,40 @@ def main(argv: list[str] | None = None) -> int:
     if "--uninstall" in flags:
         return _run_cli_uninstall(yes="--yes" in flags)
 
+    # v1.4.0: TUI as the default headless entry point.
+    #
+    # Launch the Textual TUI when:
+    #   - no $DISPLAY / $WAYLAND_DISPLAY is set, AND
+    #   - no subcommand or non-flag argument was given, AND
+    #   - --tui is forced OR --gui isn't forced, AND
+    #   - textual is importable.
+    #
+    # If textual is missing, we silently fall through to the argparse CLI
+    # in mackes.headless.cli (the legacy v1.3.0 behavior).
+    import os
+    args = raw[1:]
+    no_display = not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    no_positional = not any(a for a in args if not a.startswith("-"))
+    force_tui = "--tui" in flags
+    force_cli = "--cli" in flags
+    force_gui = "--gui" in flags
+    force_headless = "--headless" in flags
+
+    if force_tui or (no_display and no_positional and not force_cli
+                     and not force_gui and not force_headless):
+        try:
+            from mackes.tui import available, run as run_tui
+        except Exception:  # noqa: BLE001
+            available = lambda: False  # type: ignore[assignment]
+        if available():
+            # Strip the --tui flag so it doesn't confuse downstream code.
+            args = [a for a in args if a != "--tui"]
+            return run_tui()
+
     # Everything else: delegate to mackes.app.main, which routes between
     # the headless CLI (auto-detected or via `--headless`) and the GTK GUI.
     from mackes.app import main as app_main
-    # mackes.app.main wants argv WITHOUT the program name (argparse-style).
-    return app_main(raw[1:])
+    return app_main(args)
 
 
 if __name__ == "__main__":

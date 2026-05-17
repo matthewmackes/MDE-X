@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Keep the release-workflow actions current
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+      include: scope

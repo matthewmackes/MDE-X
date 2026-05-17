@@ -55,6 +55,8 @@ def build(ctx) -> Gtk.Widget:
     summary.append("                       (mesh-only; no Guacamole login)")
     summary.append("  Fleet management:    ansible-core + 7 curated playbooks")
     summary.append("                       (ansible-pull every 30 min, drift correction)")
+    summary.append("  Conky HUD:           top-right Carbon-themed desktop panel")
+    summary.append("                       (mesh / fleet / drift / services live, autostart)")
     summary.append("")
     if ctx.missing_packages:
         summary.append("WARNING: missing required binaries: " + ", ".join(ctx.missing_packages))

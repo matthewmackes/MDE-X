@@ -3,6 +3,158 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.4.0 — Debloat tiers, TUI, Splash, Conky HUD, Session unlock, full Carbon (2026-05-17)
+
+Seven user-driven additions plus the Carbon-completion pass that finishes
+the design assimilation started in v1.1.x.
+
+### Carbon completion
+
+The two items deferred at the original v1.4.0 cut window are now done:
+
+**Legacy panels** (`mackes/workbench/_common.py`): rewrote the shared
+helpers (`panel_box / title_label / info_label / section_header /
+labeled_row / error_label`) to emit Carbon-refresh widgets. Single-file
+change cascades across **every** legacy panel that imported these
+helpers — Devices / System / Network (Wi-Fi, VPN, QNM, Firewall) /
+Help — without per-panel rewrites. Old v1.0 CSS class names are kept
+alongside the new ones, so no CSS rule regressions.
+
+**Carbon-native wizard window** (`mackes/wizard/window.py`): replaced
+`Gtk.Assistant` with a custom `Gtk.ApplicationWindow` matching the
+sidebar shell's chrome. Top: 9-step progress strip with active
+indicator. Center: a `Gtk.Stack` of page widgets (welcome / env-scan /
+preset-pick / appearance / hardware / network / snapshot / review /
+apply / summary). Bottom: a Carbon action bar (Back / Cancel / Next or
+Apply or Continue or Finish, depending on the active step's kind).
+Existing page builder modules drop in unchanged — they were already
+Carbon-styled inside. The PROGRESS step auto-launches the apply
+pipeline on first activation, then unlocks the Continue button. The
+SUMMARY step's Next button becomes "Finish" which destroys the window
+and unblocks `do_activate` → opens the Dashboard.
+
+### Features
+
+**Conky HUD** (`mackes/conky_hud.py`, `data/conky/`, 11th birthright):
+top-right Carbon-themed desktop panel (400 × ⅔ screen height) with
+live Mackes-platform state. Opaque Carbon Gray 90 fill with a 3px
+accent left-edge that swaps with the active preset. Birthright step
+`apply_conky` installs the package + writes the user config + the XDG
+autostart entry, then bounces the process. Tweaks panel gains a
+"Show Conky HUD" switch under Chrome that flips both the autostart
+file and the running process.
+
+Tiered refresh per Q3 lock — `update_interval=1.0` for the system
+built-ins (clock, CPU, RAM, load), `${execi 30 ...}` for Mackes-state
+queries (mesh / fleet / drift / notifications / media services /
+remote sessions / services dot-grid), `${execi 60 ...}` for shared
+storage (rare changes).
+
+Ten content blocks per Q4 lock: Header (version + preset + admin
+lock), Mesh (peers + control node), Fleet (last pull + 24h failures),
+Drift (items differing from preset), Shared storage (QNM-Shared
+usage), Global notifications (mesh + local counts + latest), Media
+services (Jellyfin/Plex/Airsonic/etc. across peers), Remote desktop
+(active RDP/VNC + Guacamole connections), Services (sshd / headscale
+/ tailscaled / guacd / tomcat / mackes-remote-sync / mackes-ansible-pull
+/ caddy as a compact dot grid), Hardware (hostname / CPU / RAM / load
+/ clock).
+
+Helper scripts under `data/conky/helpers/*.sh` — one per block. Each
+shells out to either a Mackes Python module (mesh / fleet / drift /
+media) or pure shell (storage / notifications / remote / services).
+
+Spec **Requires: conky** so birthright never finds the package missing.
+The Conky preset accent live-swaps via `conky_hud.restart_with()`
+called from the shell's `_apply_tweaks()` whenever the preset changes.
+
+### Features
+
+**Wizard boot splash** (`mackes/wizard/splash.py`): plays
+`branding/MACKES-XFCE-LOGO.mp4` (H.264 1280×720, 8s, AAC audio muted)
+as a borderless centered window before the first-run wizard surfaces.
+Skippable via click / Escape / any key; auto-dismisses on
+end-of-stream. Falls back silently if GStreamer or its H.264 decoder
+isn't installed. The pipeline uses GStreamer `playbin` + the X11
+`VideoOverlay` XID-embed pattern (gtksink isn't packaged in stock
+Fedora 44 GStreamer, but `xvimagesink`/`ximagesink` are).
+Spec Recommends: `gstreamer1`, `gstreamer1-plugins-{base,good,bad-free}`,
+`mozilla-openh264`, `gstreamer1-plugin-openh264`. All Recommends not
+Requires so headless nodes don't carry the codec stack.
+MANIFEST.in extended to include `*.mp4` / `*.webm` under `branding/`
+so the video survives the sdist round-trip into the RPM.
+
+**Debloat levels** (`mackes/debloat.py`, `Maintain → Debloat levels`):
+five cumulative tiers (L1 Light → L5 Viable). Each tier is an
+idempotent `dnf remove` set plus optional xfconf resets. The panel shows
+a live preview of what's currently installed vs already absent before
+the user commits. Bound by a confirm modal; logs the run.
+
+**Textual TUI** (`mackes/tui/`, autobooted on headless): runs every
+screen the GUI has — Dashboard, Mesh VPN, Mesh SSH, Mesh Services,
+Mesh Remote, Fleet Inventory, Fleet Playbooks, Fleet Run history,
+Snapshots, Debloat, Help. Launches automatically when there's no
+`$DISPLAY` and no subcommand. `python3 -m mackes --tui` forces it.
+
+**Session unlock** (`mackes/admin_session.py`, header Lock/Unlock
+button): single sign-in for the whole Mackes session. Click Unlock,
+type the password once, every subsequent admin op runs without
+prompting. Uses sudo's timestamp cache + a 4-min keepalive thread.
+Auto-locks when the window closes. Migrated call sites:
+  - `mackes/birthright.py:_run_root`
+  - `mackes/workbench/network/remote_desktop.py:_run_root`
+  - `mackes/debloat.py:apply_level`
+  - `mackes/caddy_gateway.py:_pkexec`
+
+**Live status bar** (`shell/sidebar_window.py:_refresh_status_bar`):
+the bottom bar's mesh / services / sshd / drift counts are now live —
+pulled from `service_health()`, the Headscale roster, the mesh-services
+registry, and the active-preset drift detector. Refreshes every 30s.
+
+**Live sidebar nav badges**: peer count on Mesh VPN, service count on
+Mesh Services, failed-runs count on Fleet → Run history, drift-items
+count on Maintain. Same 30s refresh cycle as the status bar.
+
+**Tweaks density** finally works: compact / cozy / comfortable now
+swap `.mackes-density-*` classes on the root window. CSS rules in
+`carbon-layout.css` adjust nav-item heights, tile padding, and
+data-table row heights accordingly.
+
+**Toast host** (`shell/toasts.py`): bottom-right non-modal notifications
+for shell-wide events. Snapshot create now uses a toast instead of a
+silent status label.
+
+### Carbon design system
+
+`.claude/CLAUDE.md` + `.claude/skills/{mackes-worklist-management,
+complete-remaining-work}/SKILL.md` — three workflow protocols ported
+from `matthewmackes/map2-audio` and adapted to the mackes-shell repo.
+The commit/push rulebook, single-source worklist, and autonomy policy
+are now durable behavioral contracts in `.claude/`.
+
+### Open-source project artifacts
+
+Added the standard OSS files the repo was missing:
+  - `CONTRIBUTING.md` — dev setup + project conventions
+  - `CODE_OF_CONDUCT.md` — Contributor Covenant v2.1
+  - `SECURITY.md` — disclosure protocol + threat model
+  - `AUTHORS` — maintainer + upstream credits
+  - `.editorconfig` — line endings + indentation
+  - `.github/ISSUE_TEMPLATE/{bug_report,feature_request,config.yml}`
+  - `.github/PULL_REQUEST_TEMPLATE.md`
+  - `.github/FUNDING.yml`
+  - `.github/dependabot.yml` (weekly Actions bumps)
+  - `CITATION.cff`
+
+### Deferred to v1.4.1
+
+Legacy panels (`devices/*`, `system/*`, `network/{wifi,vpn,qnm,firewall}.py`)
+still use the v1.0-era `workbench/_common.py` helpers — they look
+inconsistent next to the v1.1.x Carbon-refresh panels. Wizard chrome is
+still `Gtk.Assistant`, not a Carbon-native window. Both are tracked as
+v1.4.1 work — they're substantial mechanical rewrites that don't block
+the v1.4.0 functional additions.
+
 ## 1.3.0 — Mesh Fleet (Ansible-pull) (2026-05-17)
 
 Cross-peer fleet management lands as a 10th wizard birthright step.

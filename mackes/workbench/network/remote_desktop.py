@@ -161,18 +161,9 @@ def save_settings(s: dict) -> None:
 
 
 def _run_root(cmd: list[str], *, timeout: int = 30) -> tuple[int, str]:
-    import shutil
-    if shutil.which("pkexec"):
-        full = ["pkexec", *cmd]
-    elif shutil.which("sudo"):
-        full = ["sudo", *cmd]
-    else:
-        full = cmd
-    try:
-        r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, (r.stdout + r.stderr)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return 1, str(e)
+    """Route through AdminSession (v1.4.0 session-unlock)."""
+    from mackes.admin_session import AdminSession
+    return AdminSession.instance().run(cmd, timeout=timeout)
 
 
 def _service_action(unit: str, action: str) -> tuple[int, str]:

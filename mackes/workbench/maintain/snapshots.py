@@ -176,9 +176,20 @@ class SnapshotsPanel(Gtk.Box):
             snap = create_snapshot(label=label, source_preset=self.state.active_preset)
         except Exception as e:  # noqa: BLE001
             self._status.set_text(f"Create failed: {e}")
+            try:
+                from mackes.workbench.shell.toasts import toast
+                toast(f"Snapshot create failed: {e}", kind="error")
+            except Exception:  # noqa: BLE001
+                pass
             return
         self._label.set_text("")
         self._status.set_text(f"Created: {snap.name}")
+        try:
+            from mackes.workbench.shell.toasts import toast
+            toast(f"Snapshot created — {snap.display_label()}",
+                  kind="success")
+        except Exception:  # noqa: BLE001
+            pass
         self._refresh()
 
     def _on_row_activate(self, row: dict) -> None:

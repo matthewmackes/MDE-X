@@ -108,6 +108,10 @@ class TweaksOverlay(Gtk.Box):
                              initial=bool(self._tweaks.get("show_xfce_frame", True)),
                              on_change=lambda v: self._set("show_xfce_frame", v))
         drawer.pack_start(xf_row, False, False, 0)
+        conky_row = _switch_row("Conky HUD",
+                                initial=bool(self._tweaks.get("show_conky", True)),
+                                on_change=lambda v: self._set("show_conky", v))
+        drawer.pack_start(conky_row, False, False, 0)
 
         # ---- Actions -----------------------------------------------------
         drawer.pack_start(Gtk.Separator(), False, False, 0)

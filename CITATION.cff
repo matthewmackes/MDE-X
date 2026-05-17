@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+title: Mackes Shell
+message: >-
+  If you use Mackes Shell in research or you write about it, please
+  cite this software using the metadata below.
+type: software
+authors:
+  - given-names: Matt
+    family-names: Mackes
+    email: matthewmackes@gmail.com
+repository-code: 'https://github.com/matthewmackes/MAP2-RELEASES'
+abstract: >-
+  Mackes Shell is a single GTK3 control panel that replaces
+  xfce4-settings as the daily interface for managing an XFCE-based
+  Fedora workstation. It ships with a Carbon Design System chrome, a
+  mesh fabric (Headscale + Tailscale + SSHFS), a fleet-management
+  layer (Ansible-pull on every peer), browser-accessible remote
+  desktop, and a wizard that brings a fresh machine to a known
+  preset in under five minutes.
+keywords:
+  - xfce
+  - fedora
+  - control-panel
+  - mesh
+  - ansible
+  - carbon-design-system
+license: GPL-3.0-or-later

@@ -12,8 +12,9 @@ include pyproject.toml
 include setup.py
 
 # Branding (logo placed on About, Wizard welcome, and Dashboard header +
-# the standard wallpaper used for desktop + LightDM greeter)
-recursive-include branding *.png *.svg
+# the standard wallpaper used for desktop + LightDM greeter + boot
+# splash MP4 played before the wizard surfaces)
+recursive-include branding *.png *.svg *.mp4 *.webm
 
 # Specs and CI
 recursive-include packaging *

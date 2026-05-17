@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Mackes Conky HUD
+Comment=Right-side desktop HUD with live Mackes state (mesh / fleet / drift / storage)
+Exec=conky -d -c /usr/share/mackes-shell/data/conky/mackes-conky.conf
+Icon=mackes-shell
+Categories=System;Utility;
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-Mackes-Managed=1
+StartupNotify=false
+NoDisplay=false

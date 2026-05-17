@@ -33,16 +33,28 @@ _HAVE = shutil.which
 
 
 def _pkexec(cmd: list[str], *, input_text: str = "", timeout: int = 30) -> tuple[int, str, str]:
-    prefix = ["pkexec"] if _HAVE("pkexec") else (["sudo"] if _HAVE("sudo") else [])
-    try:
-        proc = subprocess.run(
-            prefix + cmd,
-            input=input_text if input_text else None,
-            capture_output=True, text=True, timeout=timeout,
-        )
-        return proc.returncode, proc.stdout or "", proc.stderr or ""
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return 1, "", str(e)
+    """Privileged-exec wrapper.
+
+    v1.4.0: when AdminSession is unlocked, uses cached sudo creds (no
+    prompt). Falls back to pkexec/sudo per-call when locked. The
+    input_text branch still uses raw pkexec since AdminSession.run()
+    doesn't pipe stdin yet.
+    """
+    if input_text:
+        # Need stdin piping — keep the legacy path.
+        prefix = ["pkexec"] if _HAVE("pkexec") else (["sudo"] if _HAVE("sudo") else [])
+        try:
+            proc = subprocess.run(
+                prefix + cmd, input=input_text,
+                capture_output=True, text=True, timeout=timeout,
+            )
+            return proc.returncode, proc.stdout or "", proc.stderr or ""
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return 1, "", str(e)
+    # No stdin → route through AdminSession.
+    from mackes.admin_session import AdminSession
+    rc, out = AdminSession.instance().run(cmd, timeout=timeout)
+    return rc, out, ""
 
 
 # ---------------------------------------------------------------------------
