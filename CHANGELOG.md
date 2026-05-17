@@ -3,6 +3,34 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.0.5 — fix Cursor + neofetch installs, clearer output (2026-05-17)
+
+App installer fixes after observing the wizard-time install output:
+
+    Cursor: appimage rc=1
+    <urlopen error [Errno -2] Name or service not known>
+    Claude Code CLI: npm install rc=0
+    changed 2 packages in 2s
+    neofetch: dnf install rc=1
+
+* **Cursor**: the hardcoded `download.cursor.sh` URL was dead — Cursor
+  retired that subdomain. Replaced with a runtime resolver that calls
+  `https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable`
+  (which needs a non-empty User-Agent or returns 400) and pulls the
+  current `downloadUrl` out of the JSON. The User-Agent is passed on
+  the AppImage download request as well.
+
+* **neofetch**: archived upstream in 2024, dropped from Fedora 44 repos.
+  The catalog entry still accepts the name `neofetch` (so existing
+  preset YAMLs keep working) but installs the maintained successor
+  `fastfetch` instead. A separate `fastfetch` catalog entry was added
+  for explicit selection.
+
+* **Output**: per-app install lines now read `App: installed (npm)` on
+  success and `App: FAILED (rc=N) (npm)` on failure instead of the
+  always-on `App: npm install rc=N` form, which looked
+  indistinguishable between success and failure.
+
 ## 1.0.4 — fix xfconf_bridge int/float coercion (2026-05-17)
 
 After installing 1.0.3 and running the wizard, three provisioner steps

@@ -60,8 +60,13 @@ CATALOG: dict[str, AppDef] = {
                       description="Remote desktop client."),
     "mc": AppDef("mc", "Midnight Commander", "dnf",
                  description="Two-pane file manager."),
-    "neofetch": AppDef("neofetch", "neofetch", "dnf",
-                       description="System info in the terminal."),
+    # neofetch was archived upstream in 2024 and dropped from Fedora 44 repos.
+    # fastfetch is the maintained successor and is in Fedora's stock repos.
+    "neofetch": AppDef("neofetch", "fastfetch", "dnf", package="fastfetch",
+                       description="System info in the terminal "
+                                   "(neofetch is archived; installs fastfetch instead)."),
+    "fastfetch": AppDef("fastfetch", "fastfetch", "dnf",
+                        description="System info in the terminal."),
     "microsoft-edge-stable": AppDef(
         "microsoft-edge-stable", "Microsoft Edge", "dnf-thirdparty",
         repo_setup=(
@@ -86,11 +91,11 @@ CATALOG: dict[str, AppDef] = {
     ),
     "cursor": AppDef(
         "cursor", "Cursor", "appimage",
-        appimage_url=(
-            # Cursor publishes AppImages at downloader.cursor.sh; the API redirects
-            # to a CDN URL. Using the stable channel.
-            "https://download.cursor.sh/linux/appImage/x64"
-        ),
+        # appimage_url is resolved at install time via cursor.com's
+        # /api/download endpoint — Cursor doesn't publish a stable
+        # direct URL, and the old download.cursor.sh subdomain is gone.
+        # See _resolve_cursor_appimage_url.
+        appimage_url=None,
         description="AI code editor. AppImage to ~/.local/bin/cursor.",
     ),
     "claude-code": AppDef(
@@ -194,15 +199,42 @@ def run_repo_setup(snippet: str) -> tuple[int, str]:
         return 1, str(e)
 
 
+def _resolve_cursor_appimage_url() -> tuple[Optional[str], str]:
+    """Ask cursor.com for the current stable Linux AppImage URL.
+
+    The cursor.com /api/download endpoint returns JSON with a downloadUrl
+    field that redirects to the CDN. It requires a non-empty User-Agent
+    or 400s. Returns (url_or_None, error_message).
+    """
+    api = ("https://www.cursor.com/api/download"
+           "?platform=linux-x64&releaseTrack=stable")
+    req = urllib.request.Request(api, headers={"User-Agent": "Mozilla/5.0 mackes-shell"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:  # noqa: BLE001
+        return None, f"cursor.com download API failed: {e}"
+    url = payload.get("downloadUrl")
+    if not isinstance(url, str) or not url.startswith("https://"):
+        return None, f"cursor.com download API returned no downloadUrl: {payload!r}"
+    return url, ""
+
+
 def install_appimage(app: AppDef) -> tuple[int, str]:
     """Download the AppImage to ~/.local/bin/<name>, chmod +x, write a .desktop."""
-    if app.appimage_url is None:
+    url = app.appimage_url
+    if url is None and app.name == "cursor":
+        url, err = _resolve_cursor_appimage_url()
+        if url is None:
+            return 1, err
+    if url is None:
         return 1, "no appimage URL configured"
     dst_bin = HOME / ".local" / "bin"
     dst_bin.mkdir(parents=True, exist_ok=True)
     target = dst_bin / app.name
     try:
-        with urllib.request.urlopen(app.appimage_url, timeout=120) as resp:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 mackes-shell"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
             target.write_bytes(resp.read())
         target.chmod(0o755)
     except Exception as e:  # noqa: BLE001
@@ -255,26 +287,29 @@ def install_app(name: str) -> list[str]:
         for line in actions:
             log_action(line)
         return actions
+    def _status(rc: int) -> str:
+        return "installed" if rc == 0 else f"FAILED (rc={rc})"
+
     if app.backend == "dnf":
         rc, out = dnf_install([app.package or app.name])
-        actions.append(f"{app.display}: dnf install rc={rc}")
+        actions.append(f"{app.display}: {_status(rc)} (dnf)")
     elif app.backend == "dnf-thirdparty":
         if app.repo_setup:
             rc, out = run_repo_setup(app.repo_setup)
-            actions.append(f"{app.display}: repo setup rc={rc}")
+            actions.append(f"{app.display}: repo setup {_status(rc)}")
             if rc != 0:
                 actions.append(out.strip().splitlines()[-1] if out.strip() else "repo setup failed")
                 for line in actions:
                     log_action(line)
                 return actions
         rc, out = dnf_install([app.package or app.name])
-        actions.append(f"{app.display}: dnf install rc={rc}")
+        actions.append(f"{app.display}: {_status(rc)} (dnf-thirdparty)")
     elif app.backend == "appimage":
         rc, out = install_appimage(app)
-        actions.append(f"{app.display}: appimage rc={rc}")
+        actions.append(f"{app.display}: {_status(rc)} (appimage)")
     elif app.backend == "npm":
         rc, out = install_npm_global(app.package or app.name)
-        actions.append(f"{app.display}: npm install rc={rc}")
+        actions.append(f"{app.display}: {_status(rc)} (npm)")
     else:
         actions.append(f"{app.display}: unknown backend {app.backend}")
     if out and out.strip():
