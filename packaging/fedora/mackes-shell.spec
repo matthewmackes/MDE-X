@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        1.4.0
+Version:        1.4.1
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -106,6 +106,12 @@ Recommends:     gstreamer1-plugin-openh264
 # wizard's apply_conky step installs the user config + XDG autostart.
 # The Tweaks panel toggle turns the HUD on/off without uninstalling.
 Requires:       conky
+
+# Always-maximize windows (v1.4.1 birthright) — mackes-maximizer is a
+# user-level service that listens for new top-level windows and adds
+# maximized_vert + maximized_horz via wmctrl. Toggleable via Tweaks.
+Requires:       wmctrl
+Requires:       xorg-x11-utils
 
 # Mesh fabric (§8.11–§8.14): WireGuard via Tailscale + self-hosted Headscale
 Requires:       tailscale
@@ -267,6 +273,16 @@ install -m 0644 data/systemd/mackes-mdns-relay.service       %{buildroot}%{_unit
 # Fleet management (v1.3.0) — ansible-pull timer + service
 install -m 0644 data/systemd/mackes-ansible-pull.service     %{buildroot}%{_unitdir}/
 install -m 0644 data/systemd/mackes-ansible-pull.timer       %{buildroot}%{_unitdir}/
+# Always-maximize windows (v1.4.1) — user-level systemd unit
+install -d %{buildroot}%{_userunitdir}
+install -m 0644 data/systemd/mackes-maximizer.service        %{buildroot}%{_userunitdir}/
+# Sudoers drop-in (v1.4.1) — grants NOPASSWD on Mackes-managed commands
+install -D -m 0440 data/sudoers.d/mackes-shell               %{buildroot}/etc/sudoers.d/mackes-shell
+# Maximizer binary
+install -D -m 0755 bin/mackes-maximizer                       %{buildroot}%{_bindir}/mackes-maximizer
+# Maximizer autostart .desktop
+install -D -m 0644 data/applications/mackes-maximizer.desktop \
+    %{buildroot}%{_datadir}/applications/mackes-maximizer.desktop
 # headscale.service is owned by the upstream `headscale` RPM at the same
 # path; shipping our copy would cause a file-conflict on dnf install.
 # Our data/systemd/headscale.service is kept in the source tree as a
@@ -316,6 +332,10 @@ install -m 0755 bin/mackes-mesh-open  %{buildroot}%{_bindir}/mackes-mesh-open
 systemctl enable --now sshd.service || :
 # Refresh systemd unit cache so the new mackes-* units are visible.
 systemctl daemon-reload || :
+# Validate the sudoers drop-in we shipped; on failure remove it so we
+# never break the host's sudo behavior.
+visudo -c -f /etc/sudoers.d/mackes-shell >/dev/null 2>&1 \
+    || rm -f /etc/sudoers.d/mackes-shell
 # Rebuild the GTK icon cache for the vendored Carbon icon theme
 gtk-update-icon-cache -f -t %{_datadir}/icons/Carbon 2>/dev/null || :
 
@@ -332,12 +352,14 @@ fi
 %{_bindir}/mackes-clipboard
 %{_bindir}/mackes-gvfsd-mesh
 %{_bindir}/mackes-mesh-open
+%{_bindir}/mackes-maximizer
 %{py3_sitelib}/mackes/
 %{py3_sitelib}/mackes_shell-%{version}.dist-info/
 %{_datadir}/%{name}/
 %{_datadir}/applications/mackes-shell.desktop
 %{_datadir}/applications/mackes-clipboard.desktop
 %{_datadir}/applications/mackes-conky.desktop
+%{_datadir}/applications/mackes-maximizer.desktop
 %{_datadir}/applications/mackes-mesh-uri-handler.desktop
 %{_datadir}/gvfs/mounts/mesh.mount
 %{_datadir}/icons/hicolor/scalable/apps/mackes-shell.svg
@@ -348,6 +370,8 @@ fi
 %{_unitdir}/mackes-ansible-pull.service
 %{_unitdir}/mackes-ansible-pull.timer
 %{_userunitdir}/mackes-gvfsd-mesh.service
+%{_userunitdir}/mackes-maximizer.service
+%config(noreplace) /etc/sudoers.d/mackes-shell
 # C panel plugin + its descriptor
 %{_libdir}/xfce4/panel/plugins/mackes-clipboard
 %{_datadir}/xfce4/panel/plugins/mackes-clipboard.desktop

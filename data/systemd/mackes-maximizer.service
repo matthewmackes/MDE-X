@@ -1,0 +1,19 @@
+[Unit]
+Description=Mackes Maximizer — force every new top-level window to start maximized
+Documentation=https://github.com/matthewmackes/MAP2-RELEASES
+After=graphical-session.target
+PartOf=graphical-session.target
+# Only run when we have a display. The script also self-checks for DISPLAY
+# and exits cleanly on headless, but the unit-level guard saves a fork.
+ConditionEnvironment=DISPLAY
+ConditionPathExists=!%h/.config/mackes-shell/maximizer.disabled
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/mackes-maximizer
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target

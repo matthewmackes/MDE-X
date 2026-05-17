@@ -11,8 +11,8 @@ from gi.repository import GLib, Gtk  # noqa: E402
 from mackes.logging import log_action
 from mackes.birthright import (
     apply_apps, apply_conky, apply_dnf_update, apply_flathub, apply_fleet,
-    apply_fonts, apply_panel_layout, apply_plymouth, apply_remote_desktop,
-    apply_themes, apply_third_party_repos,
+    apply_fonts, apply_maximize_all, apply_panel_layout, apply_plymouth,
+    apply_remote_desktop, apply_themes, apply_third_party_repos,
 )
 from mackes.presets import (
     Preset, apply_appearance, apply_devices, apply_mesh, apply_network,
@@ -115,6 +115,7 @@ class ApplyPage(Gtk.Box):
             ("Remote desktop",    lambda: apply_remote_desktop(merged)),
             ("Fleet management",  lambda: apply_fleet(merged)),
             ("Conky HUD",         lambda: apply_conky(merged)),
+            ("Maximize windows",  lambda: apply_maximize_all(merged)),
             # ---------------------------------------------------------------
             ("Mesh",              lambda: apply_mesh(merged)),
             ("VPN import",     self._step_vpn),

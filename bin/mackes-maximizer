@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Mackes Maximizer — force every new top-level window to start maximized.
+#
+# v1.4.1 birthright. Runs as a user-level systemd service
+# (mackes-maximizer.service). Wakes once per second, lists every managed
+# top-level window via `wmctrl -l`, and adds maximized_vert +
+# maximized_horz to any window it hasn't seen before. Idempotent — the
+# wmctrl ADD operation is a no-op when the window is already maximized.
+#
+# Override behavior:
+#   - To disable globally: toggle off in Mackes → Tweaks → "Always
+#     maximize windows".
+#   - To exempt one program: add its WM_CLASS to the EXEMPT array below
+#     (or use `xprop WM_CLASS` to inspect a window's class).
+#
+# Exits gracefully when DISPLAY is missing (headless sessions).
+
+set -euo pipefail
+
+POLL_INTERVAL="${MACKES_MAXIMIZER_INTERVAL:-1}"
+
+# Window-class exemptions — these never get force-maximized. Most are
+# small utility windows that maximizing would break.
+EXEMPT=(
+    "xfce4-panel"          # the panel itself
+    "xfdesktop"            # the desktop
+    "mackes-conky"         # the Conky HUD
+    "conky.Conky"          # any conky window
+    "Tilix.tilix-preferences"
+    "Plymouth"             # boot splash
+    "Plymouth.Plymouth"
+)
+
+is_exempt() {
+    local cls="$1"
+    for ex in "${EXEMPT[@]}"; do
+        [[ "$cls" == "$ex"* ]] && return 0
+    done
+    return 1
+}
+
+if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    echo "mackes-maximizer: no DISPLAY — exiting (headless session)"
+    exit 0
+fi
+
+if ! command -v wmctrl >/dev/null 2>&1; then
+    echo "mackes-maximizer: wmctrl not installed — exiting"
+    exit 1
+fi
+
+declare -A SEEN
+echo "mackes-maximizer: polling every ${POLL_INTERVAL}s (DISPLAY=${DISPLAY:-—})"
+
+while true; do
+    # `wmctrl -l` lists managed windows: <wid> <desk> <host> <title>
+    if ! window_list="$(wmctrl -l 2>/dev/null)"; then
+        # X server may have gone away; just wait and retry.
+        sleep "$POLL_INTERVAL"
+        continue
+    fi
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        wid="$(awk '{print $1}' <<<"$line")"
+        [ -z "$wid" ] && continue
+        if [ -n "${SEEN[$wid]:-}" ]; then
+            continue
+        fi
+        SEEN[$wid]=1
+        # Filter by WM_CLASS — skip exempt classes
+        cls="$(xprop -id "$wid" WM_CLASS 2>/dev/null | sed -n 's/.*= "\(.*\)"$/\1/p' | head -n1)"
+        if is_exempt "$cls"; then
+            continue
+        fi
+        # Maximize. -i = window id; -b add,... = add hints to _NET_WM_STATE.
+        wmctrl -i -r "$wid" -b add,maximized_vert,maximized_horz 2>/dev/null || true
+    done <<<"$window_list"
+    sleep "$POLL_INTERVAL"
+done

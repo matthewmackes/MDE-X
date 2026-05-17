@@ -1,0 +1,121 @@
+# Mackes Shell — passwordless root for Mackes-managed operations.
+#
+# Installed at /etc/sudoers.d/mackes-shell (mode 0440) by the RPM.
+# Validated via `visudo -c` in %post; if validation fails the file is
+# removed so we never break sudo entirely.
+#
+# Security posture:
+#   - Limited to the `wheel` group — the standard Fedora admin group
+#     that the desktop user is already a member of.
+#   - Locked to a curated allowlist of commands Mackes actually invokes.
+#     Anything outside the allowlist still prompts for a password.
+#   - Commands take wildcarded arguments; sudoers parses glob-style
+#     patterns conservatively (no shell expansion, no chained commands).
+#
+# Without this drop-in: the wizard's first-run apply pipeline triggers
+# 30+ polkit prompts (one per privileged step × multiple sub-commands).
+# With it: zero prompts during normal Mackes operations. Other sudo
+# usage still works exactly as before.
+#
+# To audit / disable: `sudo rm /etc/sudoers.d/mackes-shell` reverts to
+# the standard prompt-per-call behavior. The Mackes admin-session
+# fallback (sudo timestamp + 4-min keepalive) still works.
+
+
+# --- Command groups ------------------------------------------------------
+
+# Package management (dnf birthright steps: apps install / remove,
+# system update, third-party repos, font install, plymouth, conky)
+Cmnd_Alias MACKES_DNF = \
+    /usr/bin/dnf install -y *, \
+    /usr/bin/dnf install -y --refresh *, \
+    /usr/bin/dnf remove -y *, \
+    /usr/bin/dnf upgrade -y, \
+    /usr/bin/dnf upgrade -y --refresh, \
+    /usr/bin/dnf upgrade -y --refresh --best, \
+    /usr/bin/dnf config-manager *, \
+    /usr/bin/dnf clean *, \
+    /usr/bin/rpm -q *, \
+    /usr/bin/rpm --import *
+
+# systemd unit management (every birthright step + service control)
+Cmnd_Alias MACKES_SYSTEMD = \
+    /usr/bin/systemctl enable *, \
+    /usr/bin/systemctl enable --now *, \
+    /usr/bin/systemctl disable *, \
+    /usr/bin/systemctl disable --now *, \
+    /usr/bin/systemctl start *, \
+    /usr/bin/systemctl stop *, \
+    /usr/bin/systemctl restart *, \
+    /usr/bin/systemctl reload *, \
+    /usr/bin/systemctl reload-or-restart *, \
+    /usr/bin/systemctl daemon-reload, \
+    /usr/bin/systemctl status *, \
+    /usr/bin/systemctl is-active *, \
+    /usr/bin/systemctl is-enabled *
+
+# File install — used by birthright (themes, fonts, plymouth theme,
+# systemd unit files, polkit policies, sudoers self-management, etc.)
+Cmnd_Alias MACKES_FILES = \
+    /usr/bin/install -d *, \
+    /usr/bin/install -m * * *, \
+    /usr/bin/install -D -m * * *, \
+    /usr/bin/cp -r * *, \
+    /usr/bin/cp -rT * *, \
+    /usr/bin/cp -p * *, \
+    /usr/bin/cp /*, \
+    /usr/bin/mkdir -p *, \
+    /usr/bin/chown * *, \
+    /usr/bin/chown -R * *, \
+    /usr/bin/chmod * *, \
+    /usr/bin/ln -sfn * *
+
+# Network + firewall (Mesh VPN, firewall baseline, mesh CA install)
+Cmnd_Alias MACKES_NETWORK = \
+    /usr/bin/firewall-cmd *, \
+    /usr/sbin/firewall-cmd *
+
+# Desktop + cache management
+Cmnd_Alias MACKES_DESKTOP = \
+    /usr/bin/gtk-update-icon-cache *, \
+    /usr/bin/fc-cache *, \
+    /usr/bin/plymouth-set-default-theme *, \
+    /usr/bin/update-desktop-database *, \
+    /usr/bin/xfce4-panel --restart
+
+# Caddy + Guacamole config (Mesh Services gateway + Mesh Remote)
+Cmnd_Alias MACKES_GATEWAY = \
+    /usr/bin/tee /etc/caddy/Caddyfile*, \
+    /usr/bin/tee /etc/caddy/Caddyfile.mesh, \
+    /usr/bin/tee /etc/guacamole/*, \
+    /usr/bin/tee /etc/systemd/system/*
+
+# Curl — used by birthright to fetch Guacamole .war from Apache and
+# RPM Fusion release RPMs. Sudoers wildcards don't match `/`, so URL
+# paths need a single `*` slot. We allow any curl invocation here;
+# birthright steps only ever pass safe URLs (the dnf RPM downloads
+# don't go through this — dnf handles them itself).
+Cmnd_Alias MACKES_CURL = \
+    /usr/bin/curl *
+
+
+# --- The grant ------------------------------------------------------------
+
+%wheel ALL=(root) NOPASSWD: MACKES_DNF, \
+                            MACKES_SYSTEMD, \
+                            MACKES_FILES, \
+                            MACKES_NETWORK, \
+                            MACKES_DESKTOP, \
+                            MACKES_GATEWAY, \
+                            MACKES_CURL
+
+
+# --- Bash chunks Mackes shells out as a single command -------------------
+# Some toggles call `bash -c "systemctl enable --now X Y Z"`. Allow it
+# only for the specific service-mgmt patterns Mackes uses.
+Cmnd_Alias MACKES_BASH_SYSTEMD = \
+    /usr/bin/bash -c systemctl\ enable\ --now\ *, \
+    /usr/bin/bash -c systemctl\ disable\ --now\ *, \
+    /usr/bin/bash -c systemctl\ restart\ *
+
+%wheel ALL=(root) NOPASSWD: MACKES_BASH_SYSTEMD

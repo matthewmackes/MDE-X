@@ -57,6 +57,8 @@ def build(ctx) -> Gtk.Widget:
     summary.append("                       (ansible-pull every 30 min, drift correction)")
     summary.append("  Conky HUD:           top-right Carbon-themed desktop panel")
     summary.append("                       (mesh / fleet / drift / services live, autostart)")
+    summary.append("  Maximize windows:    every new top-level window starts maximized")
+    summary.append("                       (mackes-maximizer.service + wmctrl)")
     summary.append("")
     if ctx.missing_packages:
         summary.append("WARNING: missing required binaries: " + ", ".join(ctx.missing_packages))

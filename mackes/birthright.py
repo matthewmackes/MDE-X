@@ -3,7 +3,7 @@
 Each function is idempotent (safe to re-run via Maintain → Reset to Preset)
 and returns a `list[str]` of action lines for the wizard's apply page log.
 
-These are the eleven "birthright" items the v1.4.0 wizard runs in
+These are the twelve "birthright" items the v1.4.1 wizard runs in
 addition to the v1.0.x xfconf-only apply pipeline:
 
   1. apply_themes              — deploy PadOS GTK theme + Carbon icon theme files
@@ -21,8 +21,11 @@ addition to the v1.0.x xfconf-only apply pipeline:
  11. apply_conky               — Mackes Conky HUD: top-right Carbon-styled
                                   desktop HUD with live mesh/fleet/drift
                                   state (v1.4.0 lock)
+ 12. apply_maximize_all        — every new top-level window starts maximized,
+                                  via the mackes-maximizer user service
+                                  (v1.4.1 lock)
 
-All eleven are wired into mackes/wizard/pages/apply.py between Panel and Mesh.
+All twelve are wired into mackes/wizard/pages/apply.py between Panel and Mesh.
 """
 from __future__ import annotations
 
@@ -850,6 +853,73 @@ def apply_conky(_preset: Preset) -> List[str]:
     else:
         actions.append("conky: HUD will start at next login (autostart)")
 
+    for line in actions:
+        log_action(line)
+    return actions
+
+
+# ---------------------------------------------------------------------------
+# 12. Always-maximize windows — wmctrl-based maximizer (v1.4.1 birthright)
+# ---------------------------------------------------------------------------
+
+
+def apply_maximize_all(_preset: Preset) -> List[str]:
+    """Install + enable the mackes-maximizer user service.
+
+    Every new top-level window will start maximized. Toggleable via
+    Tweaks → 'Always maximize windows' or by creating the file
+    ~/.config/mackes-shell/maximizer.disabled.
+    """
+    actions: List[str] = []
+    if shutil.which("dnf") is None:
+        actions.append("maximize-all: dnf not available — skipping")
+        return actions
+
+    # ---- 1. Install wmctrl + xprop ----------------------------------
+    needed = []
+    if shutil.which("wmctrl") is None:
+        needed.append("wmctrl")
+    if shutil.which("xprop") is None:
+        needed.append("xorg-x11-utils")
+    if needed:
+        actions.append(f"maximize-all: installing {', '.join(needed)} via dnf")
+        rc, out = _run_root(["dnf", "install", "-y", *needed], timeout=300)
+        if rc != 0:
+            last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
+            actions.append(f"maximize-all: install failed: {last}")
+            return actions
+    else:
+        actions.append("maximize-all: wmctrl + xprop already installed")
+
+    # ---- 2. Ensure systemd user unit + autostart are reachable -------
+    # The RPM installs mackes-maximizer.service + mackes-maximizer.desktop
+    # to system paths; the wizard just has to enable the user unit and
+    # let the autostart .desktop fire on graphical login.
+    if shutil.which("systemctl"):
+        rc, _ = _run(["systemctl", "--user", "enable", "--now",
+                       "mackes-maximizer.service"], timeout=10)
+        if rc == 0:
+            actions.append("maximize-all: mackes-maximizer.service enabled + started")
+        else:
+            actions.append(
+                "maximize-all: user-systemctl enable failed; will rely on "
+                "XDG autostart at next graphical login"
+            )
+
+    # ---- 3. Clear the disable-flag file in case it's leftover from
+    # a previous opt-out --------------------------------------------------
+    disabled_flag = Path(os.path.expanduser(
+        "~/.config/mackes-shell/maximizer.disabled"))
+    if disabled_flag.exists():
+        try:
+            disabled_flag.unlink()
+            actions.append("maximize-all: cleared disable flag")
+        except OSError:
+            pass
+
+    actions.append(
+        "maximize-all: ready — toggle via Tweaks → 'Always maximize windows'"
+    )
     for line in actions:
         log_action(line)
     return actions

@@ -442,6 +442,19 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         help_btn.connect("clicked", lambda *_: self.go_to("help"))
         header.pack_end(help_btn, False, False, 0)
 
+        # v1.4.1 — always-visible Setup Wizard button (next to Help).
+        # Users were missing the wizard entry point; the Tweaks drawer's
+        # "Re-open Wizard" button is too hidden.
+        wiz_btn = Gtk.Button(label="Setup")
+        wiz_btn.set_image(
+            Gtk.Image.new_from_icon_name("system-run-symbolic", Gtk.IconSize.BUTTON))
+        wiz_btn.set_always_show_image(True)
+        wiz_btn.get_style_context().add_class("mackes-header-action")
+        wiz_btn.set_relief(Gtk.ReliefStyle.NONE)
+        wiz_btn.set_tooltip_text("Open the Setup Wizard — re-run birthright")
+        wiz_btn.connect("clicked", self._on_open_wizard)
+        header.pack_end(wiz_btn, False, False, 0)
+
         # ---- Admin session lock/unlock button (v1.4.0) -------------------
         from mackes.admin_session import AdminSession
         self._admin = AdminSession.instance()
@@ -801,6 +814,21 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
     def _on_preset_chip(self, *_) -> None:
         if self._tweaks_overlay is not None:
             self._tweaks_overlay.open()
+
+    def _on_open_wizard(self, *_) -> None:
+        """Header → Setup button. Force the wizard regardless of provisioned state."""
+        try:
+            from mackes.wizard.window import WizardWindow
+            from mackes.state import MackesState
+            state = MackesState.load()
+            w = WizardWindow(application=self.get_application(), state=state)
+            w.show_all()
+        except Exception as e:  # noqa: BLE001
+            try:
+                from mackes.workbench.shell.toasts import toast
+                toast(f"Could not open wizard: {e}", kind="error")
+            except Exception:  # noqa: BLE001
+                pass
 
 
 # ---------------------------------------------------------------------------

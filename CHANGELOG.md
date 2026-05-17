@@ -3,6 +3,49 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.4.1 — Sudoers, installer UX, wizard discoverability, maximize-all (2026-05-17)
+
+Five user-reported friction points addressed:
+
+**Sudoers drop-in** (`data/sudoers.d/mackes-shell`, installed at
+`/etc/sudoers.d/mackes-shell` mode 0440). Grants the `wheel` group
+NOPASSWD on the Mackes-managed command allowlist (dnf, systemctl,
+firewall-cmd, install/cp/chown, gtk-update-icon-cache,
+plymouth-set-default-theme, the Apache-archive curls birthright uses,
+tee for specific config paths). Validated by `visudo -c` in `%post`;
+on failure the file is removed so the host's sudo behavior is never
+broken. `AdminSession.run()` short-circuits to `sudo -n` when this
+drop-in is active — no prompts at all during normal Mackes
+operations. The previous prompt-storm during the wizard's birthright
+pipeline is gone.
+
+**Carbon-styled installer** (`install.sh` rewrite). Each phase
+renders as a Carbon banner row with a spinner: Detect Fedora →
+Resolve release tag → Download RPM → Install via dnf → Hand off to
+wizard. The dnf transaction streams its output as Carbon-dimmed
+lines instead of going dark for several minutes. Logs to
+`/tmp/mackes-install.*.log` for triage.
+
+**Always-visible Setup button in the header** — next to the Help
+button. Opens the wizard regardless of `state.provisioned`. The
+hidden "Re-open Wizard" inside the Tweaks drawer stays for muscle
+memory.
+
+**Birthright health check** (`mackes/birthright_check.py`): 12 probes
+that verify each apply_* step's on-disk artifacts (theme dirs, IBM
+Plex packages, Plymouth theme active, sudoers drop-in present, panel
+layout xfconf, RPM/AppImage app presence, xrdp + Guacamole config,
+ansible-pull timer enabled, Conky config + autostart, maximizer
+service, Flathub remote, third-party repos). `is_complete()` returns
+True only when all 12 pass.
+
+**Always-maximize windows** (12th birthright). A new user-level
+service `mackes-maximizer.service` polls `wmctrl -l` once per second
+and adds `maximized_vert`/`maximized_horz` to every new top-level
+window. Exempt classes: `xfce4-panel`, `xfdesktop`, `mackes-conky`,
+`Plymouth`. RPM Requires `wmctrl` + `xorg-x11-utils` (for `xprop`).
+Disable per-user via `~/.config/mackes-shell/maximizer.disabled`.
+
 ## 1.4.0 — Debloat tiers, TUI, Splash, Conky HUD, Session unlock, full Carbon (2026-05-17)
 
 Seven user-driven additions plus the Carbon-completion pass that finishes

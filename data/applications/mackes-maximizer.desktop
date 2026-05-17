@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Mackes Maximizer
+Comment=Force every new top-level window to start maximized
+Exec=/usr/bin/mackes-maximizer
+Icon=mackes-shell
+Categories=Utility;
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-Mackes-Managed=1
+StartupNotify=false
+NoDisplay=true

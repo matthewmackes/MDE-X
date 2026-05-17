@@ -62,10 +62,56 @@ class AdminSession:
     # ---- state queries ---------------------------------------------------
 
     def is_unlocked(self) -> bool:
-        return self._unlocked
+        """True when sudo will run without prompting.
+
+        v1.4.1: also returns True when the sudoers drop-in
+        /etc/sudoers.d/mackes-shell grants NOPASSWD coverage —
+        the user is implicitly "always unlocked" for Mackes-managed
+        commands without ever clicking Unlock.
+        """
+        if self._unlocked:
+            return True
+        # Cheap NOPASSWD probe — `sudo -n -v` exits 0 iff sudoers grants
+        # the current user *any* NOPASSWD entry. We don't run it on
+        # every call (would be wasteful); cached for 60s.
+        return self._has_nopasswd_coverage()
 
     def unlocked_at(self) -> Optional[float]:
         return self._unlocked_at
+
+    # ---- NOPASSWD detection (v1.4.1) -------------------------------------
+
+    _nopasswd_cache: Optional[bool] = None
+    _nopasswd_cache_at: float = 0.0
+    _NOPASSWD_TTL = 60.0
+
+    def _has_nopasswd_coverage(self) -> bool:
+        """True iff /etc/sudoers.d/mackes-shell (or equivalent) is active."""
+        now = time.time()
+        if (self._nopasswd_cache is not None
+                and (now - self._nopasswd_cache_at) < self._NOPASSWD_TTL):
+            return self._nopasswd_cache
+        result = False
+        if shutil.which("sudo"):
+            try:
+                # `sudo -n -l` lists every privilege the user has WITHOUT
+                # prompting. Grep for NOPASSWD — that signals the
+                # drop-in is in effect for at least some commands.
+                r = subprocess.run(["sudo", "-n", "-l"],
+                                    capture_output=True, text=True,
+                                    timeout=4)
+                if r.returncode == 0 and "NOPASSWD" in (r.stdout or ""):
+                    result = True
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        self._nopasswd_cache = result
+        self._nopasswd_cache_at = now
+        return result
+
+    def invalidate_nopasswd_cache(self) -> None:
+        """Force re-probe (call after dropping/installing sudoers files)."""
+        self._nopasswd_cache = None
+        self._nopasswd_cache_at = 0.0
 
     def age_seconds(self) -> Optional[float]:
         if self._unlocked_at is None:
@@ -98,8 +144,25 @@ class AdminSession:
         """Authenticate once, then hold credentials for the rest of the session.
 
         Returns True on success. False on auth failure or sudo unavailable.
+
+        v1.4.1: if /etc/sudoers.d/mackes-shell already grants NOPASSWD
+        coverage, return True immediately without prompting.
         """
         if self._unlocked:
+            return True
+        if self._has_nopasswd_coverage():
+            # Already effectively unlocked — fire listeners so the UI
+            # picks up the state without prompting the user.
+            with self._lock:
+                self._unlocked = True
+                self._unlocked_at = time.time()
+            self._notify()
+            try:
+                from mackes.logging import log_action
+                log_action("admin session: NOPASSWD sudoers drop-in active "
+                           "— no prompt needed")
+            except Exception:  # noqa: BLE001
+                pass
             return True
         if not shutil.which("sudo"):
             # No sudo → fall back to per-call pkexec; we can't keep a session.
@@ -163,11 +226,16 @@ class AdminSession:
             capture: bool = True) -> tuple[int, str]:
         """Execute `cmd` with admin privileges.
 
-        Uses the cached sudo credentials when the session is unlocked.
-        Falls back to a per-call pkexec prompt when locked. Always
-        returns (returncode, combined stdout+stderr).
+        v1.4.1 priority order:
+          1. NOPASSWD sudoers drop-in active → `sudo -n` (no prompt ever)
+          2. Session explicitly unlocked → `sudo -n` (cached creds)
+          3. pkexec fallback (single GUI prompt) → `pkexec`
+          4. Bare sudo (terminal prompt) → `sudo`
+          5. No elevation available → raw command (will fail if it needs root)
         """
-        if self._unlocked and shutil.which("sudo"):
+        if shutil.which("sudo") and (
+            self._unlocked or self._has_nopasswd_coverage()
+        ):
             full = ["sudo", "-n", *cmd]
         elif shutil.which("pkexec"):
             full = ["pkexec", *cmd]
