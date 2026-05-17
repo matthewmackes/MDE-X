@@ -164,16 +164,11 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         return _wrap_in_scroller(FirewallPanel())
 
     def _apps():
-        from mackes.workbench.apps.install import AppsInstallPanel
-        from mackes.workbench.apps.remove import AppsRemovePanel
-        from mackes.workbench.apps.installed import AppsInstalledPanel
-        return _build_subnav_container([
-            ("apps_install", "Install", AppsInstallPanel()),
-            ("apps_remove", "Remove", AppsRemovePanel()),
-            ("apps_installed", "Installed", AppsInstalledPanel()),
-        ])
+        from mackes.workbench.apps.panel import AppsPanel
+        return AppsPanel()
 
     def _maintain():
+        from mackes.workbench.maintain.hub import MaintainHub
         from mackes.workbench.maintain.snapshots import SnapshotsPanel
         from mackes.workbench.maintain.drift import DriftPanel
         from mackes.workbench.maintain.fonts import FontsPanel
@@ -186,20 +181,54 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         from mackes.workbench.maintain.reset_to_preset import ResetToPresetPanel
         from mackes.workbench.maintain.system_update import SystemUpdatePanel
         from mackes.workbench.maintain.uninstall import UninstallPanel
-        return _build_subnav_container([
-            ("snapshots", "Snapshots", SnapshotsPanel(state)),
-            ("drift", "Drift", DriftPanel(state)),
-            ("update", "System Update", SystemUpdatePanel()),
-            ("fonts", "Fonts", FontsPanel()),
-            ("power", "Power", MaintPower()),
-            ("resources", "Resources", ResourcesPanel()),
-            ("health", "Health Check", HealthCheckPanel()),
-            ("deps", "Dependencies", DependenciesPanel()),
-            ("logs", "Logs", LogsPanel()),
-            ("repair", "Repair", RepairPanel(state)),
-            ("reset", "Reset to Preset", ResetToPresetPanel(state)),
-            ("uninstall", "Uninstall", UninstallPanel()),
-        ])
+
+        # Inner Gtk.Stack — hub view + sub-panels. Tile clicks call
+        # stack.set_visible_child_name(<key>); a "← Back to Maintain" link
+        # at the top of each sub-panel returns to the hub.
+        inner_stack = Gtk.Stack()
+        inner_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        inner_stack.set_transition_duration(120)
+
+        def _go(key: str) -> None:
+            inner_stack.set_visible_child_name(key)
+
+        # Wrap each sub-panel with a back-link header
+        def _wrap_with_back(panel: Gtk.Widget, label: str) -> Gtk.Widget:
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            head.set_margin_top(16); head.set_margin_start(40)
+            head.set_margin_end(40); head.set_margin_bottom(0)
+            back = Gtk.Button(label="‹ Back to Maintain")
+            back.set_relief(Gtk.ReliefStyle.NONE)
+            back.get_style_context().add_class("cds-button-ghost")
+            back.connect("clicked", lambda *_: _go("__hub"))
+            head.pack_start(back, False, False, 0)
+            crumb = Gtk.Label(label=f"Maintain  /  {label}")
+            crumb.set_xalign(0)
+            crumb.get_style_context().add_class("mackes-breadcrumb")
+            head.pack_start(crumb, True, True, 0)
+            box.pack_start(head, False, False, 0)
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.add(panel)
+            box.pack_start(scroll, True, True, 0)
+            return box
+
+        inner_stack.add_named(MaintainHub(on_open=_go, state=state), "__hub")
+        inner_stack.add_named(_wrap_with_back(SnapshotsPanel(state), "Snapshots"), "snapshots")
+        inner_stack.add_named(_wrap_with_back(DriftPanel(state), "Drift"), "drift")
+        inner_stack.add_named(_wrap_with_back(SystemUpdatePanel(), "System update"), "update")
+        inner_stack.add_named(_wrap_with_back(FontsPanel(), "Fonts"), "fonts")
+        inner_stack.add_named(_wrap_with_back(MaintPower(), "Power"), "power")
+        inner_stack.add_named(_wrap_with_back(ResourcesPanel(), "Resources"), "resources")
+        inner_stack.add_named(_wrap_with_back(HealthCheckPanel(), "Health"), "health")
+        inner_stack.add_named(_wrap_with_back(DependenciesPanel(), "Dependencies"), "deps")
+        inner_stack.add_named(_wrap_with_back(LogsPanel(), "Logs"), "logs")
+        inner_stack.add_named(_wrap_with_back(RepairPanel(state), "Repair"), "repair")
+        inner_stack.add_named(_wrap_with_back(ResetToPresetPanel(state), "Reset to Preset"), "reset")
+        inner_stack.add_named(_wrap_with_back(UninstallPanel(), "Uninstall"), "uninstall")
+        inner_stack.set_visible_child_name("__hub")
+        return inner_stack
 
     def _snapshots():
         from mackes.workbench.maintain.snapshots import SnapshotsPanel

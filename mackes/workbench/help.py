@@ -272,16 +272,17 @@ class HelpPanel(Gtk.Box):
         self._build()
 
     def _build(self) -> None:
-        # ----- Left: topic list -----
+        # ----- Left: Carbon-styled topic rail -----
         sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        sidebar.set_size_request(240, -1)
+        sidebar.set_size_request(260, -1)
+        sidebar.get_style_context().add_class("mackes-side-nav")
+
         sidebar_header = Gtk.Label(label="HELP TOPICS")
         sidebar_header.set_xalign(0)
-        sidebar_header.set_margin_top(16)
-        sidebar_header.set_margin_bottom(8)
-        sidebar_header.set_margin_start(16)
-        sidebar_header.set_margin_end(16)
-        sidebar_header.get_style_context().add_class("mackes-section-header")
+        sidebar_header.set_margin_top(20)
+        sidebar_header.set_margin_bottom(4)
+        sidebar_header.set_margin_start(16); sidebar_header.set_margin_end(16)
+        sidebar_header.get_style_context().add_class("mackes-side-nav-group-title")
         sidebar.pack_start(sidebar_header, False, False, 0)
 
         listbox = Gtk.ListBox()
@@ -297,6 +298,7 @@ class HelpPanel(Gtk.Box):
         for tid, label, _path in self._topics:
             row = Gtk.ListBoxRow()
             row.topic_id = tid  # type: ignore[attr-defined]
+            row.get_style_context().add_class("mackes-side-nav-item")
             inner = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             inner.set_margin_top(8); inner.set_margin_bottom(8)
             inner.set_margin_start(16); inner.set_margin_end(16)
@@ -307,34 +309,41 @@ class HelpPanel(Gtk.Box):
             listbox.add(row)
 
         self.pack_start(sidebar, False, False, 0)
-        self.pack_start(
-            Gtk.Separator(orientation=Gtk.Orientation.VERTICAL),
-            False, False, 0,
-        )
 
-        # ----- Right: content pane -----
+        # ----- Right: Carbon page header + markdown content -----
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        # Title bar
+        # Breadcrumb
+        crumb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        crumb.set_margin_top(32); crumb.set_margin_start(40); crumb.set_margin_end(40)
+        crumb.get_style_context().add_class("mackes-breadcrumb")
+        for i, p in enumerate(("Mackes Shell", "Help")):
+            lab = Gtk.Label(label=p); lab.set_xalign(0)
+            crumb.pack_start(lab, False, False, 0)
+            if i != 1:
+                sep = Gtk.Label(label="/"); sep.set_xalign(0)
+                sep.get_style_context().add_class("mackes-dot")
+                crumb.pack_start(sep, False, False, 0)
+        right.pack_start(crumb, False, False, 0)
+
+        # Page title (updates per topic)
         self._title_lbl = Gtk.Label(label="Mackes Shell — User Guide")
         self._title_lbl.set_xalign(0)
-        self._title_lbl.set_margin_top(20)
-        self._title_lbl.set_margin_bottom(8)
-        self._title_lbl.set_margin_start(28)
-        self._title_lbl.set_margin_end(28)
-        self._title_lbl.get_style_context().add_class("mackes-panel-title")
+        self._title_lbl.set_margin_top(8); self._title_lbl.set_margin_bottom(20)
+        self._title_lbl.set_margin_start(40); self._title_lbl.set_margin_end(40)
+        self._title_lbl.get_style_context().add_class("mackes-page-title")
         right.pack_start(self._title_lbl, False, False, 0)
 
-        # Content TextView
+        # Markdown content view (existing rendering kept; just Carbon margins)
         self._textview = Gtk.TextView()
         self._textview.set_editable(False)
         self._textview.set_cursor_visible(False)
         self._textview.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self._textview.set_left_margin(28)
-        self._textview.set_right_margin(28)
-        self._textview.set_top_margin(8)
-        self._textview.set_bottom_margin(20)
-        self._textview.set_pixels_above_lines(2)
-        self._textview.set_pixels_below_lines(2)
+        self._textview.set_left_margin(40)
+        self._textview.set_right_margin(40)
+        self._textview.set_top_margin(0)
+        self._textview.set_bottom_margin(32)
+        self._textview.set_pixels_above_lines(4)
+        self._textview.set_pixels_below_lines(4)
         self._textview.connect("button-release-event", self._on_textview_click)
 
         scroll_content = Gtk.ScrolledWindow()

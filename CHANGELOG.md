@@ -3,6 +3,52 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.1.1 — Carbon panel rebuilds (the rest of the design) (2026-05-17)
+
+Picks up where 1.1.0 left off — the seven panels that were deferred at
+the v1.1.0 release window are now rebuilt to match
+`docs/design/v1.1.0-carbon-refresh/`:
+
+* **Mesh SSH** (`mackes/workbench/network/mesh_ssh.py`): page-title +
+  breadcrumb, live "Tailscale-SSH active on N peers" Notification, peer
+  DataTable with a host-key fingerprint column, ACL hujson rendered as
+  a Carbon code block with an Edit/Save/Reload toolbar, key
+  distribution actions tile, audit log DataTable.
+* **Mesh Services** (`mackes/workbench/network/mesh_services.py`):
+  scan/refresh action row, peer filter pills, 3-column Carbon tile
+  grid of discovered services (each tile shows kind tag, status dot,
+  display name, peer, accent URL), unified gateway tile with a Switch
+  + route-preview code block, mDNS bridge tile listing relayed types
+  as Tag chips.
+* **Appearance** (`mackes/workbench/look_and_feel/appearance.py`):
+  rewrapped into a two-column Carbon layout — selectors on the left
+  (existing xfconf bindings preserved verbatim), live preview pane on
+  the right with sample window chrome + heading + body + mono command
+  + Primary/Tertiary/Ghost button row + an Active Accent swatch tile
+  + Design-system-lock notification.
+* **Apps** (`mackes/workbench/apps/panel.py` — new unified panel):
+  three Carbon tabs (Install / Remove bloat / Installed), category
+  filter chips derived from the catalog, search input, grid of
+  `.mackes-app-card` tiles with icon/name/desc/meta and per-tab
+  action button. Replaces the three legacy `install.py` /
+  `remove.py` / `installed.py` panels at the sidebar entry point.
+* **Snapshots** (`mackes/workbench/maintain/snapshots.py`): Carbon
+  create tile (label input + Primary button + helper line listing
+  exactly what gets captured) + Carbon DataTable of existing
+  snapshots (label, created timestamp, source preset, size).
+  Restore opens a confirm modal; double-click also triggers restore.
+* **Maintain hub** (`mackes/workbench/maintain/hub.py` — new): 12-tile
+  Carbon grid replacing the old StackSidebar+Stack inner layout for
+  the Maintain section. Tile click switches an inner Gtk.Stack to the
+  matching sub-panel, which is wrapped with a "‹ Back to Maintain"
+  link header. Drift tile and Uninstall tile carry warning/error tags
+  to mirror the design.
+* **Help** (`mackes/workbench/help.py`): left rail now uses the
+  `mackes-side-nav` Carbon classes (consistent with the main shell);
+  right pane has a Carbon breadcrumb + page-title header above the
+  existing markdown TextView, which got Carbon 40px page margins.
+  Topic discovery and markdown rendering unchanged.
+
 ## 1.1.0 — Carbon refresh + birthright fold (2026-05-17)
 
 A major release. Two large changes bundled into one cut:

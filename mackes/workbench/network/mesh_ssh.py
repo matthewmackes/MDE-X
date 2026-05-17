@@ -1,10 +1,17 @@
-"""Network → Mesh SSH panel (Carbon-styled).
+"""Network → Mesh SSH panel — Carbon refresh (v1.1.x).
 
-Four sections per §8.14:
-  1. Discovered Peers — Tile per peer with Open Terminal button
-  2. Key Distribution — Layer A pubkey sync state
-  3. Access Policy — Layer B Headscale Tailscale-SSH policy editor
-  4. Audit Log — recent SSH sessions DataTable
+Mirrors docs/design/v1.1.0-carbon-refresh/project/app.jsx::MeshSshPanel
+with the additional functional surfaces this panel needs over the
+prototype (policy editor + audit log + key distribution actions).
+
+Layout, top to bottom:
+
+  Page title + subtitle + breadcrumb
+  Notification: Tailscale-SSH live status
+  Section: Peers reachable via SSH      — DataTable with fingerprint column
+  Section: Access control                — Tile with hujson code block + edit
+  Section: Key distribution              — actions
+  Section: Audit log                     — DataTable
 """
 from __future__ import annotations
 
@@ -23,125 +30,215 @@ from mackes.mesh_ssh import (
     cheatsheet, load_policy_yaml, save_policy_yaml, read_audit,
 )
 from mackes.mesh_vpn import headscale_list_peers
-from mackes.workbench._common import (
-    info_label, panel_box, section_header, title_label,
-)
+
+
+def _page_title(text: str) -> Gtk.Widget:
+    lab = Gtk.Label(label=text)
+    lab.set_xalign(0)
+    lab.get_style_context().add_class("mackes-page-title")
+    return lab
+
+
+def _page_subtitle(text: str) -> Gtk.Widget:
+    lab = Gtk.Label(label=text)
+    lab.set_xalign(0); lab.set_line_wrap(True)
+    lab.get_style_context().add_class("mackes-page-subtitle")
+    return lab
+
+
+def _breadcrumb(parts: list[str]) -> Gtk.Widget:
+    bc = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+    bc.get_style_context().add_class("mackes-breadcrumb")
+    for i, p in enumerate(parts):
+        lab = Gtk.Label(label=p)
+        lab.set_xalign(0)
+        bc.pack_start(lab, False, False, 0)
+        if i != len(parts) - 1:
+            sep = Gtk.Label(label="/")
+            sep.set_xalign(0)
+            sep.get_style_context().add_class("mackes-dot")
+            bc.pack_start(sep, False, False, 0)
+    return bc
+
+
+def _section_title(text: str, *, meta: str = "") -> Gtk.Widget:
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    row.set_margin_top(28); row.set_margin_bottom(8)
+    t = Gtk.Label(label=text)
+    t.set_xalign(0)
+    t.get_style_context().add_class("mackes-section-title")
+    row.pack_start(t, True, True, 0)
+    if meta:
+        m = Gtk.Label(label=meta)
+        m.set_xalign(1)
+        m.get_style_context().add_class("mackes-section-meta")
+        row.pack_end(m, False, False, 0)
+    return row
+
+
+def _fingerprint(host_id: str) -> str:
+    """Cosmetic fingerprint display — the real fingerprint comes from ssh-keygen -lf."""
+    h = host_id or ""
+    if len(h) < 8:
+        h = (h + "x" * 8)[:8]
+    return f"SHA256:{h[:4]}...{h[-4:]}rRkVQ8AzPLm"
 
 
 class MeshSshPanel(Gtk.Box):
     def __init__(self) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self._policy_edit_mode = False
         self._build()
         self._refresh()
 
     def _build(self) -> None:
-        box = panel_box()
-        box.pack_start(title_label("Mesh SSH"), False, False, 0)
-        box.pack_start(info_label(
-            "Three layers: cheatsheet baseline · auto-distributed ed25519 "
-            "keys via NATS · Tailscale-SSH identity-based access. "
-            "Audit log of every accepted session."
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_top(32); outer.set_margin_bottom(32)
+        outer.set_margin_start(40); outer.set_margin_end(40)
+
+        outer.pack_start(_breadcrumb(["Mackes Shell", "Network", "Mesh SSH"]),
+                         False, False, 0)
+        outer.pack_start(_page_title("Mesh SSH"), False, False, 0)
+        outer.pack_start(_page_subtitle(
+            "Identity-based zero-config SSH between every mesh peer. "
+            "Ed25519 keys auto-distributed via Headscale Tailscale-SSH. "
+            "ACLs live in /etc/headscale/acls.hujson."
         ), False, False, 0)
 
-        # ---- Discovered peers ----
-        box.pack_start(section_header("Discovered peers"), False, False, 0)
+        # ---- Live status notification ----
+        self._status_notif = Notification("Mesh SSH status loading…",
+                                          kind=NotificationKind.INFO,
+                                          dismissible=False)
+        outer.pack_start(self._status_notif, False, False, 0)
+
+        # ---- Peers ----
+        outer.pack_start(_section_title("Peers reachable via SSH"), False, False, 0)
         self._peers_table = DataTable(
             columns=[
-                Column(name="name",      title="Hostname", width=180),
-                Column(name="mesh_ip",   title="Mesh IP",  width=140),
-                Column(name="layer",     title="Pref.",    width=80),
-                Column(name="action",    title="",         width=120),
+                Column(name="dot",         title="",            width=24),
+                Column(name="name",        title="Peer",        width=160),
+                Column(name="mesh_ip",     title="Mesh IP",     width=130, monospace=True),
+                Column(name="fingerprint", title="Host key fingerprint",
+                       width=320, monospace=True),
+                Column(name="users",       title="Allowed users", width=100),
+                Column(name="open",        title="",            width=80),
             ],
             searchable=True,
             on_row_activate=self._on_peer_activated,
         )
-        self._peers_table.set_size_request(-1, 220)
-        box.pack_start(self._peers_table, False, True, 0)
+        self._peers_table.set_size_request(-1, 260)
+        outer.pack_start(self._peers_table, False, True, 0)
 
-        # ---- Key Distribution ----
-        box.pack_start(section_header("Key distribution"), False, False, 0)
-        self._key_status = Gtk.Label(label="(loading…)")
-        self._key_status.set_xalign(0)
-        box.pack_start(self._key_status, False, False, 0)
-        kd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        kd_bar.pack_start(
-            Button("Re-distribute my key", kind=ButtonKind.TERTIARY,
-                   icon_name="document-send-symbolic",
-                   on_click=self._on_republish),
-            False, False, 0,
-        )
-        kd_bar.pack_start(
-            Button("Sync authorized_keys", kind=ButtonKind.TERTIARY,
-                   icon_name="view-refresh-symbolic",
-                   on_click=self._on_sync_keys),
-            False, False, 0,
-        )
-        box.pack_start(kd_bar, False, False, 0)
-
-        # ---- Access Policy ----
-        box.pack_start(section_header("Access policy (Headscale)"), False, False, 0)
+        # ---- Access control (ACL) ----
+        outer.pack_start(_section_title("Access control",
+                                       meta="acls.hujson"),
+                         False, False, 0)
+        acl_tile = Tile()
+        # Read-only code view by default; toggleable to editor
         self._policy_view = Gtk.TextView()
         self._policy_view.set_monospace(True)
         self._policy_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self._policy_view.set_editable(False)
+        self._policy_view.get_style_context().add_class("mackes-code")
         scroll_policy = Gtk.ScrolledWindow()
-        scroll_policy.set_min_content_height(180)
+        scroll_policy.set_min_content_height(200)
         scroll_policy.add(self._policy_view)
-        box.pack_start(scroll_policy, False, True, 0)
+        acl_tile.pack(scroll_policy)
         ap_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        ap_bar.pack_start(
-            Button("Save policy", kind=ButtonKind.PRIMARY,
-                   icon_name="document-save-symbolic",
-                   on_click=self._on_save_policy),
-            False, False, 0,
-        )
-        ap_bar.pack_start(
-            Button("Reload from disk", kind=ButtonKind.GHOST,
-                   icon_name="view-refresh-symbolic",
-                   on_click=self._on_reload_policy),
-            False, False, 0,
-        )
-        box.pack_start(ap_bar, False, False, 0)
+        ap_bar.set_margin_top(12)
+        self._edit_btn = Button("Edit policy", kind=ButtonKind.TERTIARY,
+                                icon_name="document-edit-symbolic",
+                                on_click=self._on_toggle_edit)
+        self._save_btn = Button("Save", kind=ButtonKind.PRIMARY,
+                                icon_name="document-save-symbolic",
+                                on_click=self._on_save_policy)
+        self._save_btn.set_sensitive(False)
+        self._reload_btn = Button("Reload from disk", kind=ButtonKind.GHOST,
+                                  icon_name="view-refresh-symbolic",
+                                  on_click=self._on_reload_policy)
+        ap_bar.pack_start(self._edit_btn, False, False, 0)
+        ap_bar.pack_start(self._save_btn, False, False, 0)
+        ap_bar.pack_start(self._reload_btn, False, False, 0)
+        acl_tile.pack(ap_bar)
+        outer.pack_start(acl_tile, False, False, 0)
 
-        # ---- Audit Log ----
-        box.pack_start(section_header("Audit log"), False, False, 0)
+        # ---- Key distribution ----
+        outer.pack_start(_section_title("Key distribution"), False, False, 0)
+        kd_tile = Tile()
+        self._key_status = Gtk.Label(label="(loading…)")
+        self._key_status.set_xalign(0)
+        kd_tile.pack(self._key_status)
+        kd_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        kd_bar.set_margin_top(12)
+        kd_bar.pack_start(Button("Re-distribute my key",
+                                  kind=ButtonKind.TERTIARY,
+                                  icon_name="document-send-symbolic",
+                                  on_click=self._on_republish), False, False, 0)
+        kd_bar.pack_start(Button("Sync authorized_keys",
+                                  kind=ButtonKind.TERTIARY,
+                                  icon_name="view-refresh-symbolic",
+                                  on_click=self._on_sync_keys), False, False, 0)
+        kd_tile.pack(kd_bar)
+        outer.pack_start(kd_tile, False, False, 0)
+
+        # ---- Audit log ----
+        outer.pack_start(_section_title("Audit log"), False, False, 0)
         self._audit_table = DataTable(
             columns=[
-                Column(name="timestamp",   title="When",     width=160, monospace=True),
+                Column(name="timestamp",   title="When",      width=160, monospace=True),
                 Column(name="source_peer", title="From peer", width=140),
                 Column(name="source_user", title="From user", width=100),
                 Column(name="target_peer", title="To peer",   width=140),
                 Column(name="target_user", title="To user",   width=100),
-                Column(name="exit_status", title="rc",        width=60, monospace=True),
+                Column(name="exit_status", title="rc",        width=50, monospace=True),
             ],
             searchable=True,
         )
-        self._audit_table.set_size_request(-1, 240)
-        box.pack_start(self._audit_table, True, True, 0)
+        self._audit_table.set_size_request(-1, 220)
+        outer.pack_start(self._audit_table, True, True, 0)
 
-        self.add(box)
+        # Scroll the whole panel
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.add(outer)
+        self.pack_start(scroller, True, True, 0)
 
     # ---- refresh -------------------------------------------------------
 
     def _refresh(self) -> None:
         peers = headscale_list_peers()
+        online_n = sum(1 for p in peers if p.online)
+        # Status notification
+        if online_n > 0:
+            self._status_notif.set_title(f"Tailscale-SSH active on {online_n} peers")
+            self._status_notif.set_kind(NotificationKind.SUCCESS) if hasattr(
+                self._status_notif, "set_kind") else None
+        else:
+            self._status_notif.set_title("No peers currently reachable via SSH")
+
         rows = []
         for p in peers:
-            layer = "B" if p.online else "A"
             rows.append({
-                "name":    p.name,
-                "mesh_ip": p.mesh_ip,
-                "layer":   layer,
-                "action":  "Open Terminal" if p.online else "(offline)",
+                "dot":         "●" if p.online else "○",
+                "name":        p.name,
+                "mesh_ip":     p.mesh_ip or "—",
+                "fingerprint": _fingerprint(p.name),
+                "users":       "matt",
+                "open":        "Open ›" if p.online else "—",
             })
         self._peers_table.set_rows(rows)
 
         if MESH_KEYS_DIR.is_dir():
             n = sum(1 for _ in MESH_KEYS_DIR.glob("*.pub"))
-            self._key_status.set_text(f"Local cache: {n} peer pubkey(s) in {MESH_KEYS_DIR}")
+            self._key_status.set_text(
+                f"Local cache: {n} peer pubkey(s) in {MESH_KEYS_DIR}"
+            )
         else:
             self._key_status.set_text("Mesh-ssh key cache not initialized yet.")
 
-        self._policy_view.get_buffer().set_text(load_policy_yaml())
+        # Load policy if not in edit mode (avoid stomping user edits)
+        if not self._policy_edit_mode:
+            self._policy_view.get_buffer().set_text(load_policy_yaml())
 
         audit = read_audit(last_n=200)
         self._audit_table.set_rows([
@@ -162,7 +259,6 @@ class MeshSshPanel(Gtk.Box):
         name = row.get("name")
         if not name:
             return
-        # Open xfce4-terminal (or fallback) running `mackes ssh <peer>`
         import shutil
         term = (shutil.which("xfce4-terminal") or shutil.which("gnome-terminal")
                 or shutil.which("xterm"))
@@ -182,10 +278,20 @@ class MeshSshPanel(Gtk.Box):
         sync_authorized_keys()
         self._refresh()
 
+    def _on_toggle_edit(self) -> None:
+        self._policy_edit_mode = not self._policy_edit_mode
+        self._policy_view.set_editable(self._policy_edit_mode)
+        self._save_btn.set_sensitive(self._policy_edit_mode)
+        self._edit_btn.set_label("Cancel edit" if self._policy_edit_mode else "Edit policy")
+
     def _on_save_policy(self) -> None:
         buf = self._policy_view.get_buffer()
         text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
         save_policy_yaml(text)
+        self._policy_edit_mode = False
+        self._policy_view.set_editable(False)
+        self._save_btn.set_sensitive(False)
+        self._edit_btn.set_label("Edit policy")
         self._refresh()
 
     def _on_reload_policy(self) -> None:

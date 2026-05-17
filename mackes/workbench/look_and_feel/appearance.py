@@ -85,11 +85,66 @@ def _list_monitors() -> list[str]:
     return mons or ["monitor0"]
 
 
+# ---- Carbon refresh helpers (v1.1.1) -------------------------------------
+
+
+def _appearance_breadcrumb() -> Gtk.Widget:
+    bc = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+    bc.get_style_context().add_class("mackes-breadcrumb")
+    for i, p in enumerate(("Mackes Shell", "Look & Feel", "Appearance")):
+        lab = Gtk.Label(label=p); lab.set_xalign(0)
+        bc.pack_start(lab, False, False, 0)
+        if i != 2:
+            sep = Gtk.Label(label="/"); sep.set_xalign(0)
+            sep.get_style_context().add_class("mackes-dot")
+            bc.pack_start(sep, False, False, 0)
+    return bc
+
+
+def _ap_section_title(box: Gtk.Box, text: str, *, meta: str = "") -> None:
+    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    row.set_margin_top(20); row.set_margin_bottom(8)
+    t = Gtk.Label(label=text); t.set_xalign(0)
+    t.get_style_context().add_class("mackes-section-title")
+    row.pack_start(t, True, True, 0)
+    if meta:
+        m = Gtk.Label(label=meta); m.set_xalign(1)
+        m.get_style_context().add_class("mackes-section-meta")
+        row.pack_end(m, False, False, 0)
+    box.pack_start(row, False, False, 0)
+
+
+def _design_lock_notification() -> Gtk.Widget:
+    from mackes.carbon import Notification, NotificationKind
+    return Notification(
+        "Carbon Design System locks",
+        body=("Q-CB1 Gray 100 palette · Q-CB3 IBM Plex typography · Q-CB5 "
+              "Carbon icons. Per-preset accent replaces Carbon blue but "
+              "everything else is fixed."),
+        kind=NotificationKind.INFO,
+        dismissible=False,
+    )
+
+
+def _draw_accent_swatch(_w, cr) -> bool:
+    """Draw the active preset's accent as a solid 56x56 swatch."""
+    alloc = _w.get_allocation()
+    w, h = alloc.width, alloc.height
+    # Pull accent from the active style context
+    ctx = _w.get_style_context()
+    ok, rgba = ctx.lookup_color("mackes_accent")
+    if ok:
+        cr.set_source_rgb(rgba.red, rgba.green, rgba.blue)
+    else:
+        cr.set_source_rgb(0xf1 / 255, 0x85 / 255, 0x3d / 255)
+    cr.rectangle(0, 0, w, h)
+    cr.fill()
+    return False
+
+
 class AppearancePanel(Gtk.Box):
     def __init__(self) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=20)
-        self.set_margin_top(24); self.set_margin_bottom(24)
-        self.set_margin_start(28); self.set_margin_end(28)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
         try:
             self.xf = get_bridge()
@@ -97,18 +152,139 @@ class AppearancePanel(Gtk.Box):
             self.pack_start(error_label(str(e)), False, False, 0)
             return
 
-        self.pack_start(title_label("Appearance"), False, False, 0)
-        self.pack_start(info_label(
+        # Carbon page header
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_top(32); outer.set_margin_bottom(32)
+        outer.set_margin_start(40); outer.set_margin_end(40)
+
+        outer.pack_start(_appearance_breadcrumb(), False, False, 0)
+        page_title = Gtk.Label(label="Appearance")
+        page_title.set_xalign(0)
+        page_title.get_style_context().add_class("mackes-page-title")
+        outer.pack_start(page_title, False, False, 0)
+
+        page_sub = Gtk.Label(label=(
             "Theme, icons, cursor, fonts, and wallpaper — all backed by xfconf. "
             "Changes apply immediately."
-        ), False, False, 0)
+        ))
+        page_sub.set_xalign(0); page_sub.set_line_wrap(True)
+        page_sub.get_style_context().add_class("mackes-page-subtitle")
+        outer.pack_start(page_sub, False, False, 0)
 
-        self.pack_start(self._theme_section(), False, False, 0)
-        self.pack_start(self._icons_section(), False, False, 0)
-        self.pack_start(self._cursor_section(), False, False, 0)
-        self.pack_start(self._fonts_section(), False, False, 0)
-        self.pack_start(self._antialiasing_section(), False, False, 0)
-        self.pack_start(self._wallpaper_section(), False, False, 0)
+        # Two-column layout (settings | live preview)
+        grid = Gtk.Grid(column_spacing=32, row_spacing=0)
+        grid.set_column_homogeneous(False)
+        grid.set_margin_top(16)
+
+        # Left: settings sections (existing xfconf-bound widgets)
+        left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        left_col.set_hexpand(True)
+        left_col.pack_start(self._theme_section(),         False, False, 0)
+        left_col.pack_start(self._icons_section(),         False, False, 0)
+        left_col.pack_start(self._cursor_section(),        False, False, 0)
+        left_col.pack_start(self._fonts_section(),         False, False, 0)
+        left_col.pack_start(self._antialiasing_section(),  False, False, 0)
+        left_col.pack_start(self._wallpaper_section(),     False, False, 0)
+        grid.attach(left_col, 0, 0, 3, 1)
+
+        # Right: live preview + accent tile + design-lock notification
+        right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        right_col.set_hexpand(False)
+        right_col.set_size_request(360, -1)
+
+        _ap_section_title(right_col, "Live preview", meta="re-renders on changes")
+        right_col.pack_start(self._live_preview_tile(), False, False, 0)
+
+        _ap_section_title(right_col, "Active accent")
+        right_col.pack_start(self._active_accent_tile(), False, False, 0)
+
+        _ap_section_title(right_col, "Locked by design system")
+        right_col.pack_start(_design_lock_notification(), False, False, 0)
+        grid.attach(right_col, 3, 0, 1, 1)
+
+        outer.pack_start(grid, True, True, 0)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.add(outer)
+        self.pack_start(scroller, True, True, 0)
+
+    # ---- Live preview tile ------------------------------------------------
+
+    def _live_preview_tile(self) -> Gtk.Widget:
+        # A miniature window frame with sample text + buttons. Updates
+        # implicitly via the global xfconf cascade (xsettings → GTK).
+        tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        tile.get_style_context().add_class("mackes-stat-tile")
+        tile.set_margin_top(0)
+
+        # Fake titlebar
+        title = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title.set_margin_bottom(4)
+        path = Gtk.Label(label="~/Documents")
+        path.set_xalign(0)
+        path.get_style_context().add_class("mackes-section-meta")
+        title.pack_start(path, True, True, 0)
+        for c in ("muted", "muted", "accent"):
+            dot = Gtk.Label(label="●")
+            dot.get_style_context().add_class("mackes-dot")
+            dot.get_style_context().add_class(c)
+            title.pack_end(dot, False, False, 0)
+        tile.pack_start(title, False, False, 0)
+        tile.pack_start(Gtk.Separator(), False, False, 0)
+
+        # Sample text
+        sample = Gtk.Label(label="The quick brown fox")
+        sample.set_xalign(0); sample.set_margin_top(8)
+        sample.get_style_context().add_class("mackes-section-title")
+        tile.pack_start(sample, False, False, 0)
+        line2 = Gtk.Label(label="jumps over the lazy dog · 0123456789")
+        line2.set_xalign(0)
+        line2.get_style_context().add_class("mackes-page-subtitle")
+        tile.pack_start(line2, False, False, 0)
+        line3 = Gtk.Label(label="$ mackes preset apply mackes")
+        line3.set_xalign(0); line3.set_margin_top(8)
+        line3.get_style_context().add_class("mackes-code")
+        tile.pack_start(line3, False, False, 0)
+
+        # Sample buttons
+        btn_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_row.set_margin_top(12)
+        for label, klass in (("Primary", "suggested-action"),
+                             ("Tertiary", "cds-button-tertiary"),
+                             ("Ghost", "cds-button-ghost")):
+            b = Gtk.Button(label=label)
+            b.get_style_context().add_class(klass)
+            btn_row.pack_start(b, False, False, 0)
+        tile.pack_start(btn_row, False, False, 0)
+
+        return tile
+
+    def _active_accent_tile(self) -> Gtk.Widget:
+        tile = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        tile.get_style_context().add_class("mackes-stat-tile")
+        # Accent swatch
+        swatch = Gtk.DrawingArea()
+        swatch.set_size_request(56, 56)
+        swatch.connect("draw", _draw_accent_swatch)
+        tile.pack_start(swatch, False, False, 0)
+        # Right: preset label + accent hex
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        from mackes.state import MackesState
+        try:
+            state = MackesState.load()
+            preset_name = (state.active_preset or "mackes").title()
+        except Exception:  # noqa: BLE001
+            preset_name = "Mackes"
+        title = Gtk.Label(label=preset_name); title.set_xalign(0)
+        title.get_style_context().add_class("mackes-section-title")
+        right.pack_start(title, False, False, 0)
+        meta = Gtk.Label(label="from active preset")
+        meta.set_xalign(0)
+        meta.get_style_context().add_class("mackes-section-meta")
+        right.pack_start(meta, False, False, 0)
+        tile.pack_start(right, True, True, 0)
+        return tile
 
     # ---- Theme ------------------------------------------------------------
 
