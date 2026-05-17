@@ -25,7 +25,8 @@ from typing import List, Tuple
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from mackes.presets import list_presets
 from mackes.state import MackesState
@@ -34,6 +35,19 @@ from mackes.wizard.pages import (
     appearance, apply, env_scan, hardware, network, preset_pick, review,
     snapshot, welcome,
 )
+
+
+def _primary_monitor_size() -> tuple[int, int]:
+    """Detect the primary monitor pixel size for fit-to-resolution windows."""
+    try:
+        display = Gdk.Display.get_default()
+        if display is None:
+            return (1280, 800)
+        mon = display.get_primary_monitor() or display.get_monitor(0)
+        geom = mon.get_geometry()
+        return (max(1024, geom.width), max(700, geom.height))
+    except Exception:  # noqa: BLE001
+        return (1280, 800)
 
 
 # Step kinds shape the bottom-bar behavior — they mirror the v1.0 page
@@ -54,7 +68,12 @@ class WizardWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application, state: MackesState) -> None:
         super().__init__(application=application)
         self.set_title("Mackes Shell — Setup")
-        self.set_default_size(960, 720)
+        # v1.4.2 — Fit the workstation resolution perfectly. Open at the
+        # primary monitor's exact size and maximize on realize so the
+        # WM finishes the job.
+        mon_w, mon_h = _primary_monitor_size()
+        self.set_default_size(mon_w, mon_h)
+        self.connect("realize", lambda *_: self.maximize())
         self.state = state
         self.ctx = WizardContext()
         self.get_style_context().add_class("mackes-app-window")

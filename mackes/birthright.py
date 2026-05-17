@@ -880,7 +880,7 @@ def apply_maximize_all(_preset: Preset) -> List[str]:
     if shutil.which("wmctrl") is None:
         needed.append("wmctrl")
     if shutil.which("xprop") is None:
-        needed.append("xorg-x11-utils")
+        needed.append("xprop")
     if needed:
         actions.append(f"maximize-all: installing {', '.join(needed)} via dnf")
         rc, out = _run_root(["dnf", "install", "-y", *needed], timeout=300)

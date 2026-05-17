@@ -3,6 +3,35 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.4.2 — Fedora 44 dep hotfix + fit-to-resolution windows (2026-05-17)
+
+**Fedora 44 dep hotfix.** `xorg-x11-utils` was renamed/split out of
+Fedora's package tree; `xprop` is its own package now. v1.4.1 install
+failed with:
+
+    Problem: conflicting requests
+      - nothing provides xorg-x11-utils needed by mackes-shell-1.4.1
+
+Spec Requires fixed: `xorg-x11-utils` → `xprop`. Same substitution
+applied in `mackes/birthright.py:apply_maximize_all` so the wizard
+step's dnf-install probe uses the correct package name on the fallback
+path.
+
+**Every GUI window fits the workstation resolution perfectly.** The
+WorkbenchWindow and WizardWindow now detect the primary monitor's
+size via `Gdk.Display.get_primary_monitor().get_geometry()`, open at
+that exact size, and call `maximize()` on the `realize` signal so the
+WM finishes the job. The previous hardcoded `1280×800` and `960×720`
+defaults are gone — the windows fill whatever screen they land on,
+whether 1366×768 laptop or 4K monitor. This overrides the Carbon
+"max-content-width" pattern: the content area expands to use available
+width rather than getting letterboxed.
+
+Helper `_primary_monitor_size()` lives in both
+`mackes/workbench/shell/sidebar_window.py` and `mackes/wizard/window.py`
+(intentional duplication — they ship independent of each other and
+the helper is 12 lines).
+
 ## 1.4.1 — Sudoers, installer UX, wizard discoverability, maximize-all (2026-05-17)
 
 Five user-reported friction points addressed:

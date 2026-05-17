@@ -301,9 +301,17 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
 
     def __init__(self, application: Gtk.Application, state: MackesState) -> None:
         super().__init__(application=application)
-        self.set_default_size(1280, 800)
+        # v1.4.2 — Fit the workstation resolution perfectly. Open at the
+        # primary monitor's exact size and immediately maximize so the
+        # WM finishes the job (xfwm4 maximizes to the workarea — full
+        # screen minus the xfce4-panel strip).
+        mon_w, mon_h = _primary_monitor_size()
+        self.set_default_size(mon_w, mon_h)
         self.set_title("Mackes Shell")
         self.state = state
+        # Maximize on first show. We connect to `realize` so the
+        # WM has a window manager state to manipulate.
+        self.connect("realize", lambda *_: self.maximize())
 
         # CSS-class root marker so accent files can scope rules to the app
         # window when needed.
@@ -880,6 +888,23 @@ def _save_tweaks(tweaks: dict) -> None:
 def _vsep() -> Gtk.Widget:
     s = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
     return s
+
+
+def _primary_monitor_size() -> tuple[int, int]:
+    """Detect the primary monitor's pixel size via GdkDisplay.
+
+    Falls back to 1280×800 if GdkDisplay isn't available yet (very
+    rare; typically only during early test imports).
+    """
+    try:
+        display = Gdk.Display.get_default()
+        if display is None:
+            return (1280, 800)
+        mon = display.get_primary_monitor() or display.get_monitor(0)
+        geom = mon.get_geometry()
+        return (max(1024, geom.width), max(700, geom.height))
+    except Exception:  # noqa: BLE001
+        return (1280, 800)
 
 
 def _status_item(text: str, kind: Optional[str] = None) -> Gtk.Widget:

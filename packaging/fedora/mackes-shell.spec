@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        1.4.1
+Version:        1.4.2
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -111,7 +111,7 @@ Requires:       conky
 # user-level service that listens for new top-level windows and adds
 # maximized_vert + maximized_horz via wmctrl. Toggleable via Tweaks.
 Requires:       wmctrl
-Requires:       xorg-x11-utils
+Requires:       xprop
 
 # Mesh fabric (§8.11–§8.14): WireGuard via Tailscale + self-hosted Headscale
 Requires:       tailscale
