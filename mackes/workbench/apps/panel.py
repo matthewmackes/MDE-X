@@ -50,24 +50,52 @@ def _category_for(app: AppDef) -> str:
 
 def _is_installed(app: AppDef) -> bool:
     if app.backend in ("dnf", "dnf-thirdparty"):
-        return is_dnf_installed(app.package or app.name)
+        return (app.package or app.name) in _dnf_installed_set()
     if app.backend == "appimage":
         from mackes.state import HOME
         return (HOME / ".local" / "bin" / app.name).exists()
     if app.backend == "npm":
-        # rough check: npm root -g + look for the package
+        from mackes.probe_cache import cached
+        pkg = app.package or app.name
+        def _probe():
+            import shutil, subprocess
+            if shutil.which("npm") is None:
+                return False
+            try:
+                out = subprocess.check_output(
+                    ["npm", "ls", "-g", "--depth=0", pkg],
+                    text=True, stderr=subprocess.DEVNULL, timeout=10,
+                )
+                return pkg in out
+            except Exception:  # noqa: BLE001
+                return False
+        return cached(f"apps.npm_installed:{pkg}",
+                      factory=_probe, ttl_s=60)
+    return False
+
+
+def _dnf_installed_set() -> frozenset[str]:
+    """One rpm -qa, cached 60s, shared across the panel's _is_installed
+    calls. Replaces 20+ individual rpm -q probes per first paint.
+    """
+    from mackes.probe_cache import cached
+
+    def _probe() -> frozenset[str]:
         import shutil, subprocess
-        if shutil.which("npm") is None:
-            return False
+        if shutil.which("rpm") is None:
+            return frozenset()
         try:
             out = subprocess.check_output(
-                ["npm", "ls", "-g", "--depth=0", app.package or app.name],
-                text=True, stderr=subprocess.DEVNULL, timeout=10,
+                ["rpm", "-qa", "--qf", "%{NAME}\\n"],
+                stderr=subprocess.DEVNULL, text=True, timeout=10,
             )
-            return (app.package or app.name) in out
-        except Exception:  # noqa: BLE001
-            return False
-    return False
+        except (subprocess.CalledProcessError,
+                subprocess.TimeoutExpired, OSError):
+            return frozenset()
+        return frozenset(
+            ln.strip() for ln in out.splitlines() if ln.strip()
+        )
+    return cached("apps.dnf_installed", factory=_probe, ttl_s=60)
 
 
 def _preset_install_list() -> List[str]:
@@ -418,6 +446,11 @@ class AppsPanel(Gtk.Box):
     def _after_action(self, app: AppDef, lines: list[str]) -> bool:
         for line in lines:
             self._append_log(f"  {line}")
+        # Bust the cached installed-package set so the grid sees the
+        # freshly installed/removed app on refresh.
+        from mackes.probe_cache import invalidate, invalidate_prefix
+        invalidate("apps.dnf_installed")
+        invalidate_prefix("apps.npm_installed:")
         self._refresh_grid()
         return False
 

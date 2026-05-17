@@ -46,13 +46,32 @@ PACKAGES: list[tuple[str, str, bool]] = [
 
 
 def _is_installed(pkg: str) -> bool:
-    if shutil.which("rpm") is None:
-        return False
-    try:
-        subprocess.check_output(["rpm", "-q", pkg], stderr=subprocess.DEVNULL)
-        return True
-    except subprocess.CalledProcessError:
-        return False
+    # Per-package rpm -q is fast (~5 ms) but adds up over 30+ packages.
+    # One call to `rpm -qa` gives every installed package in 80–200 ms;
+    # cache the resulting set and answer membership queries from there.
+    return pkg in _all_installed_packages()
+
+
+def _all_installed_packages() -> frozenset[str]:
+    """Set of installed package names (no version/arch). Cached 60s."""
+    from mackes.probe_cache import cached
+
+    def _probe() -> frozenset[str]:
+        if shutil.which("rpm") is None:
+            return frozenset()
+        try:
+            out = subprocess.check_output(
+                ["rpm", "-qa", "--qf", "%{NAME}\\n"],
+                stderr=subprocess.DEVNULL, text=True, timeout=10,
+            )
+        except (subprocess.CalledProcessError,
+                subprocess.TimeoutExpired, OSError):
+            return frozenset()
+        return frozenset(
+            line.strip() for line in out.splitlines() if line.strip()
+        )
+    return cached("dependencies.installed_packages",
+                  factory=_probe, ttl_s=60)
 
 
 def _install(packages: list[str]) -> tuple[int, str]:
@@ -147,4 +166,8 @@ class DependenciesPanel(Gtk.Box):
         log_action(f"deps: install rc={rc} pkgs={','.join(targets)}")
         head = "OK" if rc == 0 else f"FAILED (rc={rc})"
         self._status.set_text(f"{head}. {output.splitlines()[-1] if output else ''}")
+        # Bust the installed-packages cache so the next _refresh shows
+        # the freshly-installed packages as present, not "missing".
+        from mackes.probe_cache import invalidate
+        invalidate("dependencies.installed_packages")
         self._refresh()

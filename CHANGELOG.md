@@ -5,6 +5,17 @@ unreleased; tag versions get a date when they ship.
 
 ## 1.6.2 — 1.6.2 rollup (unreleased)
 
+**GTK perf round 5 — single rpm -qa for membership tests.** Two panels
+(`maintain/dependencies` and `apps/panel`) used to call `rpm -q` once
+per package in their catalogue. On a 30-package preset that's 30 forks
++ rpmdb opens, ~150 ms cumulative on first paint. Both now share a
+single cached `rpm -qa` (parsed into a frozenset) and answer
+membership queries in O(1). Cache TTL 60 s; explicit invalidation
+fires after install/remove actions. npm `npm ls -g` queries are
+cached per-package with 60 s TTL.
+
+
+
 **GTK perf round 4.** Five more panel-construct probes moved to
 `probe_cache`:
 
