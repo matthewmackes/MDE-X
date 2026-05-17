@@ -84,11 +84,14 @@ Cmnd_Alias MACKES_DESKTOP = \
     /usr/bin/xfce4-panel --restart
 
 # Caddy + Guacamole config (Mesh Services gateway + Mesh Remote)
+# + LightDM greeter config (Appearance birthright)
 Cmnd_Alias MACKES_GATEWAY = \
     /usr/bin/tee /etc/caddy/Caddyfile*, \
     /usr/bin/tee /etc/caddy/Caddyfile.mesh, \
     /usr/bin/tee /etc/guacamole/*, \
-    /usr/bin/tee /etc/systemd/system/*
+    /usr/bin/tee /etc/systemd/system/*, \
+    /usr/bin/tee /etc/lightdm/*, \
+    /usr/bin/tee /etc/lightdm/lightdm.conf.d/*
 
 # Curl — used by birthright to fetch Guacamole .war from Apache and
 # RPM Fusion release RPMs. Sudoers wildcards don't match `/`, so URL

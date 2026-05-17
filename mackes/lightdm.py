@@ -27,7 +27,39 @@ def _have(cmd: str) -> bool:
 
 
 def _pkexec_write(path: Path, contents: str) -> tuple[int, str]:
-    """Use pkexec to write a file as root. Returns (rc, stderr)."""
+    """Use AdminSession to write a file as root. Returns (rc, stderr).
+
+    v1.4.4: Route through AdminSession so the sudoers NOPASSWD coverage
+    on `tee /etc/lightdm/*` fires and the user never sees a prompt.
+    The stdin-piped `tee` form needs special handling — AdminSession.run
+    doesn't pipe stdin, so we shell out via `bash -c "cat > path"` when
+    NOPASSWD is active, or fall back to legacy pkexec-with-stdin.
+    """
+    try:
+        from mackes.admin_session import AdminSession
+        sess = AdminSession.instance()
+    except Exception:  # noqa: BLE001
+        sess = None
+
+    # Fast path — NOPASSWD active: write contents to a tmpfile, then
+    # `install -m 0644 tmpfile target` via the cached sudo creds.
+    if sess is not None and sess.is_unlocked():
+        import tempfile, os as _os
+        try:
+            fd, tmp = tempfile.mkstemp(prefix="mackes-lightdm.", suffix=".conf")
+            with _os.fdopen(fd, "w") as f:
+                f.write(contents)
+            rc, out = sess.run(
+                ["install", "-D", "-m", "0644", tmp, str(path)],
+                timeout=10,
+            )
+            try: _os.unlink(tmp)
+            except OSError: pass
+            return rc, out
+        except OSError as e:
+            return 1, str(e)
+
+    # Legacy fallback: stdin-piped pkexec/sudo tee.
     if _have("pkexec"):
         prefix = ["pkexec"]
     elif _have("sudo"):
@@ -37,13 +69,21 @@ def _pkexec_write(path: Path, contents: str) -> tuple[int, str]:
     cmd = prefix + ["tee", str(path)]
     try:
         proc = subprocess.run(cmd, input=contents, text=True,
-                              capture_output=True, timeout=10)
+                              capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, str(e)
     return proc.returncode, proc.stderr or ""
 
 
 def _pkexec_mkdir(path: Path) -> tuple[int, str]:
+    """v1.4.4 — route through AdminSession."""
+    try:
+        from mackes.admin_session import AdminSession
+        rc, out = AdminSession.instance().run(
+            ["mkdir", "-p", str(path)], timeout=10)
+        return rc, out
+    except Exception:  # noqa: BLE001
+        pass
     if _have("pkexec"):
         prefix = ["pkexec"]
     elif _have("sudo"):
@@ -52,7 +92,7 @@ def _pkexec_mkdir(path: Path) -> tuple[int, str]:
         return 127, "neither pkexec nor sudo available"
     cmd = prefix + ["mkdir", "-p", str(path)]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, str(e)
     return proc.returncode, proc.stderr or ""
