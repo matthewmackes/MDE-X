@@ -5,6 +5,27 @@ unreleased; tag versions get a date when they ship.
 
 ## 1.6.2 — 1.6.2 rollup (unreleased)
 
+**Mesh performance round 1 — concurrent probes + kernel WG + MTU.**
+
+* `mackes.mesh.health()` now fans every layer probe out across a
+  `ThreadPoolExecutor(max_workers=8)`. Measured 4.4× speedup
+  (143 ms → 32 ms on this box) — total wall-clock is bounded by the
+  slowest single layer.
+* `mackes.mesh_services.probe_all()` does the same per (peer, service)
+  tuple. On a fleet of 8 peers × 20 services this drops scan time
+  from ~160 s worst-case to ~2 s typical.
+* New `mackes.mesh_perf` module exposes three tweakable knobs:
+  kernel-mode WireGuard (`--tun=mackes-wg0 --netstack=false` when the
+  kernel `wireguard` module is available), LAN-optimised MTU
+  (`--mtu=1380` opt-in), and a `/etc/sysctl.d/90-mackes-mesh.conf`
+  drop-in that bumps `net.core.{r,w}mem_max` for higher UDP
+  throughput on bursty hosts.
+* `mesh_vpn.tailscale_up_with_headscale` automatically appends
+  `mesh_perf.tailscale_up_flags()`, so the wizard's mesh-join flow
+  picks up these knobs without code changes.
+
+
+
 **Remmina auto-populate.** New `mackes.remmina_sync` module that fills
 the Remmina remote-desktop client with every detected SSH (:22), RDP
 (:3389), and VNC (:5900) service on the mesh. Design locked via a

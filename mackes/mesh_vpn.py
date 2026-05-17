@@ -473,6 +473,13 @@ def tailscale_up_with_headscale(
     ]
     if hostname:
         cmd.append("--hostname=" + hostname)
+    # v1.6.2 — merge perf flags (kernel WireGuard, LAN MTU). The
+    # mesh_perf module reads tweaks.json and decides what's safe.
+    try:
+        from mackes.mesh_perf import tailscale_up_flags
+        cmd.extend(tailscale_up_flags())
+    except Exception:  # noqa: BLE001
+        pass
     rc, out, err = _run(cmd, timeout=60)
     return [f"tailscale up via headscale rc={rc} {(out+err).strip().splitlines()[-1] if (out+err).strip() else ''}"]
 

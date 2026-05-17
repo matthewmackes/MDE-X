@@ -491,19 +491,43 @@ _LAYERS: tuple[tuple[str, Callable[[], LayerHealth], float], ...] = (
 )
 
 
-def health(*, force_refresh: bool = False) -> dict[str, LayerHealth]:
+def health(*, force_refresh: bool = False,
+           parallel: bool = True) -> dict[str, LayerHealth]:
     """Probe every mesh layer and return {layer_name: LayerHealth}.
 
-    Results are cached in probe_cache. Pass force_refresh=True to
-    invalidate every "mesh.health.<layer>" key before re-running.
+    Layers are probed concurrently via a ThreadPoolExecutor — total
+    wall-clock is bounded by the slowest single layer, not the sum.
+    Cache hits return immediately and don't touch the pool. Pass
+    parallel=False for deterministic single-threaded probing (tests).
+    Pass force_refresh=True to invalidate every "mesh.health.<layer>"
+    key before re-running.
     """
     if force_refresh:
         invalidate_prefix("mesh.health.")
+    if not parallel:
+        return {layer: cached(f"mesh.health.{layer}", factory=probe,
+                              ttl_s=ttl)
+                for layer, probe, ttl in _LAYERS}
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     out: dict[str, LayerHealth] = {}
-    for layer, probe, ttl in _LAYERS:
-        out[layer] = cached(f"mesh.health.{layer}",
-                            factory=probe, ttl_s=ttl)
-    return out
+    with ThreadPoolExecutor(max_workers=min(8, len(_LAYERS)),
+                            thread_name_prefix="mesh-health") as ex:
+        future_to_layer = {
+            ex.submit(cached, f"mesh.health.{layer}",
+                      factory=probe, ttl_s=ttl): layer
+            for layer, probe, ttl in _LAYERS
+        }
+        for fut in as_completed(future_to_layer):
+            layer = future_to_layer[fut]
+            try:
+                out[layer] = fut.result()
+            except Exception as e:  # noqa: BLE001 — never let one
+                # bad probe poison the whole snapshot
+                out[layer] = LayerHealth(layer, "fail",
+                                         "probe raised", str(e))
+    # Preserve declaration order for downstream consumers (UI rows)
+    return {layer: out[layer] for layer, _, _ in _LAYERS if layer in out}
 
 
 def health_json(*, force_refresh: bool = False) -> str:
