@@ -380,12 +380,44 @@ class MeshPerformancePanel(Gtk.Box):
                 self._storage_status.set_text(
                     "Headscale config not detected — install via "
                     "Mesh Setup Wizard.")
-            self._stream_status.set_text(
-                "Filesystem-based sync (active). "
-                "NATS JetStream upgrade ships in a follow-up.")
-            self._mount_status.set_text(
-                "SSHFS per peer (active). "
-                "mesh-fs FUSE backend ships in a follow-up.")
+            from mackes import mesh_nats
+            ns = mesh_nats.status()
+            client = ("✓ client" if ns["client_available"]
+                      else "no nats-py")
+            if ns["server_running"]:
+                streams = ns.get("jetstream_streams", "?")
+                msgs = ns.get("jetstream_messages", "?")
+                self._stream_status.set_text(
+                    f"✓ NATS JetStream on :{ns['port']} · "
+                    f"{streams} stream(s) · {msgs} msg(s) · {client}"
+                )
+            elif ns["server_installed"]:
+                self._stream_status.set_text(
+                    f"NATS installed but not running. {client}.")
+            else:
+                self._stream_status.set_text(
+                    "Filesystem-only sync (works but slow). Install "
+                    f"nats-server on the control peer. {client}.")
+            from mackes import mesh_fs_fuse
+            fs = mesh_fs_fuse.status()
+            if fs["available"]:
+                mounted = sum(1 for m in fs["mounts"] if m["mounted"])
+                total = len(fs["mounts"])
+                cache_mb = fs["cache"]["total_bytes"] // (1024 * 1024)
+                self._mount_status.set_text(
+                    f"✓ mesh-fs FUSE ready · {mounted}/{total} mounted · "
+                    f"{cache_mb} MB read-cache · sshfs fallback active "
+                    f"for writes."
+                )
+            else:
+                missing = []
+                if not fs["has_fusepy"]:   missing.append("python3-fusepy")
+                if not fs["has_paramiko"]: missing.append("python3-paramiko")
+                if not fs["has_diskcache"]: missing.append("python3-diskcache")
+                self._mount_status.set_text(
+                    "SSHFS per peer (active). For mesh-fs FUSE: "
+                    f"`dnf install {' '.join(missing)}`."
+                )
 
             # Peers table
             for c in self._peers_box.get_children():

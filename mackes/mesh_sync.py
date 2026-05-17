@@ -128,6 +128,16 @@ def put(bucket: str, key: str, value, *, max_versions: int = 100) -> list[str]:
     except OSError:
         pass
 
+    # v1.6.2 — also publish a NATS event so subscribers see the
+    # write in sub-100ms instead of waiting for the 30s sshfs scan.
+    # Best-effort, never fails the put().
+    try:
+        from mackes.mesh_nats import publish_event
+        publish_event(bucket, key,
+                      value_summary=f"v{next_rev} ({out.stat().st_size} bytes)")
+    except Exception:  # noqa: BLE001
+        pass
+
     return [f"put {bucket}/{key} v{next_rev} ({out.stat().st_size} bytes)"]
 
 

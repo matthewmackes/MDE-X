@@ -5,6 +5,29 @@ unreleased; tag versions get a date when they ship.
 
 ## 1.6.2 — 1.6.2 rollup (unreleased)
 
+**Mesh perf #5 + #6 — NATS JetStream + mesh-fs FUSE.**
+
+* `mackes.mesh_nats` — embedded `nats-server` (Apache 2.0,
+  github.com/nats-io/nats-server) with JetStream enabled on the
+  control peer. `mesh_sync.put` now publishes a small event over
+  NATS in addition to writing the file; subscribers see writes in
+  sub-100 ms instead of waiting for the next 30 s SSHFS scan. The
+  filesystem path stays as the canonical durable store, so peers
+  running the legacy code keep working. `start_subscriber(cb)` runs
+  a reconnect-with-backoff loop on a daemon thread.
+* `mackes.mesh_fs_fuse` — single-process FUSE backend (pyfuse3 +
+  paramiko + diskcache) that opens ONE persistent SSH channel per
+  peer and multiplexes file operations. Reads land in a per-peer
+  LRU disk cache (512 MB cap, 30 s small-chunk TTL, 10 s
+  directory-listing TTL). Mount point at `~/QNM-Mesh-fast/<peer>/`,
+  cache at `~/.cache/mackes-mesh-fs/<peer>/`. Read-only v1; writes
+  fall through to the legacy sshfs path during migration.
+
+Both surface live in the Mesh Performance panel — exporter state,
+JetStream stream + message counters, FUSE mount + cache MB usage.
+
+
+
 **Mesh perf #1 + #4 + #7 — mDNS-SD bridge, private DERP, Headscale
 postgres.**
 
