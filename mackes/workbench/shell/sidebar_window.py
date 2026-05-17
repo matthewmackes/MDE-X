@@ -740,10 +740,18 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
             except Exception:  # noqa: BLE001
                 pass
 
-        # Conky HUD toggle (Q2 v1.4.0 — birthright + Tweaks toggle)
+        # Conky HUD toggle + density/monitor (v1.4.0 Q2, v1.6.2 density)
         try:
-            from mackes.conky_hud import apply_tweak
-            apply_tweak(bool(tweaks.get("show_conky", True)))
+            from mackes.conky_hud import apply_tweak, is_running, restart_with
+            enabled = bool(tweaks.get("show_conky", True))
+            density = tweaks.get("conky_density") or "standard"
+            monitor = tweaks.get("conky_monitor") or None
+            if enabled and is_running():
+                # Hot-reload via SIGUSR1 so density/monitor change doesn't
+                # flash the desktop.
+                restart_with(density=density, monitor=monitor)
+            else:
+                apply_tweak(enabled, density=density, monitor=monitor)
         except Exception:  # noqa: BLE001
             pass
 
@@ -869,10 +877,12 @@ def _load_tweaks() -> dict:
     p = _tweaks_path()
     defaults = {
         "preset": None,             # picked up from MackesState
-        "density": "cozy",          # compact / cozy / comfortable
+        "density": "cozy",          # compact / cozy / comfortable (shell GUI)
         "show_status_bar": True,
         "show_xfce_frame": True,    # client-side; XFCE frame is OS-managed but we keep the flag
         "show_conky": True,         # v1.4.0: birthright Conky HUD on by default
+        "conky_density": "standard",  # v1.6.2: compact / standard / full (HUD)
+        "conky_monitor": None,        # v1.6.2: xrandr output name (None = primary)
         "active_panel": "dashboard",
     }
     if not p.exists():

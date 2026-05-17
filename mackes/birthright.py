@@ -35,11 +35,13 @@ All fourteen are wired into mackes/wizard/pages/apply.py between Panel and Mesh.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 from mackes.logging import log_action
 from mackes.presets import Preset
@@ -193,9 +195,20 @@ def _walk_mtimes(path: Path) -> Iterable[float]:
 
 _PLEX_PACKAGES = ("ibm-plex-sans-fonts", "ibm-plex-mono-fonts")
 
+# Hack Nerd Font — installed from upstream because Fedora doesn't
+# package any nerd-font (only the base hack-fonts without PUA glyphs).
+# Conky's HUD uses Hack Nerd Font for the section icons.
+_NERD_FONT_VERSION = "3.2.1"
+_NERD_FONT_URL = (
+    "https://github.com/ryanoasis/nerd-fonts/releases/download/"
+    f"v{_NERD_FONT_VERSION}/Hack.tar.xz"
+)
+_NERD_FONT_DEST = Path("/usr/local/share/fonts/HackNerdFont")
+
 
 def apply_fonts(_preset: Preset) -> List[str]:
-    """Install IBM Plex Sans + Mono via dnf. Idempotent."""
+    """Install IBM Plex Sans + Mono via dnf, plus Hack Nerd Font from
+    upstream. Idempotent."""
     actions: List[str] = []
     if shutil.which("dnf") is None:
         actions.append("fonts: dnf not available — skipping")
@@ -209,20 +222,75 @@ def apply_fonts(_preset: Preset) -> List[str]:
             needed.append(pkg)
     if not needed:
         actions.append("fonts: IBM Plex already installed")
-        return actions
-
-    rc, out = _run_root(["dnf", "install", "-y", *needed], timeout=600)
-    if rc == 0:
-        actions.append(f"fonts: installed {', '.join(needed)}")
-        if shutil.which("fc-cache"):
-            _run_root(["fc-cache", "-fv"], timeout=120)
-            actions.append("fonts: rebuilt fontconfig cache")
     else:
-        last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
-        actions.append(f"fonts: install failed: {last}")
+        rc, out = _run_root(["dnf", "install", "-y", *needed], timeout=600)
+        if rc == 0:
+            actions.append(f"fonts: installed {', '.join(needed)}")
+        else:
+            last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
+            actions.append(f"fonts: Plex install failed: {last}")
+
+    actions.extend(_apply_nerd_font())
+
+    if shutil.which("fc-cache"):
+        _run_root(["fc-cache", "-fv"], timeout=120)
+        actions.append("fonts: rebuilt fontconfig cache")
+
     for line in actions:
         log_action(line)
     return actions
+
+
+def _apply_nerd_font() -> List[str]:
+    """Install Hack Nerd Font under /usr/local/share/fonts/ if missing."""
+    actions: List[str] = []
+    # Already installed system-wide (any HackNerdFont*.ttf in /usr/local
+    # or /usr/share counts)?
+    if _hack_nerd_present():
+        return ["fonts: Hack Nerd Font already present"]
+
+    if shutil.which("curl") is None or shutil.which("tar") is None:
+        return ["fonts: curl/tar missing — skipping Hack Nerd Font"]
+
+    # Stage in a temp dir, then move to /usr/local via root.
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="mackes-nerd-") as td:
+        tar = Path(td) / "Hack.tar.xz"
+        rc, _ = _run(["curl", "-fsSL", "-o", str(tar), _NERD_FONT_URL],
+                     timeout=300)
+        if rc != 0 or not tar.is_file():
+            return [f"fonts: Hack Nerd Font download failed (curl rc={rc})"]
+        extract_dir = Path(td) / "extracted"
+        extract_dir.mkdir()
+        rc, _ = _run(["tar", "-xJf", str(tar), "-C", str(extract_dir)],
+                     timeout=120)
+        if rc != 0:
+            return [f"fonts: Hack Nerd Font extract failed (tar rc={rc})"]
+        # Move just the TTFs to /usr/local/share/fonts/HackNerdFont/.
+        # The release tar contains many variants (Mono, Propo) — ship them
+        # all; total is ~14 MB.
+        _run_root(["mkdir", "-p", str(_NERD_FONT_DEST)], timeout=10)
+        rc, _ = _run_root(
+            ["sh", "-c",
+             f"cp {extract_dir}/*.ttf {_NERD_FONT_DEST}/ 2>/dev/null"],
+            timeout=30,
+        )
+        if rc != 0:
+            return [f"fonts: Hack Nerd Font install failed (cp rc={rc})"]
+    actions.append(f"fonts: installed Hack Nerd Font v{_NERD_FONT_VERSION}")
+    return actions
+
+
+def _hack_nerd_present() -> bool:
+    """True if Hack Nerd Font is registered with fontconfig."""
+    if shutil.which("fc-list") is None:
+        return _NERD_FONT_DEST.is_dir() and any(_NERD_FONT_DEST.glob("*.ttf"))
+    try:
+        r = subprocess.run(["fc-list", ":family"], capture_output=True,
+                           text=True, timeout=5)
+        return "Hack Nerd Font" in r.stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -271,65 +339,121 @@ def apply_apps(preset: Preset) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
+_PANEL_SNAPSHOT = "panel/xfce4-panel.snapshot.json"
+
+# Properties skipped at apply time. These are caches the panel populates
+# itself at runtime — shipping them would leak the snapshotting box's
+# usage history (Wi-Fi SSIDs in known-legacy-items, app names in
+# known-items, etc.) to every fresh install.
+_PANEL_TRANSIENT_PATTERNS = (
+    re.compile(r"^/plugins/plugin-\d+/known-items$"),
+    re.compile(r"^/plugins/plugin-\d+/known-legacy-items$"),
+)
+
+
+def _panel_snapshot_path() -> Optional[Path]:
+    p = _find_data("panel", "xfce4-panel.snapshot.json")
+    return p if p and p.is_file() else None
+
+
+def _panel_rc_dir() -> Optional[Path]:
+    p = _find_data("panel", "panel-rc")
+    return p if p and p.is_dir() else None
+
+
+def _panel_is_transient(prop: str) -> bool:
+    return any(rx.match(prop) for rx in _PANEL_TRANSIENT_PATTERNS)
+
+
+def _xfconf_set(channel: str, prop: str, ty: str, value, timeout: int = 10
+                ) -> tuple[int, str]:
+    """Set a single xfconf property by (type, value) — handles arrays.
+
+    `ty` is the type tag from the snapshot:
+        bool / int / uint / double / string  → scalar
+        array-<elem-type>                     → array of <elem-type>
+    """
+    if ty.startswith("array-"):
+        elem_ty = ty[len("array-"):]
+        # Wipe any prior array first so size changes cleanly.
+        _run(["xfconf-query", "--channel", channel,
+              "--property", prop, "--reset"], timeout=timeout)
+        cmd = ["xfconf-query", "--channel", channel,
+               "--property", prop, "--create", "--force-array"]
+        for v in value or []:
+            cmd.extend(["--type", elem_ty, "--set", _xfconf_str(elem_ty, v)])
+        return _run(cmd, timeout=timeout)
+    return _run(["xfconf-query", "--channel", channel,
+                 "--property", prop, "--create",
+                 "--type", ty, "--set", _xfconf_str(ty, value)],
+                timeout=timeout)
+
+
+def _xfconf_str(ty: str, value) -> str:
+    """Coerce a Python value back to the string form xfconf-query expects."""
+    if ty == "bool":
+        return "true" if value else "false"
+    return str(value)
+
+
 def apply_panel_layout(_preset: Preset) -> List[str]:
-    """Write the Mackes default xfce4-panel layout.
+    """Deploy the Mackes default xfce4-panel layout from the snapshot.
 
-    The layout is a single horizontal panel along the top with:
-      - Whisker Menu (replaces XFCE Applications menu)
-      - Docklike Taskbar (replaces Window Buttons)
-      - Spacer
-      - Status Tray
-      - Clock (IBM Plex digital)
+    The layout is shipped as data/panel/xfce4-panel.snapshot.json — a
+    direct mirror of `xfconf-query -c xfce4-panel -lv` from the
+    reference machine. Regenerate via tools/snapshot-panel.py.
 
-    This function uses xfconf-query and is per-user. It only writes keys
-    that aren't already set to the expected value (idempotent).
+    Apply ordering (v1.5.1 race fix preserved):
+      1. xfce4-panel --quit (so the panel doesn't observe partial state)
+      2. /plugins/* — every plugin's type and properties
+      3. /panels/* root keys except the plugin-ids arrays
+      4. /panels (the master array of panel ids)
+      5. /panels/panel-*/plugin-ids (referenced plugins now exist)
+      6. xfce4-panel relaunch
+
+    Transient/runtime cache keys (plugin-N/known-items + known-legacy-items)
+    are filtered to avoid leaking PII from the snapshotting box.
     """
     actions: List[str] = []
     if shutil.which("xfconf-query") is None:
         actions.append("panel layout: xfconf-query not installed — skipping")
         return actions
 
-    # Helper: set a single-value key
-    def _set(channel: str, prop: str, type_hint: str, value: str) -> None:
-        rc, out = _run(["xfconf-query", "--channel", channel, "--property", prop,
-                        "--create", "--type", type_hint, "--set", value], timeout=10)
-        if rc == 0:
-            actions.append(f"panel: set {channel}{prop} = {value}")
+    snap_path = _panel_snapshot_path()
+    if snap_path is None:
+        actions.append("panel layout: snapshot file missing — skipping")
+        return actions
+
+    try:
+        snap = json.loads(snap_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        actions.append(f"panel layout: snapshot parse failed: {e}")
+        return actions
+
+    # Partition the snapshot by apply ordering.
+    plugins: list[tuple[str, dict]] = []
+    panels_root: list[tuple[str, dict]] = []   # /panels (the array)
+    panel_meta: list[tuple[str, dict]] = []    # /panels/panel-N/* except plugin-ids
+    plugin_ids: list[tuple[str, dict]] = []    # /panels/panel-N/plugin-ids
+    misc: list[tuple[str, dict]] = []          # /configver, /panels/dark-mode
+
+    for prop in sorted(snap.keys()):
+        if _panel_is_transient(prop):
+            continue
+        spec = snap[prop]
+        if prop.startswith("/plugins/"):
+            plugins.append((prop, spec))
+        elif prop == "/panels":
+            panels_root.append((prop, spec))
+        elif re.match(r"^/panels/panel-\d+/plugin-ids$", prop):
+            plugin_ids.append((prop, spec))
+        elif prop.startswith("/panels/panel-"):
+            panel_meta.append((prop, spec))
         else:
-            actions.append(f"panel: failed to set {prop}: "
-                           f"{out.strip().splitlines()[-1] if out.strip() else rc}")
+            misc.append((prop, spec))
 
-    # Helper: set an array key. xfconf-query needs every value flagged
-    # individually as `-t TYPE -s VALUE`, plus `-n -a` to declare the
-    # array. We always reset+create the array because mixing existing
-    # plugin-ids with ours causes overlap (v1.4.6 bug).
-    def _set_array(channel: str, prop: str, type_hint: str,
-                   values: list[str]) -> None:
-        # Wipe any prior array first so the size shrinks/expands cleanly.
-        _run(["xfconf-query", "--channel", channel, "--property", prop,
-              "--reset"], timeout=10)
-        cmd = ["xfconf-query", "--channel", channel, "--property", prop,
-               "--create", "--force-array"]
-        for v in values:
-            cmd.extend(["--type", type_hint, "--set", v])
-        rc, out = _run(cmd, timeout=10)
-        if rc == 0:
-            actions.append(f"panel: set {prop}[] = {values}")
-        else:
-            actions.append(f"panel: failed array {prop}: "
-                           f"{out.strip().splitlines()[-1] if out.strip() else rc}")
-
-    # Plugin IDs we own (chosen to avoid collisions with default 1/2/3)
-    # plugin-101 = whiskermenu, 102 = docklike, 103 = separator,
-    # 104 = systray, 105 = clock
-    plugin_ids = ["101", "102", "103", "104", "105"]
-
-    # v1.5.1 — kill xfce4-panel BEFORE writing any xfconf state so it
-    # doesn't race on partial config and crash (the v1.5.0 install
-    # report). xfconf-query writes flush as we go; if the panel is
-    # listening to xfsettingsd and reads the plugin-ids array before
-    # the plugin types are set, it tries to load plugin-101 = <unset>
-    # and SIGSEGVs.
+    # v1.5.1 — kill xfce4-panel BEFORE writing any state so it doesn't
+    # race on partial config and crash.
     if shutil.which("xfce4-panel"):
         try:
             subprocess.run(["xfce4-panel", "--quit"],
@@ -338,74 +462,42 @@ def apply_panel_layout(_preset: Preset) -> List[str]:
         except (OSError, subprocess.TimeoutExpired):
             pass
 
-    # Always write panel-0 metadata + plugin types FIRST so the
-    # plugin-ids array we set last references things that already exist.
-    _set("xfce4-panel", "/panels/panel-0/position", "string", "p=8;x=0;y=0")
-    _set("xfce4-panel", "/panels/panel-0/length",   "uint",   "100")
-    _set("xfce4-panel", "/panels/panel-0/size",     "uint",   "32")
-    _set("xfce4-panel", "/panels/panel-0/icon-size", "uint",  "22")
-    _set("xfce4-panel", "/panels/panel-0/position-locked", "bool", "true")
-    _set("xfce4-panel", "/panels/panel-0/autohide-behavior", "uint", "0")
+    def _apply_batch(batch: list[tuple[str, dict]], label: str) -> None:
+        ok = fail = 0
+        for prop, spec in batch:
+            rc, out = _xfconf_set("xfce4-panel", prop,
+                                  spec["type"], spec["value"])
+            if rc == 0:
+                ok += 1
+            else:
+                fail += 1
+                last = out.strip().splitlines()[-1] if out.strip() else rc
+                actions.append(f"panel: failed {prop}: {last}")
+        actions.append(f"panel: applied {label}: {ok} ok, {fail} failed")
 
-    # Plugins
-    _set("xfce4-panel", "/plugins/plugin-101", "string", "whiskermenu")
-    # v1.4.6: Mackes-branded Whisker menu config (button title, icon,
-    # search prompt, layout). xfce4-whiskermenu-plugin reads these from
-    # the xfce4-panel xfconf channel automatically.
-    _set("xfce4-panel", "/plugins/plugin-101/button-title",
-         "string", "Mackes")
-    _set("xfce4-panel", "/plugins/plugin-101/button-icon",
-         "string", "mackes-shell")
-    _set("xfce4-panel", "/plugins/plugin-101/show-button-title",
-         "bool",   "true")
-    _set("xfce4-panel", "/plugins/plugin-101/show-button-icon",
-         "bool",   "true")
-    _set("xfce4-panel", "/plugins/plugin-101/launcher-show-name",
-         "bool",   "true")
-    _set("xfce4-panel", "/plugins/plugin-101/launcher-show-description",
-         "bool",   "true")
-    _set("xfce4-panel", "/plugins/plugin-101/category-icon-size",
-         "int",    "1")
-    _set("xfce4-panel", "/plugins/plugin-101/item-icon-size",
-         "int",    "2")
-    _set("xfce4-panel", "/plugins/plugin-101/menu-width",
-         "int",    "440")
-    _set("xfce4-panel", "/plugins/plugin-101/menu-height",
-         "int",    "560")
-    _set("xfce4-panel", "/plugins/plugin-101/menu-opacity",
-         "int",    "100")
-    _set("xfce4-panel", "/plugins/plugin-101/position-search-alternate",
-         "bool",   "true")
-    _set("xfce4-panel", "/plugins/plugin-101/position-categories-alternate",
-         "bool",   "true")
-    _set("xfce4-panel", "/plugins/plugin-101/search-actions-enabled",
-         "bool",   "true")
-    _set("xfce4-panel", "/plugins/plugin-101/recent-items-max",
-         "int",    "10")
-    _set("xfce4-panel", "/plugins/plugin-101/favorites",
-         "string", "mackes-shell.desktop")
-    _set("xfce4-panel", "/plugins/plugin-102", "string", "docklike")
-    _set("xfce4-panel", "/plugins/plugin-103", "string", "separator")
-    _set("xfce4-panel", "/plugins/plugin-103/expand", "bool", "true")
-    _set("xfce4-panel", "/plugins/plugin-103/style", "uint", "0")
-    _set("xfce4-panel", "/plugins/plugin-104", "string", "systray")
-    _set("xfce4-panel", "/plugins/plugin-105", "string", "clock")
-    _set("xfce4-panel", "/plugins/plugin-105/digital-time-font", "string", "IBM Plex Sans Bold 12")
-    _set("xfce4-panel", "/plugins/plugin-105/digital-time-format", "string", "%I:%M %p")
-    _set("xfce4-panel", "/plugins/plugin-105/digital-date-font", "string", "IBM Plex Sans 10")
-    _set("xfce4-panel", "/plugins/plugin-105/digital-date-format", "string", "%B %d, %Y")
-    _set("xfce4-panel", "/plugins/plugin-105/mode", "uint", "2")
+    _apply_batch(plugins,    "plugin types + properties")
+    _apply_batch(panel_meta, "panel metadata")
+    _apply_batch(misc,       "misc keys")
+    _apply_batch(panels_root,"panels array")
+    _apply_batch(plugin_ids, "plugin-ids arrays")
 
-    # v1.5.1 — write the panels array + plugin-ids array LAST, after
-    # every plugin's type + config has landed. This avoids the
-    # v1.5.0 crash where xfce4-panel observed `plugin-ids = [101..105]`
-    # before plugin-101's type was written and segfaulted on
-    # `load plugin-101 <unset>`.
-    _set_array("xfce4-panel", "/panels", "int", ["0"])
-    _set_array("xfce4-panel", "/panels/panel-0/plugin-ids", "uint", plugin_ids)
+    # Copy per-plugin RC files (whiskermenu, launcher icons, etc.).
+    rc_src = _panel_rc_dir()
+    if rc_src is not None:
+        dst = Path.home() / ".config" / "xfce4" / "panel"
+        dst.mkdir(parents=True, exist_ok=True)
+        for src in rc_src.iterdir():
+            target = dst / src.name
+            try:
+                if src.is_dir():
+                    shutil.copytree(src, target, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, target)
+                actions.append(f"panel-rc: copied {src.name}")
+            except OSError as e:
+                actions.append(f"panel-rc: failed {src.name}: {e}")
 
-    # Relaunch xfce4-panel — we --quit'd it at the start; spawn it
-    # fresh so the new config is the only thing it ever sees.
+    # Relaunch xfce4-panel.
     if shutil.which("xfce4-panel"):
         try:
             subprocess.Popen(["xfce4-panel"],

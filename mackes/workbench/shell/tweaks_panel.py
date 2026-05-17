@@ -113,6 +113,39 @@ class TweaksOverlay(Gtk.Box):
                                 on_change=lambda v: self._set("show_conky", v))
         drawer.pack_start(conky_row, False, False, 0)
 
+        # ---- HUD density (compact / standard / full) ---------------------
+        drawer.pack_start(_section_title("HUD density"), False, False, 0)
+        hud_dens_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        self._conky_density_buttons = {}
+        current_hud = self._tweaks.get("conky_density") or "standard"
+        for opt in ("compact", "standard", "full"):
+            b = Gtk.ToggleButton(label=opt.title())
+            b.set_active(current_hud == opt)
+            b.connect("toggled",
+                      lambda btn, o=opt:
+                          btn.get_active() and self._set("conky_density", o))
+            self._conky_density_buttons[opt] = b
+            hud_dens_row.pack_start(b, True, True, 0)
+        drawer.pack_start(hud_dens_row, False, False, 0)
+
+        # ---- HUD monitor (xrandr output name; empty = primary) ----------
+        drawer.pack_start(_section_title("HUD monitor"), False, False, 0)
+        mon_combo = Gtk.ComboBoxText()
+        mon_combo.append("", "Primary (auto-detect)")
+        self._conky_monitor_combo = mon_combo
+        try:
+            from mackes.conky_hud import _xrandr_outputs
+            for o in _xrandr_outputs():
+                label = f"{o['name']} ({o['w']}×{o['h']})"
+                mon_combo.append(o["name"], label)
+        except Exception:  # noqa: BLE001
+            pass
+        mon_combo.set_active_id(self._tweaks.get("conky_monitor") or "")
+        mon_combo.connect("changed",
+                          lambda c: self._set("conky_monitor",
+                                              c.get_active_id() or None))
+        drawer.pack_start(mon_combo, False, False, 0)
+
         # ---- Actions -----------------------------------------------------
         drawer.pack_start(Gtk.Separator(), False, False, 0)
         wiz_btn = Gtk.Button(label="Re-open Wizard")
@@ -141,9 +174,14 @@ class TweaksOverlay(Gtk.Box):
         if key == "preset":
             for k, btn in self._preset_buttons.items():
                 _set_radio_selected(btn, k == value)
-        # Update density toggles
+        # Update GUI density toggles
         if key == "density":
             for opt, b in self._density_buttons.items():
+                if b.get_active() != (opt == value):
+                    b.set_active(opt == value)
+        # Update HUD density toggles (v1.6.2)
+        if key == "conky_density":
+            for opt, b in getattr(self, "_conky_density_buttons", {}).items():
                 if b.get_active() != (opt == value):
                     b.set_active(opt == value)
         self._on_change(self._tweaks)

@@ -1,14 +1,20 @@
--- Mackes Shell — Conky HUD (v1.4.6 — rewritten without string.format).
+-- Mackes Shell — Conky HUD (v1.6.2 — performance + height pass).
 --
--- Generated from mackes/conky_hud.py:render_config — the {accent_hex}
--- placeholder is replaced with the active preset's accent color so the
--- left-edge stripe + section dividers track preset swaps. The {height_px}
--- placeholder becomes the ⅔-of-monitor-height value.
+-- Generated from mackes/conky_hud.py:render_config. Placeholders:
+--   {accent_hex}  active preset's accent (3-byte hex, no leading #)
+--   {height_px}   superseded — kept as 0 for auto-size (was ⅔ screen)
+--   {version}     baked at render time; no daily mackes --version spawn
+--   {lua_path}    absolute path to mackes-conky.lua
+--   {density}     compact / standard / full — controls section visibility
+--   {gap_x}       horizontal gap from monitor edge (per-monitor placement)
+--   {gap_y}       vertical gap below xfce4-panel
 --
--- Geometry: top-right, 400 × ⅔ of screen height (Q1 v1.4.0 lock).
--- Style:    opaque Carbon Gray 90 (#262626) with a 3px accent left-edge.
+-- Geometry: top-right, 400px wide, auto-height (v1.6.2 drop of Q1 lock).
+-- Style:    opaque Carbon Gray 90 (#262626) with a cairo-drawn 3px
+--           accent stripe on the left edge (no per-line BAR glyph).
 -- Refresh:  tiered — 1s for system built-ins / 30s for Mackes state /
 --           60s for rare items.
+-- Glyphs:   Hack Nerd Font (installed via apply_nerd_font birthright).
 
 
 -- Color tokens — kept in sync with data/css/tokens.css
@@ -28,7 +34,7 @@ local mackes = {
 conky.config = {
   alignment       = 'top_right',
   background      = true,
-  border_inner_margin = 12,
+  border_inner_margin = 10,
   border_outer_margin = 0,
   border_width    = 0,
   default_color   = mackes.text_primary,
@@ -37,11 +43,11 @@ conky.config = {
   draw_graph_borders = false,
   draw_outline    = false,
   draw_shades     = false,
-  gap_x           = 24,
-  gap_y           = 48,            -- below xfce4-panel
+  gap_x           = {gap_x},
+  gap_y           = {gap_y},
   maximum_width   = 400,
   minimum_width   = 400,
-  minimum_height  = {height_px},   -- ⅔ of screen height
+  minimum_height  = 0,             -- auto-size to content (v1.6.2)
   no_buffers      = true,
   out_to_console  = false,
   out_to_stderr   = false,
@@ -50,6 +56,7 @@ conky.config = {
   own_window_argb_value     = 255,
   own_window_class          = 'mackes-conky',
   own_window_colour         = mackes.gray_90,
+  -- 'below' + 'sticky' + click-through via input shape (own_window_type=desktop)
   own_window_hints          = 'undecorated,below,sticky,skip_taskbar,skip_pager',
   own_window_title          = 'Mackes Conky',
   own_window_transparent    = false,
@@ -63,108 +70,153 @@ conky.config = {
   font                      = 'IBM Plex Sans:size=10',
   xftalpha                  = 1.0,
   pad_percents              = 2,
+  -- Cairo draw hook for the left-edge accent stripe (replaces the
+  -- per-line ${color}┃${color} BAR glyph — one stroke vs. N font
+  -- substitutions per refresh).
+  lua_load                  = '{lua_path}',
+  lua_draw_hook_pre         = 'conky_draw_stripe',
 }
 
 
 -- Helpers. Plain Lua string concatenation — no string.format, no
--- execpi-printf hacks. U+2503 BOX DRAWINGS HEAVY VERTICAL is embedded
--- directly as a UTF-8 literal. Nerd Font glyphs (v1.4.7) are also
--- embedded directly as UTF-8 from the Private Use Area.
-local A   = mackes.accent
-local TP  = mackes.text_primary
-local TH  = mackes.text_helper
-local BAR = '${color ' .. A  .. '}┃${color}  '
--- Nerd-Font Cascadia Code NF for the icon glyphs; IBM Plex Sans Bold
--- for the section label. The font switches mid-line via ${font …}.
+-- execpi-printf hacks. Hack Nerd Font is used for icon glyphs and is
+-- installed by apply_nerd_font in mackes/birthright.py. The body text
+-- is IBM Plex Sans (Carbon Design System).
+local A    = mackes.accent
+local TP   = mackes.text_primary
+local TH   = mackes.text_helper
+-- Indent for data rows. The 3px cairo stripe lives at x=0; we leave
+-- ~6px breathing room then start the text. ${goto} is in pixels.
+local IND  = '${goto 12}'
+-- Density tier from {density}: compact / standard / full.
+local DENSITY = '{density}'
+local function show_in(tier)
+  if DENSITY == 'full' then return true end
+  if DENSITY == 'standard' then return tier ~= 'extra' end
+  if DENSITY == 'compact'  then return tier == 'core' end
+  return true
+end
+-- Section header. Glyph in Hack Nerd Font, label in IBM Plex Sans Bold.
 local function section(glyph, label)
-  return '${voffset 8}${color ' .. A .. '}'
-      .. '${font Cascadia Code NF:bold:size=10}'
+  return '${voffset 4}${color ' .. A .. '}'
+      .. '${font Hack Nerd Font:bold:size=10}'
       .. glyph
       .. '  ${font IBM Plex Sans Bold:size=8}'
       .. label:upper()
-      .. '${font}${color}${voffset 4}\n'
+      .. '${font}${color}${voffset 2}\n'
+end
+-- Optional helper-gated section: only renders if the helper output
+-- (first line) is non-empty. Uses ${if_match} on a captured ${execi}.
+local function gated_section(refresh, helper, glyph, label)
+  return '${if_match "${execi ' .. refresh .. ' timeout 3 '
+       .. helper .. ' 2>/dev/null | head -n1}" != ""}'
+      .. section(glyph, label)
+      .. IND .. '${execi ' .. refresh .. ' timeout 3 '
+       .. helper .. ' 2>/dev/null}\n'
+      .. '${endif}'
 end
 -- Nerd Font glyphs (Devicons + FontAwesome subset). Bytes are valid
 -- UTF-8 of codepoints in the U+E000–U+F8FF Private Use Area.
 local NF = {
-  shell        = '\xef\x84\x8a',  --   U+F10A  terminal
-  preset       = '\xef\x84\x86',  --   U+F086  swap
-  unlocked     = '\xef\x82\x9c',  --   U+F09C  unlock
-  locked       = '\xef\x80\xa3',  --   U+F023  lock
-  mesh         = '\xef\x87\xab',  --   U+F1EB  wifi
-  fleet        = '\xef\x82\x85',  --   U+F085  cogs
-  drift        = '\xef\x81\xb1',  --   U+F071  warning
-  storage      = '\xef\x83\xa1',  --   U+F0E1  archive
-  notif        = '\xef\x83\xb3',  --   U+F0F3  bell
-  media        = '\xef\x80\x81',  --   U+F001  music
-  remote       = '\xef\x84\xa0',  --   U+F120  terminal
-  services     = '\xef\x88\xb3',  --   U+F233  server
-  cpu          = '\xef\x8b\x9b',  --   U+F2DB  CPU
-  clock        = '\xef\x80\x97',  --   U+F017  clock
+  shell        = '\xef\x84\x8a',  --   U+F10A
+  preset       = '\xef\x84\x86',  --   U+F086
+  unlocked     = '\xef\x82\x9c',  --   U+F09C
+  locked       = '\xef\x80\xa3',  --   U+F023
+  mesh         = '\xef\x87\xab',  --   U+F1EB
+  fleet        = '\xef\x82\x85',  --   U+F085
+  drift        = '\xef\x81\xb1',  --   U+F071
+  storage      = '\xef\x83\xa1',  --   U+F0E1
+  notif        = '\xef\x83\xb3',  --   U+F0F3
+  media        = '\xef\x80\x81',  --   U+F001
+  remote       = '\xef\x84\xa0',  --   U+F120
+  services     = '\xef\x88\xb3',  --   U+F233
+  cpu          = '\xef\x8b\x9b',  --   U+F2DB
+  clock        = '\xef\x80\x97',  --   U+F017
 }
 local HELPERS = '/usr/share/mackes-shell/data/conky/helpers'
 
 
-conky.text = ''
-  -- Header band ----------------------------------------------------------
-  .. '${color ' .. A  .. '}${font Cascadia Code NF:bold:size=14}' .. NF.shell
-  .. '  ${font IBM Plex Sans Bold:size=14}${color ' .. TP .. '}Mackes '
-  .. '${font IBM Plex Sans:size=14}Shell${font}${color}\n'
-  .. '${color ' .. A .. '}${stippled_hr 1}${color}\n'
-  .. BAR .. 'v${execi 86400 mackes --version 2>/dev/null | awk \'{print $NF}\'}\n'
-  .. BAR .. '${font Cascadia Code NF:size=10}' .. NF.preset
-            .. '${font}  preset · ${color ' .. A .. '}'
-        .. '${execi 30 cat /etc/mackes-shell/state.json 2>/dev/null '
-        ..      '| python3 -c "import sys,json;'
-        ..      'print(json.load(sys.stdin).get(\\"active_preset\\",\\"—\\"))" 2>/dev/null}'
-        .. '${color}\n'
-  .. BAR .. '${font Cascadia Code NF:size=10}${execi 5 '
-            .. HELPERS .. '/admin-lock-glyph.sh 2>/dev/null}'
-            .. '${font}  admin · ${execi 5 '
-            .. HELPERS .. '/admin-lock.sh 2>/dev/null}\n'
+-- ----- Compose conky.text ---------------------------------------------------
+-- Each block is appended only if its density tier is visible. Tiers:
+--   core    — always shown (header + hardware)
+--   default — shown in standard + full
+--   extra   — shown in full only (sparkline, services dot grid)
+local parts = {}
 
-  -- Mesh -----------------------------------------------------------------
-  .. section(NF.mesh, 'Mesh')
-  .. BAR .. '${execi 30 ' .. HELPERS .. '/mesh.sh 2>/dev/null}\n'
+-- Header band -----------------------------------------------------------------
+parts[#parts+1] =
+    '${color ' .. A  .. '}${font Hack Nerd Font:bold:size=14}' .. NF.shell
+ .. '  ${font IBM Plex Sans Bold:size=14}${color ' .. TP .. '}Mackes '
+ .. '${font IBM Plex Sans:size=14}Shell${font}${color}\n'
+ .. IND .. '${color ' .. TH .. '}v{version}  ·  '
+ .. '${font Hack Nerd Font:size=9}' .. NF.preset .. '${font} '
+ .. '${color ' .. A .. '}'
+ .. '${execi 30 timeout 3 ' .. HELPERS .. '/preset.sh 2>/dev/null}'
+ .. '${color}  ·  '
+ .. '${font Hack Nerd Font:size=9}${execi 5 timeout 3 '
+ .. HELPERS .. '/admin-lock-glyph.sh 2>/dev/null}${font} '
+ .. '${execi 5 timeout 3 ' .. HELPERS .. '/admin-lock.sh 2>/dev/null}'
+ .. '${color}\n'
 
-  -- Fleet ----------------------------------------------------------------
-  .. section(NF.fleet, 'Fleet')
-  .. BAR .. '${execi 30 ' .. HELPERS .. '/fleet.sh 2>/dev/null}\n'
+-- Mesh (with latency sparkline in full density) -------------------------------
+if show_in('default') then
+  parts[#parts+1] =
+      section(NF.mesh, 'Mesh')
+   .. IND .. '${execi 30 timeout 3 ' .. HELPERS .. '/mesh.sh 2>/dev/null}\n'
+  if show_in('extra') then
+    parts[#parts+1] = IND
+      .. '${color ' .. TH .. '}ping  ${color}'
+      .. '${execgraph "timeout 3 ' .. HELPERS .. '/mesh_ping.sh" 8,140 '
+      .. A .. ' ' .. mackes.gray_80 .. ' -t}\n'
+  end
+end
 
-  -- Drift ----------------------------------------------------------------
-  .. section(NF.drift, 'Drift')
-  .. BAR .. '${execi 30 ' .. HELPERS .. '/drift.sh 2>/dev/null}\n'
+-- Fleet -----------------------------------------------------------------------
+if show_in('default') then
+  parts[#parts+1] = gated_section(30, HELPERS .. '/fleet.sh', NF.fleet, 'Fleet')
+end
 
-  -- Shared storage -------------------------------------------------------
-  .. section(NF.storage, 'Shared storage')
-  .. BAR .. '${execi 60 ' .. HELPERS .. '/storage.sh 2>/dev/null}\n'
+-- Drift -----------------------------------------------------------------------
+if show_in('default') then
+  parts[#parts+1] = gated_section(30, HELPERS .. '/drift.sh', NF.drift, 'Drift')
+end
 
-  -- Notifications --------------------------------------------------------
-  .. section(NF.notif, 'Notifications')
-  .. BAR .. '${execi 30 ' .. HELPERS .. '/notifications.sh 2>/dev/null}\n'
+-- Shared storage (auto-hide when nothing mounted) -----------------------------
+if show_in('default') then
+  parts[#parts+1] = gated_section(60, HELPERS .. '/storage.sh', NF.storage, 'Shared storage')
+end
 
-  -- Media services -------------------------------------------------------
-  .. section(NF.media, 'Media services')
-  .. BAR .. '${execi 30 ' .. HELPERS .. '/media.sh 2>/dev/null}\n'
+-- Services row (merged: notifications + media + remote) -----------------------
+-- Single row replaces three sections (v1.6.2). The helper renders three
+-- glyph+count chips on one line.
+if show_in('default') then
+  parts[#parts+1] =
+      section(NF.services, 'Services')
+   .. IND .. '${execi 30 timeout 3 ' .. HELPERS .. '/services_row.sh 2>/dev/null}\n'
+end
 
-  -- Remote desktop -------------------------------------------------------
-  .. section(NF.remote, 'Remote desktop')
-  .. BAR .. '${execi 30 ' .. HELPERS .. '/remote.sh 2>/dev/null}\n'
+-- Daemons (dot grid) — extra density only ------------------------------------
+if show_in('extra') then
+  parts[#parts+1] =
+      section(NF.services, 'Daemons')
+   .. IND .. '${color ' .. TH .. '}'
+   .. '${execi 10 timeout 3 ' .. HELPERS .. '/services.sh 2>/dev/null}'
+   .. '${color}\n'
+end
 
-  -- Services dot grid ----------------------------------------------------
-  .. section(NF.services, 'Services')
-  .. '${color ' .. TH .. '}'
-  .. '${execi 10 ' .. HELPERS .. '/services.sh 2>/dev/null}'
-  .. '${color}\n'
+-- Hardware (always shown — core tier) -----------------------------------------
+parts[#parts+1] =
+    section(NF.cpu, 'Hardware')
+ .. IND .. '${color ' .. TP .. '}${nodename}${color}'
+ .. '${goto 220}${color ' .. TH .. '}'
+ .. '${execi 86400 uname -r | cut -d. -f1-2}${color}\n'
+ .. IND .. 'CPU ${color ' .. A .. '}${cpu cpu0}%${color}'
+ .. '${goto 90}${cpubar cpu0 6,90 ' .. A .. ' ' .. mackes.gray_80 .. '}'
+ .. '${goto 200}RAM ${color ' .. A .. '}${memperc}%${color}'
+ .. '${goto 280}${membar 6,90 ' .. A .. ' ' .. mackes.gray_80 .. '}\n'
+ .. IND .. '${color ' .. TH .. '}load ${color}${loadavg 1} ${loadavg 2} ${loadavg 3}'
+ .. '${goto 200}${color ' .. TH .. '}${font Hack Nerd Font:size=9}'
+ .. NF.clock .. '${font}  ${time %H:%M:%S}${color}\n'
 
-  -- Hardware -------------------------------------------------------------
-  .. section(NF.cpu, 'Hardware')
-  .. '${color ' .. TP .. '}${nodename}${color}  '
-  .. '${color ' .. TH .. '}${execi 30 uname -r | cut -d. -f1-2}${color}\n'
-  .. 'CPU  ${color ' .. A  .. '}${cpu cpu0}%${color}  '
-        .. '$alignr${cpubar cpu0 6,140 ' .. A .. ' ' .. mackes.gray_80 .. '}\n'
-  .. 'RAM  ${color ' .. A  .. '}${memperc}%${color}  '
-        .. '$alignr${membar 6,140 ' .. A .. ' ' .. mackes.gray_80 .. '}\n'
-  .. 'LOAD ${color ' .. A  .. '}${loadavg 1} ${loadavg 2} ${loadavg 3}${color}\n'
-  .. '${color ' .. TH .. '}${font Cascadia Code NF:size=10}' .. NF.clock
-  .. '${font}  ${time %Y-%m-%d  %H:%M:%S}${color}\n'
+
+conky.text = table.concat(parts, '')

@@ -3,6 +3,51 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.6.2 — Conky HUD perf + xfce-panel snapshot (unreleased)
+
+**Conky HUD rewritten for speed + height.** The v1.4.0 "⅔ screen height,
+10-section" lock is retired. The HUD now auto-sizes to content, ships
+three density tiers (Compact / Standard / Full) selectable from Tweaks,
+and renders far cheaper per refresh:
+
+* Glyphs use **Hack Nerd Font**, installed automatically by the
+  refreshed `apply_fonts` birthright step (downloaded from the upstream
+  v3.2.1 release tarball — Fedora doesn't package any Nerd Font). The
+  prior config asked for "Cascadia Code NF" which was never installed,
+  so every section glyph rendered as tofu.
+* The accent-coloured left edge is now a **single cairo stroke** drawn
+  by `data/conky/mackes-conky.lua`, not a per-line `┃` glyph
+  substitution. Conky's bundled cairo + cairo_xlib Lua extensions are
+  found via an injected `package.cpath`.
+* Empty sections collapse — Fleet / Drift / Storage all check their
+  helper's first line before drawing the header.
+* Notifications / Media / Remote merge into a single **Services** row
+  rendered by `helpers/services_row.sh` (three chips, one line).
+* Every helper is wrapped in `timeout 3`. The `mackes --version` daily
+  Python spawn is gone — the version is baked into the config at
+  render time.
+* Click-through is enforced via X SHAPE input region (ctypes / libXext),
+  found post-spawn via `xdotool search --class mackes-conky`.
+* Per-monitor placement: `conky_hud._xrandr_outputs` reads xrandr when
+  installed and falls back to the xfsettings `displays` xfconf channel
+  (which on a Fedora 44 LightDM box is the actual source of truth).
+  Tweaks → "HUD monitor" picks the target output.
+* Preset swap uses `SIGUSR1` for a hot reload instead of the
+  desktop-flashing kill / respawn.
+
+**xfce4-panel snapshot becomes the platform default.** Your current
+panel layout is captured in `data/panel/xfce4-panel.snapshot.json`
+(70 properties, two panels) and `apply_panel_layout` is now a
+data-driven loader from that file. The v1.5.0 plugin-id race fix is
+preserved (panels are quit before write, plugin-ids written last).
+Transient PII keys (Wi-Fi SSIDs in `known-legacy-items`, app history in
+`known-items`) are filtered at apply time. Re-snapshot anytime via
+`tools/snapshot-panel.py`.
+
+Spec gains `Recommends: xorg-x11-server-utils` (xrandr for per-monitor
+geometry) and `Recommends: xdotool` (click-through window-finder); both
+degrade gracefully when absent.
+
 ## 1.5.2 — QNM as 14th birthright (2026-05-17)
 
 `apply_qnm` joins the apply pipeline between Mesh clipboard and Mesh.

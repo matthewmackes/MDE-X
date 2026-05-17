@@ -106,6 +106,11 @@ Recommends:     gstreamer1-plugin-openh264
 # wizard's apply_conky step installs the user config + XDG autostart.
 # The Tweaks panel toggle turns the HUD on/off without uninstalling.
 Requires:       conky
+# v1.6.2 — per-monitor HUD placement uses xrandr; click-through uses
+# xdotool to find the conky window before clearing its SHAPE input.
+# Both degrade gracefully when absent.
+Recommends:     xorg-x11-server-utils
+Recommends:     xdotool
 
 # Always-maximize windows (v1.4.1 birthright) — mackes-maximizer is a
 # user-level service that listens for new top-level windows and adds
@@ -210,6 +215,12 @@ cp -r data/ansible        %{buildroot}%{_datadir}/%{name}/data/
 # Conky HUD (v1.4.0) — config template + helper scripts
 cp -r data/conky          %{buildroot}%{_datadir}/%{name}/data/
 chmod 0755 %{buildroot}%{_datadir}/%{name}/data/conky/helpers/*.sh
+# v1.6.2 — canonical xfce4-panel snapshot for apply_panel_layout.
+# data/panel/xfce4-panel.snapshot.json is the platform default panel
+# (regenerated via tools/snapshot-panel.py on the reference box).
+if [ -d data/panel ]; then
+    cp -r data/panel      %{buildroot}%{_datadir}/%{name}/data/
+fi
 # Mackes Conky autostart .desktop
 install -D -m 0644 data/applications/mackes-conky.desktop \
     %{buildroot}%{_datadir}/applications/mackes-conky.desktop
