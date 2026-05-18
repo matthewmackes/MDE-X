@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        2.1.0
+Version:        2.2.0
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -204,6 +204,7 @@ Menu + xfce4-panel + xfdesktop), styled with the Carbon Design System.
 # Pure Python — except for the xfce4-panel external clipboard plugin (C).
 make -C data/panel-plugins/mackes-clipboard CFLAGS="%{optflags}"
 make -C data/panel-plugins/mackes-launcher  CFLAGS="%{optflags}"
+make -C data/panel-plugins/mackes-drawer    CFLAGS="%{optflags}"
 
 %install
 # 1. Install the Python package directly into site-packages. Skip
@@ -233,9 +234,7 @@ cp -r data/css            %{buildroot}%{_datadir}/%{name}/data/
 cp -r data/dnf            %{buildroot}%{_datadir}/%{name}/data/
 # Fleet management (v1.3.0) — 7 curated Ansible roles
 cp -r data/ansible        %{buildroot}%{_datadir}/%{name}/data/
-# Conky HUD (v1.4.0) — config template + helper scripts
-cp -r data/conky          %{buildroot}%{_datadir}/%{name}/data/
-chmod 0755 %{buildroot}%{_datadir}/%{name}/data/conky/helpers/*.sh
+# v2.2.0 — data/conky/ removed (Conky HUD replaced by Notification Drawer).
 # v1.6.2 — canonical xfce4-panel snapshot for apply_panel_layout.
 # data/panel/xfce4-panel.snapshot.json is the platform default panel
 # (regenerated via tools/snapshot-panel.py on the reference box).
@@ -243,8 +242,8 @@ if [ -d data/panel ]; then
     cp -r data/panel      %{buildroot}%{_datadir}/%{name}/data/
 fi
 # Mackes Conky autostart .desktop
-install -D -m 0644 data/applications/mackes-conky.desktop \
-    %{buildroot}%{_datadir}/applications/mackes-conky.desktop
+# v2.2.0 — mackes-conky.desktop removed (Conky HUD replaced by the
+# Notification Drawer panel applet).
 cp -r data/systemd        %{buildroot}%{_datadir}/%{name}/data/
 # Vendored GTK themes + icon theme — system-wide install
 install -d %{buildroot}%{_datadir}/themes
@@ -259,6 +258,8 @@ install -d %{buildroot}%{_datadir}/plymouth/themes
 cp -r data/plymouth/mackes %{buildroot}%{_datadir}/plymouth/themes/
 # C plugin install (compiled in %%build above). Pass libdir explicitly
 # so on 64-bit the binary lands at %{_libdir}=/usr/lib64, not /usr/lib.
+make -C data/panel-plugins/mackes-drawer install \
+    DESTDIR=%{buildroot} prefix=%{_prefix} libdir=%{_libdir} datadir=%{_datadir}
 make -C data/panel-plugins/mackes-clipboard install \
     DESTDIR=%{buildroot} prefix=%{_prefix} libdir=%{_libdir}
 make -C data/panel-plugins/mackes-launcher install \
@@ -347,8 +348,8 @@ install -D -m 0644 data/applications/mackes-shell.desktop \
 install -D -m 0644 data/applications/mackes-clipboard.desktop \
     %{buildroot}%{_datadir}/applications/mackes-clipboard.desktop
 # v1.6.2 — tray icon autostart (Q8 lock: panel + tray + hotkey)
-install -D -m 0644 data/applications/mackes-tray.desktop \
-    %{buildroot}%{_datadir}/applications/mackes-tray.desktop
+# v2.2.0 — mackes-tray.desktop removed (tray replaced by the Notification
+# Drawer panel applet).
 install -D -m 0644 data/applications/mackes-mesh-uri-handler.desktop \
     %{buildroot}%{_datadir}/applications/mackes-mesh-uri-handler.desktop
 # AppStream metainfo — surfaces Mackes in GNOME Software / KDE Discover
@@ -408,8 +409,6 @@ fi
 %{_datadir}/%{name}/
 %{_datadir}/applications/mackes-shell.desktop
 %{_datadir}/applications/mackes-clipboard.desktop
-%{_datadir}/applications/mackes-tray.desktop
-%{_datadir}/applications/mackes-conky.desktop
 %{_datadir}/applications/mackes-maximizer.desktop
 %{_datadir}/applications/mackes-mesh-uri-handler.desktop
 %{_metainfodir}/io.github.matthewmackes.MackesShell.metainfo.xml
@@ -429,13 +428,15 @@ fi
 %{_userunitdir}/mackes-media-sync.service
 %{_userunitdir}/mackes-media-sync.timer
 %config(noreplace) /etc/sudoers.d/mackes-shell
-# C panel plugin + its descriptor
+# C panel plugins + their descriptors
 %{_libdir}/xfce4/panel/plugins/mackes-clipboard
 %{_datadir}/xfce4/panel/plugins/mackes-clipboard.desktop
-# v1.6.2 — slide-out popover launcher plugin (Q8 lock: panel button +
-# tray + Super+M). Click → spawns `mackes --popover`.
+# v1.6.2 — Mackes launcher (Super+M → mackes --drawer)
 %{_libdir}/xfce4/panel/plugins/mackes-launcher
 %{_datadir}/xfce4/panel/plugins/mackes-launcher.desktop
+# v2.2.0 — Notification Drawer pill (replaces Conky HUD + tray + popover)
+%{_libdir}/xfce4/panel/plugins/mackes-drawer
+%{_datadir}/xfce4/panel/plugins/mackes-drawer.desktop
 # Vendored GTK themes: Orchis-Dark (gtk-2/3/4 + xfwm) is the default;
 # Shiki-Statler provides the classic xfwm4 window borders.
 %{_datadir}/themes/Orchis-Dark/

@@ -1,0 +1,12 @@
+[Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Encoding=UTF-8
+Name=Mackes Notification Drawer
+Comment=Single-pill panel applet — clock + notification count + battery; click for status drawer (replaces conky + tray + mini popover)
+Icon=preferences-desktop-notification
+# xfce4-panel 4.20 requires X-XFCE-API=2.0 — same lesson the
+# mackes-clipboard plugin learned the hard way.
+X-XFCE-API=2.0
+X-XFCE-Internal=false
+X-XFCE-Exec=/usr/lib/xfce4/panel/plugins/mackes-drawer
+X-XFCE-Module-Path=

@@ -95,12 +95,12 @@ def _make_gui_app():
                 "Print version and exit", None,
             )
             self.add_main_option(
-                "popover", ord("p"), GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
-                "Open the 420×600 slide-out popover instead of the "
-                "full window", None,
+                "drawer", ord("d"), GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
+                "Toggle the Mackes Notification Drawer (right-side slide-in). "
+                "Spawned by the mackes-drawer xfce4-panel plugin.", None,
             )
             self._force_wizard = False
-            self._popover_mode = False
+            self._drawer_mode = False
 
         def do_command_line(self, command_line):  # type: ignore[override]
             opts = command_line.get_options_dict().end().unpack()
@@ -108,7 +108,7 @@ def _make_gui_app():
                 print(f"mackes {__version__}")
                 return 0
             self._force_wizard = bool(opts.get("wizard"))
-            self._popover_mode = bool(opts.get("popover"))
+            self._drawer_mode = bool(opts.get("drawer"))
             self.activate()
             return 0
 
@@ -133,13 +133,13 @@ def _make_gui_app():
                         _open_wizard()
                 except Exception:  # noqa: BLE001
                     _open_wizard()
-            elif self._popover_mode:
-                # v1.6.2 — slide-out popover (Q1 lock).
-                from mackes.workbench.popover.window import PopoverWindow
-                win = PopoverWindow(application=self)
-                win.show_all()
-                # Don't connect to destroy → quit; the popover may be
-                # one of many windows the app owns (panel plugin etc.)
+            elif self._drawer_mode:
+                # v2.2.0 — Notification Drawer (replaces conky + tray +
+                # popover). Spawned by the mackes-drawer xfce4-panel
+                # plugin on click. toggle() opens on first run, closes
+                # on second.
+                from mackes.drawer import toggle
+                toggle()
                 return
             else:
                 from mackes.workbench.shell.sidebar_window import WorkbenchWindow

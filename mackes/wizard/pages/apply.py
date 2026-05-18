@@ -46,7 +46,7 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from mackes.logging import log_action
 from mackes.birthright import (
-    apply_apps, apply_clipboard_daemon, apply_conky, apply_dnf_update,
+    apply_apps, apply_clipboard_daemon, apply_dnf_update, apply_drawer,
     apply_flathub, apply_fleet, apply_fonts, apply_hotkey, apply_lightdm,
     apply_maximize_all, apply_media_clients, apply_panel_layout,
     apply_plymouth, apply_qnm, apply_remote_desktop, apply_themes,
@@ -357,7 +357,7 @@ class ApplyPage(Gtk.Box):
             _Step("Media clients",     lambda: apply_media_clients(merged)),
             _Step("Remote desktop",    lambda: apply_remote_desktop(merged)),
             _Step("Fleet management",  lambda: apply_fleet(merged)),
-            _Step("Conky HUD",         lambda: apply_conky(merged)),
+            _Step("Notification drawer", lambda: apply_drawer(merged)),
             _Step("Maximize windows",  lambda: apply_maximize_all(merged)),
             _Step("Mesh clipboard",    lambda: apply_clipboard_daemon(merged)),
             _Step("Quick Network Mesh", lambda: apply_qnm(merged)),
@@ -615,7 +615,7 @@ _STEP_SUBTITLES = {
     "Flathub":          "Adding the per-user Flathub flatpak remote.",
     "Remote desktop":   "xrdp + x11vnc + guacd + Tomcat + Guacamole. Fetches guacamole.war from Apache.",
     "Fleet management": "ansible-core + 7 curated playbooks + 30-min ansible-pull timer.",
-    "Conky HUD":        "Mackes-themed right-rail HUD with mesh / fleet / drift state.",
+    "Notification drawer": "Mackes notification drawer panel applet — pill + slide-in status drawer.",
     "Maximize windows": "mackes-maximizer.service — every new top-level window starts maximized.",
     "Mesh clipboard":   "Bidirectional XA_CLIPBOARD ↔ QNM-Shared sync with secret-filter.",
     "Quick Network Mesh": "dnf install qnm + qnmctl init + qnm.service.",

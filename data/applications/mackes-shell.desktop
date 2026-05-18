@@ -10,12 +10,12 @@ Categories=Settings;System;X-XFCE-SettingsDialog;DesktopSettings;
 Keywords=settings;preferences;control;panel;xfce;shell;mesh;tailscale;headscale;fleet;ansible;
 StartupNotify=true
 StartupWMClass=Mackes Shell
-Actions=Wizard;Popover;
+Actions=Wizard;Drawer;
 
 [Desktop Action Wizard]
 Name=Open setup wizard
 Exec=mackes --wizard
 
-[Desktop Action Popover]
-Name=Quick popover
-Exec=mackes --popover
+[Desktop Action Drawer]
+Name=Open notification drawer
+Exec=mackes --drawer

@@ -911,7 +911,9 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
             ctx.remove_class(f"mackes-density-{d}")
         density = tweaks.get("density") or "cozy"
         ctx.add_class(f"mackes-density-{density}")
-        # preset swap — reload preset CSS, restyle root class, bounce conky
+        # preset swap — reload preset CSS, restyle root class.
+        # v2.2.0: Conky is gone; the notification drawer reads accent
+        # from the live CSS the moment it's reopened, no bounce needed.
         new_preset = tweaks.get("preset")
         if new_preset and new_preset != self.state.active_preset:
             from mackes.app import _install_css
@@ -921,28 +923,6 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
             self.state.active_preset = new_preset
             self.state.save()
             _install_css(new_preset)
-            # Repaint the Conky HUD with the new accent (if it's running)
-            try:
-                from mackes.conky_hud import is_running, restart_with
-                if is_running():
-                    restart_with()
-            except Exception:  # noqa: BLE001
-                pass
-
-        # Conky HUD toggle + density/monitor (v1.4.0 Q2, v1.6.2 density)
-        try:
-            from mackes.conky_hud import apply_tweak, is_running, restart_with
-            enabled = bool(tweaks.get("show_conky", True))
-            density = tweaks.get("conky_density") or "standard"
-            monitor = tweaks.get("conky_monitor") or None
-            if enabled and is_running():
-                # Hot-reload via SIGUSR1 so density/monitor change doesn't
-                # flash the desktop.
-                restart_with(density=density, monitor=monitor)
-            else:
-                apply_tweak(enabled, density=density, monitor=monitor)
-        except Exception:  # noqa: BLE001
-            pass
 
     # ---- live nav badges --------------------------------------------------
 

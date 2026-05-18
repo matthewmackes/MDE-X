@@ -18,9 +18,10 @@ addition to the v1.0.x xfconf-only apply pipeline:
                                   + mackes-remote-sync (Headscale→Guacamole config)
  10. apply_fleet               — ansible-core + ansible-pull timer + seeded
                                   QNM-Shared playbook tree (v1.3.0 lock)
- 11. apply_conky               — Mackes Conky HUD: top-right Carbon-styled
-                                  desktop HUD with live mesh/fleet/drift
-                                  state (v1.4.0 lock)
+ 11. apply_drawer              — Notification Drawer (v2.2.0 lock):
+                                  ensures the cache dir exists for the
+                                  mackes-drawer xfce4-panel plugin and
+                                  sweeps legacy conky / tray autostarts
  12. apply_maximize_all        — every new top-level window starts maximized,
                                   via the mackes-maximizer user service
                                   (v1.4.1 lock)
@@ -884,59 +885,47 @@ def apply_fleet(_preset: Preset) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# 11. Conky HUD — Mackes-themed right-side desktop panel (v1.4.0 birthright)
+# 11. Notification Drawer — single applet replacing Conky + tray + popover
+#     (v2.2.0 birthright). The C panel plugin (mackes-drawer) ships with the
+#     RPM under /usr/lib/xfce4/panel/plugins/mackes-drawer and is registered
+#     via /usr/share/xfce4/panel/plugins/mackes-drawer.desktop. The xfce4-
+#     panel-profiles archive (data/panel/xfce4-panel-profile.tar.bz2) wires
+#     it into the default panel layout — we just need to make sure the
+#     cache dir exists so the plugin's state-file reads don't ENOENT, and
+#     that any stray legacy autostart (conky / mackes-tray) is removed
+#     from the user's session.
 # ---------------------------------------------------------------------------
 
 
-def apply_conky(_preset: Preset) -> List[str]:
-    """Install conky + write the Mackes config + register XDG autostart.
-
-    Q2 lock: birthright autostart + Tweaks toggle. The Tweaks panel can
-    later flip it off without uninstalling conky.
-    """
+def apply_drawer(_preset: Preset) -> List[str]:
+    """Set up the cache dir the Notification Drawer reads/writes, and
+    sweep away the autostart entries the v1.x conky + tray surfaces
+    left behind so they don't double-render alongside the new pill."""
     actions: List[str] = []
 
-    # ---- 1. Install Fedora package ------------------------------------
-    if shutil.which("dnf") is None:
-        actions.append("conky: dnf not available — skipping")
-        return actions
-    if shutil.which("conky") is None:
-        actions.append("conky: installing via dnf")
-        rc, out = _run_root(["dnf", "install", "-y", "conky"], timeout=300)
-        if rc != 0:
-            last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
-            actions.append(f"conky: install failed: {last}")
-            return actions
-    else:
-        actions.append("conky: already installed")
-
-    # ---- 2. Write user config + autostart ----------------------------
+    cache = Path(os.path.expanduser("~/.cache/mackes"))
     try:
-        from mackes.conky_hud import (
-            write_config, install_autostart, start, USER_CONFIG, AUTOSTART_FILE,
-        )
-    except Exception as e:  # noqa: BLE001
-        actions.append(f"conky: orchestrator import failed: {e}")
-        return actions
+        cache.mkdir(parents=True, exist_ok=True)
+        actions.append(f"drawer: cache dir ready at {cache}")
+    except OSError as e:
+        actions.append(f"drawer: could not create cache dir: {e}")
 
-    try:
-        cfg = write_config()
-        actions.append(f"conky: wrote user config to {cfg}")
-    except Exception as e:  # noqa: BLE001
-        actions.append(f"conky: config write failed: {e}")
-        return actions
+    # Sweep legacy autostarts so we don't run the dead surfaces alongside
+    # the new drawer pill.
+    for legacy in (
+        Path(os.path.expanduser("~/.config/autostart/mackes-conky.desktop")),
+        Path(os.path.expanduser("~/.config/autostart/mackes-tray.desktop")),
+    ):
+        if legacy.exists():
+            try:
+                legacy.unlink()
+                actions.append(f"drawer: removed legacy autostart {legacy}")
+            except OSError as e:
+                actions.append(f"drawer: could not remove {legacy}: {e}")
 
-    try:
-        a = install_autostart()
-        actions.append(f"conky: installed autostart at {a}")
-    except Exception as e:  # noqa: BLE001
-        actions.append(f"conky: autostart install failed: {e}")
-
-    # ---- 3. Start it now so the user sees it immediately -------------
-    if start(force=True):
-        actions.append("conky: HUD started")
-    else:
-        actions.append("conky: HUD will start at next login (autostart)")
+    # Stop any orphan conky process from a previous install.
+    if shutil.which("pkill"):
+        _run(["pkill", "-x", "conky"], timeout=5)
 
     for line in actions:
         log_action(line)
@@ -1209,11 +1198,10 @@ def apply_thunar_autostart(_preset: Preset) -> List[str]:
 
 
 def apply_hotkey(_preset: Preset) -> List[str]:
-    """Bind <Super>m to `mackes --popover` via xfconf.
+    """Bind <Super>m to `mackes --drawer` via xfconf.
 
-    v1.6.2 GUI redesign Q8 lock — the slide-out popover is reachable
-    via panel button (follow-up), tray icon (follow-up), AND this
-    keyboard shortcut. Idempotent on re-run.
+    v2.2.0 — the Notification Drawer is reachable via the panel pill
+    AND this keyboard shortcut. Idempotent on re-run.
     """
     actions: List[str] = []
     if shutil.which("xfconf-query") is None:
@@ -1222,7 +1210,7 @@ def apply_hotkey(_preset: Preset) -> List[str]:
     # Find the actual mackes binary so the binding works even if PATH
     # is exotic at session start.
     mackes_bin = shutil.which("mackes") or "/usr/bin/mackes"
-    command = f"{mackes_bin} --popover"
+    command = f"{mackes_bin} --drawer"
     key = "/commands/custom/<Super>m"
     rc, out = _run(
         ["xfconf-query", "--channel", "xfce4-keyboard-shortcuts",

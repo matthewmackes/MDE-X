@@ -1024,8 +1024,8 @@ class DisplaysPanel(Gtk.Box):
         except (ValueError, OSError) as e:
             self._toast(f"Apply failed: {e}", kind="error"); return
 
-        # Hot-reload Conky HUD if its target monitor changed availability
-        self._reconcile_conky()
+        # v2.2.0 — Conky reconciliation removed (drawer is panel-anchored,
+        # follows whatever xfce4-panel is on; no per-monitor reconcile needed).
         self._toast("Layout applied — keep or revert?", kind="info")
         self._open_keep_revert_dialog(previous_layout=previous)
 
@@ -1089,52 +1089,6 @@ class DisplaysPanel(Gtk.Box):
                 self._toast(f"Revert failed: {e}", kind="error")
             self._refresh_from_xfconf()
             self._toast("Layout reverted.", kind="info")
-
-    # ---- Conky integration ----------------------------------------------
-
-    def _reconcile_conky(self) -> None:
-        """If the configured Conky monitor is no longer present/active, fall
-        back to primary and update tweaks.json so the HUD lands somewhere
-        sensible. Then SIGUSR1-reload Conky."""
-        try:
-            from mackes.conky_hud import (
-                is_running, restart_with, _resolve_monitor_from_state,
-                _tweaks_path,
-            )
-        except Exception:  # noqa: BLE001
-            return
-        target = _resolve_monitor_from_state()
-        active_names = {n for n, p in self._staged.items() if p.get("active")}
-        new_monitor = target
-        if not target or target not in active_names:
-            primary = next(
-                (n for n, p in self._staged.items()
-                 if p.get("primary") and p.get("active")),
-                None,
-            )
-            new_monitor = primary or (next(iter(active_names), None))
-            if new_monitor and new_monitor != target:
-                self._update_tweaks_monitor(_tweaks_path(), new_monitor)
-        if is_running():
-            try:
-                restart_with(monitor=new_monitor)
-            except Exception:  # noqa: BLE001
-                pass
-
-    @staticmethod
-    def _update_tweaks_monitor(tweaks_path: Path, monitor: str) -> None:
-        import json
-        try:
-            data = json.loads(tweaks_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
-        data["conky_monitor"] = monitor
-        try:
-            tweaks_path.parent.mkdir(parents=True, exist_ok=True)
-            tweaks_path.write_text(json.dumps(data, indent=2, sort_keys=True),
-                                    encoding="utf-8")
-        except OSError:
-            pass
 
     # ---- toasts ----------------------------------------------------------
 

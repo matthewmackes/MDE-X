@@ -170,14 +170,14 @@ def _check_fleet() -> BirthrightItem:
     )
 
 
-def _check_conky() -> BirthrightItem:
-    cfg = Path(os.path.expanduser("~/.config/mackes-conky/mackes.conf"))
-    autostart = Path(os.path.expanduser("~/.config/autostart/mackes-conky.desktop"))
+def _check_drawer() -> BirthrightItem:
+    """v2.2.0 — Notification Drawer replaces conky HUD."""
+    plugin_bin = Path("/usr/lib/xfce4/panel/plugins/mackes-drawer")
+    plugin_desktop = Path("/usr/share/xfce4/panel/plugins/mackes-drawer.desktop")
     return BirthrightItem(
-        key="conky", name="Conky HUD",
-        detail="Re-run Setup Wizard → Conky HUD step",
-        ok=(shutil.which("conky") is not None
-            and cfg.is_file() and autostart.is_file()),
+        key="drawer", name="Notification Drawer",
+        detail="Re-run Setup Wizard → Notification drawer step",
+        ok=(plugin_bin.is_file() and plugin_desktop.is_file()),
     )
 
 
@@ -239,7 +239,7 @@ _PROBES: List[Callable[[], BirthrightItem]] = [
     _check_apps,
     _check_remote_desktop,
     _check_fleet,
-    _check_conky,
+    _check_drawer,
     _check_maximizer,
     _check_flathub,
     _check_third_party_repos,

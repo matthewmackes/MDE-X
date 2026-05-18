@@ -3,6 +3,90 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 2.2.0 — Notification Drawer (2026-05-18)
+
+**Breaking visual change.** Three surfaces are deleted and replaced by a
+single XFCE panel applet:
+
+  | Removed                              | Replacement                |
+  |--------------------------------------|----------------------------|
+  | Conky HUD (mackes/conky_hud.py)      | Notification Drawer        |
+  | Tray icon (mackes/tray.py)           | Notification Drawer        |
+  | Mini popover (mackes.workbench.popover/) | Notification Drawer    |
+
+### What ships
+
+* **C panel plugin** `mackes-drawer` (data/panel-plugins/mackes-drawer/) —
+  external xfce4-panel plugin built against libxfce4panel-2.0. Renders
+  a single pill on the panel:
+
+  ```
+    ▤ Mon May 18  10:34  ·  ◐ 3  ·  ⚡ 77% ▾
+  ```
+
+  Reads display state from `~/.cache/mackes/drawer-state.json`,
+  refreshes every 5s. On click → spawns `mackes-shell --drawer`.
+
+* **Python drawer window** (`mackes/drawer.py`) — right-anchored
+  POPUP window, 420 px wide, full screen-minus-panel height. Slides
+  in from the right with a 3 px accent stripe down the left edge.
+  Sections (top to bottom): Header · Quick toggles (Mesh · Bluetooth
+  · DND · Caffeine) · Volume + Brightness sliders · Mesh (hub + peer
+  list) · Fleet (2×2 node grid) · Services (unread / playing /
+  remote counts) · Notifications (list with clear-all) · Battery
+  (bar + state) · Hardware (CPU/RAM/load/clock). Closes on Esc,
+  focus-out, or re-clicking the panel pill.
+
+* **Live data wiring** — every section reads from the existing
+  Mackes modules: `mesh_vpn.tailscale_status()` for the mesh peer
+  list, `/proc/stat` + `/proc/meminfo` for CPU/RAM,
+  `/sys/class/power_supply` for battery, `~/.cache/mackes/notifications.json`
+  for the notification queue, `~/.cache/mackes/fleet.json` for the
+  fleet grid.
+
+### Removals
+
+* `mackes/conky_hud.py` — DELETED
+* `mackes/tray.py` — DELETED
+* `mackes/workbench/popover/` — DELETED (the entire 5-tab popover)
+* `data/conky/` — DELETED (config template + cairo Lua stripe)
+* `data/applications/mackes-conky.desktop` — DELETED
+* `data/applications/mackes-tray.desktop` — DELETED
+* `apply_conky()` birthright step — REPLACED with `apply_drawer()`
+  (creates `~/.cache/mackes/`, sweeps legacy autostart entries,
+  kills any orphan conky process)
+* `--popover` CLI flag → `--drawer`
+* Super+M hotkey → `mackes --drawer`
+* Spec `%files` no longer carries conky / tray .desktop entries
+* Spec `%build` adds the new mackes-drawer plugin
+
+### Design source
+
+`docs/design/v2.2.0-notification-drawer/` — Carbon Gray 90 (#262626)
+base · 3 px accent stripe · Red Hat Display headings + Red Hat Text
+body + JetBrains Mono numerics. Mirrors the prototype in
+"Mackes Notification Drawer.html" generated via claude.ai/design.
+
+XFCE conventions honored:
+
+* External panel plugin, not an internal one — runs in its own
+  process, can't crash the panel.
+* `X-XFCE-API=2.0` in the `.desktop` (the lesson the mackes-clipboard
+  plugin learned the hard way in 1.6.2).
+* GtkPlug socket protocol (argv[2] = socket id) so xfce4-panel can
+  embed the pill. Standalone invocation still works for development.
+
+### Deferred to v2.3.x
+
+* Drift / Shared storage / Daemons sections (the drawer's section
+  bodies are stubs that read from cache files; the writers come
+  online as the mackes-drift / mackes-stated daemons land).
+* Density Tweak (compact / standard / full) — design surface
+  exists; implementation lands when the Tweaks panel comes back
+  in the v2.3 PF6 rewrite track.
+* Accent picker — surfaces through the existing per-preset accent;
+  no in-drawer picker until v2.3 Tweaks.
+
 ## 2.1.0 — Mesh Media (2026-05-18)
 
 Two GTK-native media clients ship at birthright and auto-configure
