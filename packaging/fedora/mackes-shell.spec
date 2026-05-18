@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-xfce-workstation
-Version:        1.0.2
+Version:        1.0.6
 Release:        1%{?dist}
 Summary:        Mackes XFCE Workstation — unified shell, panel, dock, and mesh for Fedora
 

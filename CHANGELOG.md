@@ -3,10 +3,11 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
-## 1.0.2 — First-boot panel polish (2026-05-18)
+## 1.0.6 — First-boot panel polish (2026-05-18)
 
-(Version 1.0.1 was claimed by a legacy 2.x-train hotfix tag; this is the
-direct successor to 1.0.0 on the Mackes XFCE Workstation line.)
+(Patch numbers 1.0.1–1.0.5 were already taken by the legacy Mackes
+Shell 2.x train; this is the direct successor to 1.0.0 on the Mackes
+XFCE Workstation line.)
 
 
 User-feedback bundle on the freshly-installed Mackes XFCE Workstation
