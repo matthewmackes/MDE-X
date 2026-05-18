@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Mackes Panel
+GenericName=XFCE Workstation Shell
+Comment=Top status bar + bottom dock + wallpaper for Mackes XFCE Workstation
+Exec=/usr/bin/mackes-panel
+Icon=applications-system-symbolic
+Terminal=false
+NoDisplay=true
+StartupNotify=false
+X-XFCE-Autostart-enabled=true
+X-GNOME-Autostart-enabled=true
+OnlyShowIn=XFCE;
+Categories=Settings;DesktopSettings;

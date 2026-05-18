@@ -358,6 +358,30 @@ install -D -m 0644 data/applications/mackes-shell.desktop \
     %{buildroot}%{_datadir}/applications/mackes-shell.desktop
 install -D -m 0644 data/applications/mackes-clipboard.desktop \
     %{buildroot}%{_datadir}/applications/mackes-clipboard.desktop
+
+# 5a. mackes-panel autostart (Phase 8.3). Drops into /etc/xdg/autostart so
+# every XFCE session brings up the new Rust panel. NoDisplay=true keeps
+# it out of menus — the panel runs implicitly.
+install -D -m 0644 data/applications/mackes-panel.desktop \
+    %{buildroot}%{_sysconfdir}/xdg/autostart/mackes-panel.desktop
+
+# 5b. Disable xfdesktop autostart on Mackes installs — mackes-panel owns
+# the wallpaper + root-window roles (Q39/Q40). We don't uninstall the
+# xfdesktop package (still a recommends from xfce4-session), but we
+# override its autostart with Hidden=true.
+install -d %{buildroot}%{_sysconfdir}/xdg/autostart
+cat > %{buildroot}%{_sysconfdir}/xdg/autostart/xfdesktop.desktop <<'XFDESKTOP_EOF'
+[Desktop Entry]
+Type=Application
+Name=Desktop Manager (disabled by Mackes)
+Comment=mackes-panel owns the wallpaper and root-window roles on Mackes installs.
+Exec=true
+Hidden=true
+NoDisplay=true
+X-XFCE-Autostart-enabled=false
+X-GNOME-Autostart-enabled=false
+XFDESKTOP_EOF
+chmod 0644 %{buildroot}%{_sysconfdir}/xdg/autostart/xfdesktop.desktop
 # v1.6.2 — tray icon autostart (Q8 lock: panel + tray + hotkey)
 # v2.2.0 — mackes-tray.desktop removed (tray replaced by the Notification
 # Drawer panel applet).
@@ -429,6 +453,10 @@ fi
 %{_datadir}/applications/mackes-clipboard.desktop
 %{_datadir}/applications/mackes-maximizer.desktop
 %{_datadir}/applications/mackes-mesh-uri-handler.desktop
+# Phase 8.3 — autostart entries that bring up mackes-panel and override
+# xfdesktop on Mackes installs (Q39/Q40).
+%config %{_sysconfdir}/xdg/autostart/mackes-panel.desktop
+%config %{_sysconfdir}/xdg/autostart/xfdesktop.desktop
 %{_metainfodir}/io.github.matthewmackes.MackesShell.metainfo.xml
 %{_datadir}/gvfs/mounts/mesh.mount
 %{_datadir}/icons/hicolor/scalable/apps/mackes-shell.svg

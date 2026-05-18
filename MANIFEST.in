@@ -42,5 +42,9 @@ recursive-include data/panel-plugins *
 # catalog, Carbon icon theme + PadOS GTK theme, captured xfce-baseline
 recursive-include data *
 
+# Explicit include for data/applications/mackes-panel.desktop in case
+# the recursive pattern misses dot-extensions on some Python builds.
+include data/applications/mackes-panel.desktop
+
 # Tests (shipped so downstream rebuilds can run them)
 recursive-include tests *.py
