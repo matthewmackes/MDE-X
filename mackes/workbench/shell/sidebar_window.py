@@ -205,15 +205,11 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         def _f_dt():
             from mackes.workbench.system.datetime import DateTimePanel
             return DateTimePanel()
-        def _f_tweaks():
-            from mackes.workbench.system.tweaks_full import TweaksPanel
-            return TweaksPanel()
         def _f_boot():
             from mackes.workbench.system.boot_login import BootLoginPanel
             return BootLoginPanel()
         return _build_subnav_container([
             ("displays", "Screens", _f_displays),
-            ("tweaks", "Tweaks", _f_tweaks),
             ("boot_login", "Boot & Login", _f_boot),
             ("wm", "Window Manager", _f_wm),
             ("workspaces", "Workspaces", _f_ws),
@@ -498,16 +494,11 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         root.pack_start(self._status_bar, False, False, 0)
         self.add(root)
 
-        # ---- Floating overlays (Tweaks + toast host, anchored b-r) ---------
+        # ---- Floating overlay host (toasts only — Tweaks drawer removed v1.6.5) -
         self.remove(root)
         self._overlay = Gtk.Overlay()
         self._overlay.add(root)
-        try:
-            from mackes.workbench.shell.tweaks_panel import TweaksOverlay
-            self._tweaks_overlay = TweaksOverlay(self, self._tweaks, on_change=self._on_tweaks_change)
-            self._overlay.add_overlay(self._tweaks_overlay)
-        except Exception:  # noqa: BLE001
-            self._tweaks_overlay = None
+        self._tweaks_overlay = None
         try:
             from mackes.workbench.shell.toasts import install_host
             install_host(self._overlay)
@@ -1135,7 +1126,7 @@ _LEGACY_KEY_MAP = {
     "sound": "devices", "power": "devices",
     "wm": "system", "workspaces": "system", "session": "system",
     "notifications": "system", "default_apps": "system", "removable": "system",
-    "datetime": "system", "displays": "system", "tweaks": "system",
+    "datetime": "system", "displays": "system",
     "boot_login": "system",
     "apps_install": "apps", "apps_remove": "apps", "apps_installed": "apps",
     "app_sources": "app_sources",

@@ -1,4 +1,11 @@
-"""Manage tab — fleet + remote + tweaks + boot/login."""
+"""Manage tab — fleet + screens + boot/login.
+
+v1.6.5: Tweaks sub-tab removed (the TweaksPanel module was deleted
+along with the floating overlay). The per-feature toggles it used to
+expose (mesh clipboard, maximize-all, Thunar autostart, Conky HUD,
+Remmina sync) are still readable + writeable via tweaks.json directly
+and via per-module CLIs (`mackes remmina-sync --enable`, etc.).
+"""
 from __future__ import annotations
 
 import gi
@@ -14,8 +21,6 @@ class ManageTab(Gtk.Box):
         items = [
             ("fleet",   "", "Fleet",
              "mackes.workbench.fleet.inventory:FleetInventoryPanel"),
-            ("tweaks",  "", "Tweaks",
-             "mackes.workbench.system.tweaks_full:TweaksPanel"),
             ("screens", "", "Screens",
              "mackes.workbench.system.displays:DisplaysPanel"),
             ("boot",    "", "Boot",
