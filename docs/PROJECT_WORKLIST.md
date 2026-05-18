@@ -19,13 +19,13 @@ blocked until fixed. See Phase 9.4 below.
 
 ## Phase 0 — Foundations (1–2 weeks)
 
-- [ ] **0.1 Rust toolchain in repo** — add `rust-toolchain.toml` pinning a stable channel, `Cargo.toml` workspace at repo root, `crates/` subdir; wire `cargo build --release` into the existing `Makefile`. CI green on `cargo check` + `cargo test`.
-- [ ] **0.2 Cargo workspace skeleton** — create `crates/mackes-panel/` (empty binary that exits 0), `crates/mackes-config/` (shared TOML config types), `crates/mackes-mesh-types/` (shared mesh-resource enums). All three compile.
+- [✓] **0.1 Rust toolchain in repo** — `rust-toolchain.toml` pins Fedora 44's Rust 1.95.0. Workspace `Cargo.toml` at repo root. `make rust` / `make rust-check` wired. CI's `rust (Fedora 44)` job green on `cargo fmt --check` + `clippy -D warnings` + `cargo check` + `cargo test`. Landed in `440c190`.
+- [>] **0.2 Cargo workspace skeleton** — `crates/mackes-panel/` already exists from 0.1 (placeholder binary). Add `crates/mackes-config/` (TOML schema) + `crates/mackes-mesh-types/` (MeshResource enum). All three compile.
 - [ ] **0.3 Build/packaging plumbing** — update `packaging/fedora/mackes-shell.spec` to invoke `cargo build` in `%build`, install the resulting binary, register `Obsoletes: mackes-shell < 3` for the rename path.
 - [ ] **0.4 First boot: empty top bar** — `mackes-panel` binary opens a 20 px GTK3 window strut-anchored to the top of the primary monitor and exits on SIGTERM. No content yet. Validates GTK3+Rust+strut foundation. **Acceptance:** screenshot shows a black 20 px stripe at the top.
 - [ ] **0.5 First boot: empty bottom dock** — second strut-anchored window at the bottom, primary monitor only, 80 px tall. Validates multi-window per-process. **Acceptance:** screenshot shows both stripes.
 - [ ] **0.6 Wallpaper rendering** — panel writes the active preset's wallpaper to the root window pixmap at startup (replaces xfdesktop, Q39/Q40). **Acceptance:** wallpaper appears, panels still anchor correctly.
-- [>] **0.7 Repair the latent pytest suite uncovered by ci.yml fix** — ci.yml had been YAML-broken since 0.2.0 (commit 0e5bc91 fixed it). Now that pytest actually runs, 18 pre-existing failures surface: (a) 13 mesh_* tests do `mackes.mesh_X.foo()` without an explicit import binding; (b) 4 tests fail because CI container lacks `cairo-gobject` / `python3-textual`; (c) `test_list_presets_ships_four` expects 4 presets but 5 ship (hashbang/daylight/mackes/node/vanilla). Fix in one commit: import re-exports + ci.yml deps + test assertion update. **Acceptance:** `python` and `rust` jobs both green on a push.
+- [✓] **0.7 Repair the latent pytest suite uncovered by ci.yml fix** — ci.yml YAML-bug fixed in `d379914`. Then `f96044e` purged stale `mackes.mesh_*` from sys.modules in `conftest.isolated_xdg`, fixed `test_list_presets_ships_five`, and added cairo/textual to CI deps. `8eb3eb7` added a Typelib/namespace filter to `test_every_non_gui_module_imports`. `32cf2f1` dropped the redundant import-smoke shell step. CI run `26052513245` green: ✓ python (F43) · ✓ python (F44) · ✓ rust (F44). First green CI since 0.2.0.
 
 ## Phase 1 — Visual chrome (3–4 weeks)
 

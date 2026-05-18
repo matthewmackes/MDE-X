@@ -1,0 +1,18 @@
+[package]
+name        = "mackes-mesh-types"
+description = "Shared mesh-resource types — peers, mounted shares, services."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true
