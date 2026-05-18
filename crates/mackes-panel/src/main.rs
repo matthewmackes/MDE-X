@@ -24,6 +24,7 @@ mod mesh_module;
 mod mesh_sync;
 mod recents;
 mod top_bar;
+mod windows;
 
 use std::path::{Path, PathBuf};
 

@@ -67,6 +67,11 @@ Requires:       xfce4-power-manager
 # SSH enabled by default on every Mackes install
 Requires:       openssh-server
 
+# Phase 5.2 — mackes-panel shells out to `wmctrl -l` for open-window
+# enumeration (running-app dock indicators). wmctrl is a 50 KB tool
+# and ships in every Fedora repo.
+Requires:       wmctrl
+
 # Plymouth boot splash — Mackes ships its own theme (data/plymouth/mackes/)
 Requires:       plymouth
 Requires:       plymouth-scripts
