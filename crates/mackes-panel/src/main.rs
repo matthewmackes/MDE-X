@@ -15,6 +15,7 @@
 #![forbid(unsafe_code)]
 
 mod config_store;
+mod desktop_files;
 mod dock;
 mod icons;
 mod mesh_sync;
