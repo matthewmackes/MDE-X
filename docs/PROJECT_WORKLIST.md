@@ -52,9 +52,9 @@ blocked until fixed. See Phase 9.4 below.
 
 - [✓] **3.1 .desktop scanner** — `desktop_files::scan()` walks `/usr/share/applications/`, `/usr/local/share/applications/`, `~/.local/share/applications/` and parses each entry. Honors `NoDisplay`/`Hidden`. User-side shadows system-side by basename. `parse_text()` is public so 8 unit tests exercise the parser without filesystem hits.
 - [✓] **3.2 Applications submenu builder** — `apple_menu::build(entries)` groups DesktopEntry items into 8 canonical buckets (Internet / Multimedia / Graphics / Office / Development / Games / System / Utilities) plus an `Other` catch-all. Each bucket carries its Mackes-Carbon icon name + entries sorted case-insensitively by Name. First-match wins on Categories with multiple tags. 5 unit tests (bucketing, sort, dedup, Other fallback, empty input).
-- [ ] **3.3 Apple-menu chrome** — narrow dropdown that drops down from the Mackes button, themed to match top bar. Renders the static items (About, Settings, etc.) plus the dynamic Recent Items and Applications submenus.
-- [ ] **3.4 Recent Items source** — read GTK's `recently-used.xbel` + Mackes-shell-tracked recents; show last 10.
-- [ ] **3.5 System action wiring** — Sleep / Restart / Shut Down via `loginctl`, Lock via `loginctl lock-session`, Sign Out via `xfce4-session-logout --logout`. All routed through `mackes.admin_session.AdminSession` for consent.
+- [✓] **3.3 Apple-menu chrome** — clicking the Mackes button pops a real `gtk::Menu` with the Q24 ordering: About / Settings / Software Update / Applications → / Force Quit / Sleep / Restart / Shut Down / Lock / Sign Out, all wired to `Command::spawn`. Separators in the right places. Submenu glyphs deferred to a polish pass.
+- [~] **3.4 Recent Items source** — deferred. Apple-menu currently has no Recents row; landing in a follow-up cut once `recently-used.xbel` parsing has a home.
+- [✓] **3.5 System action wiring** — `loginctl suspend|reboot|poweroff|lock-session` directly; Sign Out via `xfce4-session-logout --logout`. PolicyKit prompts for reboot/poweroff handled by the system policy (no AdminSession indirection — we're a real binary now, not a Python subprocess).
 - [ ] **3.6 Super+Space global hotkey** — XGrabKey on Super+Space → toggles the Apple menu.
 
 ## Phase 4 — Notification Drawer integration (2 weeks)

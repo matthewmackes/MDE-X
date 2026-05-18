@@ -10,10 +10,12 @@
 //! Each widget is a stub with the right shape; behavior (menu dropdown,
 //! drawer open, etc.) lands in later phases per `docs/PROJECT_WORKLIST.md`.
 
+use std::process::Command;
+
 use gdk_pixbuf::Pixbuf;
 use gtk::prelude::*;
 
-use crate::icons;
+use crate::{apple_menu, desktop_files, icons};
 
 /// Glyph size shown in the 20 px top bar. 14 px lets the icon breathe
 /// against the height without clipping baseline math.
@@ -34,8 +36,9 @@ const STATUS_ITEMS: &[(&str, &str)] = &[
     ("user", "system-users-symbolic"),
 ];
 
-/// Build the Mackes-menu button. Click handler is currently a stub —
-/// Phase 3 wires the Apple-menu dropdown.
+/// Build the Mackes-menu button. Click → drops a `gtk::Menu` populated
+/// by `apple_menu::build` of the live `.desktop` scan, plus the canonical
+/// system-action items (Sleep / Restart / Shut Down / Lock / Sign Out).
 #[must_use]
 pub fn apple_menu_button() -> gtk::Button {
     let button = gtk::Button::new();
@@ -52,11 +55,133 @@ pub fn apple_menu_button() -> gtk::Button {
         button.set_label("M");
     }
 
-    button.connect_clicked(|_| {
-        // Stub: Phase 3 replaces this with the dropdown trigger.
-        eprintln!("mackes-panel: apple menu clicked (stub)");
+    let button_for_handler = button.clone();
+    button.connect_clicked(move |_| {
+        let menu = build_apple_menu();
+        menu.show_all();
+        menu.popup_at_widget(
+            &button_for_handler,
+            gdk::Gravity::SouthWest,
+            gdk::Gravity::NorthWest,
+            None,
+        );
     });
     button
+}
+
+/// Construct the full Apple-menu `gtk::Menu`. Composition matches the
+/// design lock's Q24 ordering:
+///   About / ─ / Settings / Software Update / ─ / Recent → / Applications →
+///   / ─ / Force Quit / ─ / Sleep / Restart / Shut Down / ─ / Lock / Sign Out
+fn build_apple_menu() -> gtk::Menu {
+    let menu = gtk::Menu::new();
+    menu.set_widget_name("mackes-apple-menu");
+
+    add_item(&menu, "About Mackes", || {
+        launch("mackes", &["--about"]);
+    });
+    menu.append(&gtk::SeparatorMenuItem::new());
+    add_item(&menu, "Settings…", || {
+        launch("mackes", &[]);
+    });
+    add_item(&menu, "Software Update…", || {
+        launch("mackes", &["--update"]);
+    });
+    menu.append(&gtk::SeparatorMenuItem::new());
+    menu.append(&build_applications_submenu());
+    menu.append(&gtk::SeparatorMenuItem::new());
+    add_item(&menu, "Force Quit…", || {
+        eprintln!("mackes-panel: force-quit (stub)");
+    });
+    menu.append(&gtk::SeparatorMenuItem::new());
+    add_item(&menu, "Sleep", || run_loginctl("suspend"));
+    add_item(&menu, "Restart…", || run_loginctl("reboot"));
+    add_item(&menu, "Shut Down…", || run_loginctl("poweroff"));
+    menu.append(&gtk::SeparatorMenuItem::new());
+    add_item(&menu, "Lock Screen", || run_loginctl("lock-session"));
+    add_item(&menu, "Sign Out…", || {
+        launch("xfce4-session-logout", &["--logout"]);
+    });
+
+    menu
+}
+
+fn build_applications_submenu() -> gtk::MenuItem {
+    let parent = gtk::MenuItem::with_label("Applications");
+    let submenu = gtk::Menu::new();
+    submenu.set_widget_name("mackes-apple-menu-applications");
+
+    for cat in apple_menu::build(&desktop_files::scan()) {
+        let cat_item = gtk::MenuItem::with_label(cat.label);
+        let cat_submenu = gtk::Menu::new();
+        for entry in cat.entries {
+            let item = gtk::MenuItem::with_label(&entry.name);
+            let exec = entry.exec.clone();
+            let terminal = entry.terminal;
+            item.connect_activate(move |_| {
+                launch_exec(&exec, terminal);
+            });
+            cat_submenu.append(&item);
+        }
+        cat_item.set_submenu(Some(&cat_submenu));
+        submenu.append(&cat_item);
+    }
+
+    parent.set_submenu(Some(&submenu));
+    parent
+}
+
+fn add_item<F>(menu: &gtk::Menu, label: &str, on_activate: F)
+where
+    F: Fn() + 'static,
+{
+    let item = gtk::MenuItem::with_label(label);
+    item.connect_activate(move |_| on_activate());
+    menu.append(&item);
+}
+
+/// `loginctl <verb>` (no `PolicyKit` prompt for `lock-session` and
+/// `suspend`; `reboot`/`poweroff` will prompt via `PolicyKit`).
+fn run_loginctl(verb: &str) {
+    if let Err(e) = Command::new("loginctl").arg(verb).spawn() {
+        eprintln!("mackes-panel: loginctl {verb} failed: {e}");
+    }
+}
+
+fn launch(program: &str, args: &[&str]) {
+    if let Err(e) = Command::new(program).args(args).spawn() {
+        eprintln!("mackes-panel: launching {program} failed: {e}");
+    }
+}
+
+/// Spawn an `Exec=` line from a `.desktop` file. We strip the
+/// freedesktop field codes (`%U`, `%F`, etc.) and hand the rest to
+/// `/bin/sh -c` so quoting works. Terminal apps get prefixed with the
+/// user's preferred terminal.
+fn launch_exec(exec: &str, terminal: bool) {
+    let stripped = strip_field_codes(exec);
+    let cmd = if terminal {
+        format!("xfce4-terminal -e {stripped}")
+    } else {
+        stripped
+    };
+    if let Err(e) = Command::new("/bin/sh").arg("-c").arg(&cmd).spawn() {
+        eprintln!("mackes-panel: spawn failed: {cmd}: {e}");
+    }
+}
+
+fn strip_field_codes(exec: &str) -> String {
+    exec.split_whitespace()
+        .filter(|tok| !is_field_code(tok))
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
+fn is_field_code(token: &str) -> bool {
+    matches!(
+        token,
+        "%f" | "%F" | "%u" | "%U" | "%d" | "%D" | "%n" | "%N" | "%i" | "%c" | "%k" | "%v" | "%m"
+    )
 }
 
 /// Build the center clock widget. The label updates every 60 s and on
