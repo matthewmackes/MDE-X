@@ -151,32 +151,32 @@ class HeadscaleSetupWindow(Gtk.Window):
         outer.set_margin_top(48); outer.set_margin_bottom(32)
         outer.set_margin_start(56); outer.set_margin_end(56)
 
-        title = Gtk.Label(label="Mesh VPN setup")
+        title = Gtk.Label(label="Mesh setup")
         title.set_xalign(0)
         title.get_style_context().add_class("mackes-page-title")
         outer.pack_start(title, False, False, 0)
         sub = Gtk.Label(label=(
-            "Configure this peer's role in the Mackes mesh. Three paths: "
-            "seed a fresh mesh, join one that exists already, or re-run "
-            "setup on a peer that's already provisioned."
+            "Join an existing Mackes mesh, or host a new one. "
+            "Mackes picks the right tools and configures everything for you — "
+            "re-running setup is safe on an already-provisioned peer."
         ))
         sub.set_xalign(0); sub.set_line_wrap(True)
         sub.get_style_context().add_class("mackes-page-subtitle")
         outer.pack_start(sub, False, False, 0)
 
-        # Three role cards
+        # Two outcome-driven cards: Join / Host. "Reconfig" (re-run on a
+        # provisioned peer) folds into Host — host_run is idempotent.
         cards = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         cards.set_margin_top(32)
         for mode, glyph, name, blurb in (
-            ("seed",     "★", "Seed (control)",
-             "First peer of a NEW mesh. Generates the mesh-id, brings up "
-             "Headscale, and prints a join link other peers will use."),
-            ("join",     "+", "Join existing",
-             "Paste a join link from another Mackes peer. Redeems the "
-             "pre-auth key and verifies connectivity."),
-            ("reconfig", "↻", "Re-run on this peer",
-             "Already provisioned — re-issue a pre-auth, refresh the ACL "
-             "policy, or re-elect control. Safe to run repeatedly."),
+            ("join", "+", "Join an existing mesh",
+             "Paste a join link from a peer (or scan one in the clipboard). "
+             "Mackes redeems the pre-auth, brings up tailscale, and verifies "
+             "the link works."),
+            ("seed", "★", "Host a new mesh",
+             "Become the first peer of a brand-new mesh. Mackes generates "
+             "the mesh-id, brings up Headscale, and gives you a join link "
+             "to share with other peers. Safe to re-run."),
         ):
             cards.pack_start(self._make_role_card(mode, glyph, name, blurb),
                              True, True, 0)
@@ -261,14 +261,28 @@ class HeadscaleSetupWindow(Gtk.Window):
         entry = Gtk.Entry()
         entry.set_placeholder_text("mackes://join/...")
         entry.set_margin_top(24)
+        entry.set_activates_default(True)
+        # Pre-fill from clipboard if a mackes:// link is already there —
+        # by far the common case is the user just copied it from the
+        # peer's "Add peer" button on another machine.
+        try:
+            from gi.repository import Gdk
+            clip = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+            text = clip.wait_for_text() if clip is not None else None
+            if text and text.strip().startswith("mackes://"):
+                entry.set_text(text.strip())
+        except Exception:  # noqa: BLE001
+            pass
         outer.pack_start(entry, False, False, 0)
         self._join_entry = entry
 
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         bar.set_margin_top(24)
-        bar.pack_end(self._mk_btn("Continue", "cds-button-primary",
-                                   lambda *_: self._on_join_link_submitted()),
-                     False, False, 0)
+        continue_btn = self._mk_btn("Continue", "cds-button-primary",
+                                     lambda *_: self._on_join_link_submitted())
+        continue_btn.set_can_default(True)
+        continue_btn.grab_default()
+        bar.pack_end(continue_btn, False, False, 0)
         bar.pack_end(self._mk_btn("Back", "cds-button-ghost",
                                    lambda *_: self._build_intro_page()),
                      False, False, 0)
@@ -276,6 +290,9 @@ class HeadscaleSetupWindow(Gtk.Window):
 
         self.add(outer)
         self.show_all()
+        # Focus the entry so the user can hit Ctrl+V → Enter without a
+        # mouse click.
+        entry.grab_focus_without_selecting()
 
     def _on_join_link_submitted(self) -> None:
         self._join_link = self._join_entry.get_text().strip()

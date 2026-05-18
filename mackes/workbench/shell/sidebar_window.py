@@ -267,6 +267,45 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         from mackes.workbench.network.remote_desktop import RemoteDesktopPanel
         return _wrap_in_scroller(RemoteDesktopPanel())
 
+    def _network_advanced():
+        # Power-user mesh + network controls live behind one Advanced entry
+        # so the primary Network surface stays focused on the outcome the
+        # user wants: get online. Sub-panels build lazily on first visit.
+        def _f_vpn():
+            from mackes.workbench.network.vpn import VpnPanel
+            return VpnPanel()
+        def _f_qnm():
+            from mackes.workbench.network.qnm import QnmPanel
+            return QnmPanel()
+        def _f_health():
+            from mackes.workbench.network.mesh_health import MeshHealthPanel
+            return MeshHealthPanel()
+        def _f_perf():
+            from mackes.workbench.network.mesh_performance import MeshPerformancePanel
+            return MeshPerformancePanel()
+        def _f_meshvpn():
+            from mackes.workbench.network.mesh_vpn import MeshVpnPanel
+            return MeshVpnPanel()
+        def _f_meshssh():
+            from mackes.workbench.network.mesh_ssh import MeshSshPanel
+            return MeshSshPanel()
+        def _f_services():
+            from mackes.workbench.network.mesh_services import MeshServicesPanel
+            return MeshServicesPanel()
+        def _f_firewall():
+            from mackes.workbench.network.firewall import FirewallPanel
+            return FirewallPanel()
+        return _build_subnav_container([
+            ("mesh_health",      "Mesh Health",      _f_health),
+            ("mesh_performance", "Mesh Performance", _f_perf),
+            ("mesh_vpn",         "Mesh VPN",         _f_meshvpn),
+            ("mesh_ssh",         "Mesh SSH",         _f_meshssh),
+            ("mesh_services",    "Mesh Services",    _f_services),
+            ("firewall",         "Firewall",         _f_firewall),
+            ("vpn",              "VPN",              _f_vpn),
+            ("qnm",              "QNM",              _f_qnm),
+        ])
+
     def _apps():
         from mackes.workbench.apps.panel import AppsPanel
         return AppsPanel()
@@ -421,16 +460,9 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         ]),
         NavGroup("Network", [
             NavItem("wifi", "Wi-Fi & Ethernet", "network-wireless-symbolic", _wifi),
-            NavItem("vpn", "VPN", "network-vpn-symbolic", _vpn),
-            NavItem("qnm", "QNM", "network-workgroup-symbolic", _qnm),
-            NavItem("mesh_join", "Get Online", "go-jump-symbolic", _mesh_join, badge="new"),
-            NavItem("mesh_health", "Mesh Health", "emblem-ok-symbolic", _mesh_health),
-            NavItem("mesh_performance", "Mesh Performance", "preferences-system-time-symbolic", _mesh_performance),
-            NavItem("mesh_vpn", "Mesh VPN", "network-server-symbolic", _mesh_vpn, badge="mesh"),
-            NavItem("mesh_ssh", "Mesh SSH", "channel-secure-symbolic", _mesh_ssh),
-            NavItem("mesh_services", "Mesh Services", "applications-internet-symbolic", _mesh_services),
+            NavItem("mesh_join", "Mesh", "go-jump-symbolic", _mesh_join),
             NavItem("mesh_remote", "Mesh Remote", "video-display-symbolic", _remote_desktop),
-            NavItem("firewall", "Firewall", "network-firewall-symbolic", _firewall),
+            NavItem("network_advanced", "Advanced", "preferences-system-symbolic", _network_advanced),
         ]),
         NavGroup("Fleet", [
             NavItem("fleet_inventory", "Inventory", "view-list-symbolic", _fleet_inventory),
