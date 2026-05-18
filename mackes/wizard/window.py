@@ -254,13 +254,16 @@ class WizardWindow(Gtk.ApplicationWindow):
     # ---- apply pipeline --------------------------------------------------
 
     def _run_apply(self) -> bool:
-        try:
-            self._apply_page.run()
-        finally:
-            # When the pipeline finishes, mark the Apply step as advanceable.
-            self._next_btn.set_label("Continue ›")
-            self._next_btn.set_sensitive(True)
+        # `run()` spawns a daemon thread and returns immediately; the
+        # callback fires on the GTK main thread once every step actually
+        # finishes (or the user cancels mid-run). Until then, Next stays
+        # disabled so the user can't skip ahead of the installer.
+        self._apply_page.run(on_complete=self._on_apply_complete)
         return False  # one-shot idle
+
+    def _on_apply_complete(self) -> None:
+        self._next_btn.set_label("Continue ›")
+        self._next_btn.set_sensitive(True)
 
     # ---- summary page ----------------------------------------------------
 

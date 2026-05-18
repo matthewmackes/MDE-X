@@ -174,6 +174,7 @@ class ApplyPage(Gtk.Box):
         self._start_ts: Optional[float] = None
         self._steps: List[_Step] = []
         self._active_idx = -1
+        self._on_complete: Optional[Callable[[], None]] = None
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         outer.set_margin_top(32); outer.set_margin_bottom(24)
@@ -286,9 +287,17 @@ class ApplyPage(Gtk.Box):
     def is_done(self) -> bool:
         return self._done
 
-    def run(self) -> None:
-        """Execute the apply pipeline. Idempotent: returns early on re-entry."""
+    def run(self, on_complete: Optional[Callable[[], None]] = None) -> None:
+        """Execute the apply pipeline. Idempotent: returns early on re-entry.
+
+        ``on_complete`` (if given) fires on the GTK main thread once the
+        worker thread has finished every step — used by the wizard window
+        to gate the Next button so the user can't advance mid-install.
+        """
+        self._on_complete = on_complete
         if self._done:
+            if on_complete is not None:
+                on_complete()
             return
         ctx = self.ctx
         preset = ctx.selected_preset
@@ -296,6 +305,8 @@ class ApplyPage(Gtk.Box):
             self._set_active_title("No preset selected")
             self._set_active_sub("Nothing to apply.")
             self._done = True
+            if on_complete is not None:
+                on_complete()
             return
 
         # Build the effective preset by overlaying overrides on top of
@@ -431,6 +442,11 @@ class ApplyPage(Gtk.Box):
     def _finalize_run(self, merged: Preset) -> bool:
         self._done = True
         self._cancel_btn.set_sensitive(False)
+        if self._on_complete is not None:
+            try:
+                self._on_complete()
+            except Exception:  # noqa: BLE001
+                pass
         ok_n = sum(1 for s in self._steps if s.state == _DONE)
         fail_n = sum(1 for s in self._steps if s.state == _FAILED)
         skip_n = sum(1 for s in self._steps if s.state == _SKIPPED)
