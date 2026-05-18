@@ -14,6 +14,7 @@
 
 #![forbid(unsafe_code)]
 
+mod app_module;
 mod apple_menu;
 mod config_store;
 mod desktop_files;
@@ -84,27 +85,21 @@ fn main() -> glib::ExitCode {
 
 fn build_surfaces(app: &gtk::Application) {
     install_global_styling();
-    // Load (or write-default-and-load) panel.toml. The result is unused
-    // by the UI right now — Phase 2.5+ wires diffing into the layout.
-    let _cfg = config_store::load_or_default();
+    let cfg = config_store::load_or_default();
 
-    // Phase 2.3: hot-reload watcher. The returned monitor must outlive
-    // the GTK main loop, so we leak it into a static. (Dropping the
-    // monitor cancels the watch, which we don't want for the lifetime
-    // of the panel process.)
+    // Phase 2.3 hot-reload watcher. The returned monitor must outlive
+    // the GTK main loop; leak it intentionally. (Dropping the monitor
+    // cancels the watch, which we don't want for the panel's lifetime.)
     let monitor = config_store::watch(|new_cfg| match new_cfg {
         Some(_cfg) => eprintln!("mackes-panel: panel.toml reloaded"),
         None => eprintln!("mackes-panel: panel.toml went away or failed to parse"),
     });
-    // Intentionally leak so the watch survives this function. Once
-    // Phase 2.5 stores the active config in a long-lived struct,
-    // ownership of the monitor moves there.
     std::mem::forget(monitor);
 
     let geom = primary_monitor_geometry().unwrap_or_default();
     build_desktop(app, &geom);
     build_top_bar(app, &geom);
-    build_bottom_dock(app, &geom);
+    build_bottom_dock(app, &geom, &cfg);
 }
 
 /// Load `PatternFly` tokens (data/css/tokens.css) into the screen-wide
@@ -200,7 +195,11 @@ fn build_top_bar(app: &gtk::Application, geom: &FallbackGeometry) {
 }
 
 /// Bottom dock — 80 px Dock-hint window (primary monitor only).
-fn build_bottom_dock(app: &gtk::Application, geom: &FallbackGeometry) {
+fn build_bottom_dock(
+    app: &gtk::Application,
+    geom: &FallbackGeometry,
+    cfg: &mackes_config::PanelConfig,
+) {
     let window = gtk::ApplicationWindow::builder()
         .application(app)
         .title("mackes-panel-dock")
@@ -214,11 +213,57 @@ fn build_bottom_dock(app: &gtk::Application, geom: &FallbackGeometry) {
     window.set_default_size(geom.width, DOCK_HEIGHT_PX);
     window.move_(geom.x, geom.y + geom.height - DOCK_HEIGHT_PX);
 
-    // Single centered slot for the icon strip; Phase 5 populates it.
-    let strip = build_slot("mackes-dock-strip");
+    let strip = build_dock_strip(cfg);
     window.add(&strip);
 
     window.show_all();
+}
+
+/// Populate the dock strip from `cfg.dock.items`. App items resolve
+/// to `AppModule`s through the live `.desktop` index. Mesh items
+/// (peers / shares / services) wait until Phase 5.4 ships
+/// `MeshModule`; for now they're skipped with a warning.
+fn build_dock_strip(cfg: &mackes_config::PanelConfig) -> gtk::Box {
+    let strip = build_slot("mackes-dock-strip");
+    strip.set_halign(gtk::Align::Center);
+    strip.set_spacing(8);
+
+    if cfg.dock.items.is_empty() {
+        return strip;
+    }
+
+    // Build a one-shot .desktop index so multiple `App` items share
+    // one disk walk. desktop_files::scan() is currently O(N) on disk
+    // entries each call; one scan is plenty.
+    let by_id: std::collections::HashMap<String, desktop_files::DesktopEntry> =
+        desktop_files::scan()
+            .into_iter()
+            .map(|e| (e.id.clone(), e))
+            .collect();
+
+    for item in &cfg.dock.items {
+        match item {
+            mackes_config::DockItem::App { desktop } => {
+                if let Some(entry) = by_id.get(desktop) {
+                    let module = app_module::AppModule::new(entry.clone());
+                    let widget = dock::render_module(&module);
+                    let exec = entry.exec.clone();
+                    let terminal = entry.terminal;
+                    widget.connect_button_release_event(move |_, _| {
+                        top_bar::launch_exec(&exec, terminal);
+                        glib::Propagation::Stop
+                    });
+                    strip.pack_start(&widget, false, false, 0);
+                } else {
+                    eprintln!("mackes-panel: dock item references unknown .desktop: {desktop}");
+                }
+            }
+            mackes_config::DockItem::Mesh { id } => {
+                eprintln!("mackes-panel: mesh dock item {id} skipped — Phase 5.4 not landed yet");
+            }
+        }
+    }
+    strip
 }
 
 fn build_slot(name: &str) -> gtk::Box {

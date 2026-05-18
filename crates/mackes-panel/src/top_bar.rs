@@ -158,7 +158,9 @@ fn launch(program: &str, args: &[&str]) {
 /// freedesktop field codes (`%U`, `%F`, etc.) and hand the rest to
 /// `/bin/sh -c` so quoting works. Terminal apps get prefixed with the
 /// user's preferred terminal.
-fn launch_exec(exec: &str, terminal: bool) {
+///
+/// Shared with `dock::AppModule` (Phase 5.1), so re-exported as `pub`.
+pub fn launch_exec(exec: &str, terminal: bool) {
     let stripped = strip_field_codes(exec);
     let cmd = if terminal {
         format!("xfce4-terminal -e {stripped}")

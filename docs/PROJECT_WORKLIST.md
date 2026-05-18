@@ -66,7 +66,7 @@ blocked until fixed. See Phase 9.4 below.
 
 ## Phase 5 — Dock behaviors (3–4 weeks)
 
-- [ ] **5.1 Pinned-app launchers** — clicking a pinned launcher launches the `Exec=` line of the underlying `.desktop`. Tracks PID, status changes.
+- [✓] **5.1 Pinned-app launchers** — `AppModule` (concrete `DockModule`) wraps a `DesktopEntry`. `build_dock_strip(cfg)` walks `cfg.dock.items` of kind `App`, looks up each in a one-shot `desktop_files::scan()` index, renders via `dock::render_module`, and binds `button-release` to `launch_exec`. Mesh items skipped with a warning until Phase 5.4 lands `MeshModule`. 5 unit tests cover the `AppModule` accessors.
 - [ ] **5.2 Running-app detection** — talk to `libwnck` (via wnck-rs binding) to enumerate top-level windows; map back to `.desktop` Icon names.
 - [ ] **5.3 Window switching** — clicking a running-app dock entry brings its window to focus; second click hides it (macOS-style toggle).
 - [ ] **5.4 Mesh-resource enumeration** — periodically query QNM-Mesh + headscale_list_peers + service catalog; produce list of `MeshResource` items for the dock.
