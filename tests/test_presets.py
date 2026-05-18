@@ -10,10 +10,10 @@ import pytest
 yaml = pytest.importorskip("yaml")
 
 
-def test_list_presets_ships_four(isolated_xdg):
+def test_list_presets_ships_five(isolated_xdg):
     from mackes.presets import list_presets
     names = [p.name for p in list_presets()]
-    assert set(names) == {"hashbang", "mackes", "daylight", "vanilla"}, names
+    assert set(names) == {"hashbang", "mackes", "daylight", "node", "vanilla"}, names
 
 
 def test_default_preset_is_hashbang(isolated_xdg):

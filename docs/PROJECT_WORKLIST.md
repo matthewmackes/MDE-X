@@ -25,6 +25,7 @@ blocked until fixed. See Phase 9.4 below.
 - [ ] **0.4 First boot: empty top bar** — `mackes-panel` binary opens a 20 px GTK3 window strut-anchored to the top of the primary monitor and exits on SIGTERM. No content yet. Validates GTK3+Rust+strut foundation. **Acceptance:** screenshot shows a black 20 px stripe at the top.
 - [ ] **0.5 First boot: empty bottom dock** — second strut-anchored window at the bottom, primary monitor only, 80 px tall. Validates multi-window per-process. **Acceptance:** screenshot shows both stripes.
 - [ ] **0.6 Wallpaper rendering** — panel writes the active preset's wallpaper to the root window pixmap at startup (replaces xfdesktop, Q39/Q40). **Acceptance:** wallpaper appears, panels still anchor correctly.
+- [>] **0.7 Repair the latent pytest suite uncovered by ci.yml fix** — ci.yml had been YAML-broken since 0.2.0 (commit 0e5bc91 fixed it). Now that pytest actually runs, 18 pre-existing failures surface: (a) 13 mesh_* tests do `mackes.mesh_X.foo()` without an explicit import binding; (b) 4 tests fail because CI container lacks `cairo-gobject` / `python3-textual`; (c) `test_list_presets_ships_four` expects 4 presets but 5 ship (hashbang/daylight/mackes/node/vanilla). Fix in one commit: import re-exports + ci.yml deps + test assertion update. **Acceptance:** `python` and `rust` jobs both green on a push.
 
 ## Phase 1 — Visual chrome (3–4 weeks)
 

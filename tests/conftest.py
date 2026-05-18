@@ -35,15 +35,23 @@ def isolated_xdg(tmp_path, monkeypatch):
     # patched environment variables. Drop the entire `mackes.*` namespace so
     # cached package attributes on `mackes` (e.g. mackes.menu_integration)
     # don't keep pointing at the stale module objects after submodule purge.
-    for mod_name in [m for m in list(sys.modules) if m == "mackes" or m.startswith("mackes.")]:
-        # Keep mackes.app / mackes.workbench / mackes.wizard out of this purge —
-        # they import GTK at import time, so reloading them in tests would
-        # fail. Only drop the pure-backend modules + the package itself.
-        if mod_name in {"mackes", "mackes.state", "mackes.logging",
-                        "mackes.snapshots", "mackes.menu_integration",
-                        "mackes.presets", "mackes.app_mgmt",
-                        "mackes.uninstall", "mackes.xfconf_bridge",
-                        "mackes.qnm_bridge"}:
+    # Important: if we drop `mackes` itself but leave a cached
+    # `mackes.mesh_perf` in sys.modules, a later `import mackes.mesh_perf`
+    # returns the cached submodule WITHOUT re-binding it on the fresh
+    # mackes package — so `mackes.mesh_perf` AttributeErrors. Purge the
+    # pure-backend mesh_* / mdns_* / fleet / caddy_* submodules alongside
+    # the package itself. Keep mackes.app / mackes.workbench / mackes.wizard
+    # OUT because they import GTK and would fail to reload.
+    _PURGE_EXACT = {"mackes", "mackes.state", "mackes.logging",
+                    "mackes.snapshots", "mackes.menu_integration",
+                    "mackes.presets", "mackes.app_mgmt",
+                    "mackes.uninstall", "mackes.xfconf_bridge",
+                    "mackes.qnm_bridge", "mackes.fleet"}
+    _PURGE_PREFIXES = ("mackes.mesh_", "mackes.mdns_", "mackes.caddy_")
+    for mod_name in [m for m in list(sys.modules)
+                     if m == "mackes" or m.startswith("mackes.")]:
+        if (mod_name in _PURGE_EXACT
+                or any(mod_name.startswith(p) for p in _PURGE_PREFIXES)):
             del sys.modules[mod_name]
 
     sys.path.insert(0, str(REPO_ROOT))

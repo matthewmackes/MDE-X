@@ -37,9 +37,12 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False \
             git \
             python3 python3-pip python3-pyyaml \
-            python3-gobject gtk3 xfconf \
+            python3-gobject gtk3 xfconf cairo-gobject-devel \
+            python3-cairo python3-textual \
             python3-pytest ruff
-          # GUI panels won't initialize headlessly; pytest sees only logic modules.
+          # GUI panels won't initialize headlessly; pytest sees only logic
+          # modules. cairo-gobject + python3-textual are needed so the
+          # import-smoke test can import the mesh_thumbnailer / tui modules.
 
       - name: Checkout
         uses: actions/checkout@v4
