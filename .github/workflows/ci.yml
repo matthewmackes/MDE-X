@@ -1,3 +1,18 @@
+# Mackes XFCE Workstation — push/PR CI.
+#
+# Two parallel jobs:
+#
+#   1. python — pyflakes + pytest + import smoke across supported Fedora
+#                releases (43 + 44 today). Mirrors what release.yml does on
+#                tag pushes, minus the rpm build.
+#
+#   2. rust   — cargo fmt --check + cargo clippy + cargo check + cargo test
+#                on the workspace (currently just crates/mackes-panel/, more
+#                land in Phase 0.2+).
+#
+# Both jobs follow the dep-install-first / checkout-second pattern that
+# release.yml uses, so the container has git available when checkout runs.
+
 name: ci
 
 on:
@@ -7,25 +22,30 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    name: test (Fedora ${{ matrix.fedora }})
+  python:
+    name: python (Fedora ${{ matrix.fedora }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        fedora: ["40", "41", "42"]
+        fedora: ["43", "44"]
     container:
       image: fedora:${{ matrix.fedora }}
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install runtime + test deps
         run: |
           dnf install -y --setopt=install_weak_deps=False \
+            git \
             python3 python3-pip python3-pyyaml \
             python3-gobject gtk3 xfconf \
             python3-pytest pyflakes
           # GUI panels won't initialize headlessly; pytest sees only logic modules.
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: pyflakes
         run: pyflakes mackes/ tests/
@@ -38,3 +58,37 @@ jobs:
           python3 -c "import importlib, pkgutil, mackes; \
 [importlib.import_module(n) for _,n,_ in pkgutil.walk_packages(mackes.__path__, prefix='mackes.')]; \
 print('all modules import')"
+
+  rust:
+    name: rust (Fedora 44)
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:44
+    steps:
+      - name: Install Rust toolchain
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            git \
+            rust cargo rustfmt clippy \
+            gcc make pkgconfig \
+            gtk3-devel
+          rustc --version
+          cargo --version
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo check
+        run: cargo check --workspace --all-targets
+
+      - name: cargo test
+        run: cargo test --workspace
