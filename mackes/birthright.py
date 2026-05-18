@@ -117,10 +117,12 @@ def apply_themes(_preset: Preset) -> List[str]:
 
     pad_src = _find_data("themes", "PadOS")
     shiki_src = _find_data("themes", "Shiki-Statler")
+    orchis_src = _find_data("themes", "Orchis-Dark")
     carbon_src = _find_data("icons", "Carbon")
     blacksun_src = _find_data("icons", "Black-Sun")
     pad_dst = Path("/usr/share/themes/PadOS")
     shiki_dst = Path("/usr/share/themes/Shiki-Statler")
+    orchis_dst = Path("/usr/share/themes/Orchis-Dark")
     carbon_dst = Path("/usr/share/icons/Carbon")
     blacksun_dst = Path("/usr/share/icons/Black-Sun")
 
@@ -138,6 +140,27 @@ def apply_themes(_preset: Preset) -> List[str]:
             actions.append(f"themes: installed PadOS to {pad_dst}")
         else:
             actions.append(f"themes: PadOS install failed: {out.strip().splitlines()[-1] if out.strip() else 'rc='+str(rc)}")
+
+    # Orchis-Dark GTK theme (v1.6.6 default) ----------------------------
+    # Upstream: https://github.com/vinceliuice/Orchis-theme (GPL-3.0)
+    # Material-design dark theme covering gtk-2.0 + gtk-3.0 + gtk-4.0
+    # + xfwm4 + cinnamon + metacity. Replaces Shiki-Statler as the
+    # default; Shiki stays bundled as an alternative.
+    if orchis_src is None:
+        actions.append("themes: Orchis-Dark source missing — skipping")
+    elif _newer_than(orchis_dst, orchis_src):
+        actions.append(f"themes: Orchis-Dark already installed at {orchis_dst} (up to date)")
+    else:
+        rc, out = _run_root(
+            ["cp", "-rT", str(orchis_src), str(orchis_dst)],
+            timeout=120,
+        )
+        if rc == 0:
+            actions.append(f"themes: installed Orchis-Dark to {orchis_dst}")
+        else:
+            last = (out.strip().splitlines()[-1]
+                    if out.strip() else f"rc={rc}")
+            actions.append(f"themes: Orchis-Dark install failed: {last}")
 
     # Shiki-Statler GTK2 + xfwm4 theme (v1.6.2 default) ----------------
     # Upstream: https://sourceforge.net/projects/archbangretro/files/
@@ -454,36 +477,33 @@ def _xfconf_str(ty: str, value) -> str:
 
 
 def apply_panel_layout(_preset: Preset) -> List[str]:
-    """Write the Mackes default xfce4-panel layout via xfconf-query.
+    """Write a Windows 2000-style standard xfce4-panel layout.
 
-    v1.6.3 — REVERTED from the v1.6.2 data-driven snapshot loader. The
-    snapshot approach was writing types xfce4-panel 4.20 doesn't
-    accept (`/panels` as array-uint vs its expected array-int, whisker
-    `menu-width`/`menu-height` as uint vs int) which triggered
-    GLib-GObject-CRITICAL assertions and "(null)" plugin-load dialogs.
+    v1.6.6 — Per user direction, REMOVED the Mackes-specific panel
+    branding (whiskermenu rebranded as "Mackes", mackes-launcher,
+    mackes-clipboard in panel) and shipped a clean, classic
+    bottom-panel layout that mirrors Windows 2000 / classic XFCE:
 
-    This function now uses the proven v1.5.x hardcoded xfconf-query
-    sequence — stable for months in production — with `mackes-launcher`
-    (Super+M popover button) and `mackes-clipboard` added.
+      Bottom panel, full width, 30px tall
+        applicationsmenu        — left "Start"-style menu
+        separator               — small gap
+        tasklist                — flat-button taskbar
+        separator-expand        — push the rest to the right edge
+        systray
+        clock (digital)
 
-    Plugin layout along the top:
-      101  whiskermenu (Mackes-branded "Mackes" with mackes-shell icon)
-      102  mackes-launcher  (NEW v1.6.2 — opens popover)
-      103  docklike (taskbar)
-      104  separator (expand to push tray + clock right)
-      105  mackes-clipboard (NEW v1.5.0)
-      106  systray
-      107  clock (IBM Plex digital)
+    No more apply_panel_layout writing Mackes-only plugins
+    (mackes-launcher + mackes-clipboard are still installed by the
+    RPM; users can right-click the panel → Add New Items if they
+    want them on the panel).
 
     Apply ordering (v1.5.1 race-fix preserved):
       1. xfce4-panel --quit before any xfconf writes
       2. write plugin types + per-plugin properties
       3. write panel-0 metadata
-      4. write /panels array LAST
+      4. write /panels array
       5. write /panels/panel-0/plugin-ids LAST
       6. xfce4-panel relaunch
-
-    Idempotent: every key is upserted via `--create`.
     """
     actions: List[str] = []
     if shutil.which("xfconf-query") is None:
@@ -526,59 +546,56 @@ def apply_panel_layout(_preset: Preset) -> List[str]:
         except (OSError, subprocess.TimeoutExpired):
             pass
 
-    plugin_ids = ["101", "102", "103", "104", "105", "106", "107"]
+    # Windows 2000-style classic bottom-panel layout.
+    # Standard plugins only — no Mackes branding written into xfconf.
+    plugin_ids = ["1", "2", "3", "4", "5", "6"]
 
-    # Panel-0 metadata
-    _set("/panels/panel-0/position",         "string", "p=8;x=0;y=0")
+    # Panel-0 metadata: BOTTOM panel, full width, 30px tall
+    # position p=10 = bottom-fixed center (xfce4-panel positional code)
+    _set("/panels/panel-0/position",         "string", "p=10;x=0;y=0")
     _set("/panels/panel-0/length",           "uint",   "100")
-    _set("/panels/panel-0/size",             "uint",   "32")
-    _set("/panels/panel-0/icon-size",        "uint",   "22")
+    _set("/panels/panel-0/size",             "uint",   "30")
+    _set("/panels/panel-0/icon-size",        "uint",   "16")
     _set("/panels/panel-0/position-locked",  "bool",   "true")
     _set("/panels/panel-0/autohide-behavior", "uint",  "0")
+    _set("/panels/panel-0/background-style", "uint",   "0")
+    _set("/panels/panel-0/enable-struts",    "bool",   "true")
 
-    # Whisker — Mackes-branded
-    _set("/plugins/plugin-101", "string", "whiskermenu")
-    _set("/plugins/plugin-101/button-title", "string", "Mackes")
-    _set("/plugins/plugin-101/button-icon",  "string", "mackes-shell")
-    _set("/plugins/plugin-101/show-button-title", "bool", "true")
-    _set("/plugins/plugin-101/show-button-icon",  "bool", "true")
-    _set("/plugins/plugin-101/launcher-show-name",        "bool", "true")
-    _set("/plugins/plugin-101/launcher-show-description", "bool", "true")
-    _set("/plugins/plugin-101/category-icon-size", "int", "1")
-    _set("/plugins/plugin-101/item-icon-size",     "int", "2")
-    _set("/plugins/plugin-101/menu-width",         "int", "440")
-    _set("/plugins/plugin-101/menu-height",        "int", "560")
-    _set("/plugins/plugin-101/menu-opacity",       "int", "100")
-    _set("/plugins/plugin-101/position-search-alternate",     "bool", "true")
-    _set("/plugins/plugin-101/position-categories-alternate", "bool", "true")
-    _set("/plugins/plugin-101/search-actions-enabled",        "bool", "true")
-    _set("/plugins/plugin-101/recent-items-max",   "int", "10")
-    _set("/plugins/plugin-101/favorites",          "string", "mackes-shell.desktop")
+    # Standard XFCE Applications menu — acts as the "Start" button
+    _set("/plugins/plugin-1", "string", "applicationsmenu")
+    _set("/plugins/plugin-1/show-button-title", "bool", "true")
+    _set("/plugins/plugin-1/button-title",      "string", "Start")
+    _set("/plugins/plugin-1/show-generic-names", "bool", "false")
+    _set("/plugins/plugin-1/show-menu-icons",   "bool", "true")
+    _set("/plugins/plugin-1/show-tooltips",     "bool", "true")
 
-    # mackes-launcher — opens the Super+M popover (v1.6.2)
-    _set("/plugins/plugin-102", "string", "mackes-launcher")
+    # Small visual gap between Start and the taskbar
+    _set("/plugins/plugin-2", "string", "separator")
+    _set("/plugins/plugin-2/style",  "uint", "0")  # transparent
+    _set("/plugins/plugin-2/expand", "bool", "false")
 
-    # docklike taskbar
-    _set("/plugins/plugin-103", "string", "docklike")
+    # Classic flat-button taskbar (Win2K shape: rectangular buttons)
+    _set("/plugins/plugin-3", "string", "tasklist")
+    _set("/plugins/plugin-3/flat-buttons",         "bool", "false")
+    _set("/plugins/plugin-3/show-handle",          "bool", "false")
+    _set("/plugins/plugin-3/show-labels",          "bool", "true")
+    _set("/plugins/plugin-3/show-only-minimized",  "bool", "false")
+    _set("/plugins/plugin-3/show-wireframes",      "bool", "false")
+    _set("/plugins/plugin-3/grouping",             "uint", "0")
 
-    # Expanding separator pushes the right side over
-    _set("/plugins/plugin-104", "string", "separator")
-    _set("/plugins/plugin-104/expand", "bool", "true")
-    _set("/plugins/plugin-104/style",  "uint", "0")
+    # Expanding separator pushes systray + clock to the right edge
+    _set("/plugins/plugin-4", "string", "separator")
+    _set("/plugins/plugin-4/style",  "uint", "0")
+    _set("/plugins/plugin-4/expand", "bool", "true")
 
-    # mackes-clipboard — mesh clipboard popover (v1.5.0)
-    _set("/plugins/plugin-105", "string", "mackes-clipboard")
+    # System tray
+    _set("/plugins/plugin-5", "string", "systray")
 
-    # systray
-    _set("/plugins/plugin-106", "string", "systray")
-
-    # clock — IBM Plex digital
-    _set("/plugins/plugin-107", "string", "clock")
-    _set("/plugins/plugin-107/digital-time-font",   "string", "IBM Plex Sans Bold 12")
-    _set("/plugins/plugin-107/digital-time-format", "string", "%I:%M %p")
-    _set("/plugins/plugin-107/digital-date-font",   "string", "IBM Plex Sans 10")
-    _set("/plugins/plugin-107/digital-date-format", "string", "%B %d, %Y")
-    _set("/plugins/plugin-107/mode",                "uint",   "2")
+    # Clock — digital, 24h-ish format like classic Win2K systray
+    _set("/plugins/plugin-6", "string", "clock")
+    _set("/plugins/plugin-6/mode",                "uint",   "2")
+    _set("/plugins/plugin-6/digital-time-format", "string", "%I:%M %p")
+    _set("/plugins/plugin-6/digital-date-format", "string", "%a %b %d")
 
     # v1.5.1 — /panels array + /panels/panel-0/plugin-ids written LAST,
     # AFTER every plugin's type has landed. xfce4-panel only loads a

@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        1.6.5
+Version:        1.6.6
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -245,6 +245,7 @@ cp -r data/systemd        %{buildroot}%{_datadir}/%{name}/data/
 install -d %{buildroot}%{_datadir}/themes
 cp -r data/themes/PadOS   %{buildroot}%{_datadir}/themes/
 cp -r data/themes/Shiki-Statler %{buildroot}%{_datadir}/themes/
+cp -r data/themes/Orchis-Dark   %{buildroot}%{_datadir}/themes/
 install -d %{buildroot}%{_datadir}/icons
 cp -r data/icons/Carbon   %{buildroot}%{_datadir}/icons/
 cp -r data/icons/Black-Sun %{buildroot}%{_datadir}/icons/
@@ -425,9 +426,12 @@ fi
 %{_datadir}/xfce4/panel/plugins/mackes-launcher.desktop
 # Vendored PadOS GTK theme
 %{_datadir}/themes/PadOS/
-# Vendored Shiki-Statler GTK2 + xfwm4 theme (v1.6.2 default)
+# Vendored Shiki-Statler GTK2 + xfwm4 theme (1.6.2 default)
 # Upstream: archbangretro on SourceForge (GPL)
 %{_datadir}/themes/Shiki-Statler/
+# Vendored Orchis-Dark Material-design GTK theme (1.6.6 default)
+# Upstream: github.com/vinceliuice/Orchis-theme (GPL-3.0)
+%{_datadir}/themes/Orchis-Dark/
 # Vendored Carbon GTK icon theme
 %{_datadir}/icons/Carbon/
 # Vendored Black-Sun GTK icon theme (v1.6.2 default)

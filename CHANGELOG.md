@@ -3,6 +3,48 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.6.6 — Orchis Dark GTK + classic Win2K-style panel layout (2026-05-17)
+
+**Orchis Dark replaces Shiki-Statler as the default GTK theme.**
+Vendored from https://github.com/vinceliuice/Orchis-theme (GPL-3.0)
+at `data/themes/Orchis-Dark/`. Material-design dark theme covering
+gtk-2.0 + gtk-3.0 + gtk-4.0 + xfwm4 + cinnamon + metacity — every
+modern GTK app picks it up natively, no GTK3 port needed unlike
+Shiki-Statler. Shiki stays bundled as an alternative.
+
+Every preset (hashbang / mackes / daylight) now defaults to:
+```
+gtk_theme:             "Orchis-Dark"   (was Shiki-Statler)
+window_manager_theme:  "Shiki-Statler" (kept — Orchis xfwm is
+                                        too rounded for the
+                                        classic feel)
+icon_theme:            "Black-Sun"     (unchanged)
+```
+
+LightDM greeter default `gtk_theme` flips to `Orchis-Dark` too.
+
+**Classic Windows 2000-style xfce4-panel layout.** All Mackes-specific
+plugins removed from the wizard's panel-apply step. `apply_panel_layout`
+now writes a single bottom panel with the standard XFCE plugin set:
+
+```
+plugin-1  applicationsmenu      ("Start" button, left)
+plugin-2  separator             (small gap)
+plugin-3  tasklist              (window buttons, raised style)
+plugin-4  separator-expand      (push systray + clock right)
+plugin-5  systray
+plugin-6  clock                 (digital %I:%M %p)
+```
+
+Position `p=10` (bottom-fixed), size 30 px, icon-size 16 px,
+enable-struts true — the classic Win2K bottom-strip feel. No
+whiskermenu rebrand, no `mackes-launcher` in the panel, no
+`mackes-clipboard` in the panel.
+
+The `mackes-launcher` + `mackes-clipboard` panel plugins are still
+installed by the RPM; users who want them on the panel can
+right-click → Panel → Add New Items.
+
 ## 1.6.5 — GUI refine pass: compact, professional, functional (2026-05-17)
 
 Three-round refinement of the GUI surface:

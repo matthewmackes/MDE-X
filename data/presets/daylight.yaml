@@ -12,7 +12,7 @@ description: >
   daytime and care about document fidelity.
 
 appearance:
-  gtk_theme:      "Shiki-Statler"
+  gtk_theme:      "Orchis-Dark"
   icon_theme:     "Black-Sun"
   cursor_theme:   "Adwaita"
   cursor_size:    24
