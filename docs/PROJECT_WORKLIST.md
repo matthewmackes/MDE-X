@@ -89,7 +89,7 @@ blocked until fixed. See Phase 9.4 below.
 
 ## Phase 8 — Continuity surfaces (1–2 weeks)
 
-- [ ] **8.1 LightDM greeter look** — write `lightdm-gtk-greeter.conf` overlay + CSS that mirrors the 20 px top bar (Q36).
+- [✓] **8.1 LightDM greeter look** — `mackes.lightdm.configure_greeter` writes `panel-position = top` (was `bottom`), `clock-format = %H:%M` (was full date), and a slimmed `indicators` line that mirrors mackes-panel's right-side cluster (clock + session + a11y + power). The greeter now renders a strip at the top of the screen matching the panel's 20 px top bar — boot → greeter → desktop have continuous visual language per Q36.
 - [ ] **8.2 Plymouth rebuild** — black background, centered Mackes logo, 20 px progress line at the bottom matching dock position (Q37). Replace `data/plymouth/mackes/`.
 - [✓] **8.3 xfdesktop removal** — RPM ships `/etc/xdg/autostart/mackes-panel.desktop` (so every XFCE session brings up the Rust panel) and `/etc/xdg/autostart/xfdesktop.desktop` overrides upstream's autostart with `Hidden=true` + `X-XFCE-Autostart-enabled=false`. On install: log out / log in → mackes-panel owns wallpaper + dock + top bar; xfdesktop never starts. Verified in fresh `make rpm` build — both entries present at the right paths.
 - [ ] **8.4 Root right-click menu** — XGrabButton on the root window, right-click opens a Mackes-themed menu (Change wallpaper / Open mesh share / Send file to peer / Display settings).
