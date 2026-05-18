@@ -24,14 +24,14 @@ blocked until fixed. See Phase 9.4 below.
 - [✓] **0.3 Build/packaging plumbing** — `cargo build --release --workspace` runs in `%build`, `target/release/mackes-panel` installs to `/usr/bin/mackes-panel`, MANIFEST.in ships Cargo.{toml,lock} + crates/ in the sdist. Verified: RPM build succeeds, ELF binary present. Landed in `e9cfc35`. `Obsoletes: mackes-shell < 3` deferred to 10.1 (the actual rename commit).
 - [✓] **0.4 First boot: empty top bar** — 20 px GTK3 ApplicationWindow with Dock type-hint, PatternFly-dark, clean SIGTERM/SIGINT. Landed in `cc5a122`.
 - [✓] **0.5 First boot: empty bottom dock** — second Dock-hint window, 80 px, bottom of primary monitor. `FallbackGeometry` factored out, `apply_placeholder_style` reused across surfaces. Landed in `196cbb6`.
-- [>] **0.6 Wallpaper rendering** — third window with `WindowTypeHint::Desktop` fills the primary monitor, hosts a `gtk::Image` scaled from `~/.config/mackes-shell/state.json:wallpaper` (or `/usr/share/mackes-shell/branding/standard-wallpaper.png` fallback). Uses GTK's built-in stacking — Desktop hint puts it below Dock windows, so panel + dock + wallpaper stack correctly. Release binary 558 KB (433 KB stripped). Pure GTK path; no X11 root-pixmap plumbing.
+- [✓] **0.6 Wallpaper rendering** — Desktop-hint window with scaled wallpaper from state.json (or branding/ fallback). Pure GTK stacking. Release 558 KB / 433 KB stripped. Landed in `9c51124`. **Phase 0 complete.**
 - [✓] **0.7 Repair the latent pytest suite uncovered by ci.yml fix** — ci.yml YAML-bug fixed in `d379914`. Then `f96044e` purged stale `mackes.mesh_*` from sys.modules in `conftest.isolated_xdg`, fixed `test_list_presets_ships_five`, and added cairo/textual to CI deps. `8eb3eb7` added a Typelib/namespace filter to `test_every_non_gui_module_imports`. `32cf2f1` dropped the redundant import-smoke shell step. CI run `26052513245` green: ✓ python (F43) · ✓ python (F44) · ✓ rust (F44). First green CI since 0.2.0.
 
 ## Phase 1 — Visual chrome (3–4 weeks)
 
-- [ ] **1.1 PatternFly tokens loaded** — panel reads `data/css/tokens.css` at startup and applies it as a `Gtk.CssProvider` so the chrome inherits the existing dark surface tokens.
-- [ ] **1.2 Top bar layout slots** — three horizontal regions (left/center/right) with placeholders for each. Hairline border at the bottom.
-- [ ] **1.3 Dock layout slots** — single horizontal region, centered icon strip, hairline at the top.
+- [✓] **1.1 PatternFly tokens loaded** — panel reads `/usr/share/mackes-shell/data/css/tokens.css` + `mackes.css` at startup via screen-wide `Gtk.CssProvider`, plus an inline backup so the chrome renders on uninstalled trees. Per-window `#mackes-*` IDs reserved.
+- [✓] **1.2 Top bar layout slots** — left/center/right slots via `gtk::Box::set_center_widget`. 1 px hairline border at bottom via inline CSS. Slots named `#mackes-top-{left,center,right}` ready for Phase 1.5–1.7 widgets.
+- [✓] **1.3 Dock layout slots** — single centered slot `#mackes-dock-strip`. Hairline border at top. Phase 5.1+ populates it.
 - [ ] **1.4 Mackes-Carbon icon loader** — Rust function that, given a freedesktop icon name, finds the matching SVG under `/usr/share/icons/Mackes-Carbon/scalable/{actions,apps,places,…}/`. Caches parsed Cairo surfaces.
 - [ ] **1.5 Clock + calendar widget (center)** — clock string in the top-bar center (Red Hat Mono 10), click opens a 320×280 dropdown with a mini-calendar and the next 3 calendar events (placeholder list for now).
 - [ ] **1.6 Status cluster (right)** — Mackes-Clipboard icon, volume, battery, mesh, notifications, user. Each is a `StatusItem` trait implementation. Click anywhere in the cluster → fires the `Drawer::open` signal (wired in Phase 4).

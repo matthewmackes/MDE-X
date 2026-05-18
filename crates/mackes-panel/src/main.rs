@@ -1,18 +1,16 @@
 //! mackes-panel — top status bar + bottom dock for Mackes XFCE Workstation.
 //!
-//! Phase 0.6: panel + desktop. Three windows on the primary monitor:
+//! Phase 1.1 + 1.2: `PatternFly` tokens loaded from the shipped
+//! `data/css/tokens.css` and the top bar gains three layout slots
+//! (left / center / right) so future phases drop the appmenu, clock,
+//! and status cluster into named regions.
 //!
 //!   ┌──────────────────────────────────────────┐  top bar  (20 px Dock)
-//!   │                                          │
-//!   │    <desktop window — wallpaper image>    │  fullscreen Desktop hint,
-//!   │                                          │  stacks below everything
-//!   │                                          │
+//!   │ [left]            [center]      [right]  │
+//!   ├──────────────────────────────────────────┤
+//!   │      <desktop window — wallpaper>        │
 //!   ├──────────────────────────────────────────┤  bottom dock (80 px Dock)
 //!   └──────────────────────────────────────────┘
-//!
-//! The Desktop-hint window replaces xfdesktop per Q39/Q40 — we own the
-//! wallpaper render now. Phase 0.4–0.5 added the two Dock-hint strips;
-//! Phase 0.6 adds the desktop layer beneath them.
 
 #![forbid(unsafe_code)]
 
@@ -26,10 +24,27 @@ const TOP_BAR_HEIGHT_PX: i32 = 20;
 const DOCK_HEIGHT_PX: i32 = 80;
 const APP_ID: &str = "shell.mackes.Panel";
 
-/// Each window we build gets the same PatternFly-dark surface (#151515)
-/// per Q15. Inlined here so the very-first-boot stripe is visible without
-/// loading external CSS files.
-const PLACEHOLDER_CSS: &[u8] = b"window { background-color: #151515; }";
+/// Backup chrome surface so the panel renders even when no token CSS is
+/// installed (e.g. running the binary out of `target/release` against an
+/// uninstalled tree). Real styling comes from `tokens.css` loaded below.
+const PLACEHOLDER_CSS: &[u8] = b"
+    window#mackes-top-bar,
+    window#mackes-dock {
+        background-color: #151515;
+    }
+    window#mackes-top-bar {
+        border-bottom: 1px solid #292929;
+    }
+    window#mackes-dock {
+        border-top: 1px solid #292929;
+    }
+";
+
+/// Standard install location for the shipped `PatternFly` tokens.
+const TOKEN_CSS_PATHS: &[&str] = &[
+    "/usr/share/mackes-shell/data/css/tokens.css",
+    "/usr/share/mackes-shell/data/css/mackes.css",
+];
 
 /// Fallback wallpaper used when the active preset's path is missing.
 const DEFAULT_WALLPAPER: &str = "/usr/share/mackes-shell/branding/standard-wallpaper.png";
@@ -60,10 +75,47 @@ fn main() -> glib::ExitCode {
 }
 
 fn build_surfaces(app: &gtk::Application) {
+    install_global_styling();
     let geom = primary_monitor_geometry().unwrap_or_default();
     build_desktop(app, &geom);
     build_top_bar(app, &geom);
     build_bottom_dock(app, &geom);
+}
+
+/// Load `PatternFly` tokens (data/css/tokens.css) into the screen-wide
+/// `StyleContext` so every window we build inherits the dark surfaces,
+/// font stack, and accent palette. Followed by the inline backup CSS so
+/// the panel chrome still renders on uninstalled / dev trees.
+fn install_global_styling() {
+    let Some(screen) = gdk::Screen::default() else {
+        return;
+    };
+
+    for path in TOKEN_CSS_PATHS {
+        if !Path::new(path).is_file() {
+            continue;
+        }
+        let provider = gtk::CssProvider::new();
+        if provider.load_from_path(path).is_ok() {
+            gtk::StyleContext::add_provider_for_screen(
+                &screen,
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        }
+    }
+
+    // Inline backup — overlays the tokens with our panel-specific bits
+    // (window IDs, hairline borders). Higher priority so it wins on the
+    // panel IDs without stomping general token rules.
+    let backup = gtk::CssProvider::new();
+    if backup.load_from_data(PLACEHOLDER_CSS).is_ok() {
+        gtk::StyleContext::add_provider_for_screen(
+            &screen,
+            &backup,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 10,
+        );
+    }
 }
 
 /// Fullscreen wallpaper layer that replaces xfdesktop.
@@ -78,12 +130,14 @@ fn build_desktop(app: &gtk::Application, geom: &FallbackGeometry) {
         .accept_focus(false)
         .type_hint(gdk::WindowTypeHint::Desktop)
         .build();
+    window.set_widget_name("mackes-desktop");
     window.set_default_size(geom.width, geom.height);
     window.move_(geom.x, geom.y);
     apply_wallpaper(&window, geom);
     window.show_all();
 }
 
+/// Top status bar — 20 px Dock-hint window with three named layout slots.
 fn build_top_bar(app: &gtk::Application, geom: &FallbackGeometry) {
     let window = gtk::ApplicationWindow::builder()
         .application(app)
@@ -94,12 +148,29 @@ fn build_top_bar(app: &gtk::Application, geom: &FallbackGeometry) {
         .resizable(false)
         .type_hint(gdk::WindowTypeHint::Dock)
         .build();
+    window.set_widget_name("mackes-top-bar");
     window.set_default_size(geom.width, TOP_BAR_HEIGHT_PX);
     window.move_(geom.x, geom.y);
-    apply_placeholder_style(&window);
+
+    // Three-slot horizontal layout: left / center / right.
+    // `gtk::Box` with center widget property gives us a true three-region
+    // layout where the center stays centered even when left/right vary.
+    let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    bar.set_widget_name("mackes-top-bar-layout");
+
+    let left = build_slot("mackes-top-left");
+    let center = build_slot("mackes-top-center");
+    let right = build_slot("mackes-top-right");
+
+    bar.pack_start(&left, false, false, 0);
+    bar.set_center_widget(Some(&center));
+    bar.pack_end(&right, false, false, 0);
+
+    window.add(&bar);
     window.show_all();
 }
 
+/// Bottom dock — 80 px Dock-hint window (primary monitor only).
 fn build_bottom_dock(app: &gtk::Application, geom: &FallbackGeometry) {
     let window = gtk::ApplicationWindow::builder()
         .application(app)
@@ -110,19 +181,21 @@ fn build_bottom_dock(app: &gtk::Application, geom: &FallbackGeometry) {
         .resizable(false)
         .type_hint(gdk::WindowTypeHint::Dock)
         .build();
+    window.set_widget_name("mackes-dock");
     window.set_default_size(geom.width, DOCK_HEIGHT_PX);
     window.move_(geom.x, geom.y + geom.height - DOCK_HEIGHT_PX);
-    apply_placeholder_style(&window);
+
+    // Single centered slot for the icon strip; Phase 5 populates it.
+    let strip = build_slot("mackes-dock-strip");
+    window.add(&strip);
+
     window.show_all();
 }
 
-fn apply_placeholder_style(window: &gtk::ApplicationWindow) {
-    let style = window.style_context();
-    let provider = gtk::CssProvider::new();
-    provider
-        .load_from_data(PLACEHOLDER_CSS)
-        .expect("inline css must parse");
-    style.add_provider(&provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+fn build_slot(name: &str) -> gtk::Box {
+    let slot = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    slot.set_widget_name(name);
+    slot
 }
 
 /// Draws the wallpaper as a scaled-to-fit Image inside the desktop window.
@@ -137,8 +210,6 @@ fn apply_wallpaper(window: &gtk::ApplicationWindow, geom: &FallbackGeometry) {
     if let Some(pb) = pixbuf {
         let image = gtk::Image::from_pixbuf(Some(&pb));
         window.add(&image);
-    } else {
-        apply_placeholder_style(window);
     }
 }
 
