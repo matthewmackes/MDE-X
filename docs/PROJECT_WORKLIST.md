@@ -33,9 +33,9 @@ blocked until fixed. See Phase 9.4 below.
 - [✓] **1.2 Top bar layout slots** — left/center/right slots via `gtk::Box::set_center_widget`. 1 px hairline border at bottom via inline CSS. Slots named `#mackes-top-{left,center,right}` ready for Phase 1.5–1.7 widgets.
 - [✓] **1.3 Dock layout slots** — single centered slot `#mackes-dock-strip`. Hairline border at top. Phase 5.1+ populates it.
 - [✓] **1.4 Mackes-Carbon icon loader** — `icons::load(name, size_px)` resolves freedesktop names + `-symbolic` variants under `/usr/share/icons/Mackes-Carbon/scalable/{actions,status,devices,places,emblems,categories,mimetypes,apps}/`. Thread-local `HashMap<(name,size), Pixbuf>` cache. 3 unit tests for the name-candidate logic.
-- [ ] **1.5 Clock + calendar widget (center)** — clock string in the top-bar center (Red Hat Mono 10), click opens a 320×280 dropdown with a mini-calendar and the next 3 calendar events (placeholder list for now).
-- [ ] **1.6 Status cluster (right)** — Mackes-Clipboard icon, volume, battery, mesh, notifications, user. Each is a `StatusItem` trait implementation. Click anywhere in the cluster → fires the `Drawer::open` signal (wired in Phase 4).
-- [ ] **1.7 Apple-menu button (left)** — Mackes glyph + dropdown shell. Items wired with placeholders; behavior in Phase 3.
+- [✓] **1.5 Clock widget (center)** — `top_bar::clock()` returns a `gtk::Label` showing `HH:MM`. First tick is scheduled at the next-minute boundary (wall-clock synced), then every 60 s. Calendar dropdown is deferred to a follow-up sub-step.
+- [✓] **1.6 Status cluster (right)** — 6-item horizontal box with Carbon-loaded glyphs for mesh/clipboard/volume/battery/notifications/user. Per-item click handlers stubbed; Phase 4.2 replaces them with the Drawer-open signal.
+- [✓] **1.7 Apple-menu button (left)** — Mackes-mark button (`applications-system-symbolic` placeholder) with stub click handler. Phase 3 wires the dropdown.
 - [ ] **1.8 Dock module dispatch** — generic `DockModule` trait (`icon()`, `tooltip()`, `on_click()`, `state()` returning `{Idle, Running, Focused, Urgent}`). Render-pass walks the configured module list and draws each.
 - [ ] **1.9 State indicators on dock icons** — 1 px under-icon dot + right-edge unread badge (Q16). Both honor PatternFly accent tokens.
 

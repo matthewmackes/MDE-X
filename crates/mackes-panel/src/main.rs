@@ -15,6 +15,7 @@
 #![forbid(unsafe_code)]
 
 mod icons;
+mod top_bar;
 
 use std::path::{Path, PathBuf};
 
@@ -163,6 +164,10 @@ fn build_top_bar(app: &gtk::Application, geom: &FallbackGeometry) {
     let left = build_slot("mackes-top-left");
     let center = build_slot("mackes-top-center");
     let right = build_slot("mackes-top-right");
+
+    left.pack_start(&top_bar::apple_menu_button(), false, false, 0);
+    center.pack_start(&top_bar::clock(), false, false, 0);
+    right.pack_start(&top_bar::status_cluster(), false, false, 0);
 
     bar.pack_start(&left, false, false, 0);
     bar.set_center_widget(Some(&center));
