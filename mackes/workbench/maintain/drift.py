@@ -24,13 +24,13 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from mackes.logging import log_action
 from mackes.presets import (
-    APPEARANCE_KEYS, DriftItem, Preset, active_preset_drift, detect_drift, load_preset,
+    APPEARANCE_KEYS, DriftItem, Preset, active_preset_drift,
 )
 from mackes.state import MackesState
 from mackes.workbench._common import (
     info_label, panel_box, section_description, section_header, title_label,
 )
-from mackes.xfconf_bridge import XfconfError, get_bridge
+from mackes.xfconf_bridge import get_bridge
 
 
 class DriftPanel(Gtk.Box):

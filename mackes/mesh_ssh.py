@@ -26,7 +26,6 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
-from mackes.logging import log_action
 from mackes.state import CONFIG_DIR, DATA_DIR, HOME
 
 

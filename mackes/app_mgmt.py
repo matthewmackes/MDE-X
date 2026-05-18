@@ -23,11 +23,10 @@ import shutil
 import subprocess
 import urllib.request
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 from mackes.logging import log_action
-from mackes.state import CONFIG_DIR, HOME, DATA_DIR
+from mackes.state import CONFIG_DIR, HOME
 
 
 REMOVED_BY_MACKES_FILE = CONFIG_DIR / "removed-by-mackes.json"

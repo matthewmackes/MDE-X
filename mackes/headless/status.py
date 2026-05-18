@@ -39,7 +39,7 @@ def status() -> int:
         name, when = snap
         print(f"  last snapshot:   {when:%Y-%m-%d %H:%M}  ({name})")
     else:
-        print(f"  last snapshot:   (none yet)")
+        print("  last snapshot:   (none yet)")
     print()
     print(f"{_BOLD}Hardware{_RST}")
     for k in ("hostname", "os", "cpu", "ram"):

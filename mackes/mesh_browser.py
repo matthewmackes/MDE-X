@@ -31,15 +31,11 @@ This module is also what `mackes shares` reads.
 """
 from __future__ import annotations
 
-import os
-import shutil
 import socket
-from pathlib import Path
-from typing import Iterable
 
 from mackes.logging import log_action
 from mackes.mesh_sync import (
-    ALL_BUCKETS, BUCKET_CLIPBOARD, BUCKET_DROP, BUCKET_NOTIFICATIONS,
+    BUCKET_CLIPBOARD, BUCKET_DROP, BUCKET_NOTIFICATIONS,
     BUCKET_PRESETS, BUCKET_SNAPSHOTS, BUCKET_THEMES,
     list_keys,
 )
@@ -118,7 +114,7 @@ def install_thunar_bookmarks() -> list[str]:
         for d, label in want
     ]
     bookmarks.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    return [f"installed Thunar bookmarks (4 mesh entries)"]
+    return ["installed Thunar bookmarks (4 mesh entries)"]
 
 
 def sync_clipboard_view() -> list[str]:
@@ -129,7 +125,7 @@ def sync_clipboard_view() -> list[str]:
     pass.
     """
     actions: list[str] = []
-    me = socket.gethostname()
+    socket.gethostname()
     for entry in list_keys(BUCKET_CLIPBOARD):
         peer_dir = DIR_CLIPBOARD / entry.peer
         peer_dir.mkdir(parents=True, exist_ok=True)

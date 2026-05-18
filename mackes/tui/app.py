@@ -19,12 +19,10 @@ Bindings:
 """
 from __future__ import annotations
 
-from typing import Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
-from textual.screen import Screen
+from textual.containers import Container, Horizontal
 from textual.widgets import (
     Footer, Header, Label, ListItem, ListView, Static,
 )

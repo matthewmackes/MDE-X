@@ -11,18 +11,14 @@ peer's qnmd watcher reads + dispatches to xfce4-notifyd via notify-send.
 """
 from __future__ import annotations
 
-import json
-import os
 import secrets
 import shutil
 import socket
 import subprocess
 import time
-from pathlib import Path
-from typing import Iterable, Optional
 
 from mackes.logging import log_action
-from mackes.state import CONFIG_DIR, DATA_DIR, HOME
+from mackes.state import CONFIG_DIR, HOME
 
 
 MESH_NOTIF_INBOX = HOME / ".qnm-notifications"   # this peer's inbox

@@ -26,7 +26,7 @@ import json
 import socket
 import subprocess
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 
 KIND_AIRSONIC = "airsonic"

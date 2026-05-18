@@ -22,7 +22,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 from mackes.logging import log_action
 

@@ -267,7 +267,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 print(line)
             return 0
         if args.main_cmd == "health":
-            from mackes.state import service_health, hardware_summary
+            from mackes.state import service_health
             ok = True
             for n, s in service_health().items():
                 print(f"  {s:>7s}  {n}")
@@ -357,7 +357,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     # ---- services ----
     if cmd == "services":
         from mackes.mesh_services import (
-            load_catalog, load_registry, probe_all, url_for, launch,
+            load_catalog, load_registry, launch,
             cheatsheet_lines,
         )
         if args.svc_cmd == "list":
@@ -407,7 +407,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     # ---- mesh ----
     if cmd == "mesh":
         from mackes.mesh_vpn import (
-            MeshState, generate_join_link, snapshot_state, maybe_take_control,
+            generate_join_link, snapshot_state, maybe_take_control,
         )
         if args.mesh_cmd == "status":
             return st.status()
@@ -460,7 +460,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # ---- uninstall ----
     if cmd == "uninstall":
-        from mackes.uninstall import run_uninstall, schedule_logout
+        from mackes.uninstall import run_uninstall
         if not args.yes:
             try:
                 ans = input("Type 'UNINSTALL' to confirm: ").strip()

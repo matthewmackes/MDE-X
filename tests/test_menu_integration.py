@@ -1,7 +1,6 @@
 """xfce4-settings menu hiding round-trip."""
 from __future__ import annotations
 
-from pathlib import Path
 
 
 def test_hide_then_restore(isolated_xdg, monkeypatch):

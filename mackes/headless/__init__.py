@@ -19,7 +19,7 @@ def is_headless() -> bool:
     sid = os.environ.get("XDG_SESSION_ID")
     if sid and shutil.which("loginctl"):
         try:
-            rc = subprocess.call(
+            subprocess.call(
                 ["loginctl", "show-session", sid, "-p", "Type", "--value"],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )

@@ -30,7 +30,7 @@ from gi.repository import Gtk  # noqa: E402
 
 from mackes.xfconf_bridge import get_bridge, XfconfError
 from mackes.workbench._common import (
-    error_label, info_label, labeled_row, section_header, title_label,
+    error_label, labeled_row, section_header,
 )
 
 

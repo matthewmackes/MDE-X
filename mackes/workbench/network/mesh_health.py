@@ -23,10 +23,8 @@ from gi.repository import GLib, Gtk  # noqa: E402
 from mackes.mesh import diagnose, health, health_json, overall_state, summary
 from mackes.workbench._common import (
     info_label,
-    panel_box,
     section_description,
     section_header,
-    title_label,
 )
 
 

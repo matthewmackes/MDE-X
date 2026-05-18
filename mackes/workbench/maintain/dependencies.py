@@ -12,7 +12,7 @@ import subprocess
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gtk  # noqa: E402
 
 from mackes.logging import log_action
 from mackes.workbench._common import (

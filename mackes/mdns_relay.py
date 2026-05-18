@@ -16,13 +16,9 @@ import json
 import shutil
 import socket
 import subprocess
-import time
 from dataclasses import dataclass, asdict
-from typing import Optional
 
-from mackes.logging import log_action
-from mackes.mesh_sync import BUCKET_NOTIFICATIONS, put, list_keys
-from mackes.state import CONFIG_DIR
+from mackes.mesh_sync import put, list_keys
 
 RELAY_BUCKET = "mdns"
 ME = socket.gethostname()

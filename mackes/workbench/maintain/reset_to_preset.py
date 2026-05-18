@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gtk  # noqa: E402
 
 from mackes.presets import apply_preset, list_presets, load_preset
 from mackes.snapshots import create_snapshot

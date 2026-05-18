@@ -9,7 +9,6 @@ Retention:   30 days (managed by mackes.fleet.prune_runs)
 """
 from __future__ import annotations
 
-import json
 import time
 from typing import Optional
 
@@ -18,8 +17,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
 from mackes.carbon import (
-    Button, ButtonKind, Tile, DataTable, Column,
-    Modal, ModalSize, Notification, NotificationKind,
+    Button, ButtonKind, DataTable, Column,
+    Modal, ModalSize,
 )
 from mackes.fleet import (
     RunRecord, build_inventory, list_playbooks, list_runs, prune_runs,
@@ -271,7 +270,7 @@ class FleetRunHistoryPanel(Gtk.Box):
         self._refresh()
 
     def _on_prune(self) -> None:
-        n = prune_runs(days=30)
+        prune_runs(days=30)
         self._refresh()
 
     def _on_row_activate(self, row: dict) -> None:

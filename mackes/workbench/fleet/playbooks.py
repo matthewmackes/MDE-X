@@ -11,7 +11,7 @@ Each tile:
 from __future__ import annotations
 
 import time
-from typing import List, Optional
+from typing import Optional
 
 import gi
 gi.require_version("Gtk", "3.0")

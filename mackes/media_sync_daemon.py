@@ -30,10 +30,8 @@ Run loop entry point: `python3 -m mackes.media_sync_daemon`.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 from mackes.logging import log_action
 from mackes.mesh_media import KIND_AIRSONIC, KIND_JELLYFIN, MediaServer, discover

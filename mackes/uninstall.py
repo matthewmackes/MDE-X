@@ -329,7 +329,6 @@ def run_uninstall(*, progress: ProgressCb = None) -> UninstallReport:
         _remove_package(report, log_handle, progress, _detect_install_mode())
 
         # Tail summary line.
-        ok = report.failed_count == 0
         summary = (
             f"--- uninstall complete: {len(report.steps)} steps, "
             f"{report.failed_count} failed ---"

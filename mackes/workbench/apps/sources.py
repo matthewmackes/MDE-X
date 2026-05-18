@@ -26,11 +26,9 @@ from gi.repository import GLib, Gtk  # noqa: E402
 from mackes.admin_session import AdminSession
 from mackes.probe_cache import cached, invalidate
 from mackes.workbench._common import (
-    info_label,
     panel_box,
     section_description,
     section_header,
-    title_label,
 )
 
 

@@ -805,11 +805,11 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         try:
             from mackes.mesh_vpn import headscale_list_peers, MESH_CAP
             peers = headscale_list_peers()
-            mesh_total = len(peers)
+            len(peers)
             mesh_online = sum(1 for p in peers if p.online)
             mesh_cap = MESH_CAP
         except Exception:  # noqa: BLE001
-            mesh_online = mesh_total = mesh_cap = 0
+            mesh_online = mesh_cap = 0
         try:
             from mackes.mesh_services import load_registry
             services_n = len(load_registry())
@@ -835,7 +835,7 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
                 "ok" if services_n else "warn",
             )
             _set_status_item(
-                self._sb_sshd, f"● sshd",
+                self._sb_sshd, "● sshd",
                 {"ok": "ok", "warn": "warn", "fail": "fail",
                  "missing": "warn"}.get(sshd_state, "warn"),
             )

@@ -35,7 +35,6 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 
 HEADSCALE_CONFIG = Path("/etc/headscale/config.yaml")

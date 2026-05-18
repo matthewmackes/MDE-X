@@ -19,7 +19,6 @@ from __future__ import annotations
 import signal
 import sys
 import time
-from typing import Optional
 
 from mackes.logging import log_action
 from mackes.state import ensure_dirs

@@ -125,7 +125,7 @@ class FontsPanel(Gtk.Box):
         # the call is 50–300ms but compounds across panels. Cache it and
         # run off-thread so the GTK loop never blocks here.
         import threading
-        from mackes.probe_cache import cached, invalidate
+        from mackes.probe_cache import cached
 
         def worker():
             families = cached("fc-list.families",

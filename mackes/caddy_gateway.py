@@ -10,17 +10,13 @@ regenerated whenever the registry changes.
 """
 from __future__ import annotations
 
-import json
-import os
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Iterable
 
 from mackes.logging import log_action
 from mackes.mesh_services import ServiceHit, load_catalog, load_registry
-from mackes.state import DATA_DIR
 
 
 CADDYFILE      = Path("/etc/caddy/Caddyfile.mesh")
@@ -72,7 +68,7 @@ def generate_caddyfile(hits: Iterable[ServiceHit]) -> str:
         "    auto_https off",
         "    pki {",
         "        ca mackes-mesh-ca {",
-        f"            root_cn \"Mackes Mesh CA\"",
+        "            root_cn \"Mackes Mesh CA\"",
         "        }",
         "    }",
         "}",
@@ -97,9 +93,9 @@ def generate_caddyfile(hits: Iterable[ServiceHit]) -> str:
             "",
             f"    # {svc_disp} on {hit.peer}",
             f"    handle_path {slug}/* {{",
-            f"        rewrite * /{{path}}",
+            "        rewrite * /{path}",
             f"        reverse_proxy {hit.scheme}://{target_host}",
-            f"    }}",
+            "    }",
         ])
 
     # ---- Remote desktop (v1.2.0 birthright) ---------------------------

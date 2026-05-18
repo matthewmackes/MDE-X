@@ -18,7 +18,7 @@ def test_set_type_inference():
     """The set() method's type inference table is deterministic."""
     from mackes.xfconf_bridge import XfconfBridge
     # Construct without going through __init__ — we want pure value-coercion logic
-    bridge = XfconfBridge.__new__(XfconfBridge)
+    XfconfBridge.__new__(XfconfBridge)
     # We can't call .set without xfconf-query, but type/value coercion is
     # done in-line. Inspect the function's behavior by reading source —
     # alternative: skip if xfconf-query missing.

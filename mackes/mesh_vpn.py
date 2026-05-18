@@ -23,12 +23,12 @@ import shutil
 import socket
 import subprocess
 import time
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from mackes.logging import log_action
-from mackes.state import CONFIG_DIR, DATA_DIR, HOME
+from mackes.state import DATA_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -423,7 +423,6 @@ _AVAHI_SERVICE_XML = """\
 
 def _publish_mdns_service(mesh_id: str) -> list[str]:
     """Write the Avahi service file so joining peers can mDNS-discover us."""
-    import os
     try:
         # Best-effort hostname-based control URL. The joining peer can
         # always override via the join link's `control=` param.
@@ -798,7 +797,7 @@ def join_existing_mesh(link: str) -> tuple[bool, list[str]]:
         actions.append("invalid join link")
         return False, actions
     code = params.get("code")
-    ts_key = params.get("ts-key")
+    params.get("ts-key")
     seed_tag = params.get("seed-tag")
     actions.append(f"redeeming code={code} seed-tag={seed_tag}")
 
@@ -860,7 +859,7 @@ def maybe_take_control() -> list[str]:
         return [f"control peer unreachable; in grace period "
                 f"({int(time.time() - state.last_election)}s / 120s)"]
     # Take over
-    actions = [f"control peer unreachable >120s; taking over control role"]
+    actions = ["control peer unreachable >120s; taking over control role"]
     actions.extend(headscale_start_as_control(state.mesh_id))
     state.is_control = True
     state.control_peer_id = socket.gethostname()

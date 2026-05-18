@@ -26,7 +26,6 @@ from mackes.state import (
     LOG_DIR,
     MackesState,
     hardware_summary,
-    last_snapshot,
     service_health,
 )
 

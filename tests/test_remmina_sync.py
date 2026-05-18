@@ -54,7 +54,6 @@ def test_render_vnc_uses_5900():
 def test_sync_adds_files_for_detected_services(tmp_path, monkeypatch):
     """When sync() is given a peer with ssh+rdp open, it writes one
     .remmina file per protocol."""
-    import importlib
     import mackes.remmina_sync as rs
     monkeypatch.setattr(rs, "REMMINA_DIR", tmp_path)
     peer = rs.PeerProbe(name="alpha", host="100.64.0.5",

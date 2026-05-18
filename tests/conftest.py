@@ -6,7 +6,6 @@ never touch the developer's real ~/.config or ~/.local/share.
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from pathlib import Path
 

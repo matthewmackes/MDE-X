@@ -20,11 +20,10 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 from mackes.carbon import (
-    Button, ButtonKind, Tile, DataTable, Column,
-    Modal, ModalSize, Notification, NotificationKind,
+    Button, ButtonKind, Modal, ModalSize, Notification, NotificationKind,
 )
 from mackes.fleet import (
-    FleetPeer, Playbook, build_inventory, current_peer_name,
+    FleetPeer, build_inventory, current_peer_name,
     list_playbooks, run_local_pull, run_push,
 )
 

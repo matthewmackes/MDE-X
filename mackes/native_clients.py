@@ -9,8 +9,6 @@ peer and every Airsonic/Subsonic-compatible peer is pre-discovered.
 from __future__ import annotations
 
 import json
-import shutil
-from pathlib import Path
 from typing import Iterable
 
 from mackes.logging import log_action

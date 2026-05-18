@@ -42,7 +42,6 @@ Design decision — auth flow:
 """
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import subprocess
@@ -59,8 +58,7 @@ from gi.repository import GdkPixbuf, GLib, Gtk  # noqa: E402
 from mackes.admin_session import AdminSession
 from mackes.logging import log_action
 from mackes.mesh_vpn import (
-    HEADSCALE_BIN, MeshState, TAILSCALE_BIN, TAILSCALED_BIN,
-    headscale_list_peers, tailscale_status,
+    MeshState, TAILSCALE_BIN, tailscale_status,
 )
 
 

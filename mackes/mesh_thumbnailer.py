@@ -12,7 +12,6 @@ file's existing thumbnailer (image-magick / xdg-thumbnailers).
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 

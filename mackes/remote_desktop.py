@@ -22,7 +22,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from mackes.logging import log_action
 from mackes.state import CONFIG_DIR

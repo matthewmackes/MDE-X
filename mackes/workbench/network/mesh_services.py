@@ -16,7 +16,6 @@ Layout, top to bottom:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
 
 import gi
 gi.require_version("Gtk", "3.0")

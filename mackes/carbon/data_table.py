@@ -16,7 +16,7 @@ from typing import Any, Callable, Iterable, Optional
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import GObject, Gtk  # noqa: E402
+from gi.repository import Gtk  # noqa: E402
 
 
 @dataclass
@@ -157,7 +157,7 @@ class DataTable(Gtk.Box):
     ) -> None:
         if self._on_row_activate is None:
             return
-        idx = path.get_indices()[0]
+        path.get_indices()[0]
         # path is into the filter model — translate to source
         filter_iter = self._filter.get_iter(path)
         source_iter = self._filter.convert_iter_to_child_iter(filter_iter)

@@ -30,10 +30,8 @@ from __future__ import annotations
 
 import json
 import shutil
-import socket
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 
 DERPER_BIN = Path("/usr/local/bin/derper")

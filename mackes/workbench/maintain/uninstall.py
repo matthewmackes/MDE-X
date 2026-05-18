@@ -131,7 +131,7 @@ class UninstallPanel(Gtk.Box):
             title="Uninstall complete",
             transient_for=self.get_toplevel(), modal=True,
         )
-        stay = dialog.add_button("Stay logged in", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Stay logged in", Gtk.ResponseType.CANCEL)
         out = dialog.add_button("Log out now", Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_margin_top(16); content.set_margin_bottom(16)

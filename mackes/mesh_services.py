@@ -14,11 +14,10 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable, Optional
 
-from mackes.logging import log_action
 from mackes.state import CONFIG_DIR, DATA_DIR
 
 try:

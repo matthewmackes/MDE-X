@@ -29,12 +29,12 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import GLib, Gtk  # noqa: E402
 
 from mackes.logging import log_action
 

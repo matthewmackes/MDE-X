@@ -10,7 +10,7 @@ the hub.
 """
 from __future__ import annotations
 
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 import gi
 gi.require_version("Gtk", "3.0")

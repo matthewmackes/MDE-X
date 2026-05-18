@@ -28,8 +28,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -40,7 +39,7 @@ from mackes.carbon import (
     Modal, ModalSize, Notification, NotificationKind,
 )
 from mackes.remote_desktop import (
-    NOAUTH_CONFIG_PATH, Overrides, ResolvedConnection, active_connections,
+    NOAUTH_CONFIG_PATH, ResolvedConnection, active_connections,
     load_overrides, rebuild_connections, save_overrides, service_status,
 )
 from mackes.state import CONFIG_DIR

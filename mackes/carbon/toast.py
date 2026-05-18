@@ -6,7 +6,6 @@ it after a timeout.
 """
 from __future__ import annotations
 
-from typing import Optional
 
 import gi
 gi.require_version("Gtk", "3.0")

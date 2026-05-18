@@ -10,14 +10,14 @@ Wires to the existing mackes.app_mgmt catalog + install/remove backend.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 from mackes.app_mgmt import (
-    CATALOG, AppDef, install_app, is_dnf_installed, remove_packages,
+    CATALOG, AppDef, install_app, remove_packages,
 )
 from mackes.presets import default_preset, load_preset
 from mackes.state import MackesState

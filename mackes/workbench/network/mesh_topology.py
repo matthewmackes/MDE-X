@@ -309,7 +309,6 @@ class MeshTopologyArea(Gtk.DrawingArea):
         # fall back to Carbon orange (Mackes default).
         try:
             ctx = self.get_style_context()
-            from gi.repository import Gdk
             ok, rgba = ctx.lookup_color("mackes_accent")
             if ok:
                 return (rgba.red, rgba.green, rgba.blue)

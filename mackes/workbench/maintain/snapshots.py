@@ -13,15 +13,14 @@ Q10 lock: manual snapshots only — no auto-snapshotting.
 from __future__ import annotations
 
 import os
-from typing import List
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gtk  # noqa: E402
 
 from mackes.carbon import (
     Button, ButtonKind, Tile, DataTable, Column,
-    Modal, ModalSize, Notification, NotificationKind,
+    Modal, ModalSize,
 )
 from mackes.snapshots import (
     Snapshot, create_snapshot, delete_snapshot, list_snapshots, restore_snapshot,

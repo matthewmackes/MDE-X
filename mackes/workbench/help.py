@@ -15,11 +15,8 @@ from typing import Optional
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk, Pango  # noqa: E402
+from gi.repository import GLib, Gtk  # noqa: E402
 
-from mackes.workbench._common import (
-    info_label, panel_box, section_header, title_label,
-)
 
 
 # Help docs ship at /usr/share/mackes-shell/help/ in the RPM. Dev mode
@@ -141,7 +138,7 @@ def _inline(text: str, link_map: list[str]) -> str:
     def _link_repl(m: "re.Match[str]") -> str:
         label, target = m.group(1), m.group(2)
         link_map.append(target)
-        idx = len(link_map) - 1
+        len(link_map) - 1
         return f'<u>[{_escape(label)}]</u>'
     out = _LINK_RE.sub(_link_repl, out)
     out = _BOLD_RE.sub(r'<b>\1</b>', out)
@@ -156,7 +153,6 @@ def _render_markdown(text: str) -> tuple[str, list[str]]:
     link_map: list[str] = []
     in_code = False
     in_frontmatter = False
-    skip_table = False  # tables render as code blocks for simplicity
 
     for i, raw in enumerate(lines):
         line = raw.rstrip()

@@ -26,8 +26,7 @@ from mackes.carbon import (
     Notification, NotificationKind,
 )
 from mackes.mesh_ssh import (
-    MESH_KEYS_DIR, MESH_POLICY_PATH,
-    cheatsheet, load_policy_yaml, save_policy_yaml, read_audit,
+    MESH_KEYS_DIR, load_policy_yaml, save_policy_yaml, read_audit,
 )
 from mackes.mesh_vpn import headscale_list_peers
 

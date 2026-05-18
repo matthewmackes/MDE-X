@@ -38,7 +38,7 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 
 import gi
 gi.require_version("Gtk", "3.0")

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import socket
 from typing import Optional
 
 from mackes.logging import log_action
@@ -117,7 +116,7 @@ def run(*, preset: Optional[str] = None,
             def _print_url(url: str) -> None:
                 print()
                 print(_bold("→ Tailscale device-auth"))
-                print(f"  Open this URL on any device, sign in, then press Enter here:")
+                print("  Open this URL on any device, sign in, then press Enter here:")
                 print(f"    {_ok(url)}")
                 try:
                     input("  Press Enter when authenticated: ")

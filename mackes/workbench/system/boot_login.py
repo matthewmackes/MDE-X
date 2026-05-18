@@ -37,7 +37,6 @@ from mackes.workbench._common import (
     panel_box,
     section_description,
     section_header,
-    title_label,
 )
 
 

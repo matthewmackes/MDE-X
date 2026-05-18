@@ -17,7 +17,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from pathlib import Path
 from typing import Iterable
 
 from mackes.logging import log_action

@@ -34,8 +34,6 @@ from __future__ import annotations
 
 import errno
 import os
-import shutil
-import socket
 import stat as stat_mod
 import subprocess
 import threading

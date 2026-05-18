@@ -13,13 +13,11 @@ import stat as stat_mod
 import socket
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 from mackes.mesh_fs import QNM_MESH
 from mackes.mesh_sync import (
-    BUCKET_CLIPBOARD, BUCKET_NOTIFICATIONS, ALL_BUCKETS,
-    BUCKET_DROP, BUCKET_THEMES, BUCKET_PRESETS, BUCKET_SNAPSHOTS,
+    BUCKET_CLIPBOARD, BUCKET_NOTIFICATIONS, BUCKET_DROP, BUCKET_THEMES, BUCKET_PRESETS, BUCKET_SNAPSHOTS,
     BUCKET_VPN_STATE, BUCKET_CA_ROOT, BUCKET_SSH_KEYS, BUCKET_SSH_AUDIT,
     list_keys, get, put, delete,
 )
@@ -109,7 +107,7 @@ def attr(path: str) -> Optional[FsAttr]:
             s = target.stat()
         except OSError:
             return None
-        is_dir = stat_mod.S_ISDIR(s.st_mode)
+        stat_mod.S_ISDIR(s.st_mode)
         return FsAttr(
             mode=s.st_mode,
             nlink=s.st_nlink,

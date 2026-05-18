@@ -6,7 +6,7 @@ def test_bucket_put_get_string(isolated_xdg, monkeypatch):
     import importlib
     import mackes.mesh_sync
     importlib.reload(mackes.mesh_sync)
-    from mackes.mesh_sync import BUCKET_CLIPBOARD, get, put
+    from mackes.mesh_sync import BUCKET_CLIPBOARD, put
 
     actions = put(BUCKET_CLIPBOARD, "hello", "world")
     assert any("v1" in a for a in actions)

@@ -7,7 +7,6 @@ that are covered separately.
 """
 from __future__ import annotations
 
-import time
 
 import pytest
 

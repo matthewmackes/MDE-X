@@ -41,7 +41,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import gi
 gi.require_version("Gtk", "3.0")

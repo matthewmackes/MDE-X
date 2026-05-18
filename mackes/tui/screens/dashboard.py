@@ -1,8 +1,8 @@
 """TUI Dashboard screen."""
 from __future__ import annotations
 
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Label, Static
+from textual.containers import Container
+from textual.widgets import Static
 
 
 def build() -> Container:
