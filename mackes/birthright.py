@@ -457,116 +457,54 @@ def _xfconf_str(ty: str, value) -> str:
     return str(value)
 
 
-def apply_panel_layout(_preset: Preset) -> List[str]:
-    """Write a classic bottom xfce4-panel layout via xfconf-query.
+PANEL_PROFILE_FILE = "panel/xfce4-panel-profile.tar.bz2"
 
-    Plugin types are written before /panels/panel-0/plugin-ids so the
-    panel never observes a plugin-id pointing at an unset type — the
-    v1.5.0 source of "(null) plugin could not be loaded" crashes.
-    Reset+create on the arrays is also load-bearing: --force-array
-    alone doesn't shrink an existing longer array.
+
+def apply_panel_layout(_preset: Preset) -> List[str]:
+    """Install the shipped xfce4-panel layout via xfce4-panel-profiles.
+
+    The profile archive (data/panel/xfce4-panel-profile.tar.bz2) is a
+    snapshot captured with `xfce4-panel-profiles save`. It bundles:
+      * the full xfconf dump with the right GVariant types
+        (uint32, GVariant-array, etc.) — these were the source of
+        every "Plugin (null) could not be loaded" crash in 1.6.x
+        when we tried to write the layout by hand.
+      * per-launcher .desktop RC files under launcher-N/
+
+    `xfce4-panel-profiles load` handles --quit + restart of the
+    panel internally. If the tool isn't installed, we leave the
+    user's existing panel layout untouched — never half-apply.
+
+    Re-snapshot the shipped default with:
+        xfce4-panel-profiles save \\
+            data/panel/xfce4-panel-profile.tar.bz2
+    on a reference machine.
     """
     actions: List[str] = []
-    if shutil.which("xfconf-query") is None:
-        actions.append("panel layout: xfconf-query not installed — skipping")
+    tool = shutil.which("xfce4-panel-profiles")
+    if tool is None:
+        actions.append(
+            "panel layout: xfce4-panel-profiles not installed — "
+            "leaving panel layout untouched. "
+            "`dnf install xfce4-panel-profiles` for the Mackes default."
+        )
+        log_action(actions[-1])
         return actions
 
-    def _set(prop: str, type_hint: str, value: str) -> None:
-        rc, out = _run(
-            ["xfconf-query", "--channel", "xfce4-panel",
-             "--property", prop, "--create", "--type", type_hint,
-             "--set", value], timeout=10,
-        )
-        if rc == 0:
-            actions.append(f"panel: set {prop} = {value}")
-        else:
-            last = out.strip().splitlines()[-1] if out.strip() else rc
-            actions.append(f"panel: failed {prop}: {last}")
+    profile = _find_data(*PANEL_PROFILE_FILE.split("/"))
+    if profile is None:
+        actions.append(
+            "panel layout: shipped profile archive missing — skipping")
+        log_action(actions[-1])
+        return actions
 
-    def _set_array(prop: str, type_hint: str, values: list[str]) -> None:
-        _run(["xfconf-query", "--channel", "xfce4-panel",
-              "--property", prop, "--reset"], timeout=10)
-        cmd = ["xfconf-query", "--channel", "xfce4-panel",
-               "--property", prop, "--create", "--force-array"]
-        for v in values:
-            cmd.extend(["--type", type_hint, "--set", v])
-        rc, out = _run(cmd, timeout=10)
-        if rc == 0:
-            actions.append(f"panel: set {prop}[] = {values}")
-        else:
-            last = out.strip().splitlines()[-1] if out.strip() else rc
-            actions.append(f"panel: failed array {prop}: {last}")
-
-    # v1.5.1 — kill xfce4-panel BEFORE writing any state so it doesn't
-    # race on partial config and crash.
-    if shutil.which("xfce4-panel"):
-        try:
-            subprocess.run(["xfce4-panel", "--quit"],
-                           capture_output=True, timeout=5)
-            actions.append("panel: xfce4-panel --quit before reconfig")
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-
-    # Windows 2000-style classic bottom-panel layout.
-    # Standard plugins only — no Mackes branding written into xfconf.
-    plugin_ids = ["1", "2", "3", "4", "5", "6"]
-
-    # Panel-0 metadata: BOTTOM panel, full width, 30px tall
-    # position p=10 = bottom-fixed center (xfce4-panel positional code)
-    _set("/panels/panel-0/position",         "string", "p=10;x=0;y=0")
-    _set("/panels/panel-0/length",           "uint",   "100")
-    _set("/panels/panel-0/size",             "uint",   "30")
-    _set("/panels/panel-0/icon-size",        "uint",   "16")
-    _set("/panels/panel-0/position-locked",  "bool",   "true")
-    _set("/panels/panel-0/autohide-behavior", "uint",  "0")
-    _set("/panels/panel-0/background-style", "uint",   "0")
-    _set("/panels/panel-0/enable-struts",    "bool",   "true")
-
-    _set("/plugins/plugin-1", "string", "applicationsmenu")
-    _set("/plugins/plugin-1/show-button-title",  "bool",   "true")
-    _set("/plugins/plugin-1/button-title",       "string", "Start")
-    _set("/plugins/plugin-1/show-generic-names", "bool",   "false")
-    _set("/plugins/plugin-1/show-menu-icons",    "bool",   "true")
-    _set("/plugins/plugin-1/show-tooltips",      "bool",   "true")
-
-    _set("/plugins/plugin-2", "string", "separator")
-    _set("/plugins/plugin-2/style",  "uint", "0")
-    _set("/plugins/plugin-2/expand", "bool", "false")
-
-    _set("/plugins/plugin-3", "string", "tasklist")
-    _set("/plugins/plugin-3/flat-buttons",         "bool", "false")
-    _set("/plugins/plugin-3/show-handle",          "bool", "false")
-    _set("/plugins/plugin-3/show-labels",          "bool", "true")
-    _set("/plugins/plugin-3/show-only-minimized",  "bool", "false")
-    _set("/plugins/plugin-3/show-wireframes",      "bool", "false")
-    _set("/plugins/plugin-3/grouping",             "uint", "0")
-
-    _set("/plugins/plugin-4", "string", "separator")
-    _set("/plugins/plugin-4/style",  "uint", "0")
-    _set("/plugins/plugin-4/expand", "bool", "true")
-
-    _set("/plugins/plugin-5", "string", "systray")
-
-    _set("/plugins/plugin-6", "string", "clock")
-    _set("/plugins/plugin-6/mode",                "uint",   "2")
-    _set("/plugins/plugin-6/digital-time-format", "string", "%I:%M %p")
-    _set("/plugins/plugin-6/digital-date-format", "string", "%a %b %d")
-
-    _set_array("/panels",                    "int",  ["0"])
-    _set_array("/panels/panel-0/plugin-ids", "uint", plugin_ids)
-
-    if shutil.which("xfce4-panel"):
-        try:
-            subprocess.Popen(["xfce4-panel"],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL,
-                             start_new_session=True)
-            actions.append("panel: xfce4-panel relaunched with new config")
-        except OSError as e:
-            actions.append(f"panel: could not relaunch xfce4-panel: {e}")
-
-    for line in actions:
-        log_action(line)
+    rc, out = _run([tool, "load", str(profile)], timeout=30)
+    if rc == 0:
+        actions.append(f"panel: applied profile {profile.name}")
+    else:
+        last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
+        actions.append(f"panel: profile load failed: {last}")
+    log_action(actions[-1])
     return actions
 
 

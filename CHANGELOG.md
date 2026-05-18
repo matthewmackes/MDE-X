@@ -3,6 +3,32 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.6.7 — apply_panel_layout uses xfce4-panel-profiles (2026-05-18)
+
+Every "Plugin (null) could not be loaded" + `g_value_get_int`
+assertion crash in the 1.6.x line traced back to writing
+`/panels/...` xfconf keys with the wrong GVariant typing. We've
+swung between two failed approaches (data-driven snapshot loader,
+hand-rolled hardcoded sequence) and both hit the same wall.
+
+This release stops fighting xfce4-panel's xfconf shape and uses
+the upstream tool that knows it natively:
+
+* New shipped artifact: `data/panel/xfce4-panel-profile.tar.bz2` —
+  a 1.7 KB archive captured via `xfce4-panel-profiles save`. Contains
+  the full xfconf dump with the right `uint32`/`GVariant`-array
+  typing plus per-launcher `.desktop` RC files.
+* `apply_panel_layout` is now a single shell call:
+  `xfce4-panel-profiles load <archive>` — handles panel `--quit`,
+  xfconf write, RC-file copy, and panel restart internally.
+* Spec adds `Requires: xfce4-panel-profiles` (in Fedora main repo).
+
+Re-snapshot the shipped default at any time with
+`xfce4-panel-profiles save data/panel/xfce4-panel-profile.tar.bz2`
+on a reference machine; commit; ship.
+
+Upstream tool: https://gitlab.xfce.org/apps/xfce4-panel-profiles
+
 ## 1.6.6 — Orchis Dark GTK + classic Win2K-style panel layout (2026-05-17)
 
 **Orchis Dark replaces Shiki-Statler as the default GTK theme.**

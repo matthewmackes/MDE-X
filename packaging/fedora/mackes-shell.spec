@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        1.6.6
+Version:        1.6.7
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -37,6 +37,12 @@ Requires:       python3-pyyaml
 Requires:       xfconf
 Requires:       xfce4-settings
 Requires:       xfce4-session
+
+# 1.6.7 — the wizard's apply_panel_layout step now drives
+# `xfce4-panel-profiles load` rather than writing xfconf keys by hand.
+# Hard Require: without the tool the panel layout step no-ops and the
+# user gets xfce4-panel's own default layout — annoying but not broken.
+Requires:       xfce4-panel-profiles
 
 # XFCE shell pieces required by the standard layout (Q19 lock)
 Requires:       xfce4-whiskermenu-plugin
