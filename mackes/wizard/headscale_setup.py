@@ -603,13 +603,25 @@ class HeadscaleSetupWindow(Gtk.Window):
         return [f"{k}: {v}" for k, v in info.items()]
 
     def _s_tailscale_join_up(self) -> List[str]:
-        from mackes.mesh_vpn import redeem_join_code, tailscale_up_with_headscale
+        from mackes.mesh_vpn import join_with_retry, redeem_join_code
         info = redeem_join_code(self._join_link)
         if not info:
             raise RuntimeError("could not redeem join link")
-        return tailscale_up_with_headscale(user=info.get("user", "mesh"),
-                                            control_url=info.get("control"),
-                                            auth_key=info.get("key"))
+        # join_with_retry handles the three-attempt auto-heal chain:
+        # straight try → restart tailscaled → flush state + re-redeem.
+        # The user only sees the structured log; on third failure the
+        # step is marked FAILED and the run page surfaces a retry hint.
+        success, transcript = join_with_retry(
+            headscale_url=info.get("control") or "",
+            preauth_key=info.get("key") or "",
+            hostname=info.get("user") or None,
+        )
+        if not success:
+            raise RuntimeError("could not join after 3 attempts — "
+                               "review the log and try the Join button "
+                               "again, or run the Mesh → Advanced "
+                               "diagnostics for a deeper look")
+        return transcript
 
     def _s_list_peers(self) -> List[str]:
         from mackes.mesh_vpn import headscale_list_peers, tailscale_status

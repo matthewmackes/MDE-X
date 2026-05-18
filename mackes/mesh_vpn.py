@@ -25,7 +25,7 @@ import subprocess
 import time
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from mackes.logging import log_action
 from mackes.state import CONFIG_DIR, DATA_DIR, HOME
@@ -842,6 +842,122 @@ def at_capacity() -> bool:
     return len(peers) >= MESH_CAP
 
 
+# ---------------------------------------------------------------------------
+# Auto-heal retry chain (v1.7.0) — progressive remediation on join failure.
+# ---------------------------------------------------------------------------
+
+
+def _tailscaled_restart() -> tuple[int, str]:
+    """Stop and restart the tailscaled daemon via AdminSession."""
+    rc, out, _ = _pkexec_run(["systemctl", "restart", "tailscaled"], timeout=15)
+    return rc, out
+
+
+def _tailscaled_flush_state() -> tuple[int, str]:
+    """Force tailscale to log out + wipe its local state file.
+
+    The state file path is the upstream default; if it has moved on a
+    future Tailscale release the logout call alone still does the right
+    thing for most failure modes."""
+    if _have(TAILSCALE_BIN):
+        _run([TAILSCALE_BIN, "logout"], timeout=10)
+    rc, out, _ = _pkexec_run(
+        ["rm", "-f", "/var/lib/tailscale/tailscaled.state"],
+        timeout=10,
+    )
+    # Restart so tailscaled comes back with an empty store.
+    _pkexec_run(["systemctl", "restart", "tailscaled"], timeout=15)
+    return rc, out
+
+
+def _tailscale_ping_control(headscale_url: str) -> bool:
+    """Lightweight reachability check for the control endpoint."""
+    if not headscale_url:
+        return True   # nothing to check — assume OK
+    try:
+        import urllib.request
+        urllib.request.urlopen(headscale_url.rstrip("/") + "/health",
+                               timeout=3).close()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def join_with_retry(
+    *,
+    headscale_url: str,
+    preauth_key: str,
+    hostname: Optional[str] = None,
+    max_attempts: int = 3,
+    log: Optional[Callable[[str], None]] = None,
+) -> tuple[bool, list[str]]:
+    """Join the mesh with progressive auto-heal between attempts.
+
+    Returns (success, transcript). Transcript is every action line we
+    emitted, in order — caller can stream them to a log pane. ``log``
+    (if given) is called for each line as it's produced.
+
+    Escalation between retries:
+      attempt 1 fails → restart tailscaled               → attempt 2
+      attempt 2 fails → flush tailscaled state           → attempt 3
+      attempt 3 fails → return (False, transcript)
+
+    Per the v1.7.0 design lock: only on third failure does the caller
+    surface an error. DERP rotation between attempts would also fit
+    here but tailscale's own DERP map auto-failover already cycles
+    relays internally — manual rotation is only worth it after a
+    confirmed map-update failure, which is rarer than the two cases
+    we already handle.
+    """
+    transcript: list[str] = []
+
+    def _emit(line: str) -> None:
+        transcript.append(line)
+        if log is not None:
+            try:
+                log(line)
+            except Exception:  # noqa: BLE001
+                pass
+
+    if not _have(TAILSCALE_BIN):
+        _emit("tailscale binary missing — install via birthright remote-desktop step")
+        return False, transcript
+
+    for attempt in range(1, max_attempts + 1):
+        _emit(f"attempt {attempt} of {max_attempts}: joining {headscale_url}…")
+
+        if not _tailscale_ping_control(headscale_url):
+            _emit("  control endpoint not reachable — retrying anyway "
+                  "(tailscaled may have a stale DERP map)")
+
+        lines = tailscale_up_with_headscale(
+            headscale_url=headscale_url,
+            preauth_key=preauth_key,
+            hostname=hostname,
+        )
+        for line in lines:
+            _emit("  " + line)
+
+        # Verify by reading tailscale status — Self.Online is the
+        # ground truth, not the rc of `tailscale up`.
+        status = tailscale_status()
+        if status.get("online"):
+            mesh_ip = status.get("mesh_ip") or "?"
+            _emit(f"  joined — mesh ip {mesh_ip}")
+            return True, transcript
+
+        if attempt == 1:
+            _emit("  not online yet — restarting tailscaled then retrying")
+            _tailscaled_restart()
+        elif attempt == 2:
+            _emit("  still not online — flushing tailscaled state then retrying")
+            _tailscaled_flush_state()
+        else:
+            _emit("  three attempts exhausted")
+
+    return False, transcript
+
+
 __all__ = [
     "MeshState", "Peer", "MESH_CAP",
     "tailscale_bootstrap_status", "tailscale_bootstrap_login_url",
@@ -852,4 +968,5 @@ __all__ = [
     "generate_join_link", "parse_join_link", "redeem_join_code",
     "is_first_peer", "bootstrap_seed_peer", "join_existing_mesh",
     "maybe_take_control", "snapshot_state", "at_capacity",
+    "join_with_retry",
 ]
