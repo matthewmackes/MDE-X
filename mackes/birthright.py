@@ -111,6 +111,7 @@ _VENDORED_THEMES: tuple[tuple[str, str, str, int], ...] = (
     ("themes", "Orchis-Dark",    "github.com/vinceliuice/Orchis-theme", 120),
     ("themes", "Shiki-Statler",  "sourceforge.net/projects/archbangretro", 60),
     ("icons",  "Black-Sun",      "github.com/SethStormR/Black-Sun",     300),
+    ("icons",  "Mackes-Carbon",  "carbon-design-system/carbon (Apache 2.0)", 180),
 )
 
 

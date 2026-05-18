@@ -39,10 +39,12 @@ def _check_themes() -> BirthrightItem:
     orchis = Path("/usr/share/themes/Orchis-Dark")
     shiki = Path("/usr/share/themes/Shiki-Statler")
     blacksun = Path("/usr/share/icons/Black-Sun")
-    ok = orchis.is_dir() and shiki.is_dir() and blacksun.is_dir()
+    carbon = Path("/usr/share/icons/Mackes-Carbon")
+    ok = (orchis.is_dir() and shiki.is_dir()
+          and blacksun.is_dir() and carbon.is_dir())
     return BirthrightItem(
         key="themes",
-        name="Themes (Orchis-Dark GTK + Shiki-Statler xfwm + Black-Sun icons)",
+        name="Themes (Orchis-Dark GTK + Shiki-Statler xfwm + Mackes-Carbon icons)",
         detail="Re-run Setup Wizard → Themes step",
         ok=ok,
     )

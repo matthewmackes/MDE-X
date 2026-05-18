@@ -101,7 +101,7 @@ def _pkexec_mkdir(path: Path) -> tuple[int, str]:
 def configure_greeter(
     *,
     gtk_theme: str = "Orchis-Dark",
-    icon_theme: str = "Black-Sun",
+    icon_theme: str = "Mackes-Carbon",
     font_name: str = "Red Hat Text 11",
     wallpaper: Optional[Path] = None,
     accent_color: str = "#fa4d56",

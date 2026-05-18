@@ -13,7 +13,7 @@ description: >
 
 appearance:
   gtk_theme:      "Orchis-Dark"
-  icon_theme:     "Black-Sun"
+  icon_theme:     "Mackes-Carbon"
   cursor_theme:   "Adwaita"
   cursor_size:    24
   font_ui:        "Red Hat Text 10"

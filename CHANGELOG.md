@@ -3,6 +3,49 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## Unreleased — Mackes-Carbon icon theme
+
+* **New default icon theme: `Mackes-Carbon`.** A symbolic, single-color
+  icon set derived from the IBM Carbon Design System (Apache 2.0).
+  Replaces `Black-Sun` as the default `xsettings/IconThemeName` for
+  every preset (#!, mackes, daylight). Black-Sun is still installed —
+  switch back in Look & Feel → Appearance.
+
+* **Coverage:** 264 freedesktop standard icon names mapped explicitly
+  across actions / apps / categories / devices / emblems / mimetypes /
+  places / status — every name mackes-shell's own UI references plus
+  the broader freedesktop spec (mail-*, format-*, go-*, view-*,
+  weather-*, etc.). 2,526 native Carbon SVGs are also dumped under
+  `scalable/apps/` so any Carbon basename works directly as an icon
+  name (e.g. `Gtk.Image(icon_name="chart-bar")`).
+
+* **Theming:** every SVG gets `fill="currentColor"` injected on the
+  root `<svg>` so GTK's symbolic-icon recoloring and the panel CSS's
+  `-gtk-icon-foreground-color` both work uniformly. Dark and light
+  desktops both render correctly without separate variant files.
+
+* **Reproducibility:** `install-helpers/build-mackes-carbon.sh` is
+  idempotent — fetches Carbon SVGs from `/tmp/carbon-icons` (override
+  via `CARBON_SVG_DIR=`), reads the freedesktop → Carbon name map from
+  `install-helpers/mackes-carbon.map`, writes the theme tree, the
+  `index.theme`, and a NOTICE + LICENSE attributing IBM Carbon. Re-run
+  it after editing the map to refresh.
+
+* **Packaging:** `packaging/fedora/mackes-shell.spec` installs the
+  theme under `/usr/share/icons/Mackes-Carbon/` and runs
+  `gtk-update-icon-cache` in `%post`. `mackes.birthright._VENDORED_THEMES`
+  copies the tree alongside Orchis-Dark, Shiki-Statler, and Black-Sun
+  during birthright apply. `mackes.birthright_check._check_themes`
+  verifies it's installed.
+
+### Also in this cut
+
+* **Fix:** `Fleet → Run history` panel locked the entire app on open.
+  `_reset_combo` triggered `changed` on the peer/playbook combos,
+  which re-entered `_refresh()`, which re-rebuilt the combos — infinite
+  recursion. Reentrancy guard added; the noop `handler_block_by_func(None)`
+  stub is removed.
+
 ## 2.2.0 — Notification Drawer (2026-05-18)
 
 **Breaking visual change.** Three surfaces are deleted and replaced by a

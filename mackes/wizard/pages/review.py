@@ -43,7 +43,7 @@ def build(ctx) -> Gtk.Widget:
                    f"(label={ctx.snapshot_label!r})")
     summary.append("")
     summary.append("--- v1.1.0 birthright (always runs) ---")
-    summary.append("  Themes:              copy Orchis-Dark + Shiki-Statler + Black-Sun to /usr/share")
+    summary.append("  Themes:              copy Orchis-Dark + Shiki-Statler + Black-Sun + Mackes-Carbon to /usr/share")
     summary.append("  Fonts:               dnf install redhat-text-fonts + redhat-mono-fonts")
     summary.append("  Apps:                install preset.apps.install / remove preset.apps.remove_bloat")
     summary.append("  Panel layout:        write Mackes default xfce4-panel layout")

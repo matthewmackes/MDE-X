@@ -22,7 +22,7 @@ from mackes.workbench._common import section_header
 _DEFAULTS = (
     ("GTK theme",      "Orchis-Dark"),
     ("Window borders", "Shiki-Statler"),
-    ("Icon theme",     "Black-Sun"),
+    ("Icon theme",     "Mackes-Carbon"),
     ("Cursor theme",   "Adwaita (24px)"),
     ("Interface font", "Red Hat Text 11"),
     ("Monospace font", "Red Hat Mono 11"),

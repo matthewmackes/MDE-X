@@ -604,7 +604,7 @@ _STEP_SUBTITLES = {
     "System":           "Workspace count · WM theme · notifications toggle.",
     "Network":          "QNM toggle · firewall zone hint.",
     "Panel":            "Clock plugin format · font · layout.",
-    "Themes":           "Copying Orchis-Dark + Shiki-Statler + Black-Sun to /usr/share/{themes,icons}.",
+    "Themes":           "Copying Orchis-Dark + Shiki-Statler + Black-Sun + Mackes-Carbon to /usr/share/{themes,icons}.",
     "LightDM greeter":  "Mackes-themed login screen — wallpaper / theme / icons / fonts.",
     "Fonts":            "Installing Red Hat Text + Mono via dnf.",
     "Apps":             "Installing preset.apps.install + removing apps.remove_bloat.",

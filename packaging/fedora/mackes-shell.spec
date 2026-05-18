@@ -250,7 +250,8 @@ install -d %{buildroot}%{_datadir}/themes
 cp -r data/themes/Orchis-Dark   %{buildroot}%{_datadir}/themes/
 cp -r data/themes/Shiki-Statler %{buildroot}%{_datadir}/themes/
 install -d %{buildroot}%{_datadir}/icons
-cp -r data/icons/Black-Sun %{buildroot}%{_datadir}/icons/
+cp -r data/icons/Black-Sun     %{buildroot}%{_datadir}/icons/
+cp -r data/icons/Mackes-Carbon %{buildroot}%{_datadir}/icons/
 # Plymouth Mackes boot theme — installed but NOT activated at %post; the
 # wizard's birthright step (mackes.birthright.apply_plymouth) activates it
 # only when the user opts in (initrd rebuild is heavy and disruptive).
@@ -387,8 +388,9 @@ systemctl daemon-reload || :
 # never break the host's sudo behavior.
 visudo -c -f /etc/sudoers.d/mackes-shell >/dev/null 2>&1 \
     || rm -f /etc/sudoers.d/mackes-shell
-# Rebuild the GTK icon cache for the vendored icon theme
-gtk-update-icon-cache -f -t %{_datadir}/icons/Black-Sun 2>/dev/null || :
+# Rebuild the GTK icon caches for the vendored icon themes
+gtk-update-icon-cache -f -t %{_datadir}/icons/Black-Sun     2>/dev/null || :
+gtk-update-icon-cache -f -t %{_datadir}/icons/Mackes-Carbon 2>/dev/null || :
 
 %preun
 # Only on uninstall, not upgrade ($1 == 0 → final removal)
@@ -443,6 +445,11 @@ fi
 %{_datadir}/themes/Shiki-Statler/
 # Vendored Black-Sun icon theme (GPL-3.0, github.com/SethStormR/Black-Sun)
 %{_datadir}/icons/Black-Sun/
+# Mackes-Carbon — IBM Carbon Design System symbolic icons (Apache 2.0,
+# github.com/carbon-design-system/carbon). Built from /tmp/carbon-icons
+# via install-helpers/build-mackes-carbon.sh; freedesktop names mapped to
+# Carbon basenames in install-helpers/mackes-carbon.map.
+%{_datadir}/icons/Mackes-Carbon/
 # Plymouth Mackes boot theme (theme files only; not activated at install
 # time — activation happens in the wizard's birthright step)
 %{_datadir}/plymouth/themes/mackes/

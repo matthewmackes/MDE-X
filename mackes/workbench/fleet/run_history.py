@@ -83,6 +83,10 @@ class FleetRunHistoryPanel(Gtk.Box):
         self._filter_peer: Optional[str] = None
         self._filter_playbook: Optional[str] = None
         self._records: list[RunRecord] = []
+        # Reentrancy guard: _reset_combo() calls set_active(), which fires
+        # "changed" and re-enters _refresh(). Without this the panel locks
+        # the app on open via infinite recursion.
+        self._suppress_filter_signals = False
         self._build()
         self._refresh()
 
@@ -171,14 +175,19 @@ class FleetRunHistoryPanel(Gtk.Box):
     # ---- refresh ---------------------------------------------------------
 
     def _refresh(self) -> None:
-        # Re-populate combo boxes from live data
-        peers = build_inventory()
-        self._reset_combo(self._peer_combo, ["All peers"] + [p.name for p in peers],
-                          select=self._filter_peer or "All peers")
-        playbooks = list_playbooks()
-        self._reset_combo(self._pb_combo, ["All playbooks"] +
-                          ["site"] + [p.name for p in playbooks],
-                          select=self._filter_playbook or "All playbooks")
+        # Re-populate combo boxes from live data. Suppress "changed" while
+        # we rebuild — otherwise set_active() re-enters _refresh().
+        self._suppress_filter_signals = True
+        try:
+            peers = build_inventory()
+            self._reset_combo(self._peer_combo, ["All peers"] + [p.name for p in peers],
+                              select=self._filter_peer or "All peers")
+            playbooks = list_playbooks()
+            self._reset_combo(self._pb_combo, ["All playbooks"] +
+                              ["site"] + [p.name for p in playbooks],
+                              select=self._filter_playbook or "All playbooks")
+        finally:
+            self._suppress_filter_signals = False
 
         # Load filtered runs
         self._records = list_runs(
@@ -237,7 +246,6 @@ class FleetRunHistoryPanel(Gtk.Box):
     @staticmethod
     def _reset_combo(combo: Gtk.ComboBoxText, items: list[str],
                      *, select: str) -> None:
-        combo.handler_block_by_func(None) if False else None  # noop guard
         combo.remove_all()
         idx = 0
         for i, val in enumerate(items):
@@ -249,11 +257,15 @@ class FleetRunHistoryPanel(Gtk.Box):
     # ---- handlers --------------------------------------------------------
 
     def _on_filter_peer(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_signals:
+            return
         val = combo.get_active_text() or ""
         self._filter_peer = None if val in ("", "All peers") else val
         self._refresh()
 
     def _on_filter_playbook(self, combo: Gtk.ComboBoxText) -> None:
+        if self._suppress_filter_signals:
+            return
         val = combo.get_active_text() or ""
         self._filter_playbook = None if val in ("", "All playbooks") else val
         self._refresh()
