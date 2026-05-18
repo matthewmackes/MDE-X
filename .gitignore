@@ -25,3 +25,8 @@ __pycache__/
 
 # Claude Code harness state — transient, not part of source
 .claude/
+
+# Rust build artifacts (Phase 0.1+)
+/target/
+Cargo.lock.bak
+**/*.rs.bk

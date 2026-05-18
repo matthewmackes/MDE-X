@@ -4,13 +4,15 @@
 # `make rpm`        → built RPM under rpmbuild/RPMS/noarch/
 # `make test`       → pytest (requires pytest installed)
 # `make smoke`      → import-graph smoke check (no pytest needed)
+# `make rust`       → cargo build --release (Phase 0.1+ Rust components)
+# `make rust-check` → cargo check + clippy + rustfmt --check (CI gate)
 # `make clean`      → remove build artifacts
 
 NAME    := mackes-shell
 VERSION := $(shell python3 -c "import mackes; print(mackes.__version__)")
 SDIST   := dist/$(NAME)-$(VERSION).tar.gz
 
-.PHONY: sdist rpm test smoke clean install-deps
+.PHONY: sdist rpm test smoke rust rust-check clean install-deps
 
 sdist:
 	@# Prefer PEP 517 build (works on Fedora 40+ without distutils).
@@ -57,10 +59,18 @@ iso:
 	    --project "Mackes XFCE" --releasever "$$(rpm -E %fedora)" \
 	    --volid "MACKES_XFCE"
 
+rust:
+	cargo build --release --workspace
+
+rust-check:
+	cargo fmt --all --check
+	cargo clippy --workspace --all-targets -- -D warnings
+	cargo check --workspace --all-targets
+
 install-deps:
-	@echo 'On Fedora: sudo dnf install python3-pytest python3-pyyaml python3-gobject gtk3 xfconf xfce4-whiskermenu-plugin xfce4-pulseaudio-plugin xfce4-power-manager-plugin'
+	@echo 'On Fedora: sudo dnf install python3-pytest python3-pyyaml python3-gobject gtk3 xfconf xfce4-whiskermenu-plugin xfce4-pulseaudio-plugin xfce4-power-manager-plugin rust cargo rustfmt clippy'
 
 clean:
-	rm -rf build dist rpmbuild *.egg-info
+	rm -rf build dist rpmbuild target *.egg-info
 	find . -name __pycache__ -type d -exec rm -rf {} +
 	find . -name "*.pyc" -delete

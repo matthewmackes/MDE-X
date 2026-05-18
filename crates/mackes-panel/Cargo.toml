@@ -1,0 +1,16 @@
+[package]
+name        = "mackes-panel"
+description = "Mackes XFCE Workstation panel — top status bar + bottom dock."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+[[bin]]
+name = "mackes-panel"
+path = "src/main.rs"
+
+[lints]
+workspace = true
