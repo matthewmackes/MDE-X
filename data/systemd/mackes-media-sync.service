@@ -1,0 +1,14 @@
+[Unit]
+Description=Mackes media-server sync — keep Sublime Music + Delfin configs and the Thunar view in sync with discovered mesh media servers
+After=tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -m mackes.media_sync_daemon
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=default.target

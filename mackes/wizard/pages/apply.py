@@ -48,9 +48,9 @@ from mackes.logging import log_action
 from mackes.birthright import (
     apply_apps, apply_clipboard_daemon, apply_conky, apply_dnf_update,
     apply_flathub, apply_fleet, apply_fonts, apply_hotkey, apply_lightdm,
-    apply_maximize_all, apply_panel_layout, apply_plymouth, apply_qnm,
-    apply_remote_desktop, apply_themes, apply_third_party_repos,
-    apply_thunar_autostart,
+    apply_maximize_all, apply_media_clients, apply_panel_layout,
+    apply_plymouth, apply_qnm, apply_remote_desktop, apply_themes,
+    apply_third_party_repos, apply_thunar_autostart,
 )
 from mackes.presets import (
     Preset, apply_appearance, apply_devices, apply_mesh, apply_network,
@@ -354,6 +354,7 @@ class ApplyPage(Gtk.Box):
             _Step("System update",     lambda: apply_dnf_update(merged)),
             _Step("Third-party repos", lambda: apply_third_party_repos(merged)),
             _Step("Flathub",           lambda: apply_flathub(merged)),
+            _Step("Media clients",     lambda: apply_media_clients(merged)),
             _Step("Remote desktop",    lambda: apply_remote_desktop(merged)),
             _Step("Fleet management",  lambda: apply_fleet(merged)),
             _Step("Conky HUD",         lambda: apply_conky(merged)),

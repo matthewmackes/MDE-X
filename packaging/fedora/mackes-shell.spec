@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        2.0.0
+Version:        2.1.0
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 
@@ -315,6 +315,9 @@ install -m 0644 data/systemd/mackes-clipboard-daemon.service %{buildroot}%{_user
 # Remmina auto-populate (v1.6.2) — user-level timer + oneshot service
 install -m 0644 data/systemd/mackes-remmina-sync.service     %{buildroot}%{_userunitdir}/
 install -m 0644 data/systemd/mackes-remmina-sync.timer       %{buildroot}%{_userunitdir}/
+# Media sync (v2.1.0) — Sublime Music + Delfin + Thunar view refresh
+install -m 0644 data/systemd/mackes-media-sync.service       %{buildroot}%{_userunitdir}/
+install -m 0644 data/systemd/mackes-media-sync.timer         %{buildroot}%{_userunitdir}/
 # Sudoers drop-in (v1.4.1) — grants NOPASSWD on Mackes-managed commands
 install -D -m 0440 data/sudoers.d/mackes-shell               %{buildroot}/etc/sudoers.d/mackes-shell
 # Maximizer binary
@@ -423,6 +426,8 @@ fi
 %{_userunitdir}/mackes-clipboard-daemon.service
 %{_userunitdir}/mackes-remmina-sync.service
 %{_userunitdir}/mackes-remmina-sync.timer
+%{_userunitdir}/mackes-media-sync.service
+%{_userunitdir}/mackes-media-sync.timer
 %config(noreplace) /etc/sudoers.d/mackes-shell
 # C panel plugin + its descriptor
 %{_libdir}/xfce4/panel/plugins/mackes-clipboard

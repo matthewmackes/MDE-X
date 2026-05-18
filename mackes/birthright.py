@@ -1240,6 +1240,62 @@ def apply_hotkey(_preset: Preset) -> List[str]:
     return actions
 
 
+# ---------------------------------------------------------------------------
+# Media clients — Sublime Music (Airsonic) + Delfin (Jellyfin) via Flathub.
+# v2.1.0 lock: GTK-native clients auto-configured against discovered
+# mesh media servers by mackes-media-sync.service.
+# ---------------------------------------------------------------------------
+
+
+_MEDIA_FLATPAKS: tuple[tuple[str, str], ...] = (
+    ("com.sublimemusic.SublimeMusic", "Sublime Music"),
+    ("app.drey.Delfin",               "Delfin"),
+)
+
+
+def apply_media_clients(_preset: Preset) -> List[str]:
+    """Install Sublime Music + Delfin from Flathub and enable the
+    media-sync user timer. Idempotent."""
+    actions: List[str] = []
+
+    if shutil.which("flatpak") is None:
+        actions.append("media-clients: flatpak not installed — skipping")
+        return actions
+
+    for app_id, name in _MEDIA_FLATPAKS:
+        # Check if already installed for the user.
+        rc, out = _run(["flatpak", "list", "--user", "--columns=application"])
+        if rc == 0 and any(line.strip() == app_id for line in (out or "").splitlines()):
+            actions.append(f"media-clients: {name} already installed")
+            continue
+        rc, out = _run(
+            ["flatpak", "install", "--user", "--noninteractive",
+             "--assumeyes", "flathub", app_id],
+            timeout=600,
+        )
+        if rc == 0:
+            actions.append(f"media-clients: installed {name} ({app_id})")
+        else:
+            last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
+            actions.append(f"media-clients: {name} install failed: {last}")
+
+    # Enable the media-sync user timer so configs refresh every 60s.
+    if shutil.which("systemctl"):
+        rc, _ = _run(["systemctl", "--user", "enable", "--now",
+                      "mackes-media-sync.timer"], timeout=10)
+        if rc == 0:
+            actions.append("media-clients: enabled mackes-media-sync.timer")
+        else:
+            actions.append(
+                "media-clients: user-systemctl enable failed; will rely on "
+                "next login to start the timer"
+            )
+
+    for line in actions:
+        log_action(line)
+    return actions
+
+
 def apply_flathub(_preset: Preset) -> List[str]:
     """Add the Flathub remote so flatpak apps are discoverable.
 

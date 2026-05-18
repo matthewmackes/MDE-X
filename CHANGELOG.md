@@ -3,6 +3,76 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 2.1.0 — Mesh Media (2026-05-18)
+
+Two GTK-native media clients ship at birthright and auto-configure
+against discovered mesh media servers. The user opens Thunar, clicks
+**Mackes Media**, and sees one launcher per Airsonic or Jellyfin
+server on the mesh — no copy-paste of URLs, no per-machine setup.
+
+### Shipped
+
+* **Clients**: Sublime Music (`com.sublimemusic.SublimeMusic`) for
+  Airsonic / Subsonic, and Delfin (`app.drey.Delfin`) for Jellyfin.
+  Both installed per-user from Flathub by the new `apply_media_clients()`
+  birthright step. Both are GTK-native, MPRIS-aware, and theme cleanly
+  with the v2.0 PatternFly tokens.
+* **Discovery**: new `mackes/mesh_media.py` exposes `discover()`
+  returning a deduped union of:
+    - mDNS push (`_subsonic._tcp` / `_jellyfin._tcp`) — sub-second
+    - TCP port-probe fallback over every tailscale peer (:4040 / :8096)
+      with a 250ms connect timeout per port. Catches stock Airsonic /
+      Jellyfin installs that don't publish mDNS.
+* **Sync daemon**: new `mackes-media-sync.service` + 60s timer
+  (user-level systemd). One cycle:
+    1. Run `mesh_media.discover()`
+    2. Pull QNM-Shared creds from
+       `~/.local/share/mackes/qnm-shared/mackes/media-credentials.json`
+       if present (no creds → client surfaces its own login)
+    3. Atomically rewrite `~/.config/sublime-music/config.json`
+    4. Atomically rewrite `~/.local/share/Delfin/servers.json`
+    5. Rebuild the Thunar view + bookmark (next item)
+* **Thunar view**: `~/Mackes Media/` directory contains one
+  `.desktop` launcher per discovered server. A bookmark line
+  `file://~/Mackes Media/  Mackes Media` is appended to
+  `~/.config/gtk-3.0/bookmarks`. Stale entries (servers that have
+  left the mesh) are reaped on every cycle.
+* **Credentials**: locked to the QNM-Shared bucket — one set of
+  creds per server, replicated to every mesh peer. New peers get
+  access automatically when they join. v1.8.0 onboarding wizards
+  will surface "claim this new server" inline; until then it's
+  manual via QNM.
+
+### Why "GTK clients via dnf where available" landed as "Flathub-only"
+
+Neither Sublime Music nor Delfin is in Fedora's main repos. The user's
+locked decision was "Native dnf packages where available" — which
+degrades to Flathub for both (the only practical source). The
+birthright step prefers Flatpak over a bespoke RPM build, with
+`flatpak install --user` so no root is needed and updates ride the
+normal flatpak update cycle.
+
+### Files
+
+| Path | Status |
+|---|---|
+| `mackes/mesh_media.py` | new |
+| `mackes/media_sync_daemon.py` | new |
+| `data/systemd/mackes-media-sync.service` | new |
+| `data/systemd/mackes-media-sync.timer` | new |
+| `mackes/birthright.py` | `apply_media_clients()` step added |
+| `mackes/wizard/pages/apply.py` | "Media clients" step wired in |
+| `packaging/fedora/mackes-shell.spec` | systemd units + `%files` updated |
+
+### Deferred to v1.8.0 onboarding wizards
+
+The "claim a new mesh media server" flow lives in the onboarding
+wizards package (queued for v1.8.0). Until that ships, a newly-
+discovered server with no credentials just appears in the Thunar
+view; opening it surfaces the client's own login prompt. The user
+adds the credential to QNM-Shared via `qnmctl share set
+mackes/media-credentials.json` and the next sync cycle picks it up.
+
 ## 2.0.0 — PatternFly v6 design system (2026-05-18)
 
 Mackes Shell's visual identity moves from IBM Carbon to PatternFly v6
