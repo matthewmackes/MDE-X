@@ -1,12 +1,15 @@
-// Mackes Plymouth theme — centered logo on Carbon Gray 100.
+// Mackes Plymouth theme (v1.0.0 — Phase 8.2 rebuild).
 //
-// Plymouth's "script" module draws a frame at a time; the theme is
-// kept deliberately minimal to match the rest of the brand.
+// Plymouth's "script" module renders one frame at a time. The theme
+// is deliberately minimal to match the Mackes XFCE Workstation visual
+// language:
 //
-// Background: Carbon Gray 100 (#161616 = 22/22/22 normalized = 0.0863).
-// Logo: branding/MACKES-XFCE-LOGO.png (8.5MP RGBA; Plymouth scales it).
-// Progress: 4px-tall accent strip 24px under the logo, animates while
-//           the system finishes boot.
+//   - Background: Carbon Gray 100 (#161616) — same surface as the
+//     mackes-panel top bar and the LightDM greeter.
+//   - Logo: branding/MACKES-XFCE-LOGO.png centered, ~22% of screen.
+//   - Progress: 20 px-tall strip pinned to the bottom edge of the
+//     screen, where mackes-panel's dock lives once the desktop comes
+//     up. Visual continuity Plymouth → LightDM → desktop.
 
 # ---- Background (Carbon Gray 100) ----------------------------------------
 Window.SetBackgroundTopColor (0.086, 0.086, 0.086);
@@ -15,7 +18,6 @@ Window.SetBackgroundBottomColor (0.086, 0.086, 0.086);
 # ---- Logo ----------------------------------------------------------------
 logo.image = Image ("logo.png");
 
-# Scale the logo to fit ~22% of the screen width while preserving aspect.
 screen_w = Window.GetWidth ();
 screen_h = Window.GetHeight ();
 target_w = screen_w * 0.22;
@@ -24,18 +26,26 @@ logo.image_s = logo.image.Scale (target_w, logo.image.GetHeight () * scale);
 
 logo.sprite = Sprite (logo.image_s);
 logo.x = (screen_w - logo.image_s.GetWidth ()) / 2;
-logo.y = (screen_h - logo.image_s.GetHeight ()) / 2 - 16;
+logo.y = (screen_h - logo.image_s.GetHeight ()) / 2 - 24;
 logo.sprite.SetPosition (logo.x, logo.y, 0);
 
-# ---- Progress strip (subtle accent line that fills while booting) ---------
-bar.width  = logo.image_s.GetWidth ();
-bar.height = 4;
-bar.x = logo.x;
-bar.y = logo.y + logo.image_s.GetHeight () + 24;
+# ---- Progress strip (20 px full-width strip pinned to the bottom edge,
+#      same vertical position the mackes-panel dock occupies on the
+#      running desktop). Background rail uses PatternFly dark surface
+#      tokens; fill uses the Mackes accent (Carbon orange 60 #f1853d).
+# -------------------------------------------------------------------------
+bar.height = 20;
+bar.width  = screen_w;
+bar.x = 0;
+bar.y = screen_h - bar.height;
 
-# Background rail (carbon gray-80 ≈ 57/57/57 = 0.2235)
-bar.bg = Rectangle (0.223, 0.223, 0.223, 1.0).Scale (bar.width, bar.height);
+# Background rail (Carbon Gray 90 ≈ 41/41/41 = 0.161)
+bar.bg = Rectangle (0.161, 0.161, 0.161, 1.0).Scale (bar.width, bar.height);
 bar.bg.SetPosition (bar.x, bar.y, 0);
+
+# Hairline above the strip — matches the panel's 1 px border.
+bar.line = Rectangle (0.224, 0.224, 0.224, 1.0).Scale (screen_w, 1);
+bar.line.SetPosition (0, bar.y - 1, 0);
 
 # Fill — Mackes accent (Carbon orange 60 #f1853d ≈ 241/133/61).
 bar.fill = Rectangle (0.945, 0.522, 0.239, 1.0).Scale (1, bar.height);
@@ -69,7 +79,7 @@ fun display_message_callback (text)
     message = Sprite (message_image);
     message.SetPosition (
         (screen_w - message_image.GetWidth ()) / 2,
-        bar.y + 24,
+        bar.y - 40,
         2);
 }
 
