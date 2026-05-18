@@ -1,3 +1,51 @@
+/* v1.6.5 — compact panel margins. Every Mackes panel sets its outer
+ * Gtk.Box with .set_margin_top(32); .set_margin_start(40); etc. Those
+ * GTK property calls bypass CSS, so we override the panel-title +
+ * section spacing via CSS to claw back vertical real estate. */
+
+.mackes-page-title {
+    padding-top: 4px;
+    padding-bottom: 0;
+}
+.mackes-page-subtitle {
+    padding-top: 0;
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+}
+.mackes-section-title {
+    padding-top: 8px;
+    padding-bottom: 2px;
+    margin-top: 4px;
+}
+.mackes-section-description {
+    margin-top: 0;
+    margin-bottom: 2px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    padding-left: 10px;
+    padding-right: 8px;
+}
+.mackes-breadcrumb {
+    padding-top: 0;
+    padding-bottom: 2px;
+    margin-bottom: 4px;
+    font-size: 7pt;
+}
+
+/* Status-bar bottom strip — even tighter */
+.mackes-status-bar {
+    padding-top: 2px;
+    padding-bottom: 2px;
+    min-height: 0;
+}
+
+/* Standardised status pills — single ruleset every panel uses */
+.mackes-pill-ok      { background: alpha(@success_color, 0.18); color: @success_color; padding: 0 6px; border-radius: 2px; font-size: 7pt; font-weight: 600; }
+.mackes-pill-warn    { background: alpha(@warning_color, 0.20); color: @warning_color; padding: 0 6px; border-radius: 2px; font-size: 7pt; font-weight: 600; }
+.mackes-pill-fail    { background: alpha(@error_color,   0.22); color: @error_color;   padding: 0 6px; border-radius: 2px; font-size: 7pt; font-weight: 600; }
+.mackes-pill-neutral { background: alpha(@cds_text_helper, 0.15); color: @cds_text_secondary; padding: 0 6px; border-radius: 2px; font-size: 7pt; font-weight: 600; }
+
+
 /* v1.6.3 — global 8pt override. User-requested density preset.
  * Wins over the Carbon Productive 14/12/10 scale below via !important
  * because this sheet is loaded LAST and the override targets every

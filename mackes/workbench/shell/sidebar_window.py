@@ -456,18 +456,19 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
 
     def __init__(self, application: Gtk.Application, state: MackesState) -> None:
         super().__init__(application=application)
-        # v1.4.2 — Fit the workstation resolution perfectly. Open at the
-        # primary monitor's exact size and immediately maximize so the
-        # WM finishes the job (xfwm4 maximizes to the workarea — full
-        # screen minus the xfce4-panel strip).
+        # v1.6.5 — Compact-by-default. Open at a laptop-friendly size
+        # (1280x720) regardless of monitor size; let the user maximize
+        # themselves if they want full-screen. Previously we forced
+        # maximize on every launch which made Mackes feel like an OS
+        # rather than an app.
         mon_w, mon_h = _primary_monitor_size()
-        self.set_default_size(mon_w, mon_h)
+        target_w = min(1280, mon_w - 40)
+        target_h = min(720,  mon_h - 80)
+        self.set_default_size(target_w, target_h)
+        self.set_position(Gtk.WindowPosition.CENTER)
         from mackes.workbench._common import versioned_title
         self.set_title(versioned_title("Mackes Shell"))
         self.state = state
-        # Maximize on first show. We connect to `realize` so the
-        # WM has a window manager state to manipulate.
-        self.connect("realize", lambda *_: self.maximize())
 
         # CSS-class root marker so accent files can scope rules to the app
         # window when needed.
@@ -572,9 +573,12 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         preset_label = (self.state.active_preset or "mackes").title()
         chip = Gtk.Button(label=preset_label)
         chip.get_style_context().add_class("mackes-header-action")
-        chip.set_tooltip_text("Active preset — switch via Tweaks → Preset")
+        chip.set_tooltip_text("Active preset — click to switch via the Setup Wizard")
         chip.set_relief(Gtk.ReliefStyle.NONE)
-        chip.connect("clicked", self._on_preset_chip)
+        # v1.6.5 — chip used to open the Tweaks drawer which has been
+        # removed. Repoint at the Setup Wizard so the chip is still
+        # functional: it's the canonical preset-swap surface now.
+        chip.connect("clicked", self._on_open_wizard)
         header.pack_end(chip, False, False, 0)
 
         import getpass, socket
@@ -992,10 +996,6 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
                 sess.lock()
         except Exception:  # noqa: BLE001
             pass
-
-    def _on_preset_chip(self, *_) -> None:
-        if self._tweaks_overlay is not None:
-            self._tweaks_overlay.open()
 
     def _on_open_wizard(self, *_) -> None:
         """Header → Setup button. Force the wizard regardless of provisioned state."""
