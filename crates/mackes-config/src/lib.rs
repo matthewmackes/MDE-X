@@ -130,6 +130,33 @@ pub fn parse(text: &str) -> Result<PanelConfig, toml::de::Error> {
     toml::from_str(text)
 }
 
+/// Pin a new `.desktop` to the end of the dock. No-op when the entry
+/// is already pinned (idempotent by id).
+pub fn pin_app(cfg: &mut PanelConfig, desktop: &str) {
+    if cfg
+        .dock
+        .items
+        .iter()
+        .any(|i| matches!(i, DockItem::App { desktop: d } if d == desktop))
+    {
+        return;
+    }
+    cfg.dock.items.push(DockItem::App {
+        desktop: desktop.to_owned(),
+    });
+}
+
+/// Move the dock item at `from` to position `to` (clamped to the
+/// valid range). No-op if the indices are equal or out of range.
+pub fn reorder_dock(cfg: &mut PanelConfig, from: usize, to: usize) {
+    if from >= cfg.dock.items.len() || from == to {
+        return;
+    }
+    let item = cfg.dock.items.remove(from);
+    let target = to.min(cfg.dock.items.len());
+    cfg.dock.items.insert(target, item);
+}
+
 /// Serialize a `PanelConfig` back to TOML — used by Phase 2.2 to write
 /// the default `panel.toml` on first launch.
 ///
@@ -221,6 +248,60 @@ mod tests {
         let text = to_toml_string(&cfg).expect("serialize default");
         let back = parse(&text).expect("re-parse default");
         assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn pin_app_appends_when_missing() {
+        let mut cfg = default_config();
+        pin_app(&mut cfg, "firefox.desktop");
+        assert_eq!(cfg.dock.items.len(), 1);
+        assert!(matches!(
+            cfg.dock.items[0],
+            DockItem::App { ref desktop } if desktop == "firefox.desktop"
+        ));
+    }
+
+    #[test]
+    fn pin_app_is_idempotent_by_id() {
+        let mut cfg = default_config();
+        pin_app(&mut cfg, "firefox.desktop");
+        pin_app(&mut cfg, "firefox.desktop");
+        assert_eq!(cfg.dock.items.len(), 1);
+    }
+
+    #[test]
+    fn reorder_dock_moves_within_bounds() {
+        let mut cfg = default_config();
+        pin_app(&mut cfg, "a.desktop");
+        pin_app(&mut cfg, "b.desktop");
+        pin_app(&mut cfg, "c.desktop");
+        reorder_dock(&mut cfg, 2, 0);
+        let names: Vec<&str> = cfg
+            .dock
+            .items
+            .iter()
+            .map(|i| match i {
+                DockItem::App { desktop } => desktop.as_str(),
+                DockItem::Mesh { .. } => "",
+            })
+            .collect();
+        assert_eq!(names, vec!["c.desktop", "a.desktop", "b.desktop"]);
+    }
+
+    #[test]
+    fn reorder_dock_clamps_out_of_range() {
+        let mut cfg = default_config();
+        pin_app(&mut cfg, "a.desktop");
+        pin_app(&mut cfg, "b.desktop");
+        // from > len — no-op
+        reorder_dock(&mut cfg, 99, 0);
+        assert_eq!(cfg.dock.items.len(), 2);
+        // to > len — clamp to end
+        reorder_dock(&mut cfg, 0, 99);
+        assert!(matches!(
+            cfg.dock.items[1],
+            DockItem::App { ref desktop } if desktop == "a.desktop"
+        ));
     }
 
     #[test]
