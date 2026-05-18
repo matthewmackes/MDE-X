@@ -36,8 +36,8 @@ blocked until fixed. See Phase 9.4 below.
 - [✓] **1.5 Clock widget (center)** — `top_bar::clock()` returns a `gtk::Label` showing `HH:MM`. First tick is scheduled at the next-minute boundary (wall-clock synced), then every 60 s. Calendar dropdown is deferred to a follow-up sub-step.
 - [✓] **1.6 Status cluster (right)** — 6-item horizontal box with Carbon-loaded glyphs for mesh/clipboard/volume/battery/notifications/user. Per-item click handlers stubbed; Phase 4.2 replaces them with the Drawer-open signal.
 - [✓] **1.7 Apple-menu button (left)** — Mackes-mark button (`applications-system-symbolic` placeholder) with stub click handler. Phase 3 wires the dropdown.
-- [ ] **1.8 Dock module dispatch** — generic `DockModule` trait (`icon()`, `tooltip()`, `on_click()`, `state()` returning `{Idle, Running, Focused, Urgent}`). Render-pass walks the configured module list and draws each.
-- [ ] **1.9 State indicators on dock icons** — 1 px under-icon dot + right-edge unread badge (Q16). Both honor PatternFly accent tokens.
+- [✓] **1.8 Dock module dispatch** — `DockModule` trait with `id / icon_name / tooltip / state / on_click`. `DockState` enum: Idle / Running / Focused / Urgent{unread}. `render_module()` builds the widget tree.
+- [✓] **1.9 State indicators on dock icons** — `state_dot()` (1 px under-icon with class muted/accent/alert) + `unread_badge()` (top-right corner number, 99+ cap) per Q16. 2 unit tests cover the state→class + unread-skip-zero mapping.
 
 ## Phase 2 — Configuration & mesh sync (2–3 weeks)
 

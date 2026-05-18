@@ -14,6 +14,7 @@
 
 #![forbid(unsafe_code)]
 
+mod dock;
 mod icons;
 mod top_bar;
 
