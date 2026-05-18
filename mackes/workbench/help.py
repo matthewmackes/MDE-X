@@ -314,7 +314,7 @@ class HelpPanel(Gtk.Box):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         # Breadcrumb
         crumb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        crumb.set_margin_top(32); crumb.set_margin_start(40); crumb.set_margin_end(40)
+        crumb.set_margin_top(12); crumb.set_margin_start(16); crumb.set_margin_end(16)
         crumb.get_style_context().add_class("mackes-breadcrumb")
         for i, p in enumerate(("Mackes Shell", "Help")):
             lab = Gtk.Label(label=p); lab.set_xalign(0)
@@ -329,7 +329,7 @@ class HelpPanel(Gtk.Box):
         self._title_lbl = Gtk.Label(label="Mackes Shell — User Guide")
         self._title_lbl.set_xalign(0)
         self._title_lbl.set_margin_top(8); self._title_lbl.set_margin_bottom(20)
-        self._title_lbl.set_margin_start(40); self._title_lbl.set_margin_end(40)
+        self._title_lbl.set_margin_start(16); self._title_lbl.set_margin_end(16)
         self._title_lbl.get_style_context().add_class("mackes-page-title")
         right.pack_start(self._title_lbl, False, False, 0)
 

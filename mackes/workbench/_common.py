@@ -40,7 +40,7 @@ def section_header(title: str) -> Gtk.Widget:
     Matches the `_section_title` helper used in the v1.1.x panels.
     """
     row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-    row.set_margin_top(28); row.set_margin_bottom(8)
+    row.set_margin_top(12); row.set_margin_bottom(4)
     lbl = Gtk.Label(label=title)
     lbl.set_xalign(0)
     ctx = lbl.get_style_context()
@@ -76,8 +76,8 @@ def panel_box(margin: int = 0) -> Gtk.Box:
     kept in the signature to avoid breaking callers that pass it.
     """
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-    box.set_margin_top(32); box.set_margin_bottom(32)
-    box.set_margin_start(40); box.set_margin_end(40)
+    box.set_margin_top(12); box.set_margin_bottom(12)
+    box.set_margin_start(16); box.set_margin_end(16)
     return box
 
 

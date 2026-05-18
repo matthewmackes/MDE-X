@@ -129,8 +129,8 @@ class BootLoginPanel(Gtk.Box):
     def __init__(self) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        outer.set_margin_top(32); outer.set_margin_bottom(32)
-        outer.set_margin_start(40); outer.set_margin_end(40)
+        outer.set_margin_top(12); outer.set_margin_bottom(12)
+        outer.set_margin_start(16); outer.set_margin_end(16)
 
         outer.pack_start(_breadcrumb(["Mackes Shell", "System", "Boot & Login"]),
                          False, False, 0)

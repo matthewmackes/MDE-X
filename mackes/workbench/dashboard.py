@@ -72,7 +72,7 @@ def _page_subtitle(text: str) -> Gtk.Widget:
 
 def _section_title(text: str) -> Gtk.Widget:
     head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-    head.set_margin_top(32); head.set_margin_bottom(12)
+    head.set_margin_top(12); head.set_margin_bottom(12)
     title = Gtk.Label(label=text)
     title.set_xalign(0)
     title.get_style_context().add_class("mackes-section-title")
@@ -166,8 +166,8 @@ class DashboardView(Gtk.Box):
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        inner.set_margin_top(32); inner.set_margin_bottom(32)
-        inner.set_margin_start(40); inner.set_margin_end(40)
+        inner.set_margin_top(12); inner.set_margin_bottom(12)
+        inner.set_margin_start(16); inner.set_margin_end(16)
         scroller.add(inner)
         self.pack_start(scroller, True, True, 0)
 

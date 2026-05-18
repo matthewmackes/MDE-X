@@ -530,7 +530,7 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
 
         # Brand block — same width as sidenav (256), right-bordered
         brand = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        brand.set_size_request(256, -1)
+        brand.set_size_request(220, -1)
         brand.set_margin_start(16); brand.set_margin_end(16)
         # logo dot
         logo = Gtk.Image.new_from_icon_name("preferences-desktop-symbolic", Gtk.IconSize.LARGE_TOOLBAR)
@@ -669,7 +669,7 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
 
     def _build_sidenav(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        outer.set_size_request(256, -1)
+        outer.set_size_request(220, -1)
         outer.get_style_context().add_class("mackes-side-nav")
 
         scroller = Gtk.ScrolledWindow()
