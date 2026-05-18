@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.matthewmackes.MackesShell</id>
+  <launchable type="desktop-id">mackes-shell.desktop</launchable>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Mackes Shell</name>
+  <summary>Unified XFCE control panel with mesh networking and fleet management</summary>
+
+  <description>
+    <p>
+      Mackes Shell is a single-binary control panel for XFCE on Fedora.
+      It bundles desktop settings, mesh VPN networking, and fleet management
+      behind one consistent UI.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>First-run setup wizard with curated presets (hashbang, mackes, daylight, vanilla)</li>
+      <li>Mesh networking via Headscale + Tailscale — Join an existing mesh or Host a new one</li>
+      <li>Remote desktop integration with auto-discovered SSH / RDP / VNC peers via Remmina</li>
+      <li>Bidirectional clipboard sync across mesh peers</li>
+      <li>Fleet management via Ansible-pull with curated playbooks</li>
+      <li>System maintenance: snapshots, drift detection, system updates, dependency checks</li>
+      <li>Conky HUD with live mesh / fleet / drift / service status</li>
+    </ul>
+  </description>
+
+  <url type="homepage">https://github.com/matthewmackes/MAP2-RELEASES</url>
+  <url type="bugtracker">https://github.com/matthewmackes/MAP2-RELEASES/issues</url>
+
+  <developer id="io.github.matthewmackes">
+    <name>Matthew Mackes</name>
+  </developer>
+
+  <categories>
+    <category>Settings</category>
+    <category>System</category>
+    <category>Network</category>
+  </categories>
+
+  <keywords>
+    <keyword>settings</keyword>
+    <keyword>preferences</keyword>
+    <keyword>xfce</keyword>
+    <keyword>mesh</keyword>
+    <keyword>tailscale</keyword>
+    <keyword>headscale</keyword>
+    <keyword>fleet</keyword>
+    <keyword>ansible</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1" />
+
+  <provides>
+    <binary>mackes</binary>
+  </provides>
+
+  <releases>
+    <release version="1.6.7" date="2026-05-17">
+      <description>
+        <p>apply_panel_layout now drives xfce4-panel-profiles for a robust default panel.</p>
+      </description>
+    </release>
+  </releases>
+</component>

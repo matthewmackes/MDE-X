@@ -347,6 +347,11 @@ install -D -m 0644 data/applications/mackes-tray.desktop \
     %{buildroot}%{_datadir}/applications/mackes-tray.desktop
 install -D -m 0644 data/applications/mackes-mesh-uri-handler.desktop \
     %{buildroot}%{_datadir}/applications/mackes-mesh-uri-handler.desktop
+# AppStream metainfo — surfaces Mackes in GNOME Software / KDE Discover
+# and is the modern standard for desktop app metadata. Reverse-DNS app
+# ID matches mackes-shell.desktop's launchable type.
+install -D -m 0644 data/applications/mackes-shell.metainfo.xml \
+    %{buildroot}%{_metainfodir}/io.github.matthewmackes.MackesShell.metainfo.xml
 install -D -m 0644 data/icons/mackes-shell.svg \
     %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/mackes-shell.svg
 
@@ -403,6 +408,7 @@ fi
 %{_datadir}/applications/mackes-conky.desktop
 %{_datadir}/applications/mackes-maximizer.desktop
 %{_datadir}/applications/mackes-mesh-uri-handler.desktop
+%{_metainfodir}/io.github.matthewmackes.MackesShell.metainfo.xml
 %{_datadir}/gvfs/mounts/mesh.mount
 %{_datadir}/icons/hicolor/scalable/apps/mackes-shell.svg
 %{_datadir}/thumbnailers/mackes-mesh.thumbnailer
