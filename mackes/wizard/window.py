@@ -99,7 +99,7 @@ class WizardWindow(Gtk.ApplicationWindow):
                 ("Preset",  _STEP_CONTENT,  preset_pick.build(self.ctx))
             )
         steps.extend([
-            ("Appearance", _STEP_CONTENT,  appearance.build(self.ctx)),
+            ("Appearance & Desktop", _STEP_CONTENT, appearance.build(self.ctx)),
             ("Hardware",   _STEP_CONTENT,  hardware.build(self.ctx)),
             ("Network",    _STEP_CONTENT,  network.build(self.ctx)),
             ("Snapshot",   _STEP_CONTENT,  snapshot.build(self.ctx)),
