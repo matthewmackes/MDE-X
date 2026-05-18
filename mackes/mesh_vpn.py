@@ -380,6 +380,10 @@ def headscale_start_as_control(mesh_id: str) -> list[str]:
         f"systemctl enable --now headscale rc={rc} "
         f"{(err.strip() or out.strip().splitlines()[-1] if (out+err).strip() else '')}"
     )
+    # Advertise this control node over mDNS so peers on the same LAN
+    # can discover us via `_mackes-mesh._tcp` (consumed by
+    # mackes.mesh_discovery.scan_mdns at join-time).
+    actions.extend(_publish_mdns_service(mesh_id))
     return actions
 
 
@@ -390,7 +394,68 @@ def headscale_stop() -> list[str]:
     rc, _, err = _pkexec_run(
         ["systemctl", "disable", "--now", "headscale.service"], timeout=15,
     )
+    # Stop advertising — we're no longer a control node.
+    _pkexec_run(
+        ["rm", "-f", "/etc/avahi/services/mackes-mesh.service"],
+        timeout=5,
+    )
     return [f"systemctl disable --now headscale rc={rc} {err.strip()}"]
+
+
+# Avahi service definition published when this peer is the control node.
+# Joining peers on the LAN browse `_mackes-mesh._tcp.local.` to find
+# control endpoints (see mackes.mesh_discovery.scan_mdns).
+_AVAHI_SERVICE_PATH = "/etc/avahi/services/mackes-mesh.service"
+_AVAHI_SERVICE_XML = """\
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Mackes mesh on %h</name>
+  <service>
+    <type>_mackes-mesh._tcp</type>
+    <port>8080</port>
+    <txt-record>mesh_id={mesh_id}</txt-record>
+    <txt-record>control_url={control_url}</txt-record>
+  </service>
+</service-group>
+"""
+
+
+def _publish_mdns_service(mesh_id: str) -> list[str]:
+    """Write the Avahi service file so joining peers can mDNS-discover us."""
+    import os
+    try:
+        # Best-effort hostname-based control URL. The joining peer can
+        # always override via the join link's `control=` param.
+        host = os.uname().nodename or "localhost"
+    except OSError:
+        host = "localhost"
+    body = _AVAHI_SERVICE_XML.format(
+        mesh_id=mesh_id,
+        control_url=f"https://{host}:8080",
+    )
+    try:
+        from mackes.admin_session import AdminSession
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", delete=False,
+                                          prefix="mackes-avahi.",
+                                          suffix=".xml") as f:
+            f.write(body)
+            tmp = f.name
+        rc, _ = AdminSession.instance().run(
+            ["install", "-D", "-m", "0644", tmp, _AVAHI_SERVICE_PATH],
+            timeout=5,
+        )
+        try:
+            import os as _os
+            _os.unlink(tmp)
+        except OSError:
+            pass
+        if rc == 0:
+            return [f"published mDNS _mackes-mesh._tcp via {_AVAHI_SERVICE_PATH}"]
+        return [f"could not publish mDNS service rc={rc}"]
+    except Exception as e:  # noqa: BLE001
+        return [f"could not publish mDNS service: {e}"]
 
 
 def headscale_create_user(username: str = "mesh") -> list[str]:

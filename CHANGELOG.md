@@ -3,10 +3,89 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
-## Unreleased — Polish + wizard sweep
+## 1.7.0 — Outcome-driven mesh join (2026-05-18)
 
-Six small, focused commits sitting on `main` after 1.6.7. Each lands one
-issue end-to-end; no version bump yet.
+User-facing focus: the Setup / Join Node workflow was confusing. This
+release reshapes it around the outcome ("get me on the mesh") rather
+than the role taxonomy ("seed / join / reconfig"). The mesh nav is
+collapsed; auto-heal makes most join failures recover transparently;
+mDNS makes peers on the same LAN findable without copy-pasting links.
+
+### Mesh join
+
+* The Headscale setup wizard's three-card Seed/Join/Reconfig chooser
+  folds into two outcome cards: *Join an existing mesh* / *Host a new
+  mesh*. Reconfig was redundant — host_run is idempotent on already-
+  provisioned peers.
+* New `mackes/mesh_discovery.py` exposes a discovery fallback chain
+  (`scan_clipboard` → `scan_mdns` → manual) so the join page can pre-
+  fill credentials when possible.
+* Joining via clipboard `mackes://` link is auto-detected on entry to
+  the Join screen; the entry field is pre-filled and the Continue
+  button is the default action so Ctrl+V → Enter just works.
+* New `mackes.mesh_vpn.join_with_retry()` wraps the join with a
+  progressive 3-attempt auto-heal chain: retry → restart tailscaled
+  → flush state file → fail. Ground-truth is `tailscale status`'s
+  `Self.Online`, not the rc of `tailscale up`.
+* Control nodes publish `_mackes-mesh._tcp` over Avahi when Headscale
+  comes up; the file is retracted when Headscale stops. Peers on the
+  same LAN can mDNS-discover the control endpoint without sharing a
+  link.
+
+### Network nav
+
+* The Network sidebar group collapses from 11 flat items to four:
+  Wi-Fi & Ethernet · Mesh · Mesh Remote · Advanced. Mesh Health,
+  Mesh Performance, Mesh VPN, Mesh SSH, Mesh Services, Firewall, VPN,
+  and QNM all move under the Advanced sub-nav (same lazy-build
+  pattern Devices and System use).
+
+### Wizard
+
+* The Appearance step is now read-only — theme / icon / font /
+  wallpaper are platform-fixed and apply automatically from the
+  preset's declared defaults. Renamed "Appearance & Desktop" so the
+  scope is explicit.
+* Fixed the Next-button click-through where a user could click
+  "Continue ›" mid-install and skip into the summary while the
+  installer was still running. The Apply page's worker thread now
+  drives an `on_complete` callback that gates Next from
+  "Working… / disabled" to "Continue › / enabled."
+* Standard Linux dialog keyboard idioms: Escape closes the wizard
+  (except mid-install where the page's own Cancel button owns it);
+  Next is the default action so Enter advances; tooltips and
+  accessible names on Back / Cancel / Next.
+
+### Desktop integration
+
+* New AppStream metainfo (`io.github.matthewmackes.MackesShell`)
+  installed to `/usr/share/metainfo/` so Mackes Shell surfaces in
+  GNOME Software and KDE Discover.
+* `Actions=Wizard;Popover;` on the main `.desktop` exposes the
+  existing `--wizard` and `--popover` flags as right-click jump-list
+  entries.
+
+### Hygiene
+
+* Dropped the orphan PadOS GTK theme (8 files) and Carbon icon theme
+  (2522 SVGs) plus `install-carbon-icons.sh` — all unreferenced after
+  the 1.6.6 Orchis-Dark + Black-Sun lock-in. apply_themes() collapses
+  to a data-driven `_VENDORED_THEMES` tuple over only the three themes
+  we actually ship.
+
+### Deferred to v1.8.0
+
+* Onboarding wizards for third-party services that need operator
+  config (Headscale public hostname for WAN-reach, Guacamole admin
+  password). The package scaffold is staged.
+* QR-scan discovery (needs `zbar-tools` dep + webcam handling).
+* DERP rotation between join attempts (Tailscale's own auto-failover
+  handles the common case; manual rotation only worth adding once we
+  see a confirmed map-update failure).
+* Always-on every role on every node — Headscale binary, Tailscale,
+  NATS, Avahi tools are all installed at birthright today; the
+  remaining locked promise is auto-elect-on-demand (which lands as
+  v1.8.0 work, not v1.7.0).
 
 * **Drop orphan PadOS GTK theme and Carbon icon theme.** Slim
   `apply_themes()` to a data-driven `_VENDORED_THEMES` tuple over only
