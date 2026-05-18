@@ -43,7 +43,7 @@ blocked until fixed. See Phase 9.4 below.
 
 - [✓] **2.1 panel.toml schema** — shipped early in Phase 0.2 (commit `570146e`). `crates/mackes-config/` holds `PanelConfig` / `TopBarConfig` / `DockConfig` / `MeshConfig` / `DockItem` with serde + 4 unit tests including unknown-section tolerance.
 - [✓] **2.2 Default panel.toml** — `config_store::load_or_default()` reads `XDG_CONFIG_HOME/mackes-panel/panel.toml` (with `$HOME/.config` fallback) and writes the default via `mackes_config::default_config()` on first launch. Malformed TOML is logged + falls back to defaults so the panel always starts. 2 new unit tests (default round-trip via TOML, six-item status cluster).
-- [ ] **2.3 inotify-driven hot reload** — watch `~/.config/mackes-panel/panel.toml`; on change, diff the previous config and apply only what changed (Q21).
+- [✓] **2.3 inotify-driven hot reload** — `config_store::watch(callback)` attaches a `gio::FileMonitor` (inotify-backed on Linux) and re-parses on `ChangesDoneHint`. Atomic-save patterns (delete + create + done-hint) reload once, not three times. Diff-and-apply against the UI lands in Phase 2.5 once the live `PanelConfig` is held in a stable place.
 - [ ] **2.4 QNM-Shared symlink/copy on save** — every write to `~/.config/mackes-panel/panel.toml` is mirrored to `~/.qnm-sync/mackes-panel/panel.toml` (Q19/Q20).
 - [ ] **2.5 Drift detection** — periodic (5 min) hash-compare of the local file against every peer's mirrored copy. Surface diff count.
 - [ ] **2.6 Look & Feel → Panel → Sync status row** — extend `mackes/workbench/look_and_feel/` to show in-sync / drifted / N keys differ. Click → opens drift inspector (Q22).

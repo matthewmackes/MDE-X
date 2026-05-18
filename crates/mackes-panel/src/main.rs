@@ -82,10 +82,22 @@ fn main() -> glib::ExitCode {
 fn build_surfaces(app: &gtk::Application) {
     install_global_styling();
     // Load (or write-default-and-load) panel.toml. The result is unused
-    // right now — Phase 2.3+ wires it into the layout. Reading it here
-    // means a fresh install gets the file materialised on first launch
-    // (Phase 2.2 acceptance).
+    // by the UI right now — Phase 2.5+ wires diffing into the layout.
     let _cfg = config_store::load_or_default();
+
+    // Phase 2.3: hot-reload watcher. The returned monitor must outlive
+    // the GTK main loop, so we leak it into a static. (Dropping the
+    // monitor cancels the watch, which we don't want for the lifetime
+    // of the panel process.)
+    let monitor = config_store::watch(|new_cfg| match new_cfg {
+        Some(_cfg) => eprintln!("mackes-panel: panel.toml reloaded"),
+        None => eprintln!("mackes-panel: panel.toml went away or failed to parse"),
+    });
+    // Intentionally leak so the watch survives this function. Once
+    // Phase 2.5 stores the active config in a long-lived struct,
+    // ownership of the monitor moves there.
+    std::mem::forget(monitor);
+
     let geom = primary_monitor_geometry().unwrap_or_default();
     build_desktop(app, &geom);
     build_top_bar(app, &geom);
