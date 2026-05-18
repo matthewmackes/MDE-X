@@ -121,6 +121,29 @@ textview.monospace, textview.monospace text,
     font-family: "Red Hat Mono", "Red Hat Mono", "Cascadia Code", "JetBrains Mono", monospace;
 }
 
+/* Phase 7.2: Nerd Font fallback for inline-text contexts.
+ *
+ * Apple-menu status-line items, drawer mini-indicators, and any other
+ * inline place where a Carbon SVG would lose detail at <16 px size can
+ * use this class to pick up a Nerd Font glyph in-line with the text.
+ *
+ * Fedora doesn't ship a Nerd Font by default; the standard install
+ * helper drops `RedHatMono Nerd Font Mono` into ~/.local/share/fonts/
+ * the first time a status-line glyph is requested. Until then this
+ * gracefully falls back to plain Red Hat Mono — the glyphs render as
+ * tofu but nothing crashes.
+ */
+.mackes-nerd, .nerd-glyph,
+.mackes-apple-menu-status,
+.mackes-drawer-mini {
+    font-family:
+        "RedHatMono Nerd Font Mono", "RedHatMono Nerd Font",
+        "JetBrainsMono Nerd Font", "FiraCode Nerd Font",
+        "Symbols Nerd Font Mono", "Symbols Nerd Font",
+        "Red Hat Mono", monospace;
+    font-feature-settings: "calt" on, "liga" on;
+}
+
 
 /* ---- PatternFly v6 type scale (compatible with the old cds- selectors) -- */
 /* PF v6 scale: sm=12 / md=14 / lg=16 / xl=18 / 2xl=24 / 3xl=28 / 4xl=36
