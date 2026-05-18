@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-shell
-Version:        2.2.0
+Version:        2.3.0
 Release:        1%{?dist}
 Summary:        Mackes Shell — XFCE control panel and shell manager for Fedora
 

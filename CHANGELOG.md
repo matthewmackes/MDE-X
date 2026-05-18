@@ -3,7 +3,7 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
-## Unreleased — Mackes-Carbon icon theme
+## 2.3.0 — Mackes-Carbon icon theme (2026-05-18)
 
 * **New default icon theme: `Mackes-Carbon`.** A symbolic, single-color
   icon set derived from the IBM Carbon Design System (Apache 2.0).
