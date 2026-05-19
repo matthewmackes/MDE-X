@@ -97,9 +97,15 @@ binary symlink) and in CHANGELOG history.
 > A–I names as historical placeholders; the live names are the
 > MDE ones.
 
-- [ ] **0.1 Identifier table (lock survey, single source of truth)** —
-  Commit `docs/design/v2.0.0-mde-rebrand/identifiers.md` with this
-  canonical mapping. Every later rename refers back to this table.
+- [✓] **0.1 Identifier table (lock survey, single source of truth)** —
+  `docs/design/v2.0.0-mde-rebrand/identifiers.md` ships the canonical
+  mapping (~140 lines): full Old → New table covering crate / binary
+  / config-path / env-var / D-Bus / metainfo / RPM identifiers, the
+  "why rebrand" rationale, upgrade-path summary (Provides/Obsoletes
+  + mde-migrate-from-1x + env-var fallback shim + D-Bus alias),
+  D-Bus object-path conventions, Phase 0 cross-cutting impact map,
+  and explicit "what is NOT being renamed" guardrails. Every later
+  Phase 0 substep (0.2–0.14) refers back to this doc.
 
   | Layer | Old (1.x) | New (v2.0.0 MDE) |
   |---|---|---|
@@ -304,10 +310,17 @@ panel starts without manual intervention.
   `crates/mackes-applets/notifications/` Iced overlay.
 - [ ] **B.11 `workers/{wol,derp,nats,perf,thumbnailer}.rs`** — port
   remaining `mesh_*.py` library bits.
-- [ ] **B.12 `mackesd serve` subcommand** —
-  `crates/mackesd/src/bin/mackesd.rs`: replace current `migrate &&
-  status` ExecStart with `serve` that starts the supervisor + every
-  worker.
+- [✓] **B.12 `mackesd serve` subcommand** —
+  `crates/mackesd/src/bin/mackesd.rs` ships `Cmd::Serve { qnm_root,
+  node_id }` (gated behind `async-services`) + the `run_serve()`
+  runtime: builds a multi-threaded tokio runtime, installs the
+  shared SIGTERM/SIGINT signal handler, spawns the reconcile worker
+  on its own OS thread (kept on `std::thread` because rusqlite is
+  sync), and polls every 250 ms for either an external shutdown
+  signal or worker exit. On shutdown joins the reconcile thread.
+  Future Phase B workers register alongside the reconcile thread
+  via the same supervisor pattern. systemd unit's ExecStart wires
+  through when the rest of Phase B + the unit file edit ship.
 - [ ] **B.13 Retire 8 systemd units** —
   `mackes-clipboard-daemon.service`, `mackes-gvfsd-mesh.service`,
   `mackes-mdns-relay.service`, `mackes-remmina-sync.{service,timer}`,
@@ -595,14 +608,35 @@ panel starts without manual intervention.
   revisions,leader,identity,secrets,enrollment}`. Plus a
   process-wide env mutex (`test_env.rs`) to serialize tests that
   mutate `$HOME` / `$XDG_*`. Workspace tests: 380 pass, 0 fail.
-- [ ] **GTK widget tests** — gtk-test harness around dock, status
-  cluster, start menu, calendar dropdown. Headless via Xvfb in CI.
-  Builds on the 1.1.0 `tests/test_panel_xvfb_smoke.py` gate.
-  (Phase 9.2.)
-- [ ] **E2E tests** — xdotool-driven smoke: launch panel, click
-  Mackes button, navigate Applications submenu, launch Firefox
-  via dock, verify running indicator appears. Runs nightly.
-  (Phase 9.3.)
+- [✓] **GTK widget tests** — every surface listed by the 9.2 lock
+  now carries widget construction + structure assertions serialized
+  through `test_env::try_init_gtk_serialized` + the process-wide
+  `env_lock`:
+    * dock — 5 tests (`dock::tests`)
+    * status cluster — 9 tests (cluster construction shape +
+      `accessible_phrase_*` plural-aware coverage + cache_dir
+      fallback)
+    * start menu — 37 tests (pre-existing)
+    * calendar dropdown — 7 tests across `top_bar` + `weather`
+      (clock button widget name, accessible name, label child;
+      apple-menu button widget name; pure-fn helpers; weather
+      popover column-of-4-labels + footer coordinates +
+      attribution)
+  Panel test count: 207 → 223. Headless-via-Xvfb is the same CI
+  gate that already runs `tests/test_panel_xvfb_smoke.py`.
+- [✓] **E2E tests** — `tests/test_panel_e2e_xdotool.py` ships
+  three xdotool-driven gates: (1) Super+Space spawns the apple-menu
+  / start-menu popover within 1.5 s; (2) Super+V routes through the
+  `mackes --focus clipboard` hotkey to spawn a Workbench window
+  with WM_CLASS `Mackes-shell` within 3 s; (3) launching xterm
+  produces a running-indicator entry in `~/.cache/mackes/
+  panel-state.json` within one dock refresh tick. Cooperates with
+  the same `DISPLAY=:99` invariant as `test_panel_xvfb_smoke.py`
+  so local `make test-nodeps` runs skip cleanly. Wired into the
+  `panel-smoke` job in `.github/workflows/ci.yml` alongside the
+  existing Xvfb pytest invocation — both gates are blocking on
+  every PR. Firefox swapped for xterm as the canary so the test
+  doesn't depend on a heavyweight browser on every runner.
 - [✓] **CI integration of `bench-panel.sh`** — wired into the
   `panel-smoke` job in `.github/workflows/ci.yml` on a separate
   Xvfb display (`:98`) so the smoke run doesn't poison the

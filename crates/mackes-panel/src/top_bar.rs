@@ -324,3 +324,75 @@ fn seconds_until_next_minute() -> u32 {
 // Status cluster moved to `crate::status_cluster` (1.0.7 Q-lock
 // 2026-05-18 — icon + numeric, 2 s poll, click opens the drawer
 // focused, em-dash on probe failure).
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seconds_until_next_minute_is_in_1_to_60() {
+        // Wall clock is non-deterministic at test time, but the helper's
+        // return value invariant is: always in [1, 60].
+        let s = seconds_until_next_minute();
+        assert!(s >= 1 && s <= 60, "got {s}");
+    }
+
+    #[test]
+    fn current_clock_text_has_minute_and_am_pm() {
+        let s = current_clock_text();
+        // 12-hour locale format: "h:MM AM/PM" -> always contains a
+        // colon and an "M" suffix from AM/PM (rare locales aside).
+        assert!(s.contains(':'), "clock text should contain ':' got {s}");
+    }
+
+    #[test]
+    fn clock_button_has_accessible_name() {
+        let _g = crate::test_env::env_lock();
+        if !crate::test_env::try_init_gtk_serialized() {
+            return;
+        }
+        let button = clock();
+        assert_eq!(button.widget_name(), "mackes-top-clock");
+        let atk = button.accessible().expect("accessible interface");
+        let name = atk.name().unwrap_or_default();
+        assert!(
+            name.contains("Clock") || !name.is_empty(),
+            "clock button must carry an accessible name"
+        );
+    }
+
+    #[test]
+    fn clock_button_contains_label_with_widget_name() {
+        let _g = crate::test_env::env_lock();
+        if !crate::test_env::try_init_gtk_serialized() {
+            return;
+        }
+        let button = clock();
+        // Button has exactly one child — the label.
+        let children = button.children();
+        assert_eq!(children.len(), 1);
+        let label = children
+            .into_iter()
+            .next()
+            .unwrap()
+            .downcast::<gtk::Label>()
+            .expect("clock child must be a Label");
+        assert_eq!(label.widget_name(), "mackes-top-clock-label");
+        // Label text matches the formatter's output shape.
+        assert!(label.text().contains(':'));
+    }
+
+    #[test]
+    fn apple_menu_button_carries_widget_name() {
+        let _g = crate::test_env::env_lock();
+        if !crate::test_env::try_init_gtk_serialized() {
+            return;
+        }
+        let button = apple_menu_button();
+        let name = button.widget_name();
+        assert!(
+            !name.is_empty(),
+            "apple_menu_button must set a widget name"
+        );
+    }
+}

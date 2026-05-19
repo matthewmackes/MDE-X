@@ -177,6 +177,30 @@ enum Cmd {
         #[arg(long)]
         node_id: Option<String>,
     },
+
+    /// v2.0.0 Phase B.12 — the unified meta-daemon entry point.
+    /// Replaces the legacy `migrate && status` ExecStart on the
+    /// systemd unit. Boots the tokio runtime, spawns the worker
+    /// supervisor + every registered worker, and blocks on
+    /// SIGTERM/SIGINT.
+    ///
+    /// Phase A.2 ships the supervisor surface; Phase B fills in the
+    /// individual workers (`clipboard`, `mdns`, `fs_sync`, ...).
+    /// Today `serve` registers the existing reconcile loop as the
+    /// single worker so the unit's behavior matches the current
+    /// `mackesd reconcile` invocation while the rest of Phase B lands.
+    ///
+    /// Requires the `async-services` cargo feature.
+    #[cfg(feature = "async-services")]
+    Serve {
+        /// Override the QNM-Shared root (defaults to
+        /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`).
+        #[arg(long, env = "QNM_SHARED_ROOT")]
+        qnm_root: Option<PathBuf>,
+        /// Override the stable node id (defaults to `peer:<hostname>`).
+        #[arg(long)]
+        node_id: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -538,7 +562,74 @@ fn main() -> anyhow::Result<()> {
                 print_inventory_table(&artifacts);
             }
         }
+        #[cfg(feature = "async-services")]
+        Cmd::Serve { qnm_root, node_id } => {
+            // v2.0.0 Phase B.12 — unified meta-daemon entry point.
+            // Boots the tokio runtime, registers the worker pool +
+            // the existing reconcile worker, blocks on SIGTERM.
+            run_serve(qnm_root, node_id, db_path)?;
+        }
     }
+    Ok(())
+}
+
+/// `mackesd serve` runtime. Pulls in tokio + the async supervisor
+/// only when the `async-services` feature is active so the default
+/// build stays sync.
+#[cfg(feature = "async-services")]
+fn run_serve(
+    qnm_root: Option<PathBuf>,
+    node_id: Option<String>,
+    db_path: PathBuf,
+) -> anyhow::Result<()> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+    let node_id = node_id.unwrap_or_else(default_node_id);
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("building tokio runtime")?;
+    runtime.block_on(async move {
+        tracing::info!("mackesd serve: starting supervisor + workers");
+        let shutdown = Arc::new(AtomicBool::new(false));
+        install_signal_handlers(Arc::clone(&shutdown))
+            .context("installing signal handlers")?;
+
+        // The reconcile worker runs on its own OS thread (kept on
+        // std::thread so its sync rusqlite calls don't block the
+        // tokio scheduler). Future Phase B workers slot in alongside
+        // it via the async supervisor.
+        let reconcile = mackesd_core::worker::spawn_reconcile_worker(
+            qnm_root,
+            node_id,
+            db_path,
+            Arc::clone(&shutdown),
+        );
+
+        // Watch loop: wake every 250 ms to check the shutdown flag.
+        // When it flips, drop out so reconcile.join() can wait for
+        // the worker to finish its current tick.
+        while !shutdown.load(Ordering::Relaxed) {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            if reconcile.is_finished() {
+                tracing::warn!(
+                    "mackesd serve: reconcile worker exited without \
+                     a shutdown request"
+                );
+                shutdown.store(true, Ordering::Relaxed);
+                break;
+            }
+        }
+        tracing::info!("mackesd serve: shutdown requested; joining workers");
+        if let Err(e) = reconcile.join() {
+            tracing::error!("reconcile worker panicked: {e:?}");
+            return Err(anyhow::anyhow!("reconcile worker panicked"));
+        }
+        tracing::info!("mackesd serve: all workers joined; exit");
+        Ok::<(), anyhow::Error>(())
+    })?;
     Ok(())
 }
 

@@ -137,8 +137,13 @@ jobs:
           for i in $(seq 1 50); do
             xdotool getactivewindow 2>/dev/null && break || sleep 0.1
           done
-          # Run the new pytest gates (panel boot + --focus round-trip).
-          python3 -m pytest tests/test_panel_xvfb_smoke.py -v --tb=short
+          # Phase 9.2 + 9.3 gate: panel boot + --focus round-trip +
+          # xdotool-driven E2E (Super+Space apple-menu, Super+V
+          # clipboard focus, xterm running-indicator).
+          python3 -m pytest \
+              tests/test_panel_xvfb_smoke.py \
+              tests/test_panel_e2e_xdotool.py \
+              -v --tb=short
           kill $XVFB_PID 2>/dev/null || true
 
       - name: Phase 9.4 — bench-panel.sh perf gate

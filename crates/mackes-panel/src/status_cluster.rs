@@ -370,4 +370,105 @@ mod tests {
             assert!(pct <= 100, "battery should be 0..=100, got {pct}");
         }
     }
+
+    #[test]
+    fn accessible_phrase_mesh_pluralizes_correctly() {
+        assert_eq!(accessible_phrase("mesh", 0), "Mesh: no peers online");
+        assert_eq!(accessible_phrase("mesh", 1), "Mesh: 1 peer online");
+        assert_eq!(accessible_phrase("mesh", 5), "Mesh: 5 peers online");
+    }
+
+    #[test]
+    fn accessible_phrase_clipboard_pluralizes_correctly() {
+        assert_eq!(accessible_phrase("clipboard", 0), "Clipboard: empty");
+        assert_eq!(accessible_phrase("clipboard", 1), "Clipboard: 1 item");
+        assert_eq!(accessible_phrase("clipboard", 7), "Clipboard: 7 items");
+    }
+
+    #[test]
+    fn accessible_phrase_notifications_pluralizes_correctly() {
+        assert_eq!(
+            accessible_phrase("notifications", 0),
+            "Notifications: none unread"
+        );
+        assert_eq!(
+            accessible_phrase("notifications", 1),
+            "Notifications: 1 unread"
+        );
+        assert_eq!(
+            accessible_phrase("notifications", 12),
+            "Notifications: 12 unread"
+        );
+    }
+
+    #[test]
+    fn accessible_phrase_user_pluralizes_correctly() {
+        assert_eq!(accessible_phrase("user", 0), "User: no active sessions");
+        assert_eq!(accessible_phrase("user", 1), "User: 1 session");
+        assert_eq!(accessible_phrase("user", 3), "User: 3 sessions");
+    }
+
+    #[test]
+    fn accessible_phrase_volume_and_battery_render_percent() {
+        assert_eq!(accessible_phrase("volume", 75), "Volume: 75 percent");
+        assert_eq!(accessible_phrase("battery", 30), "Battery: 30 percent");
+        assert_eq!(accessible_phrase("battery", 0), "Battery: 0 percent");
+        assert_eq!(accessible_phrase("battery", 100), "Battery: 100 percent");
+    }
+
+    #[test]
+    fn accessible_phrase_unknown_slug_falls_back_to_status() {
+        assert_eq!(accessible_phrase("invented", 4), "Status: 4");
+    }
+
+    #[test]
+    fn cache_dir_falls_back_to_home_then_tmp() {
+        let _g = crate::test_env::env_lock();
+        std::env::remove_var("XDG_CACHE_HOME");
+        std::env::set_var("HOME", "/var/empty/home");
+        let dir = cache_dir();
+        assert_eq!(dir, PathBuf::from("/var/empty/home").join(".cache"));
+        std::env::remove_var("HOME");
+        let dir = cache_dir();
+        assert_eq!(dir, PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn cluster_build_has_one_button_per_known_item() {
+        let _g = crate::test_env::env_lock();
+        if !crate::test_env::try_init_gtk_serialized() {
+            return;
+        }
+        let cluster = build();
+        let children = cluster.children();
+        assert_eq!(
+            children.len(),
+            ITEMS.len(),
+            "build() must emit one widget per ITEMS entry"
+        );
+        for child in &children {
+            assert!(
+                child.is::<gtk::Button>(),
+                "every cluster child must be a Button"
+            );
+        }
+    }
+
+    #[test]
+    fn cluster_build_buttons_have_widget_names_matching_slugs() {
+        let _g = crate::test_env::env_lock();
+        if !crate::test_env::try_init_gtk_serialized() {
+            return;
+        }
+        let cluster = build();
+        let children = cluster.children();
+        for (i, child) in children.iter().enumerate() {
+            let name = child.widget_name();
+            let expected_suffix = ITEMS[i].slug;
+            assert!(
+                name.contains(expected_suffix),
+                "widget {i} name {name:?} must contain slug {expected_suffix:?}"
+            );
+        }
+    }
 }

@@ -189,4 +189,57 @@ mod tests {
         let body = br#"{"properties": {"timeseries": []}}"#;
         assert!(parse_response(body).is_none());
     }
+
+    #[test]
+    fn build_popover_has_four_labels_in_a_column() {
+        let _g = crate::test_env::env_lock();
+        if !crate::test_env::try_init_gtk_serialized() {
+            return;
+        }
+        let anchor = gtk::Label::new(Some("anchor"));
+        let popover = build_popover(anchor.upcast_ref(), 59.91, 10.75);
+        assert_eq!(popover.widget_name(), "mackes-weather-popover");
+        // The popover's child is a Box with title/temp/symbol/footer
+        // labels — 4 children total.
+        let column = popover
+            .child()
+            .expect("popover must have a child")
+            .downcast::<gtk::Box>()
+            .expect("popover child must be a Box");
+        assert_eq!(column.widget_name(), "mackes-weather-column");
+        assert_eq!(
+            column.children().len(),
+            4,
+            "expected 4 labels: title + temp + symbol + footer"
+        );
+    }
+
+    #[test]
+    fn build_popover_footer_carries_coordinates_and_attribution() {
+        let _g = crate::test_env::env_lock();
+        if !crate::test_env::try_init_gtk_serialized() {
+            return;
+        }
+        let anchor = gtk::Label::new(Some("anchor"));
+        let popover = build_popover(anchor.upcast_ref(), 47.123, -122.456);
+        let column = popover
+            .child()
+            .unwrap()
+            .downcast::<gtk::Box>()
+            .unwrap();
+        let footer = column
+            .children()
+            .into_iter()
+            .find(|w| w.widget_name() == "mackes-weather-footer")
+            .expect("footer label must be present")
+            .downcast::<gtk::Label>()
+            .unwrap();
+        let text = footer.text().to_string();
+        assert!(text.contains("47.123"), "footer must show latitude: {text}");
+        assert!(text.contains("-122.456"), "footer must show longitude: {text}");
+        assert!(
+            text.contains("met.no"),
+            "footer must attribute the data source: {text}"
+        );
+    }
 }
