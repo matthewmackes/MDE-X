@@ -36,6 +36,11 @@ path = "src/bin/mackesd.rs"
 [dependencies]
 mackes-mesh-types = { path = "../mackes-mesh-types" }
 
+# v2.0.0 Phase B.7 — KDE Connect bridge worker reparents the
+# standalone mackes-kdc crate as an in-process worker. Consumed by
+# `crates/mackesd/src/workers/kdc_bridge.rs` under async-services.
+mackes-kdc = { path = "../mackes-kdc" }
+
 # Storage: SQLite via rusqlite (sync, no async runtime needed for the
 # reconcile loop's cadence). WAL mode + 5 s busy timeout per 12.A.2.
 rusqlite = { version = "0.32", features = ["bundled"] }

@@ -13,6 +13,7 @@
 pub mod audit;
 pub mod enrollment;
 pub mod events;
+pub mod fleet;
 pub mod health;
 pub mod identity;
 pub mod leader;
@@ -48,13 +49,19 @@ pub type Error = anyhow::Error;
 /// Crate-wide result alias.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Default `SQLite` path inside `$MACKESD_HOME` (or `/var/lib/mackesd`).
+/// Default `SQLite` path inside `$MDE_HOME` (or fallback to the
+/// legacy `$MACKESD_HOME`, or `/var/lib/mde/mded.db`).
+///
+/// v2.0.0 Phase 0.6 shim — reads `MDE_HOME` first; if unset, reads
+/// the legacy `MACKESD_HOME` and logs a one-shot deprecation
+/// warning to stderr. The fallback path falls through to the new
+/// `/var/lib/mde/` location once both env vars are unset.
 #[must_use]
 pub fn default_db_path() -> std::path::PathBuf {
-    if let Ok(home) = std::env::var("MACKESD_HOME") {
-        return std::path::PathBuf::from(home).join("mackesd.db");
+    if let Some(home) = env_with_legacy_fallback("MDE_HOME", "MACKESD_HOME") {
+        return std::path::PathBuf::from(home).join("mded.db");
     }
-    std::path::PathBuf::from("/var/lib/mackesd/mackesd.db")
+    std::path::PathBuf::from("/var/lib/mde/mded.db")
 }
 
 /// Default QNM-Shared sync root. Heartbeats + link telemetry land at
@@ -69,4 +76,87 @@ pub fn default_qnm_shared_root() -> std::path::PathBuf {
         return home.join("QNM-Shared");
     }
     std::path::PathBuf::from("/var/lib/mackesd/qnm-shared")
+}
+
+/// v2.0.0 Phase 0.6 — env-var rename shim.
+///
+/// Reads `$new_name` first. If unset, reads `$legacy_name`; when
+/// that's set, emits a one-shot deprecation warning naming both the
+/// legacy variable and its successor so operators know to update
+/// their systemd drop-ins / shell profiles. Returns `None` when
+/// neither variable is set, leaving the caller to fall back to its
+/// hardcoded default.
+///
+/// The deprecation log goes to stderr via `tracing::warn!` so it
+/// lands in the journal alongside other mded output without
+/// requiring a separate stream. The legacy fallback drops in v2.1
+/// per the upgrade-path lock in
+/// `docs/design/v2.0.0-mde-rebrand/identifiers.md`.
+#[must_use]
+pub fn env_with_legacy_fallback(new_name: &str, legacy_name: &str) -> Option<String> {
+    if let Ok(v) = std::env::var(new_name) {
+        return Some(v);
+    }
+    match std::env::var(legacy_name) {
+        Ok(v) => {
+            // tracing isn't always initialized at lib load time
+            // (e.g. for one-shot CLI calls); fall back to a direct
+            // stderr write so the warning is visible regardless.
+            tracing::warn!(
+                legacy = legacy_name,
+                replacement = new_name,
+                "MDE rebrand: {legacy_name} is deprecated; \
+                 switch to {new_name} (legacy fallback drops in v2.1)"
+            );
+            Some(v)
+        }
+        Err(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod env_shim_tests {
+    use super::env_with_legacy_fallback;
+
+    /// Use a unique env-var name per test to avoid interference with
+    /// parallel `cargo test` workers (which all share one process).
+    fn unique_name(prefix: &str) -> (String, String) {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        (
+            format!("MDE_SHIM_TEST_{prefix}_NEW_{nonce}"),
+            format!("MDE_SHIM_TEST_{prefix}_OLD_{nonce}"),
+        )
+    }
+
+    #[test]
+    fn prefers_new_when_both_are_set() {
+        let (new, old) = unique_name("prefers");
+        std::env::set_var(&new, "new-value");
+        std::env::set_var(&old, "old-value");
+        let got = env_with_legacy_fallback(&new, &old);
+        assert_eq!(got.as_deref(), Some("new-value"));
+        std::env::remove_var(&new);
+        std::env::remove_var(&old);
+    }
+
+    #[test]
+    fn falls_back_to_legacy_when_new_unset() {
+        let (new, old) = unique_name("falls");
+        std::env::remove_var(&new);
+        std::env::set_var(&old, "legacy-value");
+        let got = env_with_legacy_fallback(&new, &old);
+        assert_eq!(got.as_deref(), Some("legacy-value"));
+        std::env::remove_var(&old);
+    }
+
+    #[test]
+    fn returns_none_when_neither_is_set() {
+        let (new, old) = unique_name("none");
+        std::env::remove_var(&new);
+        std::env::remove_var(&old);
+        assert!(env_with_legacy_fallback(&new, &old).is_none());
+    }
 }

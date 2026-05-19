@@ -178,6 +178,33 @@ enum Cmd {
         node_id: Option<String>,
     },
 
+    /// v2.0.0 Phase G.4 — push a settings revision to a peer
+    /// selection. Writes a new `desired_config` row, records one
+    /// `fleet_settings_apply_log` row per (peer, key) target, and
+    /// prints the JSON plan. The reconcile worker on each named
+    /// peer picks up the revision on its next tick.
+    ///
+    /// `--peers` accepts a comma-separated list of node ids, or the
+    /// literal token `all` for the full healthy set.
+    #[cfg(feature = "async-services")]
+    FleetPushSetting {
+        /// Dot-notated setting key (e.g. `theme.accent`).
+        key: String,
+        /// JSON-encoded value payload. The string itself is taken
+        /// verbatim — quote it for the shell as appropriate.
+        value: String,
+        /// Comma-separated peer ids, or `all`.
+        #[arg(long, default_value = "all")]
+        peers: String,
+        /// Override the revision author tag (defaults to
+        /// `peer:<hostname>`).
+        #[arg(long)]
+        author: Option<String>,
+        /// Print the plan but don't write to the store.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// v2.0.0 Phase B.12 — the unified meta-daemon entry point.
     /// Replaces the legacy `migrate && status` ExecStart on the
     /// systemd unit. Boots the tokio runtime, spawns the worker
@@ -568,6 +595,37 @@ fn main() -> anyhow::Result<()> {
             // Boots the tokio runtime, registers the worker pool +
             // the existing reconcile worker, blocks on SIGTERM.
             run_serve(qnm_root, node_id, db_path)?;
+        }
+        #[cfg(feature = "async-services")]
+        Cmd::FleetPushSetting {
+            key,
+            value,
+            peers,
+            author,
+            dry_run,
+        } => {
+            // v2.0.0 Phase G.4 — fleet push-setting CLI. Writes the
+            // matching desired_config row + fleet_settings_apply_log
+            // entries, then prints the JSON plan.
+            let mut conn = mackesd_core::store::open(&db_path)
+                .with_context(|| format!("opening store at {}", db_path.display()))?;
+            let author = author.unwrap_or_else(default_node_id);
+            let plan = mackesd_core::fleet::plan_push(&key, &value, &peers, &author);
+            if !dry_run {
+                mackesd_core::fleet::record_push(&mut conn, &plan)
+                    .context("recording fleet push")?;
+            }
+            let report = serde_json::json!({
+                "fleet_push_setting": {
+                    "key":          &plan.key,
+                    "value":        &plan.value,
+                    "peers":        &plan.peers,
+                    "author":       &plan.author,
+                    "revision_id":  &plan.revision_id,
+                    "dry_run":      dry_run,
+                }
+            });
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
     }
     Ok(())

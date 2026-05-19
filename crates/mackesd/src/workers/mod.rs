@@ -41,10 +41,20 @@ use tracing::{error, info, warn};
 /// receiver under the hood).
 #[derive(Clone, Debug)]
 pub struct ShutdownToken {
-    rx: watch::Receiver<bool>,
+    pub(crate) rx: watch::Receiver<bool>,
 }
 
 impl ShutdownToken {
+    /// Construct a token from a raw watch receiver. Crate-private —
+    /// the supervisor's [`Supervisor::token`] is the public surface
+    /// for normal callers; this constructor lets sibling worker
+    /// modules build a token from a freshly-paired sender/receiver
+    /// pair in their unit tests.
+    #[must_use]
+    pub(crate) fn from_receiver(rx: watch::Receiver<bool>) -> Self {
+        Self { rx }
+    }
+
     /// `true` once shutdown has been requested. Workers should poll
     /// or `await` on [`Self::changed`] for prompt notification.
     #[must_use]
@@ -65,6 +75,12 @@ impl ShutdownToken {
         let _ = self.rx.changed().await;
     }
 }
+
+// v2.0.0 Phase B workers reparented under workers/. Each is a thin
+// adapter over an existing sync implementation today; they grow real
+// bodies as Phase B fills in.
+pub mod heartbeat;
+pub mod kdc_bridge;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores

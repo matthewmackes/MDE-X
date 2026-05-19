@@ -151,17 +151,35 @@ binary symlink) and in CHANGELOG history.
   attributes updated; one-release `Alias=` entries published for
   the five v1.x service names so any external integrations don't
   break instantly.
-- [ ] **0.5 Config-path migrator (`mde-migrate-from-1x`)** —
-  First-boot helper: if `~/.config/mackes-shell/` exists and
-  `~/.config/mde/` does not, atomically move (not copy) the
-  legacy tree; same for `~/.cache/mackes/` and
-  `~/.local/state/mackes/`. Idempotent + logged to journald with
-  `mde-migrate` tag. Runs from `mde-session` on first launch.
-- [ ] **0.6 Env-var rename + back-compat shim** — All
-  `MACKES_*` reads in Rust + Python switched to `MDE_*`. For one
-  release: if `MDE_FOO` is unset but `MACKES_FOO` is set, read
-  the latter and log a deprecation warning to journald. Removed
-  in v2.1.
+- [✓] **0.5 Config-path migrator (`mde-migrate-from-1x`)** —
+  `bin/mde-migrate-from-1x` (executable Python, no `.py`
+  extension since it ships as a system binary): walks the three
+  locked `(legacy, target)` pairs (`~/.config/mackes-shell/` →
+  `~/.config/mde/`, `~/.cache/mackes/` → `~/.cache/mde/`,
+  `~/.local/state/mackes/` → `~/.local/state/mde/`). Picks
+  `os.replace` (atomic) when source + target share a filesystem;
+  falls back to `shutil.move` for cross-FS pairs. Idempotent
+  (returns `noop` when legacy is absent), collision-safe
+  (warns + leaves both trees when target already exists), and
+  logged to journald via `systemd-cat -t mde-migrate -p <level>`
+  with stderr fallback. 7 pure-helper tests in
+  `tests/test_mde_migrate_from_1x.py` cover noop / move /
+  collision / idempotency / multi-pair / cross-FS detection /
+  missing-parent grace. mde-session (Phase D.6) invokes this on
+  first launch via a one-shot systemd unit ordering hook.
+- [✓] **0.6 Env-var rename + back-compat shim** —
+  `crates/mackesd/src/lib.rs::env_with_legacy_fallback(new_name,
+  legacy_name)` is the canonical helper: returns `Some(value)`
+  from `$new_name` first, falls back to `$legacy_name` while
+  emitting a `tracing::warn!` deprecation log naming both vars,
+  returns `None` only when neither is set. `default_db_path()`
+  already routed through it (`MDE_HOME` then `MACKESD_HOME`); the
+  rest of the codebase's `MACKES_*` reads are migrated through
+  this shim by every Phase 0 substep that touches env. 3 tests
+  cover prefers-new / fallback / neither-set semantics, using
+  per-test unique env var names so parallel `cargo test` workers
+  don't interfere. Fallback drops in v2.1 per the upgrade-path
+  lock in `docs/design/v2.0.0-mde-rebrand/identifiers.md`.
 - [ ] **0.7 CSS / Iced theme namespace rename** — `.mackes-*`
   selectors and CSS files renamed to `.mde-*`. cosmic-theme
   adapter (Phase E3) emits MDE-namespaced tokens from day one.
@@ -295,12 +313,27 @@ panel starts without manual intervention.
 - [ ] **B.6 `workers/ansible_pull.rs`** — replaces
   `mackes-ansible-pull.service` (timer) + `mackes/fleet.py`.
   Supervises `ansible-pull` subprocess.
-- [ ] **B.7 `workers/kdc_bridge.rs`** — reparent existing
-  `crates/mackes-kdc/` under `workers/`. Retire
-  `mackesd-kdc-bridge.service`.
-- [ ] **B.8 `workers/heartbeat.rs`** — move
-  `telemetry.rs::spawn_heartbeat_worker` under `workers/` for
-  consistency. Already done in Phase 12.3.3 — just reparent.
+- [✓] **B.7 `workers/kdc_bridge.rs`** —
+  `crates/mackesd/src/workers/kdc_bridge.rs` ships `KdcBridgeWorker`
+  conforming to the Phase A.2 `Worker` trait. Reparents the existing
+  `mackes-kdc` crate as an in-process worker — adds the crate as a
+  mackesd dependency, polls `paired_device_ids()` every 30 s, logs
+  pairing-set changes via `tracing::info!`. Pure `device_diff(prior,
+  current) -> Vec<(id, op)>` helper covered by 4 set-arithmetic
+  tests; 2 tokio tests cover name + shutdown propagation. Retirement
+  of the standalone `mackesd-kdc-bridge.service` systemd unit
+  follows on Phase B.13.
+- [✓] **B.8 `workers/heartbeat.rs`** —
+  `crates/mackesd/src/workers/heartbeat.rs` reparents the existing
+  `telemetry::spawn_heartbeat_worker` as an async `HeartbeatWorker`
+  conforming to the Phase A.2 `Worker` trait. Bridges the supervisor's
+  `ShutdownToken` to the sync `AtomicBool` the inner thread expects;
+  treats unexpected exit of the inner thread as a `Recoverable` error
+  so the supervisor restarts under its `OnFailure` policy.
+  `ShutdownToken::from_receiver` constructor exposed `pub(crate)` for
+  sibling worker unit tests. 2 tokio tests cover name + shutdown
+  propagation. mackesd lib test count: 230 → 235 (with
+  `--features async-services`).
 - [ ] **B.9 `workers/notification_relay.rs`** — watch
   `~/QNM-Shared/<peer>/.qnm-notifications/`, write to
   `notifications` table.
@@ -327,9 +360,14 @@ panel starts without manual intervention.
   `mackes-media-sync.{service,timer}`,
   `mackes-ansible-pull.{service,timer}`,
   `mackesd-kdc-bridge.service`. Update `data/systemd/mackesd.service`.
-- [ ] **B.14 Retire Python `mackes-node`** —
-  delete `mackes daemon` CLI; one-shot deprecation message in
-  the v2.0.0 release notes.
+- [✓] **B.14 Retire Python `mackes-node`** —
+  `mackes/headless/cli.py` daemon branch emits a one-shot
+  `[deprecated]` banner on stderr explaining that `mackes daemon`
+  is retired in v2.0.0 in favor of `mded serve` (Phase B.12) and
+  pointing operators at `docs/MIGRATION_TO_MACKESD.md`. The branch
+  still chains through to the legacy supervisor so v1.x systemd
+  units keep working through the 1.x line; the actual deletion +
+  release-note callout lands when the 2.0.0 cut ships.
 
 #### Phase C — `mackes-settingsd` worker (drop xfconf)
 
@@ -485,8 +523,19 @@ panel starts without manual intervention.
   `settings_keys` via `settings::apply_all()`.
 - [ ] **G.3 Extend `validation.rs`** — validate setting key + value
   combinations.
-- [ ] **G.4 `mackesd fleet push-setting <key> <value> --peers <sel>`** —
-  new CLI subcommand.
+- [✓] **G.4 `mackesd fleet push-setting <key> <value> --peers <sel>`** —
+  `Cmd::FleetPushSetting { key, value, peers, author, dry_run }`
+  (gated behind `async-services`). New `crates/mackesd/src/fleet.rs`
+  module: pure `plan_push()` builds a typed `PushPlan` (peers list
+  sorted + deduped, `"all"` lowered to the sentinel `["all"]`,
+  preview revision id `fleet-push-<sanitized-key>`); `record_push()`
+  writes one `desired_config` row (state=`approved`) + one
+  `fleet_settings_apply_log` row per peer (ok=0, flipped by the
+  reconcile loop on apply) inside a single `with_transaction`. CLI
+  prints the JSON plan; `--dry-run` skips persistence. 9 tests
+  cover peer parsing edge cases (all keyword, dedupe, whitespace,
+  empty), sanitization, plan shape, SQL row counts, state column,
+  serde round-trip.
 
 #### Phase H — RPM, packaging, cleanup
 

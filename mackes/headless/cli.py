@@ -554,6 +554,22 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # ---- daemon ----
     if cmd == "daemon":
+        # v2.0.0 Phase B.14 — `mackes daemon` (the Python mesh-node
+        # supervisor) is being retired in favor of the unified Rust
+        # `mded serve` entry point (Phase B.12). The v1.x command
+        # stays callable through the 1.x line so existing systemd
+        # units don't break, but we emit a one-shot deprecation
+        # banner pointing operators at the new flow.
+        import sys as _sys
+        _sys.stderr.write(
+            "\n"
+            "[deprecated] `mackes daemon` is retired in v2.0.0; the "
+            "unified `mded serve` will take its place. Until then the "
+            "v1.x supervisor still runs for backward compatibility. "
+            "See docs/MIGRATION_TO_MACKESD.md for the cutover plan.\n"
+            "\n"
+        )
+        _sys.stderr.flush()
         from mackes.headless.daemon import run as daemon_run
         return daemon_run()
 

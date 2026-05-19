@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""mde-migrate-from-1x — atomically move v1.x config + cache + state
+into the v2.0.0 MDE namespace.
+
+v2.0.0 Phase 0.5 (locked 2026-05-19 in docs/design/v2.0.0-mde-rebrand/
+identifiers.md).
+
+Behavior:
+
+  * For each `(legacy, target)` pair in PAIRS below: if `legacy`
+    exists and `target` does not, ``os.replace(legacy, target)`` it
+    (atomic on POSIX when source + target are on the same FS,
+    falls back to recursive copy + delete when they aren't).
+  * Idempotent — re-running after a successful move is a no-op.
+  * Logged to journald via systemd-cat with the `mde-migrate` tag
+    (graceful fallback to stderr if systemd-cat is absent).
+  * Runs from `mde-session` on first launch (D.6 wires the
+    invocation into the session-startup chain).
+
+Exits 0 on success or no-op; non-zero only when a move actually
+fails (permission denied, target collision after the existence
+check, partial copy on cross-FS fallback).
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+# (legacy_path, new_path) pairs. Order matters: config first (so the
+# panel can find its config on first launch), then cache, then state.
+PAIRS: list[tuple[Path, Path]] = [
+    (Path.home() / ".config" / "mackes-shell",
+     Path.home() / ".config" / "mde"),
+    (Path.home() / ".cache" / "mackes",
+     Path.home() / ".cache" / "mde"),
+    (Path.home() / ".local" / "state" / "mackes",
+     Path.home() / ".local" / "state" / "mde"),
+]
+
+
+def _log(level: str, msg: str) -> None:
+    """Log via systemd-cat with the `mde-migrate` tag when possible;
+    fall back to stderr when systemd-cat isn't installed."""
+    if shutil.which("systemd-cat") is not None:
+        try:
+            subprocess.run(
+                ["systemd-cat", "-t", "mde-migrate", "-p", level],
+                input=msg.encode("utf-8"),
+                check=False, timeout=5,
+            )
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    print(f"[mde-migrate:{level}] {msg}", file=sys.stderr)
+
+
+def _on_same_filesystem(a: Path, b: Path) -> bool:
+    """Best-effort check: do a and b live on the same filesystem?
+    Used to pick between os.replace (atomic) and the slow copy +
+    delete fallback. We probe a's parent and b's parent so the source
+    being a non-existent path doesn't matter."""
+    try:
+        return a.parent.stat().st_dev == b.parent.stat().st_dev
+    except OSError:
+        return False
+
+
+def migrate_pair(legacy: Path, target: Path) -> str:
+    """Migrate one pair. Returns a status word: 'moved', 'noop',
+    'collision', or 'failed'."""
+    if not legacy.exists():
+        return "noop"
+    if target.exists():
+        _log("warning", (
+            f"both {legacy} and {target} exist — leaving legacy in place "
+            f"so the operator can resolve manually"
+        ))
+        return "collision"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if _on_same_filesystem(legacy, target):
+            os.replace(legacy, target)
+        else:
+            # Cross-FS: recursive copy + delete. shutil.move handles
+            # this correctly when target doesn't exist.
+            shutil.move(str(legacy), str(target))
+        _log("info", f"migrated {legacy} -> {target}")
+        return "moved"
+    except OSError as exc:
+        _log("err", f"failed to migrate {legacy} -> {target}: {exc}")
+        return "failed"
+
+
+def main(pairs: list[tuple[Path, Path]] | None = None) -> int:
+    """Walk every (legacy, target) pair. Returns 0 unless any pair
+    explicitly fails (collision is not a failure — the user keeps
+    their data; a banner can prompt them to resolve later)."""
+    results = []
+    for legacy, target in (pairs or PAIRS):
+        results.append(migrate_pair(legacy, target))
+    failures = sum(1 for r in results if r == "failed")
+    moved = sum(1 for r in results if r == "moved")
+    _log("info", (
+        f"mde-migrate-from-1x: moved={moved} failed={failures} "
+        f"total_pairs={len(results)}"
+    ))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
