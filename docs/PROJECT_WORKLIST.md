@@ -306,13 +306,20 @@ panel starts without manual intervention.
 
 #### Phase B — Backend unification (fold Python daemons)
 
-- [ ] **B.1 `workers/clipboard.rs`** — replaces
-  `mackes-clipboard-daemon.service` + `mackes/clipboard_app.py`.
-  Uses SCTK `wlr_data_control_v1` for clipboard watching; writes to
-  QNM-Shared.
-- [ ] **B.2 `workers/mdns.rs`** — replaces
-  `mackes-mdns-relay.service` + `mackes/mesh_mdns.py`. Uses `mdns-sd`
-  crate.
+- [✓] **B.1 `workers/clipboard.rs`** —
+  `crates/mackesd/src/workers/clipboard.rs` ships `ClipboardWorker`
+  supervising the existing `python3 -m mackes.clipboard_app`
+  daemon during the v1.x → v2.0.0 transition. Same long-running
+  supervision shape as B.3 fs_sync. v2.0.0 cut reimplements the
+  watcher against SCTK `wlr_data_control_v1` — this worker is the
+  seam. 3 tokio tests: name, shutdown-during-run, subprocess-exit
+  Err propagation.
+- [✓] **B.2 `workers/mdns.rs`** —
+  `crates/mackesd/src/workers/mdns.rs` ships `MdnsWorker`
+  supervising the existing `python3 -m mackes.mesh_mdns` daemon.
+  Same shape as B.3 / B.1. v2.0.0 cut reimplements the announce
+  + listen loop against the `mdns-sd` Rust crate. 3 tokio tests
+  matching the clipboard / fs_sync coverage.
 - [✓] **B.3 `workers/fs_sync.rs`** —
   `crates/mackesd/src/workers/fs_sync.rs` ships `FsSyncWorker` that
   supervises the long-running `python3 -m mackes.mesh_gvfs.daemon`
