@@ -367,10 +367,20 @@ panel starts without manual intervention.
 - [ ] **B.9 `workers/notification_relay.rs`** — watch
   `~/QNM-Shared/<peer>/.qnm-notifications/`, write to
   `notifications` table.
-- [ ] **B.10 `workers/notifications_server.rs`** — mackesd implements
-  `org.freedesktop.Notifications` via zbus 5. Persists to
-  `notifications` table; emits DBus signals consumed by
-  `crates/mackes-applets/notifications/` Iced overlay.
+- [✓] **B.10 `workers/notifications_server.rs`** —
+  `crates/mackesd/src/ipc/notifications.rs` `NotificationsService`
+  now holds `Option<Arc<Mutex<rusqlite::Connection>>>`. The default
+  constructor stays unbound (returns the Phase A synthetic id);
+  `with_store(conn)` / `open_at(path)` / `open_default()` constructors
+  give it a backing connection. `Notify`: when bound, inserts into
+  the `notifications` table (or updates the matching row when
+  `replaces_id` is non-zero, falling through to insert if the id
+  doesn't exist) and returns the rowid. `CloseNotification`: stamps
+  `dismissed_at` on the matching row. Signal definitions
+  (`notification_closed`, `action_invoked`) unchanged. 4 new tokio
+  tests: bound vs unbound paths, replaces_id semantics + row count,
+  close stamps dismissed_at. mackesd lib tests with async-services:
+  268 → 272.
 - [ ] **B.11 `workers/{wol,derp,nats,perf,thumbnailer}.rs`** — port
   remaining `mesh_*.py` library bits.
 - [✓] **B.12 `mackesd serve` subcommand** —

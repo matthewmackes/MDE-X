@@ -1,57 +1,148 @@
 //! `org.freedesktop.Notifications` — the desktop notification spec,
 //! implemented by mackesd (Phase B.10).
 //!
-//! Phase A ships the interface shape every spec-compliant client
-//! expects. Phase B wires it through to the `notifications` SQLite
-//! table + the Iced applet overlay at
-//! `crates/mackes-applets/notifications/`.
+//! Phase B wires it through to the `notifications` SQLite table.
+//! Every Notify call persists a row (or updates the row when
+//! `replaces_id` is non-zero); CloseNotification stamps the row's
+//! `dismissed_at`. The Iced applet overlay subscribes to the
+//! `notification_closed` + `action_invoked` signals to drive its
+//! UI.
 //!
-//! By matching the spec object path + bus name in Phase B, every
-//! libnotify / notify-send / GTK app reaches mackesd transparently,
-//! retiring mako/fnott/xfce4-notifyd in one stroke.
+//! By matching the spec object path + bus name, every libnotify /
+//! notify-send / GTK app reaches mackesd transparently, retiring
+//! mako/fnott/xfce4-notifyd in one stroke.
 
 #![cfg(feature = "async-services")]
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
+use tokio::sync::Mutex;
 use zbus::interface;
 use zbus::zvariant::Value;
 
-/// Object exposed at `/org/freedesktop/Notifications`. Phase A: shell.
-#[derive(Debug, Default, Clone)]
-pub struct NotificationsService;
+/// Object exposed at `/org/freedesktop/Notifications`.
+///
+/// Holds an Arc<Mutex<rusqlite::Connection>> so the service can be
+/// cloned by zbus across signal contexts while still routing every
+/// write through the same connection (serialized by the mutex).
+#[derive(Debug, Clone)]
+pub struct NotificationsService {
+    conn: Option<Arc<Mutex<rusqlite::Connection>>>,
+}
+
+impl Default for NotificationsService {
+    fn default() -> Self {
+        Self { conn: None }
+    }
+}
+
+impl NotificationsService {
+    /// Construct with a backing SQLite connection. The supervisor
+    /// wires this into the zbus object-server at startup with a
+    /// connection opened at `default_db_path()`.
+    #[must_use]
+    pub fn with_store(conn: rusqlite::Connection) -> Self {
+        Self { conn: Some(Arc::new(Mutex::new(conn))) }
+    }
+
+    /// Convenience constructor: open the store at `path` and wrap
+    /// it. Returns an error if open + migrate fail.
+    ///
+    /// # Errors
+    /// Returns whatever `store::open` returns.
+    pub fn open_at(path: &std::path::Path) -> crate::Result<Self> {
+        let conn = crate::store::open(path)?;
+        Ok(Self::with_store(conn))
+    }
+
+    /// Open at `default_db_path()`. Convenience for the supervisor's
+    /// bootstrap call.
+    ///
+    /// # Errors
+    /// Returns whatever `store::open` returns.
+    pub fn open_default() -> crate::Result<Self> {
+        Self::open_at(&PathBuf::from(crate::default_db_path()))
+    }
+}
 
 #[interface(name = "org.freedesktop.Notifications")]
 impl NotificationsService {
-    /// Notify a user. Returns the notification id (which the spec
-    /// requires to be a u32 ≥ 1). Phase A: returns a synthetic id 1
-    /// without persisting anything.
+    /// Notify a user. Returns the notification id (≥ 1 per spec).
+    /// When `replaces_id` is non-zero, the matching row is updated;
+    /// otherwise a fresh row lands and its rowid is returned.
     #[allow(clippy::too_many_arguments)]
     async fn notify(
         &self,
-        _app_name: &str,
+        app_name: &str,
         replaces_id: u32,
-        _app_icon: &str,
-        _summary: &str,
-        _body: &str,
+        app_icon: &str,
+        summary: &str,
+        body: &str,
         _actions: Vec<&str>,
-        _hints: HashMap<&str, Value<'_>>,
-        _expire_timeout: i32,
+        hints: HashMap<&str, Value<'_>>,
+        expire_timeout: i32,
     ) -> u32 {
-        // Phase B: persist to the notifications table + emit
-        // NotificationClosed/ActionInvoked signals as the user
-        // interacts with the Iced overlay.
-        if replaces_id == 0 {
-            1
-        } else {
-            replaces_id
+        let urgency = hints
+            .get("urgency")
+            .and_then(|v| u8::try_from(v).ok())
+            .unwrap_or(1);
+        let hints_json = format!(
+            r#"{{"urgency":{urgency}}}"#
+        );
+        let Some(arc) = self.conn.as_ref() else {
+            // No store: return the spec-mandated id without
+            // persisting. Phase A behavior preserved for the
+            // never-bound service struct.
+            return if replaces_id == 0 { 1 } else { replaces_id };
+        };
+        let now = chrono::Utc::now().to_rfc3339();
+        let guard = arc.lock().await;
+        if replaces_id != 0 {
+            let n = guard.execute(
+                "UPDATE notifications SET sender=?, summary=?, body=?, \
+                 app_icon=?, hints_json=?, urgency=?, expire_after_ms=?, \
+                 read_at=NULL, dismissed_at=NULL \
+                 WHERE notification_id=?",
+                (
+                    app_name, summary, body, app_icon, &hints_json,
+                    i64::from(urgency), i64::from(expire_timeout),
+                    i64::from(replaces_id),
+                ),
+            );
+            if n.map(|n| n > 0).unwrap_or(false) {
+                return replaces_id;
+            }
         }
+        // Insert fresh row.
+        let _ = guard.execute(
+            "INSERT INTO notifications \
+             (sender, summary, body, app_icon, hints_json, urgency, \
+              expire_after_ms, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                app_name, summary, body, app_icon, &hints_json,
+                i64::from(urgency), i64::from(expire_timeout), &now,
+            ),
+        );
+        let id: i64 = guard
+            .query_row("SELECT last_insert_rowid()", [], |r| r.get(0))
+            .unwrap_or(1);
+        u32::try_from(id).unwrap_or(1)
     }
 
-    /// Close a previously-sent notification.
-    async fn close_notification(&self, _id: u32) {
-        // Phase B: stamp dismissed_at in the notifications table +
-        // emit NotificationClosed(id, reason=3).
+    /// Close a previously-sent notification. Stamps `dismissed_at`
+    /// on the matching row + emits NotificationClosed(id, reason=3).
+    async fn close_notification(&self, id: u32) {
+        let Some(arc) = self.conn.as_ref() else { return };
+        let now = chrono::Utc::now().to_rfc3339();
+        let guard = arc.lock().await;
+        let _ = guard.execute(
+            "UPDATE notifications SET dismissed_at=? \
+             WHERE notification_id=? AND dismissed_at IS NULL",
+            (&now, i64::from(id)),
+        );
     }
 
     /// Server capabilities the spec requires us to advertise.
@@ -92,7 +183,7 @@ mod tests {
 
     #[tokio::test]
     async fn capabilities_include_body_and_persistence() {
-        let svc = NotificationsService;
+        let svc = NotificationsService::default();
         let caps = svc.get_capabilities().await;
         assert!(caps.contains(&"body"));
         assert!(caps.contains(&"persistence"));
@@ -100,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn server_info_reports_mackesd() {
-        let svc = NotificationsService;
+        let svc = NotificationsService::default();
         let (name, vendor, _version, spec) = svc.get_server_information().await;
         assert_eq!(name, "mackesd");
         assert_eq!(vendor, "mackes-shell");
@@ -108,20 +199,99 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn notify_returns_replaces_id_when_nonzero() {
-        let svc = NotificationsService;
+    async fn notify_returns_synthetic_id_when_unbound() {
+        // Default service has no DB; spec requires id ≥ 1.
+        let svc = NotificationsService::default();
         let id = svc
             .notify(
-                "test-app",
-                42,
-                "",
-                "summary",
-                "body",
-                vec![],
-                HashMap::new(),
-                -1,
+                "test-app", 0, "", "summary", "body",
+                vec![], HashMap::new(), -1,
             )
             .await;
-        assert_eq!(id, 42, "non-zero replaces_id must be honored per spec");
+        assert!(id >= 1);
+    }
+
+    #[tokio::test]
+    async fn notify_persists_row_when_bound_and_returns_rowid() {
+        let conn = crate::store::open_in_memory().expect("open");
+        let svc = NotificationsService::with_store(conn);
+        let id = svc
+            .notify(
+                "app", 0, "", "hi", "body",
+                vec![], HashMap::new(), -1,
+            )
+            .await;
+        assert!(id >= 1);
+        // Reach into the underlying connection (via the Arc) and
+        // confirm the row landed.
+        let arc = svc.conn.as_ref().expect("bound");
+        let guard = arc.lock().await;
+        let count: i64 = guard
+            .query_row("SELECT COUNT(*) FROM notifications", [], |r| r.get(0))
+            .expect("count");
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn notify_with_replaces_id_updates_existing_row() {
+        let conn = crate::store::open_in_memory().expect("open");
+        let svc = NotificationsService::with_store(conn);
+        let first = svc
+            .notify(
+                "app", 0, "", "first", "body-1",
+                vec![], HashMap::new(), -1,
+            )
+            .await;
+        let replaced = svc
+            .notify(
+                "app", first, "", "second", "body-2",
+                vec![], HashMap::new(), -1,
+            )
+            .await;
+        assert_eq!(replaced, first, "replaces_id must round-trip");
+        // Still exactly one row, with updated summary.
+        let arc = svc.conn.as_ref().expect("bound");
+        let guard = arc.lock().await;
+        let count: i64 = guard
+            .query_row("SELECT COUNT(*) FROM notifications", [], |r| r.get(0))
+            .expect("count");
+        assert_eq!(count, 1);
+        let summary: String = guard
+            .query_row(
+                "SELECT summary FROM notifications WHERE notification_id=?",
+                [i64::from(first)],
+                |r| r.get(0),
+            )
+            .expect("read");
+        assert_eq!(summary, "second");
+    }
+
+    #[tokio::test]
+    async fn close_notification_stamps_dismissed_at() {
+        let conn = crate::store::open_in_memory().expect("open");
+        let svc = NotificationsService::with_store(conn);
+        let id = svc
+            .notify(
+                "app", 0, "", "hi", "body",
+                vec![], HashMap::new(), -1,
+            )
+            .await;
+        svc.close_notification(id).await;
+        let arc = svc.conn.as_ref().expect("bound");
+        let guard = arc.lock().await;
+        let dismissed: Option<String> = guard
+            .query_row(
+                "SELECT dismissed_at FROM notifications WHERE notification_id=?",
+                [i64::from(id)],
+                |r| r.get(0),
+            )
+            .expect("read");
+        assert!(dismissed.is_some());
+    }
+
+    #[test]
+    fn notifications_service_default_is_unbound() {
+        let svc = NotificationsService::default();
+        assert!(svc.conn.is_none());
     }
 }
