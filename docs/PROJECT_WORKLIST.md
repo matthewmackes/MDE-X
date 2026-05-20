@@ -734,8 +734,14 @@ panel starts without manual intervention.
   `tests/test_mde_settings_bridge.py` exercising every Phase C
   key, sidecar round-trip, malformed JSON handling, unknown-key
   rejection.
-- [ ] **F.2 `mackes/workbench/system/removable.py`** — DBus
-  `automount.*`.
+- [✓] **F.2 `mackes/workbench/system/removable.py`** — full
+  rewrite to the MDE bridge. The v1.x 13-switch thunar-volman
+  surface collapses to 3 keys (automount.on_insert / .open_on_mount
+  / .autorun) per the MDE schema; per-device-class toggles (camera,
+  scanner, audio CD, DVD, graphics tablet, etc.) move to the
+  application that handles each on the v2.0.0 line. No more
+  XfconfBridge import; no more async_probe needed (sidecar reads
+  are sub-millisecond).
 - [ ] **F.3 `mackes/workbench/look_and_feel/{themes,fonts}.py`** —
   DBus `theme.*` and `font.*`.
 - [ ] **F.4 `mackes/workbench/devices/displays.py`** — DBus
