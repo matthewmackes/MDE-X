@@ -77,6 +77,56 @@ testcontainers integration tests gated under `--features docker-tests`;
 Cairo rendering smoke under headless `ImageSurface`. New Phase 9.3
 xdotool E2E gates run in CI under Xvfb.
 
+**Installer (CB-5.x rebrand):** `install.sh` banner now reads
+"Mackes Desktop Environment (MDE) · installer" with the
+"PatternFly 6 · Wayland · Fedora" subtitle (was "Carbon Design System
+chrome · XFCE · Fedora"). Hand-off `exec mackes` → `exec mde` (the
+bin shim covers the back-compat window per CB-3.7). Wizard / TUI
+hints rewritten to `mde --wizard` / `mde --tui`. Headless fallback
+(no DISPLAY + no WAYLAND_DISPLAY) now nudges the user toward
+picking "Mackes Desktop Environment" from the greeter session menu
+on next login — no GPU probing (Q2 hard-switch lock — no detect-
+and-pick; the user picks the session entry once and stays there).
+Smoke: `bash -n install.sh` green; 7 rebrand assertion tests under
+`tests/test_install_sh_rebrand.py`.
+
+### BREAKING CHANGES (Phase H + CB-3.x)
+
+- **XFCE 4 desktop fully removed.** Every `xfce4-*` Requires line
+  drops (xfwm4, xfce4-session, xfce4-power-manager, xfce4-notifyd,
+  xfce4-clipman, xfsettingsd, xfconfd, xfconf, xfce4-settings) and
+  the supporting X11 tooling (xdotool, xprop, wmctrl, xrandr,
+  xclip, i3, i3-gaps, thunar, thunar-volman) goes with it. v1.x
+  panels that wrote `xfconf` keys now route through
+  `mackes.mde_settings_bridge` instead — the bridge maps onto
+  gsettings keys + JSON sidecars under `$XDG_CACHE_HOME/mde/`.
+- **Wayland-only (hard switch, Q2 lock).** sway is the only
+  supported compositor. No "detect-and-pick" between Wayland and
+  X11 — the installer informs, the greeter offers the session, the
+  user picks once. X11 sessions from v1.x stop launching after
+  upgrade (the spec drops the `.desktop` entries).
+- **Binary rename `mackes` → `mde`** (and `mackesd` → `mded`,
+  `mackes-panel` → `mde-panel`, etc). v1.x names ship as bin-
+  shims for one release window (per CB-3.7) so existing scripts
+  + bookmarks keep working; the shims will land their deprecation
+  warning at v2.1 cut and the names disappear at v2.2.
+- **DBus surface rename `org.mackes.*` → `dev.mackes.MDE.*`.** One
+  release of alias `.service` files keeps clients of the v1.x
+  names working transparently.
+- **Config path move `~/.config/mackes-shell/` → `~/.config/mde/`.**
+  Atomic migration runs on first launch of `mde-session.service`
+  via the new `mde-migrate-from-1x` helper (cache + state trees
+  move too).
+- **Env-var rename `MACKES_*` → `MDE_*`.** New names take
+  precedence; old names still read with a one-shot deprecation
+  warning + retire at v2.1.
+- **DNF upgrade UX (hard switch).** `dnf upgrade` from any v1.x
+  ships `mde-2.0.0` automatically via `Obsoletes: mackes-shell
+  < 2.0.0`. The transition is one-way — the v1.x package is no
+  longer in the repo. Reverting requires a snapshot rollback
+  (via `mde recover --latest` if a snapshot was taken
+  pre-upgrade).
+
 ## 1.1.0 — Win10 layout (2026-05-19)
 
 Visual reskin of the panel chrome from a 20 px top bar + 80 px

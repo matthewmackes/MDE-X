@@ -1309,23 +1309,27 @@ The installer already accepts both `mackes-shell-*` and `mde-*` RPM
 filename prefixes (commit 6869356, line 158–166 of install.sh) so no
 parser change is needed. The cosmetic + UX changes:
 
-- [ ] **CB-5.1 Banner rebrand** — "Mackes Shell" → "Mackes Desktop
-  Environment (MDE)" in the Carbon-styled top banner of
-  `install.sh`. "Carbon Design System chrome · XFCE · Fedora" → "
-  PatternFly 6 · Wayland · Fedora" in the subtitle (XFCE is gone;
-  the v2.0.0 PatternFly reskin lock from memory governs).
-- [ ] **CB-5.2 Hand-off exec** — final `exec mackes` → `exec mde`
-  (which is itself the bin shim during the back-compat window
-  per CB-3.7). After 2.1 cut, `exec mde` is the only entry.
-- [ ] **CB-5.3 Headless fallback message** — "Run `mackes
-  --wizard`" → "Run `mde --wizard`". TUI line same.
-- [ ] **CB-5.4 GPU / Wayland-capability hint** — `install.sh`
-  finishes by printing a one-line hint when neither `$DISPLAY`
-  nor `$WAYLAND_DISPLAY` is set explaining that MDE requires
-  a Wayland-capable greeter session ("on next login, pick
-  'Mackes Desktop Environment' from the greeter dropdown").
-  Doesn't probe GPU (Q2 hard-switch lock — no
-  detect-and-pick); just informs.
+- [✓] **CB-5.1 Banner rebrand** — shipped 2026-05-20. `install.sh`
+  top banner now reads "Mackes Desktop Environment (MDE) ·
+  installer" with subtitle "PatternFly 6 · Wayland · Fedora"
+  (was "Mackes Shell · installer" + "Carbon Design System chrome
+  · XFCE · Fedora"). Padding adjusted so the box still aligns at
+  61 chars. File-header comment also updated.
+- [✓] **CB-5.2 Hand-off exec** — shipped 2026-05-20. `exec
+  mackes` → `exec mde` at the bottom of the install.sh Phase 5
+  branch. The bin shim covers the back-compat window per CB-3.7.
+- [✓] **CB-5.3 Headless fallback message** — shipped 2026-05-20.
+  `mackes --wizard` → `mde --wizard`, `mackes --tui` →
+  `mde --tui` in both GUI + TUI hint lines. v1.x binary names
+  removed from install.sh.
+- [✓] **CB-5.4 GPU / Wayland-capability hint** — shipped
+  2026-05-20. Headless fallback (no `$DISPLAY` + no
+  `$WAYLAND_DISPLAY`) prints "MDE 2.0.0 needs a Wayland
+  session. On next login, pick 'Mackes Desktop Environment'
+  from the greeter session menu, then `mde --wizard` re-opens
+  setup." No GPU probing (Q2 hard-switch lock — no
+  detect-and-pick); just informs. 7 install.sh smoke tests
+  cover all four CB-5.x items + `bash -n` syntax gate.
 
 #### CB-6 Documentation + cut prep
 
@@ -1352,11 +1356,19 @@ parser change is needed. The cosmetic + UX changes:
   `wayland.md` (no longer "readiness" — this IS Wayland),
   `troubleshooting.md` (sway-specific troubleshooting),
   `headless.md` (mded headless via `mded serve`).
-- [ ] **CB-6.4 CHANGELOG 2.0.0 finalization** — Phase 0.14
-  shipped the body; the cut commit adds the `(YYYY-MM-DD)`
-  timestamp and appends the CB-1 through CB-5 deliverables to
-  the "What's new" section. "BREAKING CHANGES" section enumerates
-  the dropped XFCE deps + the hard-switch upgrade UX.
+- [✓] **CB-6.4 CHANGELOG 2.0.0 finalization** — shipped
+  2026-05-20. CHANGELOG.md v2.0.0 entry now carries the CB-5
+  "Installer" deliverables paragraph + the full BREAKING
+  CHANGES section enumerating (1) XFCE 4 desktop fully removed,
+  (2) Wayland-only hard switch (Q2 lock), (3) binary rename
+  `mackes` → `mde` (bin-shims for one release), (4) DBus
+  surface rename `org.mackes.*` → `dev.mackes.MDE.*`, (5)
+  config path move `~/.config/mackes-shell/` → `~/.config/mde/`
+  (atomic on first launch), (6) env-var rename
+  `MACKES_*` → `MDE_*`, (7) DNF upgrade UX (`Obsoletes`,
+  one-way transition, snapshot rollback for revert). CB-1
+  through CB-4 deliverables land in this section as each ships.
+  Final `(YYYY-MM-DD)` cut date pending the actual release tag.
 - [ ] **CB-6.5 Release smoke checklist** — `docs/RELEASE_2_0_0_
   CHECKLIST.md`: every gate that must pass before the cut commit
   (every CB-* + Phase E + Phase 0 + Phase H item green; `make

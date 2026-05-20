@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mackes Shell — Carbon-styled curl-pipe-bash installer (v1.4.1).
+# Mackes Desktop Environment (MDE) — PatternFly-styled installer.
 #
 #   curl -fsSL https://raw.githubusercontent.com/matthewmackes/MAP2-RELEASES/main/install.sh | bash
 #
@@ -44,16 +44,16 @@ fi
 banner() {
     printf '\n'
     printf '%b┌─────────────────────────────────────────────────────────────┐%b\n' "$C_ACCENT" "$C_RESET"
-    printf '%b│%b  %bMackes Shell%b  %b· installer%b%*s%b│%b\n' \
+    printf '%b│%b  %bMackes Desktop Environment (MDE)%b  %b· installer%b%*s%b│%b\n' \
         "$C_ACCENT" "$C_RESET" \
         "$C_BOLD" "$C_RESET" \
         "$C_DIM" "$C_RESET" \
-        $((61 - 27)) " " \
+        $((61 - 50)) " " \
         "$C_ACCENT" "$C_RESET"
-    printf '%b│%b  %bCarbon Design System chrome · XFCE · Fedora%b%*s%b│%b\n' \
+    printf '%b│%b  %bPatternFly 6 · Wayland · Fedora%b%*s%b│%b\n' \
         "$C_ACCENT" "$C_RESET" \
         "$C_DIM" "$C_RESET" \
-        $((61 - 47)) " " \
+        $((61 - 35)) " " \
         "$C_ACCENT" "$C_RESET"
     printf '%b└─────────────────────────────────────────────────────────────┘%b\n\n' "$C_ACCENT" "$C_RESET"
 }
@@ -203,19 +203,25 @@ phase_ok "done"
 phase_start 5 $TOTAL "Launch first-run wizard"
 if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
     phase_ok "starting"
-    printf '\n%b%s%b  %bRun %bmackes --wizard%b%b to re-open setup anytime.%b\n\n' \
+    printf '\n%b%s%b  %bRun %bmde --wizard%b%b to re-open setup anytime.%b\n\n' \
         "$C_DIM" "$DOT" "$C_RESET" \
         "$C_DIM" \
         "$C_TEXT" "$C_DIM" \
         "$C_RESET" "$C_RESET"
-    exec mackes
+    exec mde
 else
-    phase_ok "headless — run mackes later"
-    printf '\n%b%s%b  %bGraphical wizard:%b run %bmackes --wizard%b in any GUI session.%b\n' \
-        "$C_DIM" "$DOT" "$C_RESET" \
-        "$C_DIM" "$C_RESET" \
+    phase_ok "headless — run mde later"
+    # CB-5.4 — no DISPLAY + no WAYLAND_DISPLAY → user is on a TTY.
+    # MDE 2.0.0 is Wayland-only (sway is the locked compositor), so
+    # nudge them toward picking the new session from the greeter.
+    printf '\n%b%s%b  %bMDE 2.0.0 needs a Wayland session.%b On next login, pick %b"Mackes Desktop Environment"%b\n' \
+        "$C_ACCENT" "$DOT" "$C_RESET" \
+        "$C_BOLD" "$C_RESET" \
+        "$C_TEXT" "$C_RESET"
+    printf '%b%s%b  from the greeter session menu, then %bmde --wizard%b re-opens setup.%b\n' \
+        "$C_ACCENT" " " "$C_RESET" \
         "$C_TEXT" "$C_RESET" "$C_RESET"
-    printf '%b%s%b  %bHeadless TUI:%b run %bmackes --tui%b in a terminal.%b\n\n' \
+    printf '\n%b%s%b  %bHeadless TUI:%b run %bmde --tui%b in a terminal.%b\n\n' \
         "$C_DIM" "$DOT" "$C_RESET" \
         "$C_DIM" "$C_RESET" \
         "$C_TEXT" "$C_RESET" "$C_RESET"
