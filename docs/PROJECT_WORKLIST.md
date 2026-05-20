@@ -1768,10 +1768,23 @@ Locked 25-Q survey 2026-05-19 in
   neither → neither wins. Phase 12.22 throughput-aware override
   can still demote IPv6 if it's saturated. 1 test covers the
   full 4-quadrant table.
-- [ ] **12.16 Self-hosted DERP relay, default-on** — single relay
-  on the Host-role peer (Q4 single-region). Headscale DERP map
-  advertises `[self-hosted, tailscale-public]`. Headless-peer
-  capable.
+- [✓] **12.16 Self-hosted DERP relay, default-on** — shipped
+  2026-05-19. New systemd unit `data/systemd/mde-derper.service`
+  runs upstream Tailscale `derper` (`tailscale-derp` Fedora
+  package) under the dedicated `mde-derper` system user. Unit is
+  installed on every peer but only activates on the Host-role
+  peer (ConditionPathExists=/var/lib/mde/derper.enabled
+  marker); rollover-on-promotion happens by touching the marker
+  on the new Host. `--certmode=letsencrypt` by default with env-
+  file override; `--stun=true` so symmetric-NAT edges feed Phase
+  12.17. Capability lockdown: only CAP_NET_BIND_SERVICE,
+  ProtectSystem=strict, ProtectHome=true, NoNewPrivileges.
+  Resource caps: CPUQuota=200% / MemoryHigh=256M / MemoryMax=512M.
+  Example DERP map at `data/headscale/derp-map.example.json`
+  registers region 900 `mde-self` ahead of Tailscale public set
+  (which Headscale inherits automatically). 9 unit tests cover
+  the unit's gating, flags, lockdown, resource caps, and the
+  spec install lines for both files.
 - [ ] **12.17 ICE/STUN augmentation for symmetric-NAT edges** —
   ICE candidate gathering via STUN feeds Tailscale's endpoint
   advertising. Q8 deadline: gather under 1.5 s so total handshake

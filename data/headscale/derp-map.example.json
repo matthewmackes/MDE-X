@@ -1,0 +1,24 @@
+{
+  "_comment": "Phase 12.16 — example DERP map for MDE Headscale. Q4 locked single-region (Host-role peer hosts one self-hosted DERP server); Q16 lock keeps Tailscale's public DERP set in the list as fallback. The Host-role peer's hostname is plugged into the example below; rotate-on-promotion replaces it when the Host role moves.",
+
+  "Regions": {
+    "900": {
+      "RegionID": 900,
+      "RegionCode": "mde-self",
+      "RegionName": "MDE self-hosted",
+      "Nodes": [
+        {
+          "Name": "mde-self-1",
+          "RegionID": 900,
+          "HostName": "REPLACE-WITH-HOST-PEER-HOSTNAME",
+          "DERPPort": 443,
+          "STUNPort": 3478
+        }
+      ]
+    },
+
+    "_inherit_tailscale_public": {
+      "_comment": "Tailscale's public DERP regions (1..n) are inherited automatically by Headscale unless --derp-tailscale=false is set on the headscale daemon. The mde-self region above is appended ahead of them so the self-hosted relay is preferred when reachable; the public set is the fallback if self-hosted is down."
+    }
+  }
+}

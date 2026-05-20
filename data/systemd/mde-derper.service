@@ -1,0 +1,65 @@
+[Unit]
+Description=MDE DERP relay (self-hosted Tailscale DERP server)
+Documentation=https://tailscale.com/kb/1118/custom-derp-servers
+Documentation=file:///usr/share/mde/help/mesh-vpn.md
+After=network-online.target
+Wants=network-online.target
+
+# v12.16 lock: a single self-hosted DERP relay runs on the Host-role
+# peer per Q4 (single-region, 16-peer small-business fleet). The
+# ConditionPathExists guards startup to the peer that's been
+# provisioned as the Host role — installs on non-Host peers carry
+# the unit so the rollover-on-promotion path works, but it stays
+# inactive until the marker file lands.
+ConditionPathExists=/var/lib/mde/derper.enabled
+
+[Service]
+Type=simple
+# `derper` is the canonical Tailscale DERP server — ships in the
+# `tailscale-derp` Fedora package (Phase H spec adds it as a
+# Recommends so peers that want to self-host get it without
+# pulling it onto every peer).
+#
+# Flags:
+#   --hostname=$HOSTNAME — used for the certificate's CN; the
+#                          Headscale DERP map advertises the same
+#                          name so peers resolve the right
+#                          endpoint.
+#   --certmode=letsencrypt — automatic cert acquisition. Falls
+#                            back to --certmode=manual when the
+#                            env file overrides DERPER_CERTMODE.
+#   --stun=true            — also serve STUN on the same address
+#                            so peers behind symmetric NAT can
+#                            still measure their external endpoint
+#                            (feeds Phase 12.17).
+ExecStart=/usr/bin/derper \
+    --hostname=%H \
+    --certmode=${DERPER_CERTMODE:-letsencrypt} \
+    --stun=${DERPER_STUN:-true}
+
+EnvironmentFile=-/etc/mde/derper.env
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+
+User=mde-derper
+Group=mde-derper
+
+# DERP is a TCP relay; modest CPU + memory. Cap to keep one
+# misbehaving relay from starving the rest of the host.
+CPUQuota=200%
+MemoryHigh=256M
+MemoryMax=512M
+
+# Lockdown: relay only needs network sockets; nothing else.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

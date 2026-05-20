@@ -531,6 +531,13 @@ install -D -m 0755 target/release/mackesd \
     %{buildroot}%{_bindir}/mackesd
 install -D -m 0644 data/systemd/mackesd.service \
     %{buildroot}%{_unitdir}/mackesd.service
+
+# v12.16 — self-hosted DERP relay unit (only active on the Host-role
+# peer; gated by ConditionPathExists=/var/lib/mde/derper.enabled).
+install -D -m 0644 data/systemd/mde-derper.service \
+    %{buildroot}%{_unitdir}/mde-derper.service
+install -D -m 0644 data/headscale/derp-map.example.json \
+    %{buildroot}%{_datadir}/mde/headscale/derp-map.example.json
 cat > %{buildroot}%{_bindir}/mackes-clipboard <<'EOF'
 #!/usr/bin/env bash
 exec python3 -m mackes.clipboard_app "$@"
@@ -680,6 +687,12 @@ fi
 %{_unitdir}/mackes-node.service
 %{_unitdir}/mackes-tailscale-bootstrap.service
 %{_unitdir}/mackesd.service
+# v12.16 Self-hosted DERP relay unit. Inactive on non-Host peers
+# (gated by ConditionPathExists=/var/lib/mde/derper.enabled). Lands
+# alongside the headscale DERP-map example shipped under
+# %{_datadir}/mde/headscale/.
+%{_unitdir}/mde-derper.service
+%{_datadir}/mde/headscale/derp-map.example.json
 # v2.0.0 Phase B.13 retired 10 standalone systemd units (the 8
 # named services + 3 paired .timer files); their roles now run
 # inside `mackesd serve` as workers (Phase A.2 supervisor).
