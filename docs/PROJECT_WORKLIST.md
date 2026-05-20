@@ -1421,7 +1421,22 @@ group structure with one Iced view per panel.
   `install.py` is a curated-list installer. Captured as
   follow-ups below.
 
-- [ ] **CB-1.3 follow-up: install panel (Iced)** — port
+- [✓] **CB-1.3 follow-up: install panel (Iced) — shipped
+  2026-05-20** — replaces the v1.x curated-CATALOG +
+  preset-coupled installer with a simpler shape: a
+  free-form package text input + Install button, plus a
+  16-entry curated MDE recommendations grid baked into the
+  binary. The v1.x preset machinery is retired in v2.0.0;
+  this design replaces it without coupling. Installs run
+  via `pkexec dnf install -y <name>`. Pure
+  `validate_package_name` rejects shell-metacharacters
+  + empty/overlong input up-front. 12 unit tests (4
+  validate paths, RECOMMENDED non-empty, busy-guard for
+  Install + QuickInstall, Finished success/failure, name
+  mutation, validation surfaces). Workbench unit-test
+  count: 408 → 420.
+
+  **Original entry was:** port apps/install.py (178 LOC)
   `apps/install.py` (178 LOC) as a curated-app browser
   with click-to-install. Same pkexec dnf wrapper the
   installed + sources panels already use. Deferred from
