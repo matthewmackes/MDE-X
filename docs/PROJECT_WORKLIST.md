@@ -1944,9 +1944,20 @@ migrate` subcommand. Everything below is pending implementation.
   tests cover encode/decode, decode rejection, expiry threshold,
   remaining zero on expire, missing-file acquire, own-lease
   renew, force_take epoch bump.
-- [ ] **12.1.2 Service-layer split** — `service/`, `policy/`,
-  `store/`, `topology/`, `telemetry/`, `reconcile/`, `deploy/`,
-  `audit/`. One file per module; one trait per public surface.
+- [✓] **12.1.2 Service-layer split** — shipped 2026-05-20.
+  Existing flat modules (`policy.rs`, `store.rs`,
+  `topology.rs`, `telemetry.rs`, `reconcile.rs`, `audit.rs`)
+  converted to subdirectory form via `git mv foo.rs
+  foo/mod.rs` — public API unchanged (Rust treats the two
+  shapes identically) so no import-site updates needed. Two
+  new subdirs `service/` (cross-cutting facade traits) +
+  `deploy/` (fleet-deploy pipeline) ship with their own
+  `mod.rs` carrying the layout contract: one file per public
+  surface; new traits land in `service/`; new deploy code
+  lands in `deploy/`. SQL migration `include_str!` paths
+  fixed for the new `src/<mod>/mod.rs` depth. 512 mackesd
+  unit tests still green; matrix + integration suites
+  unchanged.
 - [✓] **12.1.3 Health check** — `crates/mackesd/src/health.rs`
   ships `HealthReport` value type (schema=1, leader flag,
   applied_revision, node/healthy/degraded/unreachable counts,

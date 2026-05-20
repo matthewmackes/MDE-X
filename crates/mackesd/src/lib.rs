@@ -11,6 +11,12 @@
 #![warn(missing_docs)]
 
 pub mod audit;
+// v2.0.0 Phase 12.1.2 — fleet deploy layer (sits on top of
+// store + service traits). One sub-module per concern: revision
+// push, rollback, Ansible-pull orchestration. Today the directory
+// is a contract; the concrete sub-modules arrive with their
+// matching Phase G items.
+pub mod deploy;
 pub mod enrollment;
 pub mod events;
 pub mod fleet;
@@ -43,6 +49,11 @@ pub mod reconciler_hook;
 pub mod reconcile;
 pub mod revisions;
 pub mod secrets;
+// v2.0.0 Phase 12.1.2 — service-layer facade traits. Cross-cutting
+// surfaces that combine policy + store + topology + telemetry +
+// reconcile + audit. New traits go here (one file per public
+// surface); existing flat modules above keep their concrete impls.
+pub mod service;
 pub mod settings;
 pub mod store;
 // v2.0.0 Phase 12.17 — STUN client for ICE candidate gathering. Gated

@@ -22,7 +22,7 @@ struct Migration {
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
-        sql: include_str!("../migrations/0001_init.sql"),
+        sql: include_str!("../../migrations/0001_init.sql"),
     },
     // v2.0.0 Phase A.4 (locked 2026-05-19) — adds the settings,
     // fleet_settings_apply_log, session_state, and notifications
@@ -30,7 +30,7 @@ const MIGRATIONS: &[Migration] = &[
     // Phase 12 tables are unchanged.
     Migration {
         version: 2,
-        sql: include_str!("../migrations/0002_settings_session.sql"),
+        sql: include_str!("../../migrations/0002_settings_session.sql"),
     },
 ];
 
