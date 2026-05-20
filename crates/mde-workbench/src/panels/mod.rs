@@ -15,6 +15,7 @@ pub mod playbooks;
 pub mod power;
 pub mod printers;
 pub mod removable;
+pub mod run_history;
 pub mod session;
 pub mod sound;
 pub mod themes;

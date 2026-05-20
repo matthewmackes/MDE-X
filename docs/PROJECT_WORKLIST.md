@@ -3525,11 +3525,55 @@ under `LICENSES/`.
   "playbooks run <name> --peers <sel>" emits a desired_config
   revision that the reconcile loop picks up).
 
-- [ ] **CB-1.5.c Fleet run_history panel (Iced)** — port
-  `mackes/workbench/fleet/run_history.py`. Needs `mded
-  ansible-history list --json` + per-row detail-view of
-  the ansible-pull output. Acceptance: scrollable list of
-  past runs with status + per-peer outcome.
+- [✓] **CB-1.5.c Fleet run_history panel (Iced) — shipped
+  2026-05-20** — port of `mackes/workbench/fleet/run_history.py`
+  to Iced. New `crates/mde-workbench/src/panels/run_history.rs`
+  walks `$QNM_SHARED_ROOT/.qnm-sync/ansible-runs/<peer>/*.json`
+  (same filesystem source the v1.x Python panel reads through
+  `mackes.fleet.list_runs`) and renders a 6-column table:
+  peer / playbook / when (formatted ts) / exit / changed /
+  trigger + per-row Detail button.
+
+  The worklist sketch called for a new `mded ansible-history
+  list --json` subcommand; this ship rejects that and reads
+  the filesystem directly, matching how CB-1.5.b handled the
+  playbook directory. Rationale: the JSON files are
+  whole-file-replicated by QNM-Sync to every peer, so the
+  reading peer has the data locally — no need to add a daemon
+  surface. The mded subcommand alternative is captured as a
+  follow-up if a future design needs a leader-aggregated view.
+
+  Drill-in detail view shows exit/changed/ok/failed/trigger
+  summary + the full raw_json payload in a scrollable
+  container. Row sort: timestamp descending (newest first).
+  Empty state ("No runs recorded") with instructions to run
+  a playbook from Fleet → Playbooks first.
+
+  Pure helpers isolated for testability: `parse_run_record`
+  (peer, path, raw JSON → Option<RunRow>), `format_ts`
+  (epoch seconds → YYYY-MM-DD HH:MM Z), `days_to_ymd`
+  (Howard Hinnant civil-from-days). The epoch-formatter
+  avoids the chrono dep — the panel only needs ascending
+  sort + a human-readable display, neither of which
+  needs tz handling.
+
+  11 new unit tests (parse_run_record: 3 covering
+  full-shape / missing-fields / non-object-reject,
+  format_ts: 2 covering epoch-zero / known-timestamp,
+  days_to_ymd anchor dates, 4 reducer paths covering
+  Loaded / Error / FocusRow / Back, tokio
+  collect_runs_missing_dir test). Workbench unit-test
+  count: 226 → 237.
+
+  CB-1.5 group is now complete: settings + revisions
+  (earlier partial), inventory (CB-1.5.a), playbooks
+  (CB-1.5.b), run_history (CB-1.5.c).
+
+- [ ] **CB-1.5.c follow-up: `mded ansible-history list --json`
+  for leader-aggregated view** — captured if a future design
+  needs the leader peer to surface the union of every peer's
+  run history (today each peer renders only what QNM-Sync
+  has replicated locally — already the union in practice).
 
 - [✓] **CB-1.4.a Devices displays panel (Iced) — shipped
   2026-05-20** — port of `mackes/workbench/devices/displays.py`

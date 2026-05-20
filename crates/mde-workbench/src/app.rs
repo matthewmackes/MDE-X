@@ -19,8 +19,9 @@ use crate::panels::{
     displays as displays_panel, fleet_revisions as fleet_revisions_panel,
     fleet_settings as fleet_settings_panel, fonts as fonts_panel, inventory as inventory_panel,
     notifications as notifications_panel, playbooks as playbooks_panel, power as power_panel,
-    printers as printers_panel, removable as removable_panel, session as session_panel,
-    sound as sound_panel, themes as themes_panel, wallpaper as wallpaper_panel,
+    printers as printers_panel, removable as removable_panel, run_history as run_history_panel,
+    session as session_panel, sound as sound_panel, themes as themes_panel,
+    wallpaper as wallpaper_panel,
 };
 use crate::patternfly::{breadcrumb, page_subtitle, page_title};
 use crate::sidebar::SidebarState;
@@ -80,6 +81,8 @@ pub enum Message {
     Inventory(inventory_panel::Message),
     /// CB-1.5.b — Fleet playbooks panel sub-message.
     Playbooks(playbooks_panel::Message),
+    /// CB-1.5.c — Fleet run-history panel sub-message.
+    RunHistory(run_history_panel::Message),
     /// CB-1.5 partial — Fleet settings panel sub-message.
     FleetSettings(fleet_settings_panel::Message),
     /// CB-1.5 partial — Fleet revisions panel sub-message.
@@ -109,6 +112,7 @@ pub struct App {
     printers: printers_panel::PrintersPanel,
     inventory: inventory_panel::InventoryPanel,
     playbooks: playbooks_panel::PlaybooksPanel,
+    run_history: run_history_panel::RunHistoryPanel,
     fleet_settings: fleet_settings_panel::FleetSettingsPanel,
     fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel,
     wallpaper: wallpaper_panel::WallpaperPanel,
@@ -161,6 +165,7 @@ impl App {
             printers: printers_panel::PrintersPanel::new(),
             inventory: inventory_panel::InventoryPanel::new(),
             playbooks: playbooks_panel::PlaybooksPanel::new(),
+            run_history: run_history_panel::RunHistoryPanel::new(),
             fleet_settings: fleet_settings_panel::FleetSettingsPanel::new(),
             fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel::new(),
             wallpaper: wallpaper_panel::WallpaperPanel::new(),
@@ -252,6 +257,12 @@ impl App {
     #[must_use]
     pub fn playbooks(&self) -> &playbooks_panel::PlaybooksPanel {
         &self.playbooks
+    }
+
+    /// Read-only view of the run-history panel state.
+    #[must_use]
+    pub fn run_history(&self) -> &run_history_panel::RunHistoryPanel {
+        &self.run_history
     }
 
     /// Read-only view of the fleet settings panel state.
@@ -354,6 +365,7 @@ impl App {
             Message::PrintersRefresh => printers_panel::PrintersPanel::load(),
             Message::Inventory(msg) => self.inventory.update(msg),
             Message::Playbooks(msg) => self.playbooks.update(msg),
+            Message::RunHistory(msg) => self.run_history.update(msg),
             Message::FleetSettings(msg) => self.fleet_settings.update(msg),
             Message::FleetRevisions(msg) => self.fleet_revisions.update(msg),
             Message::Wallpaper(msg) => self.wallpaper.update(msg, self.backend()),
@@ -382,6 +394,7 @@ impl App {
             (Group::Devices, "printers") => printers_panel::PrintersPanel::load(),
             (Group::Fleet, "inventory") => inventory_panel::InventoryPanel::load(),
             (Group::Fleet, "playbooks") => playbooks_panel::PlaybooksPanel::load(),
+            (Group::Fleet, "run_history") => run_history_panel::RunHistoryPanel::load(),
             (Group::Fleet, "revisions") => fleet_revisions_panel::FleetRevisionsPanel::load(),
             // Fleet settings has no Load — it's a push-only
             // surface, so navigation doesn't fan a refresh.
@@ -517,6 +530,10 @@ impl App {
                 group: Group::Fleet,
                 panel: "playbooks",
             } => self.playbooks.view(),
+            View::Panel {
+                group: Group::Fleet,
+                panel: "run_history",
+            } => self.run_history.view(),
             View::Panel {
                 group: Group::Fleet,
                 panel: "settings",
