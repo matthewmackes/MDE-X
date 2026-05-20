@@ -16,7 +16,8 @@ use crate::dbus::PendingFocus;
 use crate::keyboard::{KeyAction, Pane};
 use crate::model::{view_from_focus_slug, Group, View};
 use crate::panels::{
-    datetime as datetime_panel, default_apps as default_apps_panel, displays as displays_panel,
+    apps_installed as apps_installed_panel, datetime as datetime_panel,
+    default_apps as default_apps_panel, displays as displays_panel,
     fleet_revisions as fleet_revisions_panel, fleet_settings as fleet_settings_panel,
     fonts as fonts_panel, inventory as inventory_panel, logs as logs_panel,
     notifications as notifications_panel, playbooks as playbooks_panel, power as power_panel,
@@ -101,6 +102,8 @@ pub enum Message {
     SystemUpdate(system_update_panel::Message),
     /// CB-1.7 partial — Maintain repair panel sub-message.
     Repair(repair_panel::Message),
+    /// CB-1.3 partial — Apps → Installed panel sub-message.
+    AppsInstalled(apps_installed_panel::Message),
     /// CB-1.5 partial — Fleet settings panel sub-message.
     FleetSettings(fleet_settings_panel::Message),
     /// CB-1.5 partial — Fleet revisions panel sub-message.
@@ -139,6 +142,7 @@ pub struct App {
     resources: resources_panel::ResourcesPanel,
     system_update: system_update_panel::SystemUpdatePanel,
     repair: repair_panel::RepairPanel,
+    apps_installed: apps_installed_panel::AppsInstalledPanel,
     fleet_settings: fleet_settings_panel::FleetSettingsPanel,
     fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel,
     wallpaper: wallpaper_panel::WallpaperPanel,
@@ -200,6 +204,7 @@ impl App {
             resources: resources_panel::ResourcesPanel::new(),
             system_update: system_update_panel::SystemUpdatePanel::new(),
             repair: repair_panel::RepairPanel::new(),
+            apps_installed: apps_installed_panel::AppsInstalledPanel::new(),
             fleet_settings: fleet_settings_panel::FleetSettingsPanel::new(),
             fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel::new(),
             wallpaper: wallpaper_panel::WallpaperPanel::new(),
@@ -347,6 +352,12 @@ impl App {
         &self.repair
     }
 
+    /// Read-only view of the apps-installed panel state.
+    #[must_use]
+    pub fn apps_installed(&self) -> &apps_installed_panel::AppsInstalledPanel {
+        &self.apps_installed
+    }
+
     /// Read-only view of the fleet settings panel state.
     #[must_use]
     pub fn fleet_settings(&self) -> &fleet_settings_panel::FleetSettingsPanel {
@@ -456,6 +467,7 @@ impl App {
             Message::Resources(msg) => self.resources.update(msg),
             Message::SystemUpdate(msg) => self.system_update.update(msg),
             Message::Repair(msg) => self.repair.update(msg),
+            Message::AppsInstalled(msg) => self.apps_installed.update(msg),
             Message::FleetSettings(msg) => self.fleet_settings.update(msg),
             Message::FleetRevisions(msg) => self.fleet_revisions.update(msg),
             Message::Wallpaper(msg) => self.wallpaper.update(msg, self.backend()),
@@ -492,6 +504,7 @@ impl App {
             (Group::Maintain, "logs") => logs_panel::LogsPanel::load(),
             (Group::Maintain, "resources") => resources_panel::ResourcesPanel::load(),
             (Group::Maintain, "system_update") => system_update_panel::SystemUpdatePanel::load(),
+            (Group::Apps, "installed") => apps_installed_panel::AppsInstalledPanel::load(),
             (Group::Fleet, "revisions") => fleet_revisions_panel::FleetRevisionsPanel::load(),
             // Fleet settings has no Load — it's a push-only
             // surface, so navigation doesn't fan a refresh.
@@ -663,6 +676,10 @@ impl App {
                 group: Group::Maintain,
                 panel: "repair",
             } => self.repair.view(),
+            View::Panel {
+                group: Group::Apps,
+                panel: "installed",
+            } => self.apps_installed.view(),
             View::Panel {
                 group: Group::Fleet,
                 panel: "settings",
