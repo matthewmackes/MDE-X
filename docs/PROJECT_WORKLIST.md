@@ -3761,7 +3761,22 @@ under `LICENSES/`.
   (earlier partial), inventory (CB-1.5.a), playbooks
   (CB-1.5.b), run_history (CB-1.5.c).
 
-- [ ] **CB-1.5.c follow-up: `mded ansible-history list --json`
+- [✓] **CB-1.5.c follow-up: `mded ansible-history list --json`
+  (shipped 2026-05-20)** — new subcommand pair added to
+  `crates/mackesd/src/bin/mackesd.rs`: `Cmd::AnsibleHistory
+  { cmd: AnsibleHistoryCmd::List { json } }`. Handler walks
+  `$QNM_SHARED_ROOT/.qnm-sync/ansible-runs/<peer>/*.json`
+  (same resolution as the panel's `ansible_runs_root`),
+  injects the peer name + source path into each row,
+  sorts by timestamp DESC, and emits either a JSON array
+  or a 6-column human-readable table. Useful for headless /
+  leader-aggregated views where QNM-Sync isn't running on
+  the reading peer. The Iced run-history panel keeps
+  reading the filesystem directly (no behaviour change);
+  this CLI surface exists for ops + future leader-only
+  dashboards. cargo check workspace clean.
+
+  **Original entry was:** `mded ansible-history list --json`
   for leader-aggregated view** — captured if a future design
   needs the leader peer to surface the union of every peer's
   run history (today each peer renders only what QNM-Sync
