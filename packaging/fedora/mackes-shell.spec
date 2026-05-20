@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-xfce-workstation
-Version:        1.1.2
+Version:        1.1.3
 Release:        1%{?dist}
 Summary:        Mackes XFCE Workstation — unified shell, panel, dock, and mesh for Fedora
 
@@ -35,7 +35,19 @@ Provides:       mde = %{version}-%{release}
 # already-installed nodes). The `< 999` upper-bound silences the
 # rpmlint unversioned-Obsoletes warning while still covering every
 # real-world version (current xfce4-panel is 4.20.x).
-Obsoletes:      xfce4-panel < 999
+#
+# xfce4-panel is INTENTIONALLY NOT Obsoleted (1.1.3 fix): the C
+# panel-plugin under data/panel-plugins/mackes-clipboard/ still
+# links libxfce4panel-2.0.so.4, which only the xfce4-panel
+# package provides. Obsoleting the package nukes the library and
+# breaks our own auto-detected Requires line. The runtime
+# behaviour the Obsoletes was reaching for (no xfce4-panel
+# process running) is already covered by the autostart override
+# at /etc/xdg/autostart/mackes-suppress-xfce4-panel.desktop
+# (Hidden=true) plus the apply_panel_swap birthright step. The
+# library + .desktop files on disk are harmless when xfce4-panel
+# never starts. v2.0.0's monolithic cut retires the C plugin
+# entirely; at that point the Obsoletes can return.
 Obsoletes:      xfdesktop < 999
 Obsoletes:      xfce4-whiskermenu-plugin < 999
 Obsoletes:      xfce4-docklike-plugin < 999

@@ -35,8 +35,10 @@ from unittest.mock import patch
 # ---------------------------------------------------------------------------
 
 
+# 1.1.3 — xfce4-panel dropped from the tuple (the C panel-plugin
+# in data/panel-plugins/mackes-clipboard/ still links its library;
+# removing the package would break our own RPM's link line).
 _LEGACY = (
-    "xfce4-panel",
     "xfdesktop",
     "xfce4-whiskermenu-plugin",
     "xfce4-docklike-plugin",
@@ -253,10 +255,12 @@ def test_emits_canonical_dnf_remove_command():
     captured_root: List[list] = []
 
     def fake_run(cmd, *, timeout=60):
-        # Pretend xfce4-panel + xfdesktop are installed; the rest aren't.
+        # Pretend xfdesktop + xfce4-whiskermenu-plugin are installed
+        # (xfce4-panel is no longer in the canonical tuple — see the
+        # 1.1.3 changelog).
         if cmd[:2] == ["rpm", "-q"]:
-            if cmd[2] in ("xfce4-panel", "xfdesktop"):
-                return 0, "xfce4-panel-4.x"
+            if cmd[2] in ("xfdesktop", "xfce4-whiskermenu-plugin"):
+                return 0, f"{cmd[2]}-4.x"
             return 1, "package not installed"
         return 0, ""
 
@@ -300,7 +304,7 @@ def test_emits_canonical_dnf_remove_command():
     assert "uninstall-legacy-xfce: removed" in joined, joined
     # The action log should mention what was actually installed (not the
     # whole canonical list) so the user sees what dnf actually dropped.
-    assert "xfce4-panel" in joined and "xfdesktop" in joined, joined
+    assert "xfdesktop" in joined and "xfce4-whiskermenu-plugin" in joined, joined
 
 
 # ---------------------------------------------------------------------------
@@ -319,8 +323,8 @@ def test_dnf_failure_is_reported_not_raised():
     captured: List[list] = []
 
     def fake_run(cmd, *, timeout=60):
-        if cmd[:2] == ["rpm", "-q"] and cmd[2] == "xfce4-panel":
-            return 0, "xfce4-panel-4.x"
+        if cmd[:2] == ["rpm", "-q"] and cmd[2] == "xfdesktop":
+            return 0, "xfdesktop-4.x"
         if cmd[:2] == ["rpm", "-q"]:
             return 1, ""
         return 0, ""
@@ -358,9 +362,11 @@ def test_dnf_failure_is_reported_not_raised():
 # ---------------------------------------------------------------------------
 
 
-def test_spec_obsoletes_all_six_legacy_packages():
+def test_spec_obsoletes_every_legacy_package_in_tuple():
     """The spec must Obsolete every package the runtime step removes,
-    so `dnf install mackes-xfce-workstation` cleans them up on upgrade."""
+    so `dnf install mackes-xfce-workstation` cleans them up on upgrade.
+    xfce4-panel is intentionally absent from both _LEGACY and the
+    spec Obsoletes — see 1.1.3 changelog."""
     repo_root = Path(__file__).resolve().parent.parent
     spec_path = repo_root / "packaging" / "fedora" / "mackes-shell.spec"
     text = spec_path.read_text(encoding="utf-8")

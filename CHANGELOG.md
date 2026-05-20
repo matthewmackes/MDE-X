@@ -3,6 +3,37 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.1.3 — Install fix + Iced MDE Workbench preview (2026-05-20)
+
+Install regression — 1.1.0/1.1.1/1.1.2 RPMs failed to install
+on a fresh Fedora 44 box with:
+
+> conflicting requests
+> mackes-xfce-workstation requires libxfce4panel-2.0.so.4 but
+> obsoletes xfce4-panel < 999 (the only provider).
+
+Root cause: the C panel-plugin under
+`data/panel-plugins/mackes-clipboard/` links
+`libxfce4panel-2.0.so.4`, which only the `xfce4-panel` package
+provides. The spec was Obsoleting xfce4-panel at the same time —
+which made the package un-installable end-to-end.
+
+Fix: removed `Obsoletes: xfce4-panel < 999` from the spec and
+dropped `xfce4-panel` from the `_LEGACY_XFCE_PACKAGES` tuple in
+`apply_uninstall_legacy_xfce`. The xfce4-panel binary stays
+suppressed via the existing
+`/etc/xdg/autostart/mackes-suppress-xfce4-panel.desktop`
+override (the runtime behaviour the Obsoletes was reaching
+for); only its on-disk library + .desktop files remain so the
+linked C plugin keeps its library provider. v2.0.0's monolithic
+cut retires the C plugin entirely and can restore the
+Obsoletes then.
+
+The other 5 Obsoletes (xfdesktop, xfce4-whiskermenu-plugin,
+xfce4-docklike-plugin, xfce4-pulseaudio-plugin,
+xfce4-power-manager-plugin) stay — none of those provide
+shared libraries we link.
+
 ## 1.1.2 — Iced MDE Workbench preview (2026-05-20)
 
 First v2.0.0-line preview shipped inside a v1.x point release.

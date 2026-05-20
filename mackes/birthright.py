@@ -1689,8 +1689,17 @@ def apply_user_dirs(_preset: Preset) -> List[str]:
 # Fedora 44+ folded it into the parent xfce4-power-manager package — dnf
 # treats a remove of a missing package as a no-op rather than an error,
 # so listing it is harmless on newer Fedoras and correct on older ones.
+# 1.1.3 fix — xfce4-panel intentionally omitted: the C panel-plugin
+# under data/panel-plugins/mackes-clipboard/ still links
+# libxfce4panel-2.0.so.4, which only the xfce4-panel package
+# provides. Removing it would break the linked binary. The spec
+# Obsoletes for xfce4-panel was dropped for the same reason. The
+# panel's process is already suppressed via the autostart override
+# at /etc/xdg/autostart/mackes-suppress-xfce4-panel.desktop, so
+# leaving the on-disk files in place is harmless. v2.0.0's
+# monolithic cut retires the C plugin entirely; xfce4-panel can
+# be re-added to this tuple at that point.
 _LEGACY_XFCE_PACKAGES: tuple[str, ...] = (
-    "xfce4-panel",
     "xfdesktop",
     "xfce4-whiskermenu-plugin",
     "xfce4-docklike-plugin",

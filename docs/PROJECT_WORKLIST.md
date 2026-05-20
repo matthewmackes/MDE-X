@@ -3363,6 +3363,24 @@ under `LICENSES/`.
 
 ## Follow-ups from in-flight work
 
+- [✓] **1.1.3 install regression fix (2026-05-20)** — RPMs from
+  1.1.0 / 1.1.1 / 1.1.2 failed to install on a fresh Fedora 44
+  box: spec `Obsoletes: xfce4-panel < 999` collided with our
+  own auto-detected `Requires: libxfce4panel-2.0.so.4`
+  (provided only by the `xfce4-panel` package — needed by the
+  C panel-plugin under `data/panel-plugins/mackes-clipboard/`).
+  Fix: dropped `Obsoletes: xfce4-panel < 999` from the spec
+  and dropped `xfce4-panel` from `_LEGACY_XFCE_PACKAGES` in
+  `mackes/birthright.py`. The autostart suppression override
+  still keeps the xfce4-panel process from starting; only its
+  on-disk library + .desktop files remain. The other 5
+  Obsoletes (xfdesktop + 4 plugins) stay — none provide
+  shared libraries we link. The v2.0.0 monolithic cut retires
+  the C plugin entirely; at that point the Obsoletes can
+  return.
+
+
+
 - [ ] **CB-1.5.a Fleet inventory panel (Iced)** — port
   `mackes/workbench/fleet/inventory.py`. Needs a node-roster
   subcommand on mded — likely `mded nodes list --json`
