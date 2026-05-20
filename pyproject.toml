@@ -38,7 +38,10 @@ Source   = "https://github.com/mattmacke/mackes-shell"
 Issues   = "https://github.com/mattmacke/mackes-shell/issues"
 
 [tool.setuptools.packages.find]
-include = ["mackes*"]
+# v2.0.0 Phase 0.10 — `mde` ships as a thin re-export facade over
+# `mackes` during the back-compat window so new code can call
+# `from mde.X import …`.
+include = ["mackes*", "mde"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

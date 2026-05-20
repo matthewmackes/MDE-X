@@ -227,10 +227,25 @@ binary symlink) and in CHANGELOG history.
   install.sh asset-name resolver already accept both
   `mackes-shell-*.rpm` and `mde-*.rpm` patterns via the prefix
   fallback shipped in commit 6869356.
-- [ ] **0.10 Python package rename (transitional)** — `mackes/`
-  → `mde/` for whatever Python sliver survives the Rust port
-  (Phase F Workbench panels). `from mackes.X` → `from mde.X`
-  sweep. `pyproject.toml` / `setup.py` `name = "mde"`.
+- [✓] **0.10 Python package rename (transitional)** — shipped
+  2026-05-20. New `mde/__init__.py` ships as a thin re-export
+  facade over the legacy `mackes` package during the v2.0.0
+  back-compat window. The facade walks a locked
+  `_FACADE_SUBMODULES` list, imports each `mackes.X`, registers
+  it under both `mackes.X` and `mde.X` in `sys.modules`, and
+  sets the attribute on the `mde` package so both
+  `from mde import X` and `mde.X` work without a prior import.
+  `mde.__version__` mirrors `mackes.__version__` (one source of
+  truth for the cut-release flow). New `from mde.X` callers can
+  land in any file without touching the existing `from mackes.X`
+  call sites — both routes resolve to the same underlying module
+  object for top-level submodules. `pyproject.toml` +
+  `setup.py` include the new package in `packages.find`. 10 unit
+  tests pin the contract (import OK, version mirror, identity
+  aliasing, three-level nested-path file equivalence, callable
+  identity, optional-module skip, canonical-submodule
+  presence). The `name = "mde"` rename in `[project]` waits for
+  the cut commit so the back-compat window stays clean.
 - [✓] **0.11 User-visible string sweep** — 2026-05-19. Workbench
   breadcrumb roots flipped from "Mackes Shell" → "MDE" across
   every panel: `help`, `apps/sources`, `apps/panel`,

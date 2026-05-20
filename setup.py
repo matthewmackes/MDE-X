@@ -25,7 +25,12 @@ setup(
     author_email="matthewmackes@gmail.com",
     url="https://github.com/mattmacke/mackes-shell",
     license="GPL-3.0",
-    packages=find_packages(include=["mackes", "mackes.*"]),
+    # v2.0.0 Phase 0.10 — `mde` ships as a thin re-export facade
+    # over `mackes` during the back-compat window. The facade
+    # itself is a one-file package (no submodules in-tree) but the
+    # package needs to be listed so setuptools installs the
+    # __init__.py that aliases sys.modules at import time.
+    packages=find_packages(include=["mackes", "mackes.*", "mde"]),
     python_requires=">=3.10",
     install_requires=["PyYAML"],
     entry_points={
