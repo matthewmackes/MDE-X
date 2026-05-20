@@ -585,16 +585,44 @@ panel starts without manual intervention.
 
 #### Phase D — Sway hard-switch + `mackes-session`
 
-- [ ] **D.1 `crates/mackes-session/` skeleton** — new crate, ~300 LOC
-  main.rs. Iced + libcosmic for dialogs. zbus 5 for
-  `org.mackes.Session.{Logout,Restart,Shutdown,Lock,SaveLayout}`.
-- [ ] **D.2 Iced logout/restart/shutdown dialog** — `src/dialog.rs`.
-  Replaces the GTK Carbon modal.
-- [ ] **D.3 Autostart honoring** — `src/autostart.rs`. Reads
-  `~/.config/autostart/*.desktop` + `OnlyShowIn=mackes` /
-  `NotShowIn`. Calls into `org.mackes.Settings.autostart`.
-- [ ] **D.4 swaylock integration** — `src/lock.rs`. Configurable
-  lock command.
+- [✓] **D.1 `crates/mde-session/` skeleton** — new crate (renamed
+  per Phase 0.4) ships under `crates/mde-session/` with main.rs +
+  session.rs + lock.rs + autostart.rs (~400 LOC). main spawns the
+  compositor (default `sway`, override via `$MDE_COMPOSITOR`),
+  registers `dev.mackes.MDE.Session` on the session bus, and
+  blocks until SIGTERM / SIGINT / compositor-exit, then cleans up.
+  session.rs implements the zbus interface for Logout / Restart /
+  Shutdown / Lock / SaveLayout — Logout signals the parent via
+  SIGTERM (workspace forbids unsafe, so this is via `kill -TERM
+  $pid` rather than libc::kill). SaveLayout runs `swaymsg -t
+  get_tree` and writes to `$XDG_CACHE_HOME/mde/session-layout.json`.
+  Iced + libcosmic for the logout / restart / shutdown
+  CONFIRMATION dialog (D.2) lives in a separate process so this
+  binary stays Iced-free + boots fast.
+- [ ] **D.2 Iced logout/restart/shutdown dialog** — `src/dialog.rs`
+  in `crates/mde-logout-dialog/`. Replaces the GTK Carbon modal.
+  Gated on adopting Iced + libcosmic (substantial dep tree); the
+  D.1 skeleton has the SIGTERM-on-Logout path the dialog will
+  call so the surface is ready.
+- [✓] **D.3 Autostart honoring** — `crates/mde-session/src/autostart.rs`
+  ships pure helpers `parse_desktop_entry` (default-group parser
+  that ignores comments / blank lines / non-default groups),
+  `should_launch` (honors Hidden=true, OnlyShowIn=, NotShowIn=
+  against the `MDE` desktop-environment name, requires Exec=),
+  `strip_exec_field_codes` (drops %U/%F/%i/etc per XDG spec),
+  `autostart_dirs` (user honors $XDG_CONFIG_HOME, system =
+  /etc/xdg/autostart). `launch_user_autostart()` walks all dirs,
+  user entries shadow system, each survivor spawned via
+  `sh -c '<exec>'` detached. 7 unit tests cover the parser +
+  filter + field-code stripper.
+- [✓] **D.4 swaylock integration** — `crates/mde-session/src/lock.rs`
+  ships `DEFAULT_LOCK_CMD = "swaylock --color 000000"`,
+  `lock_command_string()` reads `$MDE_LOCK_CMD` (with
+  `$MACKES_LOCK_CMD` Phase 0.6 fallback) and defaults to the
+  swaylock command when unset. `run_lock_command()` spawns via
+  `sh -c` so the env-var can include shell flags. 5 tests cover
+  the default, env-var override, legacy fallback,
+  whitespace-treated-as-unset.
 - [✓] **D.5 Sway config — port `data/i3/` → `data/sway/`** —
   - `data/sway/config` (140 lines) — top-level include chain
     mirrors the i3 file shape: same Mod4 prefix, font, gaps,

@@ -1,0 +1,37 @@
+[package]
+name         = "mde-session"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+description  = "MDE user-session orchestrator — execs sway + owns the dev.mackes.MDE.Session DBus surface"
+
+[[bin]]
+name = "mde-session"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime — tokio for the zbus connection + signal handling.
+tokio = { version = "1", features = ["full"] }
+# DBus surface: dev.mackes.MDE.Session = { Logout, Restart,
+# Shutdown, Lock, SaveLayout }. zbus 5 with tokio integration.
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+async-trait = "0.1"
+# Error context for the SaveLayout path that touches the filesystem.
+anyhow = "1"
+# Structured logging — journald reads JSON spans from stderr when
+# the unit's StandardError=journal.
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# Reads + writes settings sidecars during session bring-up.
+mackesd-core = { package = "mackesd", path = "../mackesd", features = ["async-services"] }
+# XDG path resolution (same crate mackesd uses).
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

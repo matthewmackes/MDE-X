@@ -2995,6 +2995,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mde-session"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dirs",
+ "mackesd",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
