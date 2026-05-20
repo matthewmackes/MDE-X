@@ -1422,29 +1422,17 @@ group structure with one Iced view per panel.
   per-sink volume + mute (CB-1.4.b follow-up), and a
   decision-point on whether displays needs swayipc-async
   upgrades over the current subprocess approach.
-- [>] **CB-1.5 Fleet group port (5 panels)** —
-  `{inventory.py, playbooks.py, run_history.py, settings.py,
-  revisions.py}`. F.11 + F.12 already shipped the Python-side
-  `mded` bridge; Iced port calls the same `dev.mackes.MDE.Fleet.*`
-  surface directly. **Partial progress 2026-05-20:** settings
-  + revisions Iced panels shipped in
-  `crates/mde-workbench/src/panels/{fleet_settings,
-  fleet_revisions}.rs`. Both shell out to `mded` via
-  `tokio::process::Command` (matches the F.11 / F.12 Python
-  patterns), with pure-fn arg builders + JSON parser exposed
-  for tests. fleet_settings ships key / value_json / peers
-  text_inputs + Push button (empty key or value blocks before
-  the subprocess fires; empty peers collapses to "all").
-  fleet_revisions ships a Refresh button + scrollable
-  per-revision row list + inline Rollback button on each row
-  (busy guard so a refresh-in-flight doesn't race a rollback
-  click). `mded`-not-on-PATH surfaces a friendly install
-  hint via the shared `run_mded` helper. App wired both via
-  `Message::{FleetSettings, FleetRevisions}` + view dispatch
-  keyed on `(Group::Fleet, "settings"|"revisions")`; revisions
-  fires `load()` on navigation; settings has no load (push-
-  only surface). Remaining 3 panels (inventory, playbooks,
-  run_history) blocked on the follow-up backend items below.
+- [✓] **CB-1.5 Fleet group port (5 panels) — complete
+  2026-05-20** — all 5 panels shipped: settings + revisions
+  (partial earlier — shell out to mded), inventory
+  (CB-1.5.a — new `mded nodes list --json` + Iced roster
+  with health-coloured rows + peers-why drill-in),
+  playbooks (CB-1.5.b — direct QNM-Shared filesystem walk
+  + per-role local Run button), run_history (CB-1.5.c —
+  direct QNM-Shared filesystem walk + 6-column table +
+  per-row JSON drill-in). Two follow-ups carry the cross-
+  peer dispatch + leader-aggregated history paths that
+  the group acceptance didn't gate (each captured below).
 - [✓] **CB-1.6 Look & Feel group port (3 panels)** — shipped
   2026-05-20. Iced themes + fonts panels land in
   `crates/mde-workbench/src/panels/{themes,fonts}.rs`; the
@@ -3662,16 +3650,35 @@ under `LICENSES/`.
   select-while-busy noop, Applied + Error reducer paths).
   Workbench unit-test count: 193 → 204.
 
-- [ ] **CB-1.9.a System datetime panel (Iced)** — port
-  `mackes/workbench/system/datetime.py` to Iced. Needs a new
-  backend surface for the timedatectl/NTP plumbing (the v1.x
-  panel shells out to timedatectl + reads /etc/localtime
-  symlink). Either ship `dev.mackes.MDE.System.DateTime`
-  (zbus) with `set_timezone(tz)` / `set_ntp(bool)` /
-  `current_status()` returning `(tz, ntp_active, rtc_in_utc)`
-  OR have the Iced panel subprocess `timedatectl` directly.
-  Acceptance: time-zone combo + NTP toggle + RTC-in-UTC
-  checkbox in the workbench, save round-trips correctly.
+- [✓] **CB-1.9.a System datetime panel (Iced) — shipped
+  2026-05-20** — port of `mackes/workbench/system/datetime.py`
+  to Iced. New `crates/mde-workbench/src/panels/datetime.rs`
+  shells out to `timedatectl` directly (rejected the
+  `dev.mackes.MDE.System.DateTime` zbus alternative for the
+  same reason every CB-1.x panel rejects new mded subcommands:
+  timedatectl is the canonical Linux interface, polkit gates
+  the privileged actions, no daemon-side wrapper buys us
+  anything except latency).
+
+  Three controls: timezone pick_list (from
+  `timedatectl list-timezones`, ~600 entries), NTP checkbox
+  (`timedatectl set-ntp true|false`), RTC-mode display row
+  (read-only — surfaces "UTC (recommended)" vs "local time").
+  Set-time-manually intentionally omitted per the Python
+  panel rationale.
+
+  Pure helpers isolated for testability: `parse_status(raw)`
+  (multi-line key-value greps forgivingly so the parser
+  survives systemd version drift), `parse_timezones(raw)`
+  (one-per-line + blank-line filter). Empty state
+  ("timedatectl unavailable") for non-systemd hosts.
+
+  12 new unit tests (parse_status: 3 covering typical /
+  rtc-in-local-tz-yes / unknown-defaults, parse_timezones:
+  2 covering extraction + empty input, 3 Loaded paths
+  covering unknown-tz fallback + known-tz preserve +
+  timedatectl-unavailable, 4 reducer paths). Workbench
+  unit-test count: 237 → 249.
 
 - [ ] **CB-1.9.b System default_apps panel (Iced)** — port
   `mackes/workbench/system/default_apps.py`. Reads + writes

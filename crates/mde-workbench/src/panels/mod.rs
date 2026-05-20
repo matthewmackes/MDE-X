@@ -4,6 +4,7 @@
 //! the parent app's `Message`, and a `view` builder over
 //! [`Element<'_, crate::Message>`].
 
+pub mod datetime;
 pub mod displays;
 pub mod fleet_revisions;
 pub mod fleet_settings;
