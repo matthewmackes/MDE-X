@@ -215,54 +215,54 @@ def apply_appearance(preset: Preset) -> list[str]:
 
 
 def apply_devices(preset: Preset) -> list[str]:
-    from mackes.xfconf_bridge import get_bridge, XfconfError
+    # v2.0.0 Phase C.13 — preset device-settings now route through
+    # mde_settings_bridge instead of xfconf. The Rust applier in
+    # crates/mackesd/src/settings/power.rs picks up the sidecar
+    # write + invokes powerprofilesctl on the host.
+    from mackes import mde_settings_bridge as bridge
     actions: list[str] = []
-    try:
-        xf = get_bridge()
-    except XfconfError as e:
-        actions.append(f"skip devices: {e}")
-        return actions
     if "power_profile" in preset.devices:
-        prof = preset.devices["power_profile"]
-        try:
-            xf.set("xfce4-power-manager", "/xfce4-power-manager/power-profile", str(prof),
-                   type_hint="string")
+        prof = str(preset.devices["power_profile"])
+        if bridge.power_profile_set(prof):
             actions.append(f"power profile -> {prof}")
-        except XfconfError as e:
-            actions.append(f"power: {e}")
+        else:
+            actions.append(f"power: powerprofilesctl rejected {prof}")
     if "audio_default_sink" in preset.devices:
         actions.append(f"audio sink (informational only): {preset.devices['audio_default_sink']}")
     return actions
 
 
 def apply_system(preset: Preset) -> list[str]:
-    from mackes.xfconf_bridge import get_bridge, XfconfError
+    # v2.0.0 Phase C.13 — preset system-settings now route through
+    # mde_settings_bridge. The Rust applier in
+    # crates/mackesd/src/settings/ owns the side effect.
+    from mackes import mde_settings_bridge as bridge
     actions: list[str] = []
-    try:
-        xf = get_bridge()
-    except XfconfError as e:
-        actions.append(f"skip system: {e}")
-        return actions
     if "workspace_count" in preset.system:
-        try:
-            xf.set("xfwm4", "/general/workspace_count", int(preset.system["workspace_count"]))
-            actions.append(f"workspaces -> {preset.system['workspace_count']}")
-        except XfconfError as e:
-            actions.append(f"workspaces: {e}")
+        # sway uses a static workspace count via the
+        # workspace.count key (Phase C.8 keybinds applier).
+        count = int(preset.system["workspace_count"])
+        if bridge.set_setting("workspace.count", count):
+            actions.append(f"workspaces -> {count}")
+        else:
+            actions.append("workspaces: bridge.set_setting rejected")
     if "window_manager_theme" in preset.system:
-        try:
-            xf.set("xfwm4", "/general/theme", str(preset.system["window_manager_theme"]),
-                   type_hint="string")
-            actions.append(f"xfwm theme -> {preset.system['window_manager_theme']}")
-        except XfconfError as e:
-            actions.append(f"xfwm: {e}")
+        # sway doesn't carry a "WM theme" knob — the panel +
+        # libcosmic theme covers what xfwm4 themes used to do.
+        # Preset hint becomes informational.
+        actions.append(
+            f"window manager theme (informational only — sway uses libcosmic): "
+            f"{preset.system['window_manager_theme']}"
+        )
     if "notifications_enabled" in preset.system:
         enabled = bool(preset.system["notifications_enabled"])
-        try:
-            xf.set("xfce4-notifyd", "/notify-location", 1 if enabled else 0)
+        # Notifications stay on system-wide; the per-user DND toggle
+        # lives at notification.do_not_disturb (a flag-file the
+        # notifications_server worker honors).
+        if bridge.set_setting("notification.do_not_disturb", not enabled):
             actions.append(f"notifications -> {'on' if enabled else 'off'}")
-        except XfconfError as e:
-            actions.append(f"notifyd: {e}")
+        else:
+            actions.append("notifyd: bridge.set_setting rejected")
     extras = preset.system.get("autostart_extras") or []
     if extras:
         actions.append(f"autostart hint (manual): {', '.join(extras)}")

@@ -625,9 +625,18 @@ panel starts without manual intervention.
   during the transition window so existing v1.x snapshots keep
   restoring; the v2.0.0 cut deletes XFCONF_CHANNELS + the
   `_xfconf_load_dump` path.
-- [ ] **C.13 Retire presets xfconf writes** —
-  `mackes/presets.py:228, 248, 254, 262` switch to
-  `org.mackes.Settings.Set`.
+- [✓] **C.13 Retire presets xfconf writes** — shipped
+  2026-05-20. `mackes/presets.py` `apply_devices` +
+  `apply_system` rewritten to route through
+  `mackes.mde_settings_bridge` instead of `xfconf_bridge`:
+  power profile via `bridge.power_profile_set` (lands in
+  `powerprofilesctl` via the Phase C.4 Rust applier);
+  workspace count via `workspace.count` key; notifications
+  enable/disable via the `notification.do_not_disturb` flag
+  file (the notifications_server worker honors); WM-theme
+  hint becomes informational (sway uses libcosmic theme,
+  not xfwm4 themes). `get_bridge` / `XfconfError` imports
+  gone from both functions. 14 preset tests still green.
 
 #### Phase D — Sway hard-switch + `mackes-session`
 
