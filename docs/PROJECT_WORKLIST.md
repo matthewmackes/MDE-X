@@ -1443,7 +1443,30 @@ group structure with one Iced view per panel.
   the v2.0.0 cut acceptance because the v2.0.0 curated
   list is separate from the v1.x preset machinery.
 
-- [ ] **CB-1.3 follow-up: remove panel (Iced)** — port
+- [✓] **CB-1.3 follow-up: remove panel (Iced) — shipped
+  2026-05-20** — port of `apps/remove.py` reframed for
+  v2.0.0. v1.x panel used per-preset bloat lists keyed on
+  xfconf-era preset machinery; v2.0.0 bakes the curated
+  bloat set into the binary as `BLOAT` (32-entry list:
+  LibreOffice suite, GNOME-on-XFCE apps, XFCE extras,
+  Q15-lock 3rd-party clients). Tick + Remove selected runs
+  one `pkexec dnf remove -y <pkg1> <pkg2> ...` invocation
+  (single polkit prompt, atomic from the user's POV).
+  Select-all / Deselect-all helpers; status row shows
+  selection count on the Remove button. After Finished
+  the selection clears on success (so accidental
+  double-click doesn't re-prompt). 8 unit tests covering
+  BLOAT lock + toggle/selection ops + busy-guard +
+  Finished success+failure. Workbench unit-test count:
+  426 → 434.
+
+  CB-1.3 Apps group is now **fully shipped** for the
+  v2.0.0 cut: installed, sources (with Flathub +
+  RPMFusion + workstation-repos), install, remove. The
+  v1.x `apps/panel.py` (XFCE panel-plugin manager) stays
+  retired (v2.0.0's panel is sealed).
+
+  **Original entry was:** port apps/remove.py
   `apps/remove.py` (142 LOC) as a v2.0.0 bloat-removal
   panel. Needs the v2.0.0 bloat-list source (currently
   baked into the v1.x preset JSON files; v2.0.0 needs a

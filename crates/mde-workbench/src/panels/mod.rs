@@ -6,6 +6,7 @@
 
 pub mod apps_install;
 pub mod apps_installed;
+pub mod apps_remove;
 pub mod apps_sources;
 pub mod datetime;
 pub mod default_apps;

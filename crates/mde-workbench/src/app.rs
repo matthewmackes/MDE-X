@@ -17,11 +17,11 @@ use crate::keyboard::{KeyAction, Pane};
 use crate::model::{view_from_focus_slug, Group, View};
 use crate::panels::{
     apps_install as apps_install_panel, apps_installed as apps_installed_panel,
-    apps_sources as apps_sources_panel, datetime as datetime_panel,
-    default_apps as default_apps_panel, displays as displays_panel, firewall as firewall_panel,
-    fleet_revisions as fleet_revisions_panel, fleet_settings as fleet_settings_panel,
-    fonts as fonts_panel, inventory as inventory_panel, logs as logs_panel,
-    mesh_join as mesh_join_panel, notifications as notifications_panel,
+    apps_remove as apps_remove_panel, apps_sources as apps_sources_panel,
+    datetime as datetime_panel, default_apps as default_apps_panel, displays as displays_panel,
+    firewall as firewall_panel, fleet_revisions as fleet_revisions_panel,
+    fleet_settings as fleet_settings_panel, fonts as fonts_panel, inventory as inventory_panel,
+    logs as logs_panel, mesh_join as mesh_join_panel, notifications as notifications_panel,
     playbooks as playbooks_panel, power as power_panel, printers as printers_panel,
     removable as removable_panel, repair as repair_panel, resources as resources_panel,
     run_history as run_history_panel, session as session_panel, snapshots as snapshots_panel,
@@ -111,6 +111,8 @@ pub enum Message {
     AppsSources(apps_sources_panel::Message),
     /// CB-1.3 follow-up — Apps → Install panel sub-message.
     AppsInstall(apps_install_panel::Message),
+    /// CB-1.3 follow-up — Apps → Remove panel sub-message.
+    AppsRemove(apps_remove_panel::Message),
     /// CB-1.8 partial — Network → Firewall panel sub-message.
     Firewall(firewall_panel::Message),
     /// CB-1.8 partial — Network → Wi-Fi panel sub-message.
@@ -160,6 +162,7 @@ pub struct App {
     apps_installed: apps_installed_panel::AppsInstalledPanel,
     apps_sources: apps_sources_panel::AppsSourcesPanel,
     apps_install: apps_install_panel::AppsInstallPanel,
+    apps_remove: apps_remove_panel::AppsRemovePanel,
     firewall: firewall_panel::FirewallPanel,
     wifi: wifi_panel::WifiPanel,
     vpn: vpn_panel::VpnPanel,
@@ -228,6 +231,7 @@ impl App {
             apps_installed: apps_installed_panel::AppsInstalledPanel::new(),
             apps_sources: apps_sources_panel::AppsSourcesPanel::new(),
             apps_install: apps_install_panel::AppsInstallPanel::new(),
+            apps_remove: apps_remove_panel::AppsRemovePanel::new(),
             firewall: firewall_panel::FirewallPanel::new(),
             wifi: wifi_panel::WifiPanel::new(),
             vpn: vpn_panel::VpnPanel::new(),
@@ -397,6 +401,12 @@ impl App {
         &self.apps_install
     }
 
+    /// Read-only view of the apps-remove panel state.
+    #[must_use]
+    pub fn apps_remove(&self) -> &apps_remove_panel::AppsRemovePanel {
+        &self.apps_remove
+    }
+
     /// Read-only view of the firewall panel state.
     #[must_use]
     pub fn firewall(&self) -> &firewall_panel::FirewallPanel {
@@ -533,6 +543,7 @@ impl App {
             Message::AppsInstalled(msg) => self.apps_installed.update(msg),
             Message::AppsSources(msg) => self.apps_sources.update(msg),
             Message::AppsInstall(msg) => self.apps_install.update(msg),
+            Message::AppsRemove(msg) => self.apps_remove.update(msg),
             Message::Firewall(msg) => self.firewall.update(msg),
             Message::Wifi(msg) => self.wifi.update(msg),
             Message::Vpn(msg) => self.vpn.update(msg),
@@ -761,6 +772,10 @@ impl App {
                 group: Group::Apps,
                 panel: "install",
             } => self.apps_install.view(),
+            View::Panel {
+                group: Group::Apps,
+                panel: "remove",
+            } => self.apps_remove.view(),
             View::Panel {
                 group: Group::Network,
                 panel: "firewall",
