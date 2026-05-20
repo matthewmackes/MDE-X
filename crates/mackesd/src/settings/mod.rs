@@ -416,11 +416,33 @@ mod tests {
     }
 
     #[test]
-    fn apply_returns_unimplemented_in_phase_a() {
-        // Every applier is a Phase C stub today. Verify the
-        // dispatcher reaches each module and that they all answer
-        // with the expected sentinel.
-        for &key in SettingKey::all() {
+    fn apply_dispatches_unimplemented_keys_to_phase_a_stub() {
+        // Phase C is filling in the per-applier bodies; once an
+        // applier ships, its keys exit this test's set. Today's
+        // still-stubbed appliers: display, power, notification,
+        // automount, wallpaper, keybinds (Wayland-only flow).
+        let still_stub = [
+            SettingKey::DisplayPrimary,
+            SettingKey::DisplayBrightness,
+            SettingKey::DisplayScale,
+            SettingKey::DisplayNightLight,
+            SettingKey::DisplayNightLightTemp,
+            SettingKey::PowerLidAction,
+            SettingKey::PowerSuspendIdleBatteryS,
+            SettingKey::PowerSuspendIdleAcS,
+            SettingKey::PowerProfile,
+            SettingKey::PowerPresentationMode,
+            SettingKey::NotificationDoNotDisturb,
+            SettingKey::NotificationLocation,
+            SettingKey::NotificationDefaultExpireMs,
+            SettingKey::AutomountOnInsert,
+            SettingKey::AutomountOpenOnMount,
+            SettingKey::AutomountAutorun,
+            SettingKey::WallpaperPath,
+            SettingKey::WallpaperMode,
+            SettingKey::KeybindsMap,
+        ];
+        for key in still_stub {
             let value = SettingValue::from_serde(&serde_json::Value::Null).unwrap();
             let err = apply(key, &value).unwrap_err();
             let text = format!("{err:#}");

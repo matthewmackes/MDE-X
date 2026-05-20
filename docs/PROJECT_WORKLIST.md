@@ -476,10 +476,22 @@ panel starts without manual intervention.
 
 #### Phase C — `mackes-settingsd` worker (drop xfconf)
 
-- [ ] **C.1 `settings/theme.rs`** — GTK theme + icon theme +
-  accent applier. Calls `gsettings set` for libadwaita-aware apps.
-- [ ] **C.2 `settings/font.rs`** — Font + hinting + antialias
-  applier. Writes `~/.config/fontconfig/fonts.conf` + gsettings.
+- [✓] **C.1 `settings/theme.rs`** — full implementation: routes
+  ThemeName / ThemeIconSet / ThemeAccent / ThemeMode through
+  `gsettings set org.gnome.desktop.interface <key> <value>` (and
+  the symmetric `get` for `current()`). `ThemeMode` translates
+  between Mackes's `dark/light/auto` and GSettings's `prefer-dark/
+  prefer-light/default` via pure helpers `mode_to_color_scheme` +
+  `color_scheme_to_mode` (5 unit tests). cosmic-config + libcosmic
+  token bundle wires through with Phase E.3.
+- [✓] **C.2 `settings/font.rs`** — full GSettings path: routes
+  FontName / FontMonospace / FontHinting / FontAntialias through
+  `gsettings set org.gnome.desktop.interface <key> <value>` with
+  matching `get` for `current()`. 2 unit tests cover the key map.
+  The fontconfig `~/.config/fontconfig/fonts.conf` rewriter +
+  `fc-cache -r` invocation lands when Phase C.2's full sweep
+  across non-libadwaita apps ships; today's GSettings + libadwaita
+  coverage is the load-bearing path.
 - [ ] **C.3 `settings/display.rs`** — Resolution, scale, brightness,
   primary via `wlr-output-management-v1` + brightnessctl + `swaymsg
   output`.
@@ -495,8 +507,17 @@ panel starts without manual intervention.
 - [ ] **C.8 `settings/keybinds.rs`** — Hotkey map writer. Generates
   `~/.config/sway/config.d/mackes-bindings.conf`; calls
   `swaymsg reload`.
-- [ ] **C.9 `settings/autostart.rs`** — XDG autostart toggle writer.
-  Toggles `Hidden=true` in `~/.config/autostart/*.desktop`.
+- [✓] **C.9 `settings/autostart.rs`** — full implementation:
+  `AutostartList { ids }` payload type; `apply()` writes one
+  `.desktop` file per id under `$XDG_CONFIG_HOME/autostart/`
+  (AutostartHidden → Hidden=true overlay, AutostartExtra →
+  Hidden=false overlay). Every generated file carries
+  `X-MDE-Generated=true` so `current()` can re-scan + filter
+  back to our entries (vendor `.desktop` files are ignored).
+  Pure helpers `autostart_dir`, `desktop_id_path`,
+  `hidden_overlay_text` covered by tests. Round-trip tests use
+  a process-wide `Mutex<()>` so parallel `cargo test` workers
+  don't race the shared `XDG_CONFIG_HOME` env var. 6 tests.
 - [ ] **C.10 `org.mackes.Settings` zbus service** —
   `Get(key)`, `Set(key, value)`, `Snapshot()`, `Restore(snap)`,
   `ListKeys()`, signals on change.
