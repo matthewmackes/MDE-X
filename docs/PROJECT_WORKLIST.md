@@ -495,9 +495,17 @@ panel starts without manual intervention.
 - [ ] **C.3 `settings/display.rs`** — Resolution, scale, brightness,
   primary via `wlr-output-management-v1` + brightnessctl + `swaymsg
   output`.
-- [ ] **C.4 `settings/power.rs`** — Lid action, idle timeout, suspend,
-  profile via `org.freedesktop.login1` + `power-profiles-daemon` +
-  swayidle config.
+- [✓] **C.4 `settings/power.rs`** — full implementation across 5
+  keys: PowerProfile shells out to `powerprofilesctl set/get`
+  (routes through power-profiles-daemon DBus); PowerLidAction +
+  PowerSuspendIdleBatteryS + PowerSuspendIdleAcS persist to a
+  `$XDG_CACHE_HOME/mde/power-prefs.json` sidecar (read by
+  mde-session at login to install the matching logind drop-in +
+  swayidle config); PowerPresentationMode writes / removes a
+  caffeine flag file the session watches. Pure helpers
+  parse_prefs_json + prefs_path + caffeine_path covered by 7
+  tests including idle-timeout-doesn't-clobber-other,
+  caffeine-round-trip, defaults-when-sidecar-missing.
 - [✓] **C.5 `settings/notification.rs`** — full implementation
   spans 3 keys: NotificationDoNotDisturb writes / removes a
   flag file at `$XDG_CACHE_HOME/mde/notifications-dnd` (presence
