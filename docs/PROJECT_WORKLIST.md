@@ -1470,18 +1470,19 @@ group structure with one Iced view per panel.
   `< 999` cap pattern the existing Obsoletes use. `dnf install
   xfce4-panel` after MDE is installed will then error
   ("would break mde"). I.7 no-XFCE gate stays green.
-- [ ] **CB-3.4 Group registration (Q5 lock)** — new
-  `data/comps/mackes-desktop-environment.xml` defining the
-  `mackes-desktop-environment` group with `<name>Mackes Desktop
-  Environment</name>` + `<description>` + the package list
-  (mde + sway + swaylock + swayidle + swaybg + foot + bemenu +
-  cosmic-files + yazi + brightnessctl + pipewire + wireplumber +
-  grim + slurp + kanshi). Spec installs to
-  `%{_datadir}/mde/comps/mackes-desktop-environment.xml` +
-  registers via `%post: dnf groups mark install
-  mackes-desktop-environment 2>/dev/null || :`. Fedora's
-  groupinstall picks it up so `dnf groupinstall
-  mackes-desktop-environment` works.
+- [✓] **CB-3.4 Group registration (Q5 lock)** — shipped
+  2026-05-20. `data/comps/mackes-desktop-environment.xml`
+  defines the group with id / name / description plus the
+  full mandatory packagelist (mde + sway + swaylock +
+  swayidle + swaybg + foot + bemenu + brightnessctl + grim +
+  slurp + kanshi + wl-clipboard + wlr-randr + pipewire +
+  wireplumber + power-profiles-daemon + upower + udisks2) +
+  default-tier alternates (cosmic-files, yazi, wlogout, wofi).
+  Spec installs to `%{_datadir}/mde/comps/…xml` + registers in
+  `%post` via `dnf groups mark install
+  mackes-desktop-environment`. 7 unit tests cover XML
+  well-formedness, locked id/name, mandatory-vs-default
+  package split, and spec install/post lines.
 - [ ] **CB-3.5 Drop XDG autostart overrides (H.4)** — the
   `mackes-enforce-session.desktop`, `mackes-suppress-xfce4-panel
   .desktop`, `xfdesktop.desktop` overrides under

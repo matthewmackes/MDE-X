@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE comps PUBLIC "-//Red Hat, Inc.//DTD Comps info//EN" "comps.dtd">
+<!--
+  CB-3.4 — comps group definition for `dnf groupinstall mackes-desktop-environment`.
+  Installs the complete MDE 2.0.0 runtime: the mde package + the Wayland
+  compositor stack + the locked Recommends set per the v2.0.0 design.
+-->
+<comps>
+  <group>
+    <id>mackes-desktop-environment</id>
+    <name>Mackes Desktop Environment</name>
+    <description>The mesh-first Wayland desktop environment built on sway, Iced, and the unified `mded` meta-daemon.</description>
+    <default>false</default>
+    <uservisible>true</uservisible>
+    <packagelist>
+      <!-- The package itself -->
+      <packagereq type="mandatory">mde</packagereq>
+      <!-- Wayland compositor + bindings -->
+      <packagereq type="mandatory">sway</packagereq>
+      <packagereq type="mandatory">swaylock</packagereq>
+      <packagereq type="mandatory">swayidle</packagereq>
+      <packagereq type="mandatory">swaybg</packagereq>
+      <packagereq type="mandatory">foot</packagereq>
+      <packagereq type="mandatory">bemenu</packagereq>
+      <!-- Brightness + screen capture -->
+      <packagereq type="mandatory">brightnessctl</packagereq>
+      <packagereq type="mandatory">grim</packagereq>
+      <packagereq type="mandatory">slurp</packagereq>
+      <packagereq type="mandatory">wl-clipboard</packagereq>
+      <packagereq type="mandatory">wlr-randr</packagereq>
+      <packagereq type="mandatory">kanshi</packagereq>
+      <!-- Audio stack -->
+      <packagereq type="mandatory">pipewire</packagereq>
+      <packagereq type="mandatory">wireplumber</packagereq>
+      <!-- Power + removable-media stack -->
+      <packagereq type="mandatory">power-profiles-daemon</packagereq>
+      <packagereq type="mandatory">upower</packagereq>
+      <packagereq type="mandatory">udisks2</packagereq>
+      <!-- File manager + alternates -->
+      <packagereq type="default">cosmic-files</packagereq>
+      <packagereq type="default">yazi</packagereq>
+      <!-- Logout / lock helpers -->
+      <packagereq type="default">wlogout</packagereq>
+      <packagereq type="default">wofi</packagereq>
+    </packagelist>
+  </group>
+</comps>

@@ -449,6 +449,11 @@ install -D -m 0644 data/systemd/90-mde.preset \
 install -D -m 0644 data/wayland-sessions/mde.desktop \
     %{buildroot}%{_datadir}/wayland-sessions/mde.desktop
 
+# CB-3.4 — comps group definition for
+# `dnf groupinstall mackes-desktop-environment`.
+install -D -m 0644 data/comps/mackes-desktop-environment.xml \
+    %{buildroot}%{_datadir}/mde/comps/mackes-desktop-environment.xml
+
 # CB-2.4 — first-boot orchestration target + the two oneshot
 # migrator units it gates on. mde-session.service Wants= the
 # target so the migrators run before the first login session
@@ -646,6 +651,10 @@ visudo -c -f /etc/sudoers.d/mackes-shell >/dev/null 2>&1 \
 # Rebuild the GTK icon caches for the vendored icon themes
 gtk-update-icon-cache -f -t %{_datadir}/icons/Black-Sun     2>/dev/null || :
 gtk-update-icon-cache -f -t %{_datadir}/icons/Mackes-Carbon 2>/dev/null || :
+# CB-3.4 — register the comps group so `dnf groupinstall
+# mackes-desktop-environment` resolves on this host. Silently no-ops
+# on systems where dnf-plugins-core isn't available.
+dnf groups mark install mackes-desktop-environment 2>/dev/null || :
 
 %preun
 # Only on uninstall, not upgrade ($1 == 0 → final removal)
@@ -731,6 +740,8 @@ fi
 %{_userunitdir}/mde-firstboot.target
 %{_userunitdir}/mde-migrate-from-1x.service
 %{_userunitdir}/mde-shell-migrate-v2.service
+# CB-3.4 — comps group definition.
+%{_datadir}/mde/comps/mackes-desktop-environment.xml
 %config(noreplace) /etc/sudoers.d/mackes-shell
 # C panel plugins + their descriptors
 %{_libdir}/xfce4/panel/plugins/mackes-clipboard
