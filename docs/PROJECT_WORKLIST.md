@@ -3855,7 +3855,24 @@ under `LICENSES/`.
   sink + changes propagate to PipeWire immediately") is
   satisfied by the pickers alone. Follow-up captured below.
 
-- [ ] **CB-1.4.b follow-up: per-sink volume + mute** — extend
+- [✓] **CB-1.4.b follow-up: per-sink volume + mute (shipped
+  2026-05-20)** — extended the Sound panel with a 0–150%
+  volume slider + Muted checkbox over `@DEFAULT_SINK@`.
+  Reads via `pactl get-sink-volume @DEFAULT_SINK@` and
+  `pactl get-sink-mute @DEFAULT_SINK@` at Load; writes via
+  `pactl set-sink-volume @DEFAULT_SINK@ <pct>%` and
+  `pactl set-sink-mute @DEFAULT_SINK@ 0|1`. New pure
+  parsers (`parse_volume_percent`, `parse_mute`) isolated
+  for tests. The slider operates against whichever sink
+  `@DEFAULT_SINK@` points to — picking a different default
+  sink + reading Volume tracks the new sink on the next
+  refresh. 8 new unit tests (5 parser paths covering
+  typical / 100 / boost / garbage / mute-yes/no, 3 reducer
+  paths covering VolumeChanged clamp + busy, MuteToggled
+  state + status, VolumeApplied clears busy). Workbench
+  unit-test count: 398 → 406.
+
+  **Original entry was:** extend the Sound panel
   the Sound panel with a slider (0–100 %) over `pactl
   set-sink-volume <sink> <pct>%` and a mute checkbox over
   `pactl set-sink-mute <sink> 0|1`. Both should land on

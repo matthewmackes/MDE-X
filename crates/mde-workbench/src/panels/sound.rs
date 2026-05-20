@@ -15,7 +15,7 @@
 //! active sink + changes propagate to PipeWire immediately",
 //! which the pickers alone satisfy.
 
-use iced::widget::{button, column, pick_list, row, text};
+use iced::widget::{button, checkbox, column, pick_list, row, slider, text};
 use iced::{Element, Length, Padding, Task};
 use tokio::process::Command;
 
@@ -34,6 +34,11 @@ pub struct SoundPanel {
     pub sources: Vec<String>,
     pub default_sink: String,
     pub default_source: String,
+    /// CB-1.4.b follow-up — default-sink volume as a percent
+    /// (0–150 range; PA allows >100% for boost).
+    pub volume_pct: u32,
+    /// CB-1.4.b follow-up — default-sink mute state.
+    pub muted: bool,
     pub status: String,
     pub busy: bool,
 }
@@ -46,12 +51,25 @@ pub enum Message {
         sources: Vec<String>,
         default_sink: String,
         default_source: String,
+        volume_pct: u32,
+        muted: bool,
     },
     Error(String),
     SinkSelected(String),
     SourceSelected(String),
     SinkApplied,
     SourceApplied,
+    /// CB-1.4.b follow-up — user dragged the volume slider.
+    /// Slider values are 0–150 (matching the PA 0–150%
+    /// canonical range; alsa/PW pass higher values through
+    /// but our slider caps at the soft ceiling).
+    VolumeChanged(u32),
+    /// CB-1.4.b follow-up — user toggled the mute checkbox.
+    MuteToggled(bool),
+    /// CB-1.4.b follow-up — set-sink-volume / set-sink-mute
+    /// completed (either success or failure; the panel just
+    /// clears busy and refreshes).
+    VolumeApplied,
 }
 
 impl SoundPanel {
@@ -71,18 +89,24 @@ impl SoundPanel {
                         sources: Vec::new(),
                         default_sink: String::new(),
                         default_source: String::new(),
+                        volume_pct: 0,
+                        muted: false,
                     };
                 }
                 let sinks_raw = run_pactl(&["list", "short", "sinks"]).await;
                 let sources_raw = run_pactl(&["list", "short", "sources"]).await;
                 let default_sink = run_pactl(&["get-default-sink"]).await;
                 let default_source = run_pactl(&["get-default-source"]).await;
+                let vol_raw = run_pactl(&["get-sink-volume", "@DEFAULT_SINK@"]).await;
+                let mute_raw = run_pactl(&["get-sink-mute", "@DEFAULT_SINK@"]).await;
                 Message::Loaded {
                     pactl_available,
                     sinks: parse_pactl_short(&sinks_raw, false),
                     sources: parse_pactl_short(&sources_raw, true),
                     default_sink: default_sink.trim().to_string(),
                     default_source: default_source.trim().to_string(),
+                    volume_pct: parse_volume_percent(&vol_raw),
+                    muted: parse_mute(&mute_raw),
                 }
             },
             crate::Message::Sound,
@@ -97,12 +121,16 @@ impl SoundPanel {
                 sources,
                 default_sink,
                 default_source,
+                volume_pct,
+                muted,
             } => {
                 self.pactl_available = pactl_available;
                 self.sinks = sinks;
                 self.sources = sources;
                 self.default_sink = pick_existing(&self.sinks, &default_sink);
                 self.default_source = pick_existing(&self.sources, &default_source);
+                self.volume_pct = volume_pct.min(150);
+                self.muted = muted;
                 self.status.clear();
                 self.busy = false;
                 Task::none()
@@ -142,10 +170,44 @@ impl SoundPanel {
                     crate::Message::Sound,
                 )
             }
-            Message::SinkApplied | Message::SourceApplied => {
+            Message::SinkApplied | Message::SourceApplied | Message::VolumeApplied => {
                 self.status = "Applied.".into();
                 self.busy = false;
                 Task::none()
+            }
+            Message::VolumeChanged(v) => {
+                if self.busy {
+                    return Task::none();
+                }
+                let pct = v.min(150);
+                self.volume_pct = pct;
+                self.busy = true;
+                self.status = format!("Setting volume to {pct}%…");
+                Task::perform(
+                    async move {
+                        let _ =
+                            run_pactl(&["set-sink-volume", "@DEFAULT_SINK@", &format!("{pct}%")])
+                                .await;
+                        Message::VolumeApplied
+                    },
+                    crate::Message::Sound,
+                )
+            }
+            Message::MuteToggled(muted) => {
+                if self.busy {
+                    return Task::none();
+                }
+                self.muted = muted;
+                self.busy = true;
+                self.status = if muted { "Muting…" } else { "Unmuting…" }.into();
+                let flag = if muted { "1" } else { "0" };
+                Task::perform(
+                    async move {
+                        let _ = run_pactl(&["set-sink-mute", "@DEFAULT_SINK@", flag]).await;
+                        Message::VolumeApplied
+                    },
+                    crate::Message::Sound,
+                )
             }
         }
     }
@@ -188,8 +250,22 @@ impl SoundPanel {
             |v| crate::Message::Sound(Message::SourceSelected(v)),
         );
 
+        let volume_slider = slider(0.0..=150.0, self.volume_pct as f32, |v| {
+            crate::Message::Sound(Message::VolumeChanged(v as u32))
+        })
+        .step(1.0_f32);
+        let mute_checkbox = checkbox("Muted", self.muted)
+            .on_toggle(|v| crate::Message::Sound(Message::MuteToggled(v)));
+
         column![
             row![text("Default sink").width(Length::Fixed(180.0)), sink_pick,].spacing(12),
+            row![
+                text("Volume").width(Length::Fixed(180.0)),
+                volume_slider,
+                text(format!("{}%", self.volume_pct)).width(Length::Fixed(60.0)),
+                mute_checkbox,
+            ]
+            .spacing(12),
             row![
                 text("Default source").width(Length::Fixed(180.0)),
                 source_pick,
@@ -250,6 +326,34 @@ pub async fn run_pactl(args: &[&str]) -> String {
         return String::new();
     }
     String::from_utf8(output.stdout).unwrap_or_default()
+}
+
+/// Parse the first percent value out of `pactl get-sink-volume`
+/// output. The typical shape is multi-line, e.g.
+/// `Volume: front-left: 65536 / 100% / 0.00 dB, front-right:
+/// 65536 / 100% / 0.00 dB`. We surface the first `<n>%` we
+/// encounter. Returns 0 on any failure (empty input, no
+/// percent token, non-numeric) so the slider lands at zero
+/// rather than crashing.
+#[must_use]
+pub fn parse_volume_percent(raw: &str) -> u32 {
+    for token in raw.split(|c: char| c.is_whitespace() || c == ',' || c == '/') {
+        if let Some(num) = token.strip_suffix('%') {
+            if let Ok(n) = num.parse::<u32>() {
+                return n;
+            }
+        }
+    }
+    0
+}
+
+/// Parse `pactl get-sink-mute` output. Typical shape: `Mute:
+/// yes` or `Mute: no`. Returns true only for the `yes` case;
+/// any parse failure (or `no`) returns false so the checkbox
+/// defaults to "not muted".
+#[must_use]
+pub fn parse_mute(raw: &str) -> bool {
+    raw.trim().to_ascii_lowercase().contains(": yes")
 }
 
 #[cfg(test)]
@@ -324,6 +428,8 @@ mod tests {
             sources: Vec::new(),
             default_sink: String::new(),
             default_source: String::new(),
+            volume_pct: 0,
+            muted: false,
         });
         assert!(!panel.pactl_available);
         assert!(!panel.busy);
@@ -339,9 +445,13 @@ mod tests {
             sources: vec!["mic".into()],
             default_sink: "vanished".into(),
             default_source: "mic".into(),
+            volume_pct: 65,
+            muted: false,
         });
         assert_eq!(panel.default_sink, "alpha");
         assert_eq!(panel.default_source, "mic");
+        assert_eq!(panel.volume_pct, 65);
+        assert!(!panel.muted);
     }
 
     #[test]
@@ -353,8 +463,83 @@ mod tests {
             sources: vec![],
             default_sink: "beta".into(),
             default_source: String::new(),
+            volume_pct: 100,
+            muted: true,
         });
         assert_eq!(panel.default_sink, "beta");
+        assert!(panel.muted);
+        assert_eq!(panel.volume_pct, 100);
+    }
+
+    #[test]
+    fn parse_volume_percent_extracts_first_percent_value() {
+        let raw = "Volume: front-left: 65536 /  65% / -10.50 dB,   front-right: 65536 /  65% / -10.50 dB\n           balance 0.00\n";
+        assert_eq!(parse_volume_percent(raw), 65);
+    }
+
+    #[test]
+    fn parse_volume_percent_handles_100_and_boost() {
+        assert_eq!(
+            parse_volume_percent("Volume: 1: 65536 / 100% / 0.00 dB"),
+            100
+        );
+        assert_eq!(
+            parse_volume_percent("Volume: 1: 98304 / 150% / +8.00 dB"),
+            150
+        );
+    }
+
+    #[test]
+    fn parse_volume_percent_zero_on_garbage() {
+        assert_eq!(parse_volume_percent(""), 0);
+        assert_eq!(parse_volume_percent("no percent here"), 0);
+        assert_eq!(parse_volume_percent("nope%"), 0);
+    }
+
+    #[test]
+    fn parse_mute_yes_means_muted() {
+        assert!(parse_mute("Mute: yes\n"));
+        assert!(parse_mute("  mute: YES "));
+    }
+
+    #[test]
+    fn parse_mute_no_or_garbage_means_not_muted() {
+        assert!(!parse_mute("Mute: no"));
+        assert!(!parse_mute(""));
+        assert!(!parse_mute("nothing relevant"));
+    }
+
+    #[test]
+    fn volume_changed_clamps_to_150_and_sets_busy() {
+        let mut panel = SoundPanel::new();
+        let _ = panel.update(Message::VolumeChanged(200));
+        assert_eq!(panel.volume_pct, 150);
+        assert!(panel.busy);
+        assert!(panel.status.contains("Setting volume"));
+    }
+
+    #[test]
+    fn mute_toggled_updates_state_and_status() {
+        let mut panel = SoundPanel::new();
+        let _ = panel.update(Message::MuteToggled(true));
+        assert!(panel.muted);
+        assert!(panel.status.contains("Muting"));
+        let _ = panel.update(Message::VolumeApplied);
+        let mut panel2 = SoundPanel::new();
+        panel2.muted = true;
+        let _ = panel2.update(Message::MuteToggled(false));
+        assert!(!panel2.muted);
+        assert!(panel2.status.contains("Unmuting"));
+    }
+
+    #[test]
+    fn volume_applied_clears_busy() {
+        let mut panel = SoundPanel::new();
+        panel.busy = true;
+        panel.status = "Setting volume…".into();
+        let _ = panel.update(Message::VolumeApplied);
+        assert!(!panel.busy);
+        assert_eq!(panel.status, "Applied.");
     }
 
     #[test]
