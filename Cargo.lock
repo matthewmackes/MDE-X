@@ -2953,6 +2953,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mackes-theme"
+version = "0.0.0"
+
+[[package]]
 name = "mackesd"
 version = "0.0.0"
 dependencies = [

@@ -1,0 +1,8 @@
+/* Sample token excerpt — mirrors the shape of data/css/tokens.css
+ * without copying its full body. Used by the parser tests.
+ */
+
+@define-color cds_bg_default       #151515;
+@define-color cds_text_primary     #f0f0f0;
+@define-color cds_focus            #73bcf7;
+@define-color mackes_accent        #ff8b3d;

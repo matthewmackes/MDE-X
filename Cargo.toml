@@ -15,6 +15,7 @@ members  = [
     "crates/mackes-kdc",
     "crates/mackes-mesh-types",
     "crates/mackes-panel",
+    "crates/mackes-theme",
     "crates/mackesd",
     "crates/mde-files",
     "crates/mde-logout-dialog",

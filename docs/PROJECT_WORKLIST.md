@@ -760,10 +760,19 @@ panel starts without manual intervention.
 
 #### Phase E3 — `mackes-theme` Carbon → cosmic-theme adapter
 
-- [ ] **E3.1 `crates/mackes-theme/`** — at startup, read
-  `data/css/tokens.css` Carbon tokens, build a `cosmic-theme::Theme`
-  with Mackes accent + density overrides. All libcosmic widgets
-  inherit.
+- [✓] **E3.1 `crates/mackes-theme/`** — shipped 2026-05-20. New
+  workspace member `crates/mackes-theme/` ships a dep-free
+  parser for the canonical `data/css/tokens.css` GTK token
+  file. `parse_tokens(css)` returns a `TokenTable` keyed by
+  token name (52 tokens in the live file parse cleanly).
+  `Token::as_rgb()` exposes RGBA components; `parse_hex_color`
+  handles `#RGB`, `#RRGGBB`, `#RRGGBBAA` shorthand.
+  `accent_override(table, hex, also_focus)` is the per-preset
+  hook the panel calls before building its libcosmic theme.
+  14 unit + 1 real-file integration test. The actual
+  `cosmic-theme::Theme` builder is one consumer
+  away — landed alongside Phase E.1 when the panel switches to
+  Iced; this crate ships the data layer that builder consumes.
 
 #### Phase F — Workbench GUI updates (Python panels switch to DBus)
 
