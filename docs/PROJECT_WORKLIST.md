@@ -1021,6 +1021,388 @@ panel starts without manual intervention.
   dev-tools), and fails non-zero on any retired panel/desktop/
   session/notifyd/whisker/docklike/pulseaudio/power package.
 
+### v2.0.0 monolithic cut blockers — installer-as-DE (locked 2026-05-20 via 5-Q survey)
+
+**Goal:** make `curl … | bash install.sh` (and the ISO) land a fresh
+box in a true end-to-end Mackes Desktop Environment — sway compositor,
+Iced + libcosmic panel, Iced Workbench, mde-files, no XFCE — instead
+of today's "Mackes XFCE Workstation 1.1.0" (XFCE session + i3 + GTK3
+panel).
+
+**Locked design choices (5-Q survey 2026-05-20):**
+1. **Cadence: monolithic v2.0.0 cut.** No staged 1.x → 2.0.0 path;
+   every Phase E + H + 0.x rebrand item holds until they all land
+   green, then one big v2.0.0 release flips defaults.
+2. **Upgrade UX: hard switch.** `dnf upgrade` lands a 1.x box on
+   `mde-2.0.0`, the spec's `Obsoletes:` rips out the XFCE stack, and
+   the greeter only lists `mde.desktop`. No XFCE fallback in 2.0.x.
+3. **Phase E scope: full parity + Workbench panels in Iced.** Cut
+   requires every 1.1.0 panel surface ported to Iced AND every
+   Python/GTK3 Workbench panel rewritten in Iced. Heaviest scope; the
+   mde_settings_bridge (F.x) is decommissioned once the Iced
+   Workbench owns the same keys directly via zbus.
+4. **ISO posture: replace.** `packaging/iso/mackes-xfce.ks` is
+   deleted; new `packaging/iso/mde.ks` builds a Wayland-only Mackes
+   Desktop Environment ISO.
+5. **XFCE block: active + group.** Spec adds `Conflicts:` on every
+   retired xfce4-* package (on top of the existing `Obsoletes:`) so
+   `dnf install xfce4-panel` after MDE installs errors out. Spec
+   also ships a `comps.xml` group `mackes-desktop-environment` so
+   `dnf grouplist` advertises MDE as a first-class Fedora desktop
+   group alongside `@gnome-desktop` / `@xfce-desktop-environment`.
+
+**Cross-references to existing phases** (these are blockers, listed
+here so the cut readiness picture is one screen):
+- **Phase E.1–E.10** — Iced + libcosmic panel rewrite. Still open.
+- **Phase E1.1–E1.3** — applet workspace split. Still open.
+- **Phase E2.1–E2.2** — OSD overlays. Still open.
+- **Phase E3.1** — Carbon → cosmic-theme adapter. Still open.
+- **Phase 0.2 / 0.7 / 0.8 / 0.10** — Cargo workspace rename, CSS
+  namespace rename, spec `Name: mde` + version bump, Python
+  package rename. Still open.
+- **Phase C.11 / C.13** — retire `xfconf_bridge.py` + presets xfconf
+  writes. Still open.
+- **Phase D.7** — retire `mackes-enforce-session` + `mackes-wm`
+  autostart. Still open.
+- **Phase H.1 / H.2 / H.4** — spec dep swap (drop xfce4-*, add
+  sway/swaylock/swayidle/swaybg/foot/bemenu), Recommends swap
+  (cosmic-files, yazi, kanshi), drop XDG autostart overrides. Still
+  open.
+- **Phase I.3 / I.4 / I.5** — Wayland smoke test + VM end-to-end +
+  upgrade test. Still open.
+
+**The new tasks below are everything the 5-Q survey unlocked that
+isn't already tracked in those phases.**
+
+#### CB-1 Workbench-in-Iced port (per Q3 lock — full Iced UI)
+
+The 1.x Workbench is `mackes/workbench/` (Python + GTK3, ~45 panels
+under 9 groups). The Q3 lock requires it rewritten in Iced before
+v2.0.0 cuts. New crate `crates/mde-workbench/` mirrors the panel
+group structure with one Iced view per panel.
+
+- [ ] **CB-1.1 `crates/mde-workbench/` scaffold** — new workspace
+  member. `Cargo.toml` with iced 0.13 + libcosmic + zbus 5 (tokio
+  feature) + mde-config + mde-mesh-types + the existing `mackes`
+  Python sliver retired. `src/lib.rs` exposes `App`, `Message`,
+  `View::*` enum mirroring 1.x sidebar groups. `src/main.rs` opens
+  the toplevel window (Iced layer-shell or floating per Iced 0.13
+  conventions); WM_CLASS pinned to `mde-workbench` for sway window
+  rules. Single-instance via the already-shipped
+  `dev.mackes.MDE.Shell` D-Bus surface (existing service registers
+  the workbench when one is already running, else launches).
+  ~10 unit tests covering Message reducer + View routing + the
+  D-Bus single-instance handshake.
+- [ ] **CB-1.2 Sidebar nav + breadcrumbs** — port
+  `mackes/workbench/shell/sidebar_window.py:_build_nav` to Iced.
+  9 groups (Dashboard / Apps / Devices / Fleet / Look & Feel /
+  Maintain / Network / System / Help) rendered as a collapsible
+  Iced sidebar. Breadcrumb + page_title + page_subtitle helpers
+  ported from `_common.py` to a new `crates/mde-workbench/src/
+  carbon.rs` (renamed to `patternfly.rs` once 0.7 CSS namespace
+  rename lands). Keyboard nav: Tab cycles sidebar → main pane;
+  Ctrl+1..9 jumps to group; Escape closes detail. 8 tests.
+- [ ] **CB-1.3 Apps group port (4 panels)** — Ported from
+  `mackes/workbench/apps/{installed.py, sources.py, panel.py,
+  search.py}`. Backend calls route through `dev.mackes.MDE.Shell.
+  Apps` (new zbus surface in `crates/mackesd/src/ipc/apps.rs`).
+  Apps lifecycle (install / remove / enable repo) flows through
+  AdminSession → polkit → dnf. The MDE_PREVIEW path is gone (this
+  IS MDE). 12 tests per panel minimum (data shape, error states,
+  loading state, accessibility names).
+- [ ] **CB-1.4 Devices group port (5 panels)** — Ported from
+  `mackes/workbench/devices/{displays.py, power.py, sound.py,
+  printers.py, removable.py}`. `displays.py` already routes through
+  `mde_settings_bridge` (F.4 done); the Iced port talks zbus
+  directly to `dev.mackes.MDE.Settings.Set/Get` and drops the
+  Python bridge. `power.py` same (F.1 done). `sound.py` is new
+  Iced UI over pipewire-rs. `printers.py` shells out to
+  cups-browsed via zbus surface. `removable.py` uses the
+  automount sidecar (C.6).
+- [ ] **CB-1.5 Fleet group port (5 panels)** —
+  `{inventory.py, playbooks.py, run_history.py, settings.py,
+  revisions.py}`. F.11 + F.12 already shipped the Python-side
+  `mded` bridge; Iced port calls the same `dev.mackes.MDE.Fleet.*`
+  surface directly.
+- [ ] **CB-1.6 Look & Feel group port (3 panels)** —
+  `{themes.py, fonts.py, polybar_editor.py}`. Theme + font panels
+  already wired to `mde_settings_bridge` (F.3 done); Iced version
+  uses cosmic-theme tokens for live preview. `polybar_editor.py`
+  is the legacy GTK3 DnD module zone editor — retire entirely
+  (sway doesn't run polybar; mde-panel is the bar).
+- [ ] **CB-1.7 Maintain group port (6 panels)** —
+  `{hub.py, snapshots.py, debloat.py, health_check.py, repair.py,
+  drift.py}`. Snapshots panel keeps its `mackes.snapshots` library
+  (F.7 already wired settings.json dump); Iced UI calls
+  `create_snapshot`/`restore_snapshot` via a new zbus surface
+  `dev.mackes.MDE.Shell.Snapshots`. health_check + repair shell
+  out via AdminSession.
+- [ ] **CB-1.8 Network group port (~14 panels)** — largest group.
+  `mesh_control.py` (9-tab notebook) + `mesh_pending.py` +
+  `mesh_history.py` + `mesh_join.py` + `mesh_ssh.py` +
+  `mesh_topology_render.py` + `mesh_services.py` + `wifi.py` +
+  `vpn.py` + `firewall.py` + `remote_desktop.py` + `kde_connect.py`
+  (5 sub-panels already shipped for 13.3.x). Topology renderer
+  (12.9.1, Cairo) ports to Iced canvas with the same pure-fn
+  layout helpers (`seed_positions`, `relax_layout`,
+  `point_to_segment_distance`, `filter_for_node_view`). The KDE
+  Connect Python panels (13.3.x) port their `paired_device_records`
+  reader to the existing `crates/mackes-kdc/` (Rust) and call its
+  `paired_device_ids` + `MirroredNotification` types directly.
+- [ ] **CB-1.9 System group port (~6 panels)** —
+  `{datetime.py, default_apps.py, session.py, notifications.py,
+  window_manager.py, snapshots.py}`. session + notifications +
+  window_manager already wired to MDE bridge (F.5 / F.6 / F.8
+  done). Iced port talks zbus directly.
+- [ ] **CB-1.10 Wizard port** — `mackes/wizard/` (~12 pages) ported
+  to Iced under `crates/mde-wizard/`. The wizard runs first-boot
+  per `state.json:provisioned == false`. Pages: welcome, scan,
+  legacy_import (10.2, shipped), preset, mesh_passcode (12.8.4,
+  shipped), network, snapshot, apply. Birthright steps
+  (`mackes/birthright.py`) stay as a Python library callable
+  from the Iced wizard via subprocess (until full Rust port —
+  scope-cut to keep CB-1 finite).
+- [ ] **CB-1.11 Retire `mde_settings_bridge.py`** — once CB-1.4 +
+  CB-1.6 + CB-1.9 land, the Python bridge has no callers. Delete
+  the module + the 12 tests in `tests/test_mde_settings_bridge.py`.
+  Pre-flight check: `grep -r 'mde_settings_bridge' mackes/ tests/`
+  returns empty.
+- [ ] **CB-1.12 Retire `mackes/workbench/`** — once CB-1.1 through
+  CB-1.10 land, the Python workbench has no callers. Delete the
+  directory + every `tests/test_*` that imports from it. Spec
+  drops the `%{py3_sitelib}/mackes/workbench/` from `%files`.
+- [ ] **CB-1.13 Single-instance contract via D-Bus** —
+  `dev.mackes.MDE.Shell.Workbench` interface (new) ships
+  `Focus(slug: str)` so `mde --focus <slug>` (legacy
+  `mackes --focus`) opens the running workbench at the named
+  panel, or launches one if none. Replaces the 1.x WM_CLASS-based
+  single-instance hack. Wired through the apple-menu, status
+  cluster click targets, and the 1.0.8 `mackes --focus` contract.
+
+#### CB-2 Greeter / Wayland session
+
+- [ ] **CB-2.1 `/usr/share/wayland-sessions/mde.desktop`** — new
+  desktop entry: `Name=Mackes Desktop Environment` /
+  `Comment=The mesh-first Wayland desktop` /
+  `Exec=/usr/bin/mde-session` / `Type=Application` /
+  `DesktopNames=MDE`. Lands under `data/wayland-sessions/` in-tree;
+  spec installs to `%{_datadir}/wayland-sessions/mde.desktop` and
+  lists it in `%files`. LightDM + GDM + SDDM all read this dir,
+  so MDE shows up in the session dropdown automatically.
+- [ ] **CB-2.2 Drop the 1.x i3 / XFCE session entries** — spec
+  stops shipping `data/applications/mackes-shell.desktop` as a
+  session entry (it stays as the Workbench launcher). The XFCE
+  `xfce.desktop` is package-owned by xfce4-session — `Conflicts:
+  xfce4-session` (CB-3.1) removes it on upgrade. The `i3.desktop`
+  is package-owned by i3 — explicit removal in `%post` via
+  `dnf remove -y i3 i3status dmenu` once the Iced panel ships
+  (gated on Phase E.4 sway IPC landing).
+- [ ] **CB-2.3 Greeter default session** —
+  `install-helpers/configure-lightdm.sh` already drops
+  `/etc/lightdm/lightdm.conf.d/50-mackes.conf`; extend it to set
+  `user-session=mde` so LightDM defaults to MDE for any newly-
+  created user. Existing users get their per-user choice from
+  `~/.dmrc` — no override (their next-time pick wins).
+- [ ] **CB-2.4 `mde-session` first-launch UX** — on a fresh
+  account, `mde-session` calls `mde-migrate-from-1x` (already
+  shipped, Phase 0.5) + `mde-shell-migrate-v2` (Phase H.5,
+  shipped) so a 1.x → 2.0.0 upgrade carries config across
+  without user intervention. Add a one-shot `mde-firstboot.target`
+  that runs both, then enables `mde-session.service`.
+
+#### CB-3 Spec rebuild for monolithic cut
+
+- [ ] **CB-3.1 `Name: mde` + `Version: 2.0.0`** — rename
+  `packaging/fedora/mackes-shell.spec` → `packaging/fedora/mde.spec`
+  (Phase 0.8). `Name: mde`. Bump `Version: 2.0.0`. Keep
+  `Provides: mackes-shell = %{version}-%{release}` +
+  `Provides: mackes-xfce-workstation = 2.0.0` +
+  `Obsoletes: mackes-shell < 2.0.0` +
+  `Obsoletes: mackes-xfce-workstation < 2.0.0` so `dnf upgrade`
+  on every 1.x flavor lands on `mde-2.0.0`. Summary becomes
+  "Mackes Desktop Environment".
+- [ ] **CB-3.2 Dep swap** — Phase H.1 + H.2 fully landed. Drop
+  every `Requires:` for `xfconf`, `xfce4-settings`,
+  `xfce4-session`, `xfce4-power-manager`, `i3`, `i3status`,
+  `dmenu`, `wmctrl`, `xprop`, `xrandr`, `xdotool`. Add hard
+  `Requires:` for `sway`, `swaylock`, `swayidle`, `swaybg`,
+  `foot`, `bemenu`, `brightnessctl`, `pipewire`, `wireplumber`,
+  `grim`, `slurp`. `Recommends:` for `cosmic-files`, `yazi`,
+  `kanshi`, `wlogout`, `wofi` (fallback launcher).
+- [ ] **CB-3.3 `Conflicts:` block (Q5 lock)** — add
+  `Conflicts: xfce4-panel`, `Conflicts: xfdesktop`,
+  `Conflicts: xfce4-session`, `Conflicts: xfce4-settings`,
+  `Conflicts: xfwm4`, `Conflicts: xfce4-whiskermenu-plugin`,
+  `Conflicts: xfce4-docklike-plugin`,
+  `Conflicts: xfce4-pulseaudio-plugin`,
+  `Conflicts: xfce4-power-manager-plugin`,
+  `Conflicts: i3`. Each silenced for rpmlint with the same
+  `< 999` cap pattern the existing Obsoletes use. `dnf install
+  xfce4-panel` after MDE is installed will then error
+  ("would break mde"). I.7 no-XFCE gate stays green.
+- [ ] **CB-3.4 Group registration (Q5 lock)** — new
+  `data/comps/mackes-desktop-environment.xml` defining the
+  `mackes-desktop-environment` group with `<name>Mackes Desktop
+  Environment</name>` + `<description>` + the package list
+  (mde + sway + swaylock + swayidle + swaybg + foot + bemenu +
+  cosmic-files + yazi + brightnessctl + pipewire + wireplumber +
+  grim + slurp + kanshi). Spec installs to
+  `%{_datadir}/mde/comps/mackes-desktop-environment.xml` +
+  registers via `%post: dnf groups mark install
+  mackes-desktop-environment 2>/dev/null || :`. Fedora's
+  groupinstall picks it up so `dnf groupinstall
+  mackes-desktop-environment` works.
+- [ ] **CB-3.5 Drop XDG autostart overrides (H.4)** — the
+  `mackes-enforce-session.desktop`, `mackes-suppress-xfce4-panel
+  .desktop`, `xfdesktop.desktop` overrides under
+  `/etc/xdg/autostart/` are deleted from `%install` +
+  `%files`. They existed only to suppress XFCE on the 1.x line;
+  on a v2.0.0 box there's no XFCE to suppress.
+- [ ] **CB-3.6 `mde-session.service` enabled by default** —
+  spec ships `data/systemd/90-mde.preset` enabling
+  `mde-session.service` (user unit) + `mded.service` (system
+  unit) by default. The 1.x `90-mackes.preset` is renamed to
+  `90-mde.preset` and trimmed of retired units (Phase B.13
+  already did the trim).
+- [ ] **CB-3.7 Bin-shim retirement plan** — Phase 0.3 ships
+  `mde-*` binaries as shell shims that exec the legacy
+  `mackes-*` binaries during the "one-release backward-compat
+  window." v2.0.0 IS that release — past it, `mde-2.1` removes
+  the shims AND the `mackes-*` binaries. Worklist follow-up
+  created here for the 2.1 cut: `[ ] 2.1: drop mackes-* binary
+  shims + back-compat env shim`.
+
+#### CB-4 ISO rebuild (Q4 lock — replace `mackes-xfce.ks`)
+
+- [ ] **CB-4.1 Delete `packaging/iso/mackes-xfce.ks`** — file
+  removed. Reference to it in `Makefile` `iso` target updated to
+  point at `mde.ks`. README + docs/help links updated.
+- [ ] **CB-4.2 New `packaging/iso/mde.ks`** — Fedora kickstart
+  for a Wayland-only MDE ISO. `lang en_US.UTF-8`, sway-friendly
+  defaults. `%packages`: `@core`, `@base-x` (kept for Xwayland-
+  compatible apps that haven't ported yet — `Recommends`, not
+  Required, per the spec), sway + swaylock + swayidle + swaybg +
+  foot + bemenu + brightnessctl + pipewire + wireplumber + grim +
+  slurp + kanshi + cosmic-files + yazi + NetworkManager-wifi +
+  NetworkManager-vpnc + openssh-server + lightdm + lightdm-gtk +
+  mde (the rebranded RPM, CB-3.1) + redhat-display-fonts +
+  redhat-text-fonts + redhat-mono-fonts. **No** `@xfce-desktop-
+  environment`, **no** xfce4-* packages. `%post`: seed
+  `/etc/skel/.config/mde/state.json` (renamed from `mackes-
+  shell/state.json` per Phase 0 path rename), enable
+  `lightdm.service`, set greeter default session to `mde`,
+  add the Mackes dnf repo, wire recovery boot entry.
+- [ ] **CB-4.3 Plymouth + branding** — kickstart `%post`
+  activates the Mackes Plymouth theme by default on the ISO
+  (the in-tree birthright step keeps it opt-in for upgrade
+  paths so we don't rebuild initrd silently). ISO volid changes
+  from `MACKES_XFCE` → `MDE`. Wallpaper baked into
+  `/usr/share/backgrounds/mde-default.png`.
+- [ ] **CB-4.4 Makefile `iso` target rewrite** — `make iso`
+  invokes `livemedia-creator` with the new kickstart, MDE
+  project name, MDE volid. README "Building an ISO" section
+  updated to the new command + new asset name.
+
+#### CB-5 install.sh tweaks (small)
+
+The installer already accepts both `mackes-shell-*` and `mde-*` RPM
+filename prefixes (commit 6869356, line 158–166 of install.sh) so no
+parser change is needed. The cosmetic + UX changes:
+
+- [ ] **CB-5.1 Banner rebrand** — "Mackes Shell" → "Mackes Desktop
+  Environment (MDE)" in the Carbon-styled top banner of
+  `install.sh`. "Carbon Design System chrome · XFCE · Fedora" → "
+  PatternFly 6 · Wayland · Fedora" in the subtitle (XFCE is gone;
+  the v2.0.0 PatternFly reskin lock from memory governs).
+- [ ] **CB-5.2 Hand-off exec** — final `exec mackes` → `exec mde`
+  (which is itself the bin shim during the back-compat window
+  per CB-3.7). After 2.1 cut, `exec mde` is the only entry.
+- [ ] **CB-5.3 Headless fallback message** — "Run `mackes
+  --wizard`" → "Run `mde --wizard`". TUI line same.
+- [ ] **CB-5.4 GPU / Wayland-capability hint** — `install.sh`
+  finishes by printing a one-line hint when neither `$DISPLAY`
+  nor `$WAYLAND_DISPLAY` is set explaining that MDE requires
+  a Wayland-capable greeter session ("on next login, pick
+  'Mackes Desktop Environment' from the greeter dropdown").
+  Doesn't probe GPU (Q2 hard-switch lock — no
+  detect-and-pick); just informs.
+
+#### CB-6 Documentation + cut prep
+
+- [ ] **CB-6.1 README rewrite** — `README.md` top section flipped
+  from "Mackes Shell 1.1.0" framing to "Mackes Desktop
+  Environment (MDE) 2.0.0". "What is MDE" paragraph: Wayland
+  compositor (sway) + Iced panel + Iced Workbench + mesh-first
+  file manager + unified `mded` meta-daemon + mesh-fleet control
+  plane. Install section: curl-pipe + `dnf install mde` + ISO
+  download. Upgrade section: "1.x → 2.0.0 is a hard switch — XFCE
+  is removed, sway becomes the session." Screenshot pass: replace
+  every 1.x panel screenshot with Iced equivalents.
+- [ ] **CB-6.2 `docs/MIGRATION_FROM_V1.md`** — new doc (parallel
+  to existing `docs/MIGRATION_FROM_V2.2.md` from the 1.x line).
+  Step-by-step upgrade walkthrough: `dnf upgrade` lands `mde`,
+  next login flips to MDE/sway, `mde-migrate-from-1x` runs
+  automatically, `mde-shell-migrate-v2` runs automatically,
+  XFCE backup lands at `~/.config/xfce4.v1x-backup.<ts>/`, what
+  to expect if something goes wrong (recovery boot entry).
+- [ ] **CB-6.3 `docs/help/` sweep** — every page that mentions
+  XFCE / i3 / xfwm4 / xfconf / mackes-panel (GTK3) gets a
+  v2.0.0 update or retirement. Specifically:
+  `getting-started.md`, `keybindings.md` (sway bindings, not i3),
+  `wayland.md` (no longer "readiness" — this IS Wayland),
+  `troubleshooting.md` (sway-specific troubleshooting),
+  `headless.md` (mded headless via `mded serve`).
+- [ ] **CB-6.4 CHANGELOG 2.0.0 finalization** — Phase 0.14
+  shipped the body; the cut commit adds the `(YYYY-MM-DD)`
+  timestamp and appends the CB-1 through CB-5 deliverables to
+  the "What's new" section. "BREAKING CHANGES" section enumerates
+  the dropped XFCE deps + the hard-switch upgrade UX.
+- [ ] **CB-6.5 Release smoke checklist** — `docs/RELEASE_2_0_0_
+  CHECKLIST.md`: every gate that must pass before the cut commit
+  (every CB-* + Phase E + Phase 0 + Phase H item green; `make
+  rpm` green; `make iso` green; fresh-VM end-to-end test passes;
+  upgrade-VM test passes; `check-no-xfce.sh` + `check-wayland-
+  only.sh` green on the upgraded box). Read by future-self at
+  tag-cut time.
+
+#### CB-7 Test surface for the cut
+
+- [ ] **CB-7.1 Fresh-install VM test (I.4 finishing)** — boots
+  the `mde-2.0.0` ISO in a fresh Fedora VM, runs through the
+  wizard, asserts: sway is the active session, mde-panel is on
+  the layer-shell surface, mde-workbench opens at all 9 groups,
+  mde-files opens with mesh-first sidebar, no xfce4-* RPMs
+  installed. Lives in `tests/vm/test_fresh_install.sh` driven
+  by `qemu-system-x86_64 -snapshot`.
+- [ ] **CB-7.2 Upgrade VM test (I.5 finishing)** — boots a
+  pre-built `mackes-xfce-workstation-1.1.0` VM image, runs
+  `dnf upgrade -y`, reboots, logs in, asserts same gates as
+  CB-7.1 PLUS: `mde-migrate-from-1x` ran, `~/.config/mde/`
+  populated from `~/.config/mackes-shell/`,
+  `~/.config/xfce4.v1x-backup.<ts>/` exists, every 1.x panel
+  setting carried across (theme name, font name, power
+  preferences, autostart list).
+- [ ] **CB-7.3 Wayland smoke test (I.3 finishing)** — runs
+  headless sway via `WLR_BACKENDS=headless` in CI, launches
+  mde-session, asserts `swaymsg -t get_outputs` returns the
+  expected fake output, asserts mde-panel registers a toplevel
+  in the foreign-toplevel listener, asserts mde-workbench opens
+  on Ctrl+1. Lives in `crates/mde-workbench/tests/wayland_smoke
+  .rs` + matches the existing E.10 pattern.
+- [ ] **CB-7.4 Spec regression tests** — extend
+  `tests/test_v2_rebrand_identifiers.py` with `Name: mde`
+  assertion, `Conflicts:` block assertion (every CB-3.3 line
+  present), `Recommends: @sway-desktop` group assertion,
+  comps.xml shape assertion.
+
+**Definition of Done for the v2.0.0 cut:** every CB-1 through CB-7
+task is `[✓] Done` AND every cross-referenced Phase E / 0 / C / D /
+H / I item is `[✓] Done` AND `make rpm` + `make iso` are green AND
+the CB-7.1 + CB-7.2 VM tests pass on a clean runner. At that point
+the `cut release 2.0.0` flow (`.claude/CLAUDE.md` §0.6) runs end-
+to-end and a `curl … | bash install.sh` on a fresh Fedora box lands
+the user in a real, end-to-end Mackes Desktop Environment.
+
 ### Window management
 
 - [✓] **Super+Tab app switcher** — `crates/mackes-panel/src/app_switcher.rs`
@@ -2238,9 +2620,17 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
 - [ ] **2.4 mded surfaces** — Land the matching D-Bus surfaces in
   `crates/mackesd/src/ipc/shell.rs` and `…/fleet.rs`. Blocks on
   Phase A.3 of v2.0.0 Mackes DE.
-- [ ] **2.5 Path safety + allowed-roots resolver** — In `mded`
-  (not in the UI). Canonicalize, symlink-resolve, reject traversal,
-  reject anything outside the RBAC-allowed roots.
+- [✓] **2.5 Path safety + allowed-roots resolver** — shipped
+  2026-05-20. New module `crates/mackesd/src/path_safety.rs`
+  ships the `PathPolicy` struct + `AllowedRoot` type. Every
+  `validate()` call: rejects literal `..` segments before
+  touching disk (defends against symlink-swap races),
+  canonicalises via `std::fs::canonicalize` (resolves
+  symlinks + double slashes + `.`), then verifies the
+  resolved path sits under at least one allowed root.
+  `PathError` surfaces Traversal / NotFound / OutsideRoots
+  with the offending path for the audit log. 12 unit tests
+  including the symlink-escapes-root case.
 - [ ] **2.6 Operation orchestrator** — In `mded`. Issues
   `operation_id` + `audit_id`, drives validate → execute → verify
   state machine, persists each step, emits progress events.
@@ -2280,11 +2670,18 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
   (KeepBoth, Newest, Checksum, Merge, FailSafely) lands
   alongside the per-destination-class user-pref persistence in
   the settings sidecar (Phase C.5 surface extended for it).
-- [ ] **3.5 Pre-flight validation** — Source / target /
-  permissions / allowed-paths / disk-space / node-reachability /
-  file-type policy / rollback-feasibility, each surfaced as a
-  pre-flight check row in the Send-To dialog. Any failed check
-  blocks send.
+- [✓] **3.5 Pre-flight validation** — shipped 2026-05-20.
+  New module `crates/mackesd/src/preflight.rs` ships the 8
+  locked checks (sources, allowed-paths, disk-space,
+  reachability, file-type, rollback, target-free, mode-combo)
+  returning a `Vec<CheckRow>` keyed by the locked UI id +
+  status (Ok / Warn / Block). `rows_allow_send` is the gate
+  the orchestrator consults. Reachability window locked at
+  60 s; block list locked at `.exe`/`.msi`/`.bat`/`.cmd`/
+  `.ps1`/`.app` (case-insensitive). Pure-fn — real I/O
+  (disk-space query, peer heartbeat) is supplied as
+  parameters so the module tests in milliseconds. 19 unit
+  tests across every check + ok/warn/block path.
 
 #### Phase 4 — cosmic-files upstream merge
 

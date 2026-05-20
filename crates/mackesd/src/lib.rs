@@ -21,7 +21,14 @@ pub mod legacy_inventory;
 pub mod logging;
 pub mod metrics;
 pub mod passcode;
+// v2.0.0 Phase 2.5 — path safety + allowed-roots resolver for the
+// Send-To pipeline. Pure-fn validation; no async / DBus surface.
+pub mod path_safety;
 pub mod policy;
+// v2.0.0 Phase 3.5 — pre-flight validation for Send-To requests.
+// Consumes path_safety + reports the 8 locked check rows the UI
+// renders in the Send-To dialog.
+pub mod preflight;
 pub mod reconcile;
 pub mod revisions;
 pub mod secrets;
