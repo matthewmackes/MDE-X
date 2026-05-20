@@ -645,11 +645,17 @@ panel starts without manual intervention.
   Iced + libcosmic for the logout / restart / shutdown
   CONFIRMATION dialog (D.2) lives in a separate process so this
   binary stays Iced-free + boots fast.
-- [ ] **D.2 Iced logout/restart/shutdown dialog** — `src/dialog.rs`
-  in `crates/mde-logout-dialog/`. Replaces the GTK Carbon modal.
-  Gated on adopting Iced + libcosmic (substantial dep tree); the
-  D.1 skeleton has the SIGTERM-on-Logout path the dialog will
-  call so the surface is ready.
+- [✓] **D.2 Iced logout/restart/shutdown dialog** — shipped
+  2026-05-19. New workspace member `crates/mde-logout-dialog/`
+  with a dep-free library (locked title/body/button copy +
+  `Action`/`Choice`/`exit_code`/`systemctl_subcommand` pure fns —
+  8 unit tests) plus the Iced 0.13 binary `mde-logout-dialog`
+  that renders the confirmation modal and exits 0 (Confirm) / 10
+  (Cancel). Parent (mde-session) maps the exit code: 0 ⇒ run
+  `systemctl_subcommand(action)` (or SIGTERM-the-session for
+  Logout), 10 ⇒ noop. CLI: `mde-logout-dialog --action
+  logout|restart|shutdown`. Library is Iced-free so session.rs
+  unit tests run in milliseconds without Wayland or wgpu.
 - [✓] **D.3 Autostart honoring** — `crates/mde-session/src/autostart.rs`
   ships pure helpers `parse_desktop_entry` (default-group parser
   that ignores comments / blank lines / non-default groups),

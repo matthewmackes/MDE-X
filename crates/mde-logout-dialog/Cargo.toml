@@ -1,0 +1,41 @@
+[package]
+name        = "mde-logout-dialog"
+description = "Mackes Desktop Environment (MDE) — logout / restart / shutdown confirmation dialog."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+# Two surfaces: the library (pure-logic core that's easy to unit test
+# + reuse from session.rs) and the binary (Iced GUI process invoked
+# by mde-session when the user picks "Log out" / "Restart" /
+# "Shut down" from the panel). The binary stays small + Iced-bounded;
+# the library is dep-free so tests don't pull in Iced.
+[lib]
+name = "mde_logout_dialog"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mde-logout-dialog"
+path = "src/main.rs"
+
+[dependencies]
+# Iced is the v2.0.0 Wayland-only UI toolkit (already a workspace
+# member via mde-files). Same feature set so we share its dep tree.
+iced       = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced"] }
+clap       = { version = "4.5", features = ["derive"] }
+
+[lints.rust]
+unsafe_code     = "forbid"
+unused_must_use = "deny"
+# Self-documenting from the design spec.
+missing_docs    = "allow"
+
+[lints.clippy]
+pedantic                  = { level = "allow", priority = -1 }
+nursery                   = { level = "allow", priority = -1 }
+unwrap_used               = "warn"
+panic                     = "warn"
+todo                      = "warn"

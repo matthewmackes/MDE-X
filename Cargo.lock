@@ -3018,6 +3018,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mde-logout-dialog"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "iced",
+]
+
+[[package]]
 name = "mde-session"
 version = "0.0.0"
 dependencies = [
