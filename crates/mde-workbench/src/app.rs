@@ -17,6 +17,7 @@ use crate::keyboard::{KeyAction, Pane};
 use crate::model::{Group, View, view_from_focus_slug};
 use crate::panels::{
     fonts as fonts_panel, notifications as notifications_panel,
+    power as power_panel, removable as removable_panel,
     session as session_panel, themes as themes_panel,
 };
 use crate::patternfly::{breadcrumb, page_subtitle, page_title};
@@ -54,6 +55,10 @@ pub enum Message {
     Session(session_panel::Message),
     /// CB-1.9 partial — System notifications panel sub-message.
     Notifications(notifications_panel::Message),
+    /// CB-1.4 partial — Devices power panel sub-message.
+    Power(power_panel::Message),
+    /// CB-1.4 partial — Devices removable panel sub-message.
+    Removable(removable_panel::Message),
     /// No-op — placeholder for buttons whose behaviour lands in
     /// later CB-1.x substeps.
     Noop,
@@ -70,6 +75,8 @@ pub struct App {
     fonts: fonts_panel::FontsPanel,
     session: session_panel::SessionPanel,
     notifications: notifications_panel::NotificationsPanel,
+    power: power_panel::PowerPanel,
+    removable: removable_panel::RemovablePanel,
 }
 
 impl std::fmt::Debug for App {
@@ -112,6 +119,8 @@ impl App {
             fonts: fonts_panel::FontsPanel::new(),
             session: session_panel::SessionPanel::new(),
             notifications: notifications_panel::NotificationsPanel::new(),
+            power: power_panel::PowerPanel::new(),
+            removable: removable_panel::RemovablePanel::new(),
         }
     }
 
@@ -158,6 +167,18 @@ impl App {
     #[must_use]
     pub fn notifications(&self) -> &notifications_panel::NotificationsPanel {
         &self.notifications
+    }
+
+    /// Read-only view of the power panel state.
+    #[must_use]
+    pub fn power(&self) -> &power_panel::PowerPanel {
+        &self.power
+    }
+
+    /// Read-only view of the removable panel state.
+    #[must_use]
+    pub fn removable(&self) -> &removable_panel::RemovablePanel {
+        &self.removable
     }
 
     #[must_use]
@@ -237,6 +258,10 @@ impl App {
             Message::Notifications(msg) => {
                 self.notifications.update(msg, self.backend())
             }
+            Message::Power(msg) => self.power.update(msg, self.backend()),
+            Message::Removable(msg) => {
+                self.removable.update(msg, self.backend())
+            }
             Message::Noop => Task::none(),
         }
     }
@@ -257,6 +282,12 @@ impl App {
             }
             (Group::System, "notifications") => {
                 notifications_panel::NotificationsPanel::load(self.backend())
+            }
+            (Group::Devices, "power") => {
+                power_panel::PowerPanel::load(self.backend())
+            }
+            (Group::Devices, "removable") => {
+                removable_panel::RemovablePanel::load(self.backend())
             }
             _ => Task::none(),
         }
@@ -352,6 +383,12 @@ impl App {
             }
             View::Panel { group: Group::System, panel: "notifications" } => {
                 self.notifications.view()
+            }
+            View::Panel { group: Group::Devices, panel: "power" } => {
+                self.power.view()
+            }
+            View::Panel { group: Group::Devices, panel: "removable" } => {
+                self.removable.view()
             }
             _ => {
                 // Placeholder body for views without a wired
@@ -556,6 +593,32 @@ mod tests {
         ));
         assert!(app.session().save_on_exit);
         assert!(app.session().lock_on_suspend);
+    }
+
+    #[test]
+    fn power_panel_field_changes_persist_in_app_state() {
+        let mut app = App::new();
+        let _ = app.update(Message::Power(power_panel::Message::ProfileChanged(
+            "performance".into(),
+        )));
+        let _ = app.update(Message::Power(power_panel::Message::PresentationChanged(
+            true,
+        )));
+        assert_eq!(app.power().profile, "performance");
+        assert!(app.power().presentation_mode);
+    }
+
+    #[test]
+    fn removable_panel_field_changes_persist_in_app_state() {
+        let mut app = App::new();
+        let _ = app.update(Message::Removable(
+            removable_panel::Message::OnInsertChanged(true),
+        ));
+        let _ = app.update(Message::Removable(
+            removable_panel::Message::AutorunChanged(false),
+        ));
+        assert!(app.removable().on_insert);
+        assert!(!app.removable().autorun);
     }
 
     #[test]

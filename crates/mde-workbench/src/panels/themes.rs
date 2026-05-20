@@ -14,6 +14,7 @@ use iced::widget::{button, column, pick_list, row, text, text_input};
 use iced::{Element, Length, Padding, Task};
 
 use crate::backend::Backend;
+use crate::panels::json_helpers::{quote_json, strip_json_quotes};
 
 /// Locked set of mode values the Phase C theme applier accepts.
 /// `auto` honours the system's dark-mode preference; `light` /
@@ -225,27 +226,6 @@ where
     .into()
 }
 
-/// JSON-encode a string by wrapping in quotes + escaping
-/// backslashes / quotes (covers the values the theme appliers
-/// see in practice — no embedded control chars).
-fn quote_json(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
-}
-
-/// Inverse of [`quote_json`] — strip surrounding `"…"` if
-/// present, unescape `\"` and `\\`. Empty / unquoted input
-/// passes through unchanged.
-fn strip_json_quotes(s: &str) -> String {
-    let trimmed = s.trim();
-    if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
-        let inner = &trimmed[1..trimmed.len() - 1];
-        inner.replace("\\\"", "\"").replace("\\\\", "\\")
-    } else {
-        trimmed.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,29 +242,6 @@ mod tests {
         assert_eq!(KEY_ICON_SET, "theme.icon_set");
         assert_eq!(KEY_ACCENT, "theme.accent");
         assert_eq!(KEY_MODE, "theme.mode");
-    }
-
-    #[test]
-    fn quote_round_trips_plain_string() {
-        let s = "Adwaita-dark";
-        assert_eq!(strip_json_quotes(&quote_json(s)), s);
-    }
-
-    #[test]
-    fn quote_round_trips_string_with_quotes() {
-        let s = "weird \"name\" with quotes";
-        assert_eq!(strip_json_quotes(&quote_json(s)), s);
-    }
-
-    #[test]
-    fn strip_json_quotes_passes_through_unquoted_input() {
-        assert_eq!(strip_json_quotes("Adwaita-dark"), "Adwaita-dark");
-    }
-
-    #[test]
-    fn strip_json_quotes_handles_empty_string() {
-        assert_eq!(strip_json_quotes(""), "");
-        assert_eq!(strip_json_quotes("\"\""), "");
     }
 
     #[test]

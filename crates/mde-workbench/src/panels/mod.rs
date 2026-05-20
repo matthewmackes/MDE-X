@@ -5,6 +5,9 @@
 //! [`Element<'_, crate::Message>`].
 
 pub mod fonts;
+pub mod json_helpers;
 pub mod notifications;
+pub mod power;
+pub mod removable;
 pub mod session;
 pub mod themes;

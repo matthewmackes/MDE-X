@@ -1411,7 +1411,7 @@ group structure with one Iced view per panel.
   AdminSession → polkit → dnf. The MDE_PREVIEW path is gone (this
   IS MDE). 12 tests per panel minimum (data shape, error states,
   loading state, accessibility names).
-- [ ] **CB-1.4 Devices group port (5 panels)** — Ported from
+- [>] **CB-1.4 Devices group port (5 panels)** — Ported from
   `mackes/workbench/devices/{displays.py, power.py, sound.py,
   printers.py, removable.py}`. `displays.py` already routes through
   `mde_settings_bridge` (F.4 done); the Iced port talks zbus
@@ -1419,7 +1419,20 @@ group structure with one Iced view per panel.
   Python bridge. `power.py` same (F.1 done). `sound.py` is new
   Iced UI over pipewire-rs. `printers.py` shells out to
   cups-browsed via zbus surface. `removable.py` uses the
-  automount sidecar (C.6).
+  automount sidecar (C.6). **Partial progress 2026-05-20:**
+  power + removable Iced panels shipped — same Backend trait
+  pattern, lifted into the shared
+  `panels/json_helpers.rs` module (quote_json /
+  strip_json_quotes / parse_bool / encode_bool / parse_u32)
+  to retire the duplication that had grown across 4 panels.
+  power.rs covers 5 keys (profile combo over
+  powerprofilesctl values, lid_action combo over logind
+  values, two idle-suspend integer inputs with empty=0
+  semantics, presentation_mode checkbox). removable.rs
+  covers 3 automount booleans. App wired both via
+  `Message::{Power, Removable}` + view dispatch +
+  load-on-navigation. Remaining 3 panels (displays, sound,
+  printers) blocked on the follow-up backend items below.
 - [ ] **CB-1.5 Fleet group port (5 panels)** —
   `{inventory.py, playbooks.py, run_history.py, settings.py,
   revisions.py}`. F.11 + F.12 already shipped the Python-side
@@ -3331,6 +3344,30 @@ under `LICENSES/`.
 ---
 
 ## Follow-ups from in-flight work
+
+- [ ] **CB-1.4.a Devices displays panel (Iced)** — port
+  `mackes/workbench/devices/displays.py`. F.4 already wired
+  the 4 settings keys (display.primary / .scale /
+  .night_light / .night_light_temp) — Iced port reuses the
+  Backend trait. Needs an output enumerator: subprocess
+  `swaymsg -t get_outputs` and parse the JSON OR pull
+  swayipc-async into the workbench. Acceptance: panel lists
+  connected outputs, primary picker writes display.primary,
+  scale slider writes display.scale, night-light toggle +
+  temp slider write their keys.
+
+- [ ] **CB-1.4.b Devices sound panel (Iced)** — port
+  `mackes/workbench/devices/sound.py`. New Iced UI over
+  pipewire-rs (or pactl subprocess as a backstop). Sink
+  picker + per-sink volume slider + mute toggle. Acceptance:
+  changes propagate to PipeWire immediately, picker shows
+  every active sink.
+
+- [ ] **CB-1.4.c Devices printers panel (Iced)** — port
+  `mackes/workbench/devices/printers.py`. Shells out to
+  `lpstat` (or zbus to cups-browsed once it ships a usable
+  surface). Acceptance: lists configured printers, defaults
+  picker writes the default queue.
 
 - [ ] **CB-1.9.a System datetime panel (Iced)** — port
   `mackes/workbench/system/datetime.py` to Iced. Needs a new

@@ -13,6 +13,7 @@ use iced::widget::{button, checkbox, column, row, text};
 use iced::{Element, Length, Padding, Task};
 
 use crate::backend::Backend;
+use crate::panels::json_helpers::{encode_bool, parse_bool};
 
 pub const KEY_SAVE_ON_EXIT: &str = "session.save_on_exit";
 pub const KEY_LOCK_ON_SUSPEND: &str = "session.lock_on_suspend";
@@ -166,19 +167,6 @@ impl SessionPanel {
     }
 }
 
-/// JSON boolean encoding — accepts `true` / `"true"` / `"1"` /
-/// `1` as truthy; everything else falsy. The Phase C session
-/// applier writes the canonical `true` / `false` JSON form
-/// after a Set, so round-trips work without the looser parser.
-fn parse_bool(s: &str) -> bool {
-    let t = s.trim().trim_matches('"').to_ascii_lowercase();
-    matches!(t.as_str(), "true" | "1" | "yes")
-}
-
-const fn encode_bool(b: bool) -> &'static str {
-    if b { "true" } else { "false" }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,33 +177,6 @@ mod tests {
         assert_eq!(KEY_SAVE_ON_EXIT, "session.save_on_exit");
         assert_eq!(KEY_LOCK_ON_SUSPEND, "session.lock_on_suspend");
         assert_eq!(KEY_AUTO_SAVE, "session.auto_save");
-    }
-
-    #[test]
-    fn parse_bool_accepts_canonical_true_and_false() {
-        assert!(parse_bool("true"));
-        assert!(!parse_bool("false"));
-        assert!(parse_bool("\"true\""));
-        assert!(!parse_bool("\"false\""));
-    }
-
-    #[test]
-    fn parse_bool_accepts_legacy_1_and_0() {
-        // Legacy sidecars may carry boolean-as-int.
-        assert!(parse_bool("1"));
-        assert!(!parse_bool("0"));
-    }
-
-    #[test]
-    fn parse_bool_falsy_on_empty_or_garbage() {
-        assert!(!parse_bool(""));
-        assert!(!parse_bool("maybe"));
-    }
-
-    #[test]
-    fn encode_bool_emits_json_keywords() {
-        assert_eq!(encode_bool(true), "true");
-        assert_eq!(encode_bool(false), "false");
     }
 
     #[test]

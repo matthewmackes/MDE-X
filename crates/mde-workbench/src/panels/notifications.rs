@@ -15,6 +15,9 @@ use iced::widget::{button, checkbox, column, pick_list, row, text, text_input};
 use iced::{Element, Length, Padding, Task};
 
 use crate::backend::Backend;
+use crate::panels::json_helpers::{
+    encode_bool, parse_bool, parse_u32, quote_json, strip_json_quotes,
+};
 
 /// Five-corner placement table the Phase C.5 applier accepts.
 pub const LOCATIONS: &[&str] = &[
@@ -137,12 +140,21 @@ impl NotificationsPanel {
                 if self.busy {
                     return Task::none();
                 }
-                let expire_ms = match parse_u32(&self.expire_ms_input) {
-                    Some(v) => v,
-                    None => {
-                        self.status =
-                            "Expire-ms must be a non-negative integer.".into();
-                        return Task::none();
+                // Empty input collapses to the locked default
+                // (matches the v1.x panel's blank-as-default
+                // behaviour); non-numeric input surfaces a
+                // validation error without touching the bus.
+                let expire_ms = if self.expire_ms_input.trim().is_empty() {
+                    DEFAULT_EXPIRE_MS
+                } else {
+                    match parse_u32(&self.expire_ms_input) {
+                        Some(v) => v,
+                        None => {
+                            self.status =
+                                "Expire-ms must be a non-negative integer."
+                                    .into();
+                            return Task::none();
+                        }
                     }
                 };
                 self.busy = true;
@@ -222,38 +234,6 @@ fn current_location(value: &str) -> Option<&'static str> {
     LOCATIONS.iter().copied().find(|l| *l == value)
 }
 
-fn parse_bool(s: &str) -> bool {
-    let t = s.trim().trim_matches('"').to_ascii_lowercase();
-    matches!(t.as_str(), "true" | "1" | "yes")
-}
-
-const fn encode_bool(b: bool) -> &'static str {
-    if b { "true" } else { "false" }
-}
-
-fn parse_u32(s: &str) -> Option<u32> {
-    let trimmed = s.trim().trim_matches('"');
-    if trimmed.is_empty() {
-        return Some(DEFAULT_EXPIRE_MS);
-    }
-    trimmed.parse::<u32>().ok()
-}
-
-fn quote_json(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
-}
-
-fn strip_json_quotes(s: &str) -> String {
-    let trimmed = s.trim();
-    if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
-        let inner = &trimmed[1..trimmed.len() - 1];
-        inner.replace("\\\"", "\"").replace("\\\\", "\\")
-    } else {
-        trimmed.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,24 +256,6 @@ mod tests {
     #[test]
     fn default_expire_ms_matches_phase_c5_lock() {
         assert_eq!(DEFAULT_EXPIRE_MS, 5000);
-    }
-
-    #[test]
-    fn parse_u32_accepts_plain_integers() {
-        assert_eq!(parse_u32("3000"), Some(3000));
-        assert_eq!(parse_u32("0"), Some(0));
-    }
-
-    #[test]
-    fn parse_u32_returns_default_for_empty() {
-        assert_eq!(parse_u32(""), Some(DEFAULT_EXPIRE_MS));
-        assert_eq!(parse_u32("\"\""), Some(DEFAULT_EXPIRE_MS));
-    }
-
-    #[test]
-    fn parse_u32_rejects_non_numeric() {
-        assert_eq!(parse_u32("forever"), None);
-        assert_eq!(parse_u32("-100"), None);
     }
 
     #[test]

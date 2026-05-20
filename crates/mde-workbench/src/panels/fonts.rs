@@ -10,6 +10,7 @@ use iced::widget::{button, column, pick_list, row, text, text_input};
 use iced::{Element, Length, Padding, Task};
 
 use crate::backend::Backend;
+use crate::panels::json_helpers::{quote_json, strip_json_quotes};
 
 /// Locked hinting values the Phase C font applier accepts.
 pub const HINTING: &[&str] = &["none", "slight", "medium", "full"];
@@ -226,21 +227,6 @@ where
     .into()
 }
 
-fn quote_json(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
-}
-
-fn strip_json_quotes(s: &str) -> String {
-    let trimmed = s.trim();
-    if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
-        let inner = &trimmed[1..trimmed.len() - 1];
-        inner.replace("\\\"", "\"").replace("\\\\", "\\")
-    } else {
-        trimmed.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,12 +332,6 @@ mod tests {
             backend.get(KEY_HINTING).await.unwrap(),
             "\"slight\""
         );
-    }
-
-    #[test]
-    fn quote_round_trips_plain_string() {
-        let s = "Cascadia Code 10";
-        assert_eq!(strip_json_quotes(&quote_json(s)), s);
     }
 
     #[test]
