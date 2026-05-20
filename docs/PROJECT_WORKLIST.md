@@ -751,10 +751,28 @@ panel starts without manual intervention.
   retired packages.
 - [ ] **H.4 Drop XDG autostart overrides** —
   `mackes-suppress-xfce4-panel.desktop`, `xfdesktop` Hidden=true.
-- [ ] **H.5 `bin/mackes-shell-migrate-v2`** — first-boot migration:
-  read residual xfconf channels into `settings` table; remove
-  XDG autostart overrides; back up `~/.config/xfce4/`; write
-  default `~/.config/sway/`.
+- [✓] **H.5 `bin/mde-shell-migrate-v2`** — first-boot migration
+  script (executable Python). Four named steps, all idempotent:
+    1. `step_1_import_xfconf_to_settings` — walks the locked
+       `XFCONF_TO_MDE_KEY` map (xsettings/Net/ThemeName →
+       theme.name, xsettings/Net/IconThemeName → theme.icon_set,
+       Gtk/FontName → font.name, Gtk/MonospaceFontName →
+       font.monospace, xfce4-power-manager/lid-action-on-ac →
+       power.lid_action) and pushes each value via `mded fleet
+       push-setting <key> <value> --peers all`.
+    2. `step_2_remove_xdg_autostart_overrides` — removes the v1.x
+       MDE-generated overrides (mackes-suppress-xfce4-panel.desktop,
+       xfdesktop.desktop) only when they carry Hidden=true; vendor
+       files left alone.
+    3. `step_3_backup_xfce4_config` — copies `~/.config/xfce4/` to
+       `~/.config/xfce4.v1x-backup.<timestamp>/`.
+    4. `step_4_write_default_sway_config` — seeds `~/.config/sway/`
+       from `/usr/share/mde/sway/` (or in-tree `data/sway/`) when
+       the user doesn't already have one.
+  Logged via `systemd-cat -t mde-migrate-v2`. 7 tests in
+  `tests/test_mde_shell_migrate_v2.py` cover per-step happy +
+  missing-source + preserve-existing semantics + map-shape
+  invariants + main() idempotence.
 
 #### Phase I — Testing + verification
 

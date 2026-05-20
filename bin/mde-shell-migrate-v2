@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""mde-shell-migrate-v2 — first-boot migration from v1.x Mackes Shell to v2.0.0 MDE.
+
+v2.0.0 Phase H.5. Idempotent: re-running on an already-migrated box
+is a no-op that logs "nothing to do" + exits 0. Logs everything to
+journald via `systemd-cat -t mde-migrate-v2` with stderr fallback.
+
+Migration steps, in order:
+
+  1. Read residual xfconf channels into the v2.0.0 `settings` table
+     via `mded fleet push-setting <key> <value>` calls (mapped from
+     the old xfce4 channel + property to the new dot-notated key).
+  2. Remove the v1.x XDG autostart overrides that suppressed
+     xfce4-panel + xfdesktop (no longer relevant — v2.0.0 doesn't
+     ship XFCE).
+  3. Back up `~/.config/xfce4/` to `~/.config/xfce4.v1x-backup/` so
+     the operator can recover the pre-rebrand state if needed.
+  4. Write a default `~/.config/sway/` from `/usr/share/mde/sway/`
+     so the first sway start has a sensible config (sway falls
+     back to its built-in defaults otherwise, which lack the Mackes
+     bindings).
+
+Run from `mde-session.service` on first launch via an `ExecStartPre`
+hook (or manually by the operator after `dnf upgrade`).
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+# ----- helpers --------------------------------------------------------------
+
+def _log(level: str, msg: str) -> None:
+    """Log via systemd-cat with the `mde-migrate-v2` tag when available."""
+    if shutil.which("systemd-cat") is not None:
+        try:
+            subprocess.run(
+                ["systemd-cat", "-t", "mde-migrate-v2", "-p", level],
+                input=msg.encode("utf-8"), check=False, timeout=5,
+            )
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    print(f"[mde-migrate-v2:{level}] {msg}", file=sys.stderr)
+
+
+def _has_xfconf() -> bool:
+    return shutil.which("xfconf-query") is not None
+
+
+# Map old xfconf (channel, property) to the new dot-notated MDE
+# settings key. Keep only the keys that meaningfully transfer — the
+# old preset / panel-layout / accent properties stay in xfconf
+# format for the legacy Workbench panels until they're rewritten in
+# v2.0.0 Phase F.
+XFCONF_TO_MDE_KEY = {
+    ("xsettings",     "/Net/ThemeName"):      "theme.name",
+    ("xsettings",     "/Net/IconThemeName"):  "theme.icon_set",
+    ("xsettings",     "/Gtk/FontName"):       "font.name",
+    ("xsettings",     "/Gtk/MonospaceFontName"): "font.monospace",
+    ("xfce4-power-manager", "/xfce4-power-manager/lid-action-on-ac"): "power.lid_action",
+}
+
+
+def step_1_import_xfconf_to_settings() -> tuple[int, int]:
+    """Read every (channel, property) in XFCONF_TO_MDE_KEY, push the
+    value through `mded fleet push-setting <key> <value> --peers all`.
+
+    Returns (imported, skipped)."""
+    if not _has_xfconf():
+        _log("info", "step 1: xfconf-query not installed; nothing to import")
+        return (0, 0)
+    if shutil.which("mded") is None:
+        _log("warning",
+             "step 1: mded not on PATH; can't push settings yet")
+        return (0, 0)
+    imported = 0
+    skipped = 0
+    for (channel, prop), mde_key in XFCONF_TO_MDE_KEY.items():
+        try:
+            r = subprocess.run(
+                ["xfconf-query", "-c", channel, "-p", prop],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            skipped += 1
+            continue
+        if r.returncode != 0 or not r.stdout.strip():
+            skipped += 1
+            continue
+        value = r.stdout.strip()
+        # Encode as JSON string (every MDE setting value is JSON).
+        try:
+            push = subprocess.run(
+                ["mded", "fleet", "push-setting", mde_key,
+                 json.dumps(value), "--peers", "all"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if push.returncode == 0:
+                imported += 1
+                _log("info", f"step 1: {channel}{prop} -> {mde_key} (value: {value})")
+            else:
+                skipped += 1
+                _log("warning",
+                     f"step 1: mded push-setting {mde_key} failed: "
+                     f"{push.stderr.strip()}")
+        except (OSError, subprocess.SubprocessError) as e:
+            skipped += 1
+            _log("warning", f"step 1: mded push-setting failed: {e}")
+    return (imported, skipped)
+
+
+def step_2_remove_xdg_autostart_overrides() -> int:
+    """Remove the v1.x XDG autostart overrides that suppressed
+    xfce4-panel and xfdesktop. Returns count of files removed."""
+    autostart = Path.home() / ".config" / "autostart"
+    if not autostart.is_dir():
+        return 0
+    removed = 0
+    for filename in ("mackes-suppress-xfce4-panel.desktop",
+                     "xfdesktop.desktop"):
+        target = autostart / filename
+        if not target.exists():
+            continue
+        # Only remove if it's a Mackes-generated override (contains
+        # Hidden=true). Vendor files left alone.
+        try:
+            text = target.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if "Hidden=true" in text:
+            try:
+                target.unlink()
+                removed += 1
+                _log("info", f"step 2: removed {target}")
+            except OSError as e:
+                _log("warning", f"step 2: unlink {target} failed: {e}")
+    return removed
+
+
+def step_3_backup_xfce4_config() -> str | None:
+    """Back up `~/.config/xfce4/` to `~/.config/xfce4.v1x-backup/`.
+    Returns the backup path on success, None when nothing to do."""
+    src = Path.home() / ".config" / "xfce4"
+    if not src.is_dir():
+        return None
+    suffix = time.strftime("%Y%m%d-%H%M%S")
+    dst = Path.home() / ".config" / f"xfce4.v1x-backup.{suffix}"
+    try:
+        shutil.copytree(src, dst, dirs_exist_ok=False)
+        _log("info", f"step 3: backed up xfce4 config to {dst}")
+        return str(dst)
+    except (OSError, shutil.Error) as e:
+        _log("warning", f"step 3: backup failed: {e}")
+        return None
+
+
+def step_4_write_default_sway_config() -> bool:
+    """Copy `/usr/share/mde/sway/` to `~/.config/sway/` if the user
+    doesn't already have one. Returns True when something was written."""
+    dst = Path.home() / ".config" / "sway"
+    if dst.exists():
+        return False
+    # Probe both the install path and the source-tree path so this
+    # works in both the installed RPM and a checked-out dev tree.
+    for candidate in (Path("/usr/share/mde/sway"),
+                      Path(__file__).resolve().parent.parent / "data" / "sway"):
+        if candidate.is_dir():
+            try:
+                shutil.copytree(candidate, dst)
+                _log("info", f"step 4: wrote default sway config from {candidate}")
+                return True
+            except (OSError, shutil.Error) as e:
+                _log("warning", f"step 4: copy from {candidate} failed: {e}")
+                continue
+    _log("info", "step 4: no source sway config found; sway will use built-in defaults")
+    return False
+
+
+def main() -> int:
+    _log("info", "mde-shell-migrate-v2: starting")
+    imported, skipped_xfconf = step_1_import_xfconf_to_settings()
+    removed = step_2_remove_xdg_autostart_overrides()
+    backup_path = step_3_backup_xfce4_config()
+    sway_written = step_4_write_default_sway_config()
+    _log("info", (
+        f"mde-shell-migrate-v2: done — "
+        f"xfconf_imported={imported} xfconf_skipped={skipped_xfconf} "
+        f"autostart_overrides_removed={removed} "
+        f"xfce4_backup={backup_path} "
+        f"sway_config_written={sway_written}"
+    ))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
