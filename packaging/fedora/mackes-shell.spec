@@ -5,7 +5,7 @@
 %global debug_package %{nil}
 
 Name:           mackes-xfce-workstation
-Version:        1.1.0
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        Mackes XFCE Workstation — unified shell, panel, dock, and mesh for Fedora
 
@@ -559,6 +559,15 @@ install -D -m 0755 target/release/mackesd \
 install -D -m 0644 data/systemd/mackesd.service \
     %{buildroot}%{_unitdir}/mackesd.service
 
+# CB-1 — Iced MDE Workbench preview (1.1.1). Ships alongside the
+# v1.x GTK3 panel so users can try the v2.0.0 Workbench surface
+# early; CB-1.12 retires the Python `mackes/workbench/` tree once
+# every panel has an Iced port.
+install -D -m 0755 target/release/mde-workbench \
+    %{buildroot}%{_bindir}/mde-workbench
+install -D -m 0644 data/applications/mde-workbench.desktop \
+    %{buildroot}%{_datadir}/applications/mde-workbench.desktop
+
 # v12.16 — self-hosted DERP relay unit (only active on the Host-role
 # peer; gated by ConditionPathExists=/var/lib/mde/derper.enabled).
 install -D -m 0644 data/systemd/mde-derper.service \
@@ -673,6 +682,9 @@ fi
 %{_bindir}/mackes-panel
 %{_bindir}/mackes-wm
 %{_bindir}/mackesd
+# CB-1 — Iced MDE Workbench preview (1.1.1+).
+%{_bindir}/mde-workbench
+%{_datadir}/applications/mde-workbench.desktop
 # v2.0.0 Phase 0.3 — mde-* binary wrappers + migrators.
 %{_bindir}/mde
 %{_bindir}/mde-wm

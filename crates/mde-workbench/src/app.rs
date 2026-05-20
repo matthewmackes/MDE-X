@@ -20,6 +20,7 @@ use crate::panels::{
     fonts as fonts_panel, notifications as notifications_panel,
     power as power_panel, removable as removable_panel,
     session as session_panel, themes as themes_panel,
+    wallpaper as wallpaper_panel,
 };
 use crate::patternfly::{breadcrumb, page_subtitle, page_title};
 use crate::sidebar::SidebarState;
@@ -64,6 +65,8 @@ pub enum Message {
     FleetSettings(fleet_settings_panel::Message),
     /// CB-1.5 partial — Fleet revisions panel sub-message.
     FleetRevisions(fleet_revisions_panel::Message),
+    /// CB-1.6 follow-on — Look & Feel wallpaper panel sub-message.
+    Wallpaper(wallpaper_panel::Message),
     /// No-op — placeholder for buttons whose behaviour lands in
     /// later CB-1.x substeps.
     Noop,
@@ -84,6 +87,7 @@ pub struct App {
     removable: removable_panel::RemovablePanel,
     fleet_settings: fleet_settings_panel::FleetSettingsPanel,
     fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel,
+    wallpaper: wallpaper_panel::WallpaperPanel,
 }
 
 impl std::fmt::Debug for App {
@@ -130,6 +134,7 @@ impl App {
             removable: removable_panel::RemovablePanel::new(),
             fleet_settings: fleet_settings_panel::FleetSettingsPanel::new(),
             fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel::new(),
+            wallpaper: wallpaper_panel::WallpaperPanel::new(),
         }
     }
 
@@ -200,6 +205,12 @@ impl App {
     #[must_use]
     pub fn fleet_revisions(&self) -> &fleet_revisions_panel::FleetRevisionsPanel {
         &self.fleet_revisions
+    }
+
+    /// Read-only view of the wallpaper panel state.
+    #[must_use]
+    pub fn wallpaper(&self) -> &wallpaper_panel::WallpaperPanel {
+        &self.wallpaper
     }
 
     #[must_use]
@@ -285,6 +296,7 @@ impl App {
             }
             Message::FleetSettings(msg) => self.fleet_settings.update(msg),
             Message::FleetRevisions(msg) => self.fleet_revisions.update(msg),
+            Message::Wallpaper(msg) => self.wallpaper.update(msg, self.backend()),
             Message::Noop => Task::none(),
         }
     }
@@ -299,6 +311,9 @@ impl App {
             }
             (Group::LookAndFeel, "fonts") => {
                 fonts_panel::FontsPanel::load(self.backend())
+            }
+            (Group::LookAndFeel, "wallpaper") => {
+                wallpaper_panel::WallpaperPanel::load(self.backend())
             }
             (Group::System, "session") => {
                 session_panel::SessionPanel::load(self.backend())
@@ -406,6 +421,9 @@ impl App {
             }
             View::Panel { group: Group::LookAndFeel, panel: "fonts" } => {
                 self.fonts.view()
+            }
+            View::Panel { group: Group::LookAndFeel, panel: "wallpaper" } => {
+                self.wallpaper.view()
             }
             View::Panel { group: Group::System, panel: "session" } => {
                 self.session.view()

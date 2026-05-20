@@ -203,6 +203,7 @@ pub fn nav_model() -> Vec<NavEntry> {
             panels: vec![
                 Panel::new("themes", "Themes"),
                 Panel::new("fonts", "Fonts"),
+                Panel::new("wallpaper", "Wallpaper"),
             ],
         },
         NavEntry {

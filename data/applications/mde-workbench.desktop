@@ -1,0 +1,15 @@
+[Desktop Entry]
+# Iced-based Workbench preview shipped alongside the v1.x GTK3
+# panel for early testing. Becomes the primary Workbench surface
+# at the v2.0.0 cut (CB-1.12 retires `mackes/workbench/`).
+Type=Application
+Name=MDE Workbench (preview)
+GenericName=Settings (preview)
+Comment=Iced-based MDE Workbench — preview alongside the v1.x panel
+Exec=mde-workbench
+Icon=mackes-shell
+Terminal=false
+Categories=Settings;System;DesktopSettings;
+Keywords=settings;preferences;control;panel;mde;mackes;preview;
+StartupNotify=true
+StartupWMClass=mde-workbench

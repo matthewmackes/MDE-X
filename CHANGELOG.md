@@ -3,6 +3,60 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## 1.1.1 — Iced MDE Workbench preview (2026-05-20)
+
+First v2.0.0-line preview shipped inside a v1.x point release.
+`mde-workbench` is a new Iced binary that ports an early slice
+of the CB-1 Workbench rewrite (`crates/mde-workbench/`,
+164 unit tests). The v1.x Python+GTK3 Workbench remains the
+default — `mde-workbench` ships alongside as an opt-in
+preview so users can exercise the v2.0.0 surfaces before the
+monolithic cut.
+
+**What's shipping**
+
+- **Scaffold:** 9-group collapsible sidebar (Dashboard / Apps /
+  Devices / Fleet / Look & Feel / Maintain / Network / System
+  / Help), breadcrumb + page-title chrome, keyboard nav (Tab
+  cycles sidebar↔main, Ctrl+1..9 jumps to group, Escape
+  closes detail), `--focus <slug>` deep-link CLI arg.
+- **Single-instance D-Bus contract** —
+  `dev.mackes.MDE.Shell.Workbench.Focus(slug)` interface on
+  the workbench's own bus name (`dev.mackes.MDE.Workbench`);
+  a second `mde-workbench --focus <slug>` call routes
+  through the live instance instead of opening a duplicate
+  window. Replaces the v1.x WM_CLASS-based hack.
+- **9 working panels** wired to the unified Backend trait
+  (live `dev.mackes.MDE.Settings.Get/Set` via zbus, with
+  a DemoBackend swap-in for tests):
+  - Look & Feel: themes, fonts, wallpaper.
+  - System: session (3 booleans), notifications (DND
+    checkbox + placement combo + numeric expire-ms).
+  - Devices: power (5 keys: profile combo, lid_action combo,
+    two idle-suspend integers, presentation_mode checkbox),
+    removable (3 automount booleans).
+  - Fleet: settings (key + value_json + peers Push subprocess
+    to `mded fleet push-setting`), revisions (list + Rollback
+    button per row).
+- **Launch surface:** new `mde-workbench.desktop` entry under
+  Settings + System categories.
+
+**Out of scope for 1.1.1 (tracked as `[ ] Open` follow-ups in
+the worklist):** the remaining ~36 panels across Apps,
+Devices (displays / sound / printers), Fleet (inventory /
+playbooks / run_history), Look & Feel preview, Maintain,
+Network, System (datetime / default_apps / window_manager /
+snapshots), plus the Wizard port. Each follow-up names the
+backend it needs.
+
+**Other**
+
+- `cargo test -p mde-workbench`: 164 pass.
+- Workspace gains `crates/mde-workbench/` with iced 0.13 +
+  zbus 5 (tokio) + tokio process + clap deps. The CB-1
+  panel modules share `panels/json_helpers.rs` for the
+  Settings JSON wire-format encode/decode helpers.
+
 ## 2.0.0 — Rebrand to Mackes Desktop Environment (MDE) + Wayland-only Rust DE
 
 **Rebrand:** "Mackes Shell" becomes "Mackes Desktop Environment (MDE)" on

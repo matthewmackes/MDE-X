@@ -13,3 +13,4 @@ pub mod power;
 pub mod removable;
 pub mod session;
 pub mod themes;
+pub mod wallpaper;
