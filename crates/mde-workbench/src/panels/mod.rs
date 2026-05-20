@@ -11,6 +11,7 @@ pub mod fonts;
 pub mod json_helpers;
 pub mod notifications;
 pub mod power;
+pub mod printers;
 pub mod removable;
 pub mod session;
 pub mod sound;

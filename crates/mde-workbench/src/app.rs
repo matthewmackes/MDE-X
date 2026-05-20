@@ -18,9 +18,9 @@ use crate::model::{view_from_focus_slug, Group, View};
 use crate::panels::{
     displays as displays_panel, fleet_revisions as fleet_revisions_panel,
     fleet_settings as fleet_settings_panel, fonts as fonts_panel,
-    notifications as notifications_panel, power as power_panel, removable as removable_panel,
-    session as session_panel, sound as sound_panel, themes as themes_panel,
-    wallpaper as wallpaper_panel,
+    notifications as notifications_panel, power as power_panel, printers as printers_panel,
+    removable as removable_panel, session as session_panel, sound as sound_panel,
+    themes as themes_panel, wallpaper as wallpaper_panel,
 };
 use crate::patternfly::{breadcrumb, page_subtitle, page_title};
 use crate::sidebar::SidebarState;
@@ -70,6 +70,12 @@ pub enum Message {
     /// in the picker without the user having to navigate
     /// away and back.
     SoundRefresh,
+    /// CB-1.4.c — Devices printers panel sub-message.
+    Printers(printers_panel::Message),
+    /// CB-1.4.c — Devices printers panel Refresh button.
+    /// Re-runs the panel's Load so a newly-added CUPS queue
+    /// shows up in the picker.
+    PrintersRefresh,
     /// CB-1.5 partial — Fleet settings panel sub-message.
     FleetSettings(fleet_settings_panel::Message),
     /// CB-1.5 partial — Fleet revisions panel sub-message.
@@ -96,6 +102,7 @@ pub struct App {
     removable: removable_panel::RemovablePanel,
     displays: displays_panel::DisplaysPanel,
     sound: sound_panel::SoundPanel,
+    printers: printers_panel::PrintersPanel,
     fleet_settings: fleet_settings_panel::FleetSettingsPanel,
     fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel,
     wallpaper: wallpaper_panel::WallpaperPanel,
@@ -145,6 +152,7 @@ impl App {
             removable: removable_panel::RemovablePanel::new(),
             displays: displays_panel::DisplaysPanel::new(),
             sound: sound_panel::SoundPanel::new(),
+            printers: printers_panel::PrintersPanel::new(),
             fleet_settings: fleet_settings_panel::FleetSettingsPanel::new(),
             fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel::new(),
             wallpaper: wallpaper_panel::WallpaperPanel::new(),
@@ -218,6 +226,12 @@ impl App {
     #[must_use]
     pub fn sound(&self) -> &sound_panel::SoundPanel {
         &self.sound
+    }
+
+    /// Read-only view of the printers panel state.
+    #[must_use]
+    pub fn printers(&self) -> &printers_panel::PrintersPanel {
+        &self.printers
     }
 
     /// Read-only view of the fleet settings panel state.
@@ -316,6 +330,8 @@ impl App {
             Message::Displays(msg) => self.displays.update(msg, self.backend()),
             Message::Sound(msg) => self.sound.update(msg),
             Message::SoundRefresh => sound_panel::SoundPanel::load(),
+            Message::Printers(msg) => self.printers.update(msg),
+            Message::PrintersRefresh => printers_panel::PrintersPanel::load(),
             Message::FleetSettings(msg) => self.fleet_settings.update(msg),
             Message::FleetRevisions(msg) => self.fleet_revisions.update(msg),
             Message::Wallpaper(msg) => self.wallpaper.update(msg, self.backend()),
@@ -341,6 +357,7 @@ impl App {
             (Group::Devices, "removable") => removable_panel::RemovablePanel::load(self.backend()),
             (Group::Devices, "displays") => displays_panel::DisplaysPanel::load(self.backend()),
             (Group::Devices, "sound") => sound_panel::SoundPanel::load(),
+            (Group::Devices, "printers") => printers_panel::PrintersPanel::load(),
             (Group::Fleet, "revisions") => fleet_revisions_panel::FleetRevisionsPanel::load(),
             // Fleet settings has no Load — it's a push-only
             // surface, so navigation doesn't fan a refresh.
@@ -464,6 +481,10 @@ impl App {
                 group: Group::Devices,
                 panel: "sound",
             } => self.sound.view(),
+            View::Panel {
+                group: Group::Devices,
+                panel: "printers",
+            } => self.printers.view(),
             View::Panel {
                 group: Group::Fleet,
                 panel: "settings",

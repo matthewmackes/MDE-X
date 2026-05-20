@@ -3534,11 +3534,28 @@ under `LICENSES/`.
   time, not per-sink rows). Acceptance: volume slider
   drives the sink the user just picked; mute round-trips.
 
-- [ ] **CB-1.4.c Devices printers panel (Iced)** — port
-  `mackes/workbench/devices/printers.py`. Shells out to
-  `lpstat` (or zbus to cups-browsed once it ships a usable
-  surface). Acceptance: lists configured printers, defaults
-  picker writes the default queue.
+- [✓] **CB-1.4.c Devices printers panel (Iced) — shipped
+  2026-05-20** — no v1.x `mackes/workbench/devices/printers.py`
+  existed (despite the original worklist entry calling for a
+  port); this lands as a fresh Iced build matching the
+  acceptance criterion. New `crates/mde-workbench/src/panels/
+  printers.rs` ships a default-queue picker backed by
+  `lpstat` + `lpoptions`. The zbus-to-cups-browsed alternative
+  was rejected: cups-browsed's D-Bus surface isn't yet stable
+  enough to depend on, and `lpstat`/`lpoptions` ship with CUPS
+  itself which is the installed-by-default print stack on
+  Fedora workstation. Pure parsers (`parse_lpstat_p`,
+  `parse_lpstat_d`) isolated for testability. Three empty-
+  state branches: scheduler-down ("Start the cups service"),
+  no-queues ("Add a queue from CUPS' web interface"), and
+  the normal-list view. Refresh button hand-off via
+  `Message::PrintersRefresh`. Apply runs
+  `lpoptions -d <queue>` under a busy guard. 11 unit tests
+  (parse_lpstat_p: 3 covering typical output / non-printer
+  filter / empty-input, parse_lpstat_d: 2, 3 Loaded paths
+  covering cups-down / unknown-default / known-default,
+  select-while-busy noop, Applied + Error reducer paths).
+  Workbench unit-test count: 193 → 204.
 
 - [ ] **CB-1.9.a System datetime panel (Iced)** — port
   `mackes/workbench/system/datetime.py` to Iced. Needs a new
