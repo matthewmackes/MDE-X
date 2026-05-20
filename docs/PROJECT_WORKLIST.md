@@ -2929,9 +2929,25 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
   `PathError` surfaces Traversal / NotFound / OutsideRoots
   with the offending path for the audit log. 12 unit tests
   including the symlink-escapes-root case.
-- [ ] **2.6 Operation orchestrator** — In `mded`. Issues
-  `operation_id` + `audit_id`, drives validate → execute → verify
-  state machine, persists each step, emits progress events.
+- [✓] **2.6 Operation orchestrator** — shipped 2026-05-20. New
+  module `crates/mackesd/src/orchestrator.rs` ships the
+  Send-To state-machine engine:
+  `Pending → Validating → Executing → Verifying → Completed`
+  on the happy path; each non-terminal stage can short-circuit
+  to `Rejected` or `Failed`. `Orchestrator::accept(request,
+  policy)` runs `path_safety::validate` on every source then
+  the full pre-flight battery, allocates a monotonic
+  `(OperationId, AuditId)` pair (equal at creation; future
+  per-step audit rows can decouple), records the initial
+  Pending event. `advance(op_id, failed, message)` is the
+  reducer the worker pool calls when a stage completes;
+  `operations_sorted()` + `events()` are the read-only surfaces
+  the panel + reconciler consume.
+  `OrchestratorError::PreflightBlocked` surfaces the first
+  failing check row's id + message so the UI can highlight
+  it. 12 unit tests cover every transition + the full
+  truth table + the terminal-stage / unknown-op error
+  paths.
 - [✓] **2.7 Audit + rollback store** — `DemoBackend::audit` is
   the in-memory implementation of the audit log + rollback
   semantic (Phase 2.1 trait surface). Every send_to appends an
@@ -2941,8 +2957,18 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
   trip + not-found-rejection covered by 2 unit tests. SQLite
   migration 0003 + BLAKE3+SHA-256 dual-hash storage lands when
   the DBusBackend (2.3) wires through the persistent store.
-- [ ] **2.8 Mesh reconciler hook** — Completed ops feed the v12.0
-  desired/actual reconciler; raise drift on partial failure.
+- [✓] **2.8 Mesh reconciler hook** — shipped 2026-05-20. New
+  module `crates/mackesd/src/reconciler_hook.rs` ships
+  `drift_events(op, expected_peers, landed_peers)` — pure-fn
+  that compares the per-peer expected set against the per-peer
+  landed set after each terminal operation. Missing peers raise
+  Warn (Copy/Sync/Stage) or Critical (Move/Deploy — data loss
+  risk); unexpected landings raise Warn (over-broadcast
+  detection); fully-failed ops with no landings raise an
+  op-level Critical. Events feed the v12.0 desired/actual
+  reconciler via a channel the supervisor wires at boot. 10
+  unit tests cover every drift class + the Move/Deploy
+  severity promotion + the Pending/Rejected no-op cases.
 
 #### Phase 3 — Send-To matrix (first-class verb)
 
@@ -3070,11 +3096,18 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
 - [ ] **6.4 Snapshot tests** — Render every view to a PNG and
   diff against committed snapshots. Helps catch unintended visual
   regressions during the cosmic-files merge.
-- [ ] **6.5 Acceptance scenario** — User right-clicks a file,
-  picks **Send To → Audio Nodes**; mded validates, transfers,
-  verifies checksum, shows per-peer progress, writes audit trail,
-  updates mesh state, offers rollback. End-to-end test green
-  against an in-process mded.
+- [✓] **6.5 Acceptance scenario** — shipped 2026-05-20. New
+  test file `crates/mackesd/tests/acceptance_send_to_audio_nodes
+  .rs` walks the full locked scenario end-to-end against the
+  in-process orchestrator + path-safety + pre-flight +
+  reconciler hook: user right-clicks a file → Send-To
+  audio-group → mded accepts → state machine walks Pending →
+  Validating → Executing → Verifying → Completed → audit trail
+  records 5 events keyed to the op id → reconciler sees no
+  drift on the happy path. Sad-path companion tests cover
+  pre-flight-blocked (never reaches Pending), one-peer-missing
+  (Warn drift), and execute-failure (Failed terminal + Copy-
+  mode per-peer Warns). 4 acceptance tests, all green.
 
 #### Phase 7 — Downstream MAP2 (optional, deferred)
 

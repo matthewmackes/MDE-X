@@ -23,12 +23,20 @@ pub mod metrics;
 pub mod passcode;
 // v2.0.0 Phase 2.5 — path safety + allowed-roots resolver for the
 // Send-To pipeline. Pure-fn validation; no async / DBus surface.
+// v2.0.0 Phase 2.6 — Send-To operation orchestrator. Owns the
+// validate → execute → verify state machine + the in-process
+// audit-log + progress-event stream.
+pub mod orchestrator;
 pub mod path_safety;
 pub mod policy;
 // v2.0.0 Phase 3.5 — pre-flight validation for Send-To requests.
 // Consumes path_safety + reports the 8 locked check rows the UI
 // renders in the Send-To dialog.
 pub mod preflight;
+// v2.0.0 Phase 2.8 — mesh reconciler hook for Send-To outcomes.
+// Pure-fn drift detector that compares expected vs landed peer
+// sets after each terminal operation.
+pub mod reconciler_hook;
 pub mod reconcile;
 pub mod revisions;
 pub mod secrets;
