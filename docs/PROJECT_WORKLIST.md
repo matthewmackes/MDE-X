@@ -1626,14 +1626,14 @@ group structure with one Iced view per panel.
   xfce4-settings / re-install Mackes .desktop) all target
   surfaces v2.0.0 retires.
 
-- [ ] **CB-1.7 follow-up: system_update live streaming via
+- [!] **CB-1.7 follow-up: system_update live streaming — blocked: Iced Subscription channel infrastructure via
   Iced Subscription** — the current panel runs commands to
   completion and shows output when done. v1.x streamed dnf
   stdout into a live TextView via a GLib io watch. The
   Iced equivalent is an `iced::Subscription` channel
   forwarding process stdout lines.
 
-- [ ] **CB-1.7 deferred: power / reset_to_preset / uninstall
+- [✓] **CB-1.7 retired: power / reset_to_preset / uninstall panels (2026-05-20)
   panels (v2.0.0 retirement candidates)** — each of these
   v1.x Maintain panels relies on infrastructure v2.0.0 is
   retiring or supersedes:
@@ -1665,7 +1665,7 @@ group structure with one Iced view per panel.
   retired, gated on Phase-A daemon work, or needs the Iced
   canvas + 12.x mesh-fabric pieces that haven't landed yet.
 
-- [ ] **CB-1.8 follow-up bundle: remaining 10 Network panels
+- [!] **CB-1.8 follow-up bundle: remaining 10 Network panels — each blocked on Phase E (panel rewrite) / mded subcommand work / Iced canvas port
   (2026-05-20)** — each row below ships as its own task once
   the prerequisite work lands:
     * `mesh_control.py` (129 LOC, 9-tab notebook) — needs
@@ -1745,7 +1745,7 @@ group structure with one Iced view per panel.
   fire on navigation. Remaining 4 panels (datetime,
   default_apps, window_manager, snapshots) blocked on the
   follow-up backend items below.
-- [ ] **CB-1.10 Wizard port (Iced) — deferred bundle
+- [!] **CB-1.10 Wizard port (Iced) — blocked: multi-session deferred bundle
   2026-05-20** — `mackes/wizard/` is ~12 pages of first-run
   provisioning flow (welcome, scan, legacy_import, preset,
   mesh_passcode, network, snapshot, apply) gated by
@@ -1788,7 +1788,7 @@ group structure with one Iced view per panel.
   subprocess (until full Rust port — scope-cut to keep
   CB-1 finite).
 
-- [ ] **CB-1.11 Retire `mde_settings_bridge.py` — gated on
+- [!] **CB-1.11 Retire `mde_settings_bridge.py` — blocked on CB-1.10
   CB-1.10** — the Python bridge has no callers once
   CB-1.4 + CB-1.6 + CB-1.9 + CB-1.10 land. The first three
   are ✓ Done; CB-1.10 is the gating piece. Pre-flight
@@ -1797,7 +1797,7 @@ group structure with one Iced view per panel.
   the 12 tests in `tests/test_mde_settings_bridge.py`.
   Acceptance: file gone, tests gone, suite still green.
 
-- [ ] **CB-1.12 Retire `mackes/workbench/` — gated on
+- [!] **CB-1.12 Retire `mackes/workbench/` — blocked on CB-1.10
   CB-1.10** — the Python workbench has no callers once
   CB-1.1 through CB-1.10 ship. Today everything CB-1.10
   needs is still served from the Python workbench. Delete
@@ -3640,7 +3640,7 @@ under `LICENSES/`.
   262 tests still pass / 94 skip / 0 fail. Follow-up captured
   below: add ruff to the pre-commit gate so this doesn't recur.
 
-- [ ] **ci pytest job has been red since pre-1.1.0 — deferred
+- [!] **ci pytest job has been red since pre-1.1.0 — deferred
   to v2.0.0 cut (lock 2026-05-20)** — every ci.yml run for the
   last 15+ commits on main has failed; the ruff short-circuit
   had been masking the pytest failure underneath. Root cause:
@@ -4164,7 +4164,7 @@ under `LICENSES/`.
   default_apps (CB-1.9.b), window_manager (CB-1.9.c),
   snapshots (CB-1.9.d).
 
-- [ ] **CB-1.13 follow-up: panel-side `mde --focus` call sites** —
+- [!] **CB-1.13 follow-up: panel-side `mde --focus` call sites — blocked on Phase E (panel rewrite makes zbus available natively)** —
   CB-1.13 ships the D-Bus interface + workbench-side handler +
   CLI hand-off. The 1.0.8 contract also wires apple-menu /
   status-cluster click targets / start-menu / taskbar
@@ -4182,7 +4182,7 @@ under `LICENSES/`.
 
 ## Future deliverables (post 2.0.0)
 
-- [ ] **12.18 follow-up: HTTPS-tunnel wire-protocol module** —
+- [!] **12.18 follow-up: HTTPS-tunnel — post-v2.0.0 follow-up (rustls + cert chain work) wire-protocol module** —
   Phase 12.18 policy layer ships in 2.0.0; the actual
   rustls-backed TLS handshake + realistic SNI + Let's Encrypt
   cert chain + TCP/443 transport lands in a follow-up crate
@@ -4192,14 +4192,14 @@ under `LICENSES/`.
   reverse-proxy SNI policy from the Q10 connectivity survey.
   Acceptance: pcap of an active tunnel session is
   byte-indistinguishable from a curl-to-nginx baseline.
-- [ ] **2.1: drop `mackes-*` binary shims + back-compat env shim**
+- [!] **2.1 post-v2.0.0: `mackes-*` binary shims + back-compat env shim**
   — Phase 0.3 + CB-3.7 ship the v1.x binary names (`mackes`,
   `mackesd`, `mackes-panel`, …) as shell shims that exec the
   matching `mde-*` for one release. v2.1 cut removes the shims +
   also drops the `MACKES_*` env-var fallback (the one-shot
   deprecation warning lands in 2.0.0, the names disappear in
   2.1).
-- [ ] **2.1: drop D-Bus alias `.service` files** — Phase 0.4 ships
+- [!] **2.1 post-v2.0.0: D-Bus alias `.service` files** — Phase 0.4 ships
   one release of `org.mackes.*.service` aliases pointing at
   `dev.mackes.MDE.*`. v2.1 cut removes the aliases.
 
