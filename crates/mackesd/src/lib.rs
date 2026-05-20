@@ -26,6 +26,9 @@ pub mod passcode;
 // v2.0.0 Phase 2.6 — Send-To operation orchestrator. Owns the
 // validate → execute → verify state machine + the in-process
 // audit-log + progress-event stream.
+// v2.0.0 Phase 12.18 — HTTPS-tunneled fallback policy layer.
+// Failure-window detector + activation state machine. Pure-fn.
+pub mod https_fallback;
 pub mod orchestrator;
 pub mod path_safety;
 pub mod policy;

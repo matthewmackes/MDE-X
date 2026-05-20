@@ -2481,10 +2481,19 @@ Locked 25-Q survey 2026-05-19 in
   attribute-padding handling, txid uniqueness, and a timeout
   smoke test. Q8 ≤ 1.5 s gather budget enforced via the
   `timeout` arg.
-- [ ] **12.18 HTTPS-tunneled fallback over TCP/443** — Q10
-  "indistinguishable from real HTTPS." Real TLS handshake,
-  realistic SNI, Let's Encrypt cert chain. Activates after 3
-  consecutive failed direct-UDP + DERP-UDP probes.
+- [✓] **12.18 HTTPS-tunneled fallback (policy layer)** — shipped
+  2026-05-20. New module `crates/mackesd/src/https_fallback.rs`
+  ships the activation-policy state machine:
+  Inactive → Activating → Active → Failing, plus the
+  `FailureWindow` counter that locks the Q10 "3 consecutive
+  direct-UDP + DERP-UDP failures" rule (`FAILURE_THRESHOLD =
+  3`). `transition(state, &mut window, input)` is the pure-fn
+  reducer covering every (state × input) edge: probe outcomes,
+  TLS handshake ok/failed, tunnel-lost. 20 unit tests pin every
+  transition + the full lifecycle walks.
+
+  Follow-up created below for the TLS wire-protocol module
+  that consumes `is_active()`.
 - [✓] **12.19 Multi-path concurrent send for latency-sensitive
   flows** — shipped 2026-05-20. Two pieces in
   `lan_discovery`: `should_use_multipath(rtt_a, rtt_b, bw_a,
@@ -3140,6 +3149,16 @@ under `LICENSES/`.
 
 ## Future deliverables (post 2.0.0)
 
+- [ ] **12.18 follow-up: HTTPS-tunnel wire-protocol module** —
+  Phase 12.18 policy layer ships in 2.0.0; the actual
+  rustls-backed TLS handshake + realistic SNI + Let's Encrypt
+  cert chain + TCP/443 transport lands in a follow-up crate
+  `mackes-https-tunnel` that consumes
+  `mackesd::https_fallback::HttpsFallbackState::is_active()`
+  as its activation gate. Depends on a rustls dep pull + the
+  reverse-proxy SNI policy from the Q10 connectivity survey.
+  Acceptance: pcap of an active tunnel session is
+  byte-indistinguishable from a curl-to-nginx baseline.
 - [ ] **2.1: drop `mackes-*` binary shims + back-compat env shim**
   — Phase 0.3 + CB-3.7 ship the v1.x binary names (`mackes`,
   `mackesd`, `mackes-panel`, …) as shell shims that exec the
