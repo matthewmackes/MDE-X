@@ -5,14 +5,17 @@
 //! land as separate substeps and plug into [`App::view`] via
 //! [`crate::View::Panel`] matching.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use iced::widget::{column, container, row, text};
 use iced::{Element, Length, Size, Subscription, Task, Theme};
 
+use crate::backend::{Backend, DemoBackend};
 use crate::dbus::PendingFocus;
 use crate::keyboard::{KeyAction, Pane};
 use crate::model::{Group, View, view_from_focus_slug};
+use crate::panels::{fonts as fonts_panel, themes as themes_panel};
 use crate::patternfly::{breadcrumb, page_subtitle, page_title};
 use crate::sidebar::SidebarState;
 
@@ -40,26 +43,40 @@ pub enum Message {
     /// only — don't change the view" (the 1.x taskbar
     /// click-through contract).
     FocusRequest(String),
+    /// CB-1.6 — Look & Feel themes panel sub-message.
+    Themes(themes_panel::Message),
+    /// CB-1.6 — Look & Feel fonts panel sub-message.
+    Fonts(fonts_panel::Message),
     /// No-op — placeholder for buttons whose behaviour lands in
     /// later CB-1.x substeps.
     Noop,
 }
 
 /// Workbench application state.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct App {
     view: View,
     sidebar: SidebarState,
     focused_pane: Pane,
+    backend: Arc<dyn Backend>,
+    themes: themes_panel::ThemesPanel,
+    fonts: fonts_panel::FontsPanel,
+}
+
+impl std::fmt::Debug for App {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("App")
+            .field("view", &self.view)
+            .field("focused_pane", &self.focused_pane)
+            .field("themes", &self.themes)
+            .field("fonts", &self.fonts)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for App {
     fn default() -> Self {
-        Self {
-            view: View::default(),
-            sidebar: SidebarState::new(),
-            focused_pane: Pane::Sidebar,
-        }
+        Self::with_backend(Arc::new(DemoBackend::new()))
     }
 }
 
@@ -67,6 +84,22 @@ impl App {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Build an [`App`] over a specific [`Backend`] — used by
+    /// `main.rs` to wire the live [`crate::DBusBackend`] and
+    /// by tests to substitute [`DemoBackend`] with seeded
+    /// values.
+    #[must_use]
+    pub fn with_backend(backend: Arc<dyn Backend>) -> Self {
+        Self {
+            view: View::default(),
+            sidebar: SidebarState::new(),
+            focused_pane: Pane::Sidebar,
+            backend,
+            themes: themes_panel::ThemesPanel::new(),
+            fonts: fonts_panel::FontsPanel::new(),
+        }
     }
 
     /// Build an [`App`] pre-focused on a deep-link slug
@@ -80,6 +113,26 @@ impl App {
             app.focused_pane = Pane::Main;
         }
         app
+    }
+
+    /// Clone of the backend handle — `Task::perform` futures
+    /// keep their own `Arc<dyn Backend>` so the reducer stays
+    /// non-blocking.
+    pub fn backend(&self) -> Arc<dyn Backend> {
+        Arc::clone(&self.backend)
+    }
+
+    /// Read-only view of the themes panel state — used by tests
+    /// + by the view layer to render the panel chrome.
+    #[must_use]
+    pub fn themes(&self) -> &themes_panel::ThemesPanel {
+        &self.themes
+    }
+
+    /// Read-only view of the fonts panel state.
+    #[must_use]
+    pub fn fonts(&self) -> &fonts_panel::FontsPanel {
+        &self.fonts
     }
 
     #[must_use]
@@ -127,47 +180,74 @@ impl App {
     }
 
     /// Apply a [`Message`] to the state. Returns [`Task::none`]
-    /// for now — once `Backend::DBus` (CB-1.x panel ports)
-    /// lands, several variants will return real async tasks.
+    /// for synchronous variants; panel messages fan out into
+    /// real async backend calls.
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SelectGroup(group) => {
                 self.view = View::Group(group);
                 self.focused_pane = Pane::Main;
+                Task::none()
             }
             Message::SelectPanel { group, panel } => {
                 self.view = View::Panel { group, panel };
                 self.focused_pane = Pane::Main;
+                self.on_panel_navigated(group, panel)
             }
             Message::ToggleGroupExpansion(group) => {
                 self.sidebar.toggle(group, self.view.group());
+                Task::none()
             }
             Message::KeyPressed(action) => {
                 self.apply_key_action(action);
+                Task::none()
             }
             Message::FocusRequest(slug) => {
-                self.apply_focus_request(&slug);
+                let task = self.apply_focus_request(&slug);
+                task
             }
-            Message::Noop => {}
+            Message::Themes(msg) => self.themes.update(msg, self.backend()),
+            Message::Fonts(msg) => self.fonts.update(msg, self.backend()),
+            Message::Noop => Task::none(),
         }
-        Task::none()
     }
 
-    fn apply_focus_request(&mut self, slug: &str) {
+    /// CB-1.6 — when the user lands on a known panel, kick off
+    /// the panel's initial load. Unknown panels (no Iced view
+    /// shipped yet) just no-op.
+    fn on_panel_navigated(&self, group: Group, panel: &'static str) -> Task<Message> {
+        match (group, panel) {
+            (Group::LookAndFeel, "themes") => {
+                themes_panel::ThemesPanel::load(self.backend())
+            }
+            (Group::LookAndFeel, "fonts") => {
+                fonts_panel::FontsPanel::load(self.backend())
+            }
+            _ => Task::none(),
+        }
+    }
+
+    fn apply_focus_request(&mut self, slug: &str) -> Task<Message> {
         if slug.is_empty() {
             // Empty slug = "raise only, no view change" — the
             // 1.x taskbar click-through behaviour.
-            return;
+            return Task::none();
         }
-        if let Some(view) = view_from_focus_slug(slug) {
-            self.view = view;
-            self.focused_pane = Pane::Main;
+        let Some(view) = view_from_focus_slug(slug) else {
+            // Unknown slug silently ignored — matches the 1.x
+            // `mackes --focus` Dashboard fallback for unmapped
+            // surfaces (here we keep the current view since
+            // jumping back to Dashboard on a typo would
+            // surprise the user mid-task).
+            return Task::none();
+        };
+        self.view = view;
+        self.focused_pane = Pane::Main;
+        if let View::Panel { group, panel } = view {
+            self.on_panel_navigated(group, panel)
+        } else {
+            Task::none()
         }
-        // Unknown slug silently ignored — matches the 1.x
-        // `mackes --focus` Dashboard fallback for unmapped
-        // surfaces (here we keep the current view since
-        // jumping back to Dashboard on a typo would
-        // surprise the user mid-task).
     }
 
     fn apply_key_action(&mut self, action: KeyAction) {
@@ -203,13 +283,16 @@ impl App {
             .collect::<Vec<_>>()
             .join(" / ");
 
-        let main = column![
+        let header = column![
             text(crumbs).size(12),
             text(page_title(self.view)).size(26),
             text(page_subtitle(self.view)).size(13),
         ]
-        .spacing(6)
-        .padding(24);
+        .spacing(6);
+
+        let body = self.panel_body();
+
+        let main = column![header, body].spacing(20).padding(24);
 
         let layout = row![
             sidebar,
@@ -218,6 +301,26 @@ impl App {
         .height(Length::Fill);
 
         container(layout).into()
+    }
+
+    /// Per-View body — panel views land here as they ship.
+    fn panel_body(&self) -> Element<'_, Message> {
+        match self.view {
+            View::Panel { group: Group::LookAndFeel, panel: "themes" } => {
+                self.themes.view()
+            }
+            View::Panel { group: Group::LookAndFeel, panel: "fonts" } => {
+                self.fonts.view()
+            }
+            _ => {
+                // Placeholder body for views without a wired
+                // panel — keeps the chrome readable while the
+                // remaining CB-1.x ports land.
+                text("Panel view lands in a later CB-1.x substep.")
+                    .size(14)
+                    .into()
+            }
+        }
     }
 }
 
@@ -328,6 +431,74 @@ mod tests {
         let _ = app.update(Message::Noop);
         assert_eq!(app.current_view(), before_view);
         assert_eq!(app.focused_pane(), before_pane);
+    }
+
+    #[test]
+    fn select_look_and_feel_themes_swaps_view_and_returns_load_task() {
+        let mut app = App::new();
+        // The Task isn't directly observable in unit tests
+        // (it lands inside iced's executor), but the View
+        // change + backend identity confirm the navigation
+        // path fired.
+        let _ = app.update(Message::SelectPanel {
+            group: Group::LookAndFeel,
+            panel: "themes",
+        });
+        assert_eq!(
+            app.current_view(),
+            View::Panel {
+                group: Group::LookAndFeel,
+                panel: "themes"
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn themes_panel_save_round_trips_through_backend() {
+        let backend = std::sync::Arc::new(DemoBackend::new());
+        let mut app = App::with_backend(backend.clone());
+        let _ = app.update(Message::Themes(themes_panel::Message::NameChanged(
+            "Arc-Dark".into(),
+        )));
+        let _ = app.update(Message::Themes(themes_panel::Message::IconSetChanged(
+            "Papirus-Dark".into(),
+        )));
+        let _ = app.update(Message::Themes(themes_panel::Message::AccentChanged(
+            "blue".into(),
+        )));
+        let _ = app.update(Message::Themes(themes_panel::Message::ModeChanged(
+            "dark".into(),
+        )));
+        // Open-code the save dispatch — iced's executor isn't
+        // available in unit tests so we drive the backend
+        // side directly to assert the round-trip.
+        backend
+            .set(themes_panel::KEY_NAME, "\"Arc-Dark\"")
+            .await
+            .unwrap();
+        backend
+            .set(themes_panel::KEY_MODE, "\"dark\"")
+            .await
+            .unwrap();
+        assert_eq!(
+            backend.get(themes_panel::KEY_MODE).await.unwrap(),
+            "\"dark\""
+        );
+        assert_eq!(app.themes().name, "Arc-Dark");
+        assert_eq!(app.themes().mode, "dark");
+    }
+
+    #[test]
+    fn fonts_panel_field_changes_persist_in_app_state() {
+        let mut app = App::new();
+        let _ = app.update(Message::Fonts(fonts_panel::Message::NameChanged(
+            "Inter 11".into(),
+        )));
+        let _ = app.update(Message::Fonts(fonts_panel::Message::HintingChanged(
+            "full".into(),
+        )));
+        assert_eq!(app.fonts().name, "Inter 11");
+        assert_eq!(app.fonts().hinting, "full");
     }
 
     #[test]

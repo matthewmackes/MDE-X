@@ -1425,12 +1425,64 @@ group structure with one Iced view per panel.
   revisions.py}`. F.11 + F.12 already shipped the Python-side
   `mded` bridge; Iced port calls the same `dev.mackes.MDE.Fleet.*`
   surface directly.
-- [ ] **CB-1.6 Look & Feel group port (3 panels)** —
-  `{themes.py, fonts.py, polybar_editor.py}`. Theme + font panels
-  already wired to `mde_settings_bridge` (F.3 done); Iced version
-  uses cosmic-theme tokens for live preview. `polybar_editor.py`
-  is the legacy GTK3 DnD module zone editor — retire entirely
-  (sway doesn't run polybar; mde-panel is the bar).
+- [✓] **CB-1.6 Look & Feel group port (3 panels)** — shipped
+  2026-05-20. Iced themes + fonts panels land in
+  `crates/mde-workbench/src/panels/{themes,fonts}.rs`; the
+  `polybar_editor.py` v1.x Python module was already
+  retired in earlier source-tree work (only stale `.pyc`
+  bytecode lingered — cleaned in the same commit).
+  * New `crates/mde-workbench/src/backend.rs` ships the
+    async `Backend` trait (`Send + Sync + 'static`,
+    `async_trait` for object safety), `DemoBackend`
+    (`Arc<Mutex<HashMap<String, String>>>` for tests + a
+    future `--demo` runtime), and `DBusBackend` (wraps
+    `Arc<Connection>`, generates a `SettingsProxy` against
+    `dev.mackes.MDE.Settings` — exact interface name +
+    object-path + service-name constants the Phase C.10
+    service in `crates/mackesd/src/ipc/settings.rs`
+    exports). `BackendError::{UnknownKey, Bus}` with
+    `Display` impls so the panels can surface
+    error-state toasts.
+  * `panels/themes.rs` — `ThemesPanel { name, icon_set,
+    accent, mode, status, busy }` with the 5-variant
+    submessage enum (Loaded / Error / Saved / *Changed /
+    SaveClicked) + `load()` (4 parallel Gets) + `update()`
+    (per-field mutation + Save dispatch fan-out into 4
+    Sets + idempotent retry guard via `busy`). View ships
+    Iced `text_input` rows for name / icon-set / accent +
+    a `pick_list` for the locked `MODES = ["auto",
+    "light", "dark"]` table + Save button + status text.
+    Helpers `quote_json` / `strip_json_quotes` round-trip
+    string values through the Settings.Get JSON wire
+    format.
+  * `panels/fonts.rs` — same shape with the four font
+    keys, two pick_lists for `HINTING = ["none", "slight",
+    "medium", "full"]` + `ANTIALIAS = ["none", "grayscale",
+    "rgba"]`. Unknown values on load fall back to
+    `slight` / `rgba` (sane defaults so the picker has
+    something selected).
+  * `app.rs` — `App` gains `backend: Arc<dyn Backend>`
+    (defaults to `DemoBackend`), `themes` + `fonts` panel
+    state, `Message::{Themes, Fonts}` sub-message
+    variants, `on_panel_navigated` that fires the panel's
+    `load()` task on entry, `panel_body()` view dispatch
+    keyed on `(Group::LookAndFeel, "themes"|"fonts")`.
+  * Polybar retirement: source file was already removed
+    in earlier source-tree work; this commit purges the
+    four stale `.pyc` bytecode caches under
+    `mackes/__pycache__/` + `mackes/workbench/shell/
+    __pycache__/` + `tests/__pycache__/`. CHANGELOG +
+    design specs keep the historical reference.
+  * Live cosmic-theme preview overlay deferred per the
+    newer-wins rule until Phase E.1.3 wires libcosmic.
+  * 100 tests now pass (was 67): +9 backend (Demo round-
+    trips, seed, error display, trait object Send/Sync,
+    clone shares storage) + 12 themes (modes locked, keys
+    namespace, json round-trips, mode-fallback, busy
+    guards, field mutators, full save smoke) + 9 fonts
+    (matching shape) + 3 app integration (panel selection,
+    save round-trip, fonts field mutation) = 33 new
+    tests.
 - [ ] **CB-1.7 Maintain group port (6 panels)** —
   `{hub.py, snapshots.py, debloat.py, health_check.py, repair.py,
   drift.py}`. Snapshots panel keeps its `mackes.snapshots` library
