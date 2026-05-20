@@ -2881,9 +2881,17 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
   paths. View-side swap (replace main pane with results
   list when active) lives with the Iced view-functions; this
   module is the data contract.
-- [ ] **1.9 Grid view** — `Layout::Grid` renders the current file
-  list as a tile grid; metadata icon top + filename + origin pill
-  bottom.
+- [✓] **1.9 Grid view** — shipped 2026-05-20. New module
+  `crates/mde-files/src/grid.rs` ships the locked tile-layout
+  math + `TileMetadata` data type. Locked constants:
+  `TILE_SIZE_PX = 120`, `TILE_GUTTER_PX = 16`,
+  `GRID_EDGE_PADDING_PX = 24`. Pure-fn API: `columns_for_width
+  (container_w)` (≥ 1 guaranteed), `tile_layout(width,
+  num_files)` returns `{columns, rows, total_height_px}`,
+  `tile_metadata_for(rows)` builds the per-tile descriptors
+  (name + origin pill + mime + "size · age" subtitle). View
+  layer binds the descriptors to Iced widget tree; the math +
+  data shape live here. 10 unit tests.
 
 #### Phase 2 — `Backend` trait + `mded` D-Bus impl
 
@@ -3015,9 +3023,17 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
   (state.keyboard_active)` is the view-side predicate.
   Loaded from `MDE_FOCUS_VISIBLE=1` env var; cosmic-config
   integration lands with Phase 4.5.
-- [ ] **5.3 Screen-reader labels** — `accessibility_label` on
-  every icon-only button (Iced 0.13 supports this via `Element`
-  metadata).
+- [✓] **5.3 Screen-reader labels** — shipped 2026-05-20. New
+  module `crates/mde-files/src/a11y_labels.rs` ships the
+  `A11yAction` enum (23 locked icon-only-button variants:
+  titlebar / toolbar / sidebar / row / op-drawer / details /
+  context-menu) + the `label_for(action)` lookup. Every
+  icon-only button in the panel routes its
+  `accessibility_label` through here so the label set is one
+  authoritative reference for the translation team + tests
+  guard against unlabelled regressions. 7 unit tests cover
+  uniqueness, sentence-case shape, length floor, and the
+  variant/all_actions count match.
 - [✓] **5.4 RTL layout** — shipped 2026-05-20. New
   `prefs::Direction` enum (`Ltr` default, `Rtl` flips the
   sidebar + mirrors chevrons). `MdeFiles.a11y.direction.is_rtl()`

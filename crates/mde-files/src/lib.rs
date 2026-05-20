@@ -3,9 +3,11 @@
 //! Implementation contract: `docs/design/v2.0.0-mde-files/design-spec.md`.
 //! Prototype: `docs/design/v2.0.0-mde-files/upstream-bundle/Artifact-Manager.html`.
 
+pub mod a11y_labels;
 pub mod app;
 pub mod backend;
 pub mod demo_data;
+pub mod grid;
 pub mod icons;
 pub mod model;
 pub mod panels;
