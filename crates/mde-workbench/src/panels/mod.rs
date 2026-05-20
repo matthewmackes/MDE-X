@@ -19,6 +19,7 @@ pub mod printers;
 pub mod removable;
 pub mod run_history;
 pub mod session;
+pub mod snapshots;
 pub mod sound;
 pub mod themes;
 pub mod wallpaper;

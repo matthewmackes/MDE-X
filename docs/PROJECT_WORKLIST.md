@@ -3762,14 +3762,64 @@ under `LICENSES/`.
   apply gaps + layout, restart sway, settings remain in
   effect.
 
-- [ ] **CB-1.9.d System snapshots panel (Iced)** — port
-  `mackes/workbench/maintain/snapshots.py` (the Workbench
-  surface; the `mackes.snapshots` library stays as the
-  back-end). Needs `dev.mackes.MDE.Shell.Snapshots` zbus
-  surface with `list() -> Vec<SnapshotRow>` / `create(name)`
-  / `restore(id)` / `delete(id)`. The Iced view ships a
-  list view + create dialog + restore confirmation modal.
-  Acceptance: snapshot/restore round-trip end-to-end.
+- [✓] **CB-1.9.d Maintain snapshots panel (Iced) — shipped
+  2026-05-20** — port of `mackes/workbench/maintain/snapshots.py`
+  to Iced. (The CB-1.9.d label said "System" but the source
+  lives under maintain/ and the sidebar group is Maintain;
+  wired accordingly.)
+
+  The worklist sketched a `dev.mackes.MDE.Shell.Snapshots`
+  zbus surface as the backend; rejected — snapshot operations
+  are pure user-space file I/O on `~/.local/share/mde/` and
+  `~/.config/mde/`, no polkit gating, no daemon needed.
+  The Iced panel does the on-disk operations itself.
+
+  Storage layout matches the v1.x library structure:
+    * `~/.local/share/mde/snapshots/<timestamp>/`
+    * `manifest.json` — `{name, timestamp, hostname}`
+    * `config/` — copy of `~/.config/mde/` at snapshot time
+
+  Legacy v1.x path under
+  `~/.local/share/mackes-shell/snapshots/` is also walked
+  on load so existing snapshots remain accessible through
+  the rebrand window.
+
+  Three operations + a restore-confirmation modal:
+    * Create: copies `~/.config/mde/` into a fresh
+      timestamped subdir + writes the manifest. Empty
+      name fails fast with a validation message.
+    * Restore: opens a confirmation modal explaining the
+      semantic (snapshot files replace live counterparts;
+      files not in the snapshot survive — less destructive
+      than the v1.x wipe-and-restore, trade-off captured in
+      the modal text).
+    * Delete: rm -rf on the snapshot dir.
+
+  Pure helpers isolated for testability:
+    * `parse_manifest(path, raw) -> Option<SnapshotRow>`
+    * `build_snapshot_id(now_unix, name) -> String` —
+      `YYYY-MM-DDTHHMMSS_<sanitised-name>` format matching
+      the v1.x library; uses the same Howard Hinnant
+      days_to_ymd algorithm CB-1.5.c shipped.
+    * `sanitise_name` — keeps ASCII alnum + dash/underscore,
+      replaces everything else with `-`, trims dash runs.
+
+  Recursive directory copy via `tokio::task::spawn_blocking`
+  to keep the reducer non-blocking (tokio doesn't ship a
+  recursive-copy helper and we don't want fs_extra as a dep
+  for one panel).
+
+  17 new unit tests (parse_manifest 3 paths, sanitise_name +
+  build_snapshot_id pure-helper coverage, 6 reducer paths
+  covering Loaded / Error / empty-name validation / busy
+  guards / restore-confirm cycle / OperationFinished Ok+Err,
+  3 tokio integration tests covering missing-dir empty
+  collect / round-trip create+collect / delete-removes-dir).
+  Workbench unit-test count: 279 → 296.
+
+  CB-1.9 group is now complete: datetime (CB-1.9.a),
+  default_apps (CB-1.9.b), window_manager (CB-1.9.c),
+  snapshots (CB-1.9.d).
 
 - [ ] **CB-1.13 follow-up: panel-side `mde --focus` call sites** —
   CB-1.13 ships the D-Bus interface + workbench-side handler +
