@@ -16,6 +16,7 @@ use crate::dbus::PendingFocus;
 use crate::keyboard::{KeyAction, Pane};
 use crate::model::{Group, View, view_from_focus_slug};
 use crate::panels::{
+    fleet_revisions as fleet_revisions_panel, fleet_settings as fleet_settings_panel,
     fonts as fonts_panel, notifications as notifications_panel,
     power as power_panel, removable as removable_panel,
     session as session_panel, themes as themes_panel,
@@ -59,6 +60,10 @@ pub enum Message {
     Power(power_panel::Message),
     /// CB-1.4 partial — Devices removable panel sub-message.
     Removable(removable_panel::Message),
+    /// CB-1.5 partial — Fleet settings panel sub-message.
+    FleetSettings(fleet_settings_panel::Message),
+    /// CB-1.5 partial — Fleet revisions panel sub-message.
+    FleetRevisions(fleet_revisions_panel::Message),
     /// No-op — placeholder for buttons whose behaviour lands in
     /// later CB-1.x substeps.
     Noop,
@@ -77,6 +82,8 @@ pub struct App {
     notifications: notifications_panel::NotificationsPanel,
     power: power_panel::PowerPanel,
     removable: removable_panel::RemovablePanel,
+    fleet_settings: fleet_settings_panel::FleetSettingsPanel,
+    fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel,
 }
 
 impl std::fmt::Debug for App {
@@ -121,6 +128,8 @@ impl App {
             notifications: notifications_panel::NotificationsPanel::new(),
             power: power_panel::PowerPanel::new(),
             removable: removable_panel::RemovablePanel::new(),
+            fleet_settings: fleet_settings_panel::FleetSettingsPanel::new(),
+            fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel::new(),
         }
     }
 
@@ -179,6 +188,18 @@ impl App {
     #[must_use]
     pub fn removable(&self) -> &removable_panel::RemovablePanel {
         &self.removable
+    }
+
+    /// Read-only view of the fleet settings panel state.
+    #[must_use]
+    pub fn fleet_settings(&self) -> &fleet_settings_panel::FleetSettingsPanel {
+        &self.fleet_settings
+    }
+
+    /// Read-only view of the fleet revisions panel state.
+    #[must_use]
+    pub fn fleet_revisions(&self) -> &fleet_revisions_panel::FleetRevisionsPanel {
+        &self.fleet_revisions
     }
 
     #[must_use]
@@ -262,6 +283,8 @@ impl App {
             Message::Removable(msg) => {
                 self.removable.update(msg, self.backend())
             }
+            Message::FleetSettings(msg) => self.fleet_settings.update(msg),
+            Message::FleetRevisions(msg) => self.fleet_revisions.update(msg),
             Message::Noop => Task::none(),
         }
     }
@@ -289,6 +312,12 @@ impl App {
             (Group::Devices, "removable") => {
                 removable_panel::RemovablePanel::load(self.backend())
             }
+            (Group::Fleet, "revisions") => {
+                fleet_revisions_panel::FleetRevisionsPanel::load()
+            }
+            // Fleet settings has no Load — it's a push-only
+            // surface, so navigation doesn't fan a refresh.
+            (Group::Fleet, "settings") => Task::none(),
             _ => Task::none(),
         }
     }
@@ -389,6 +418,12 @@ impl App {
             }
             View::Panel { group: Group::Devices, panel: "removable" } => {
                 self.removable.view()
+            }
+            View::Panel { group: Group::Fleet, panel: "settings" } => {
+                self.fleet_settings.view()
+            }
+            View::Panel { group: Group::Fleet, panel: "revisions" } => {
+                self.fleet_revisions.view()
             }
             _ => {
                 // Placeholder body for views without a wired

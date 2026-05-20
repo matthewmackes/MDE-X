@@ -1433,11 +1433,29 @@ group structure with one Iced view per panel.
   `Message::{Power, Removable}` + view dispatch +
   load-on-navigation. Remaining 3 panels (displays, sound,
   printers) blocked on the follow-up backend items below.
-- [ ] **CB-1.5 Fleet group port (5 panels)** —
+- [>] **CB-1.5 Fleet group port (5 panels)** —
   `{inventory.py, playbooks.py, run_history.py, settings.py,
   revisions.py}`. F.11 + F.12 already shipped the Python-side
   `mded` bridge; Iced port calls the same `dev.mackes.MDE.Fleet.*`
-  surface directly.
+  surface directly. **Partial progress 2026-05-20:** settings
+  + revisions Iced panels shipped in
+  `crates/mde-workbench/src/panels/{fleet_settings,
+  fleet_revisions}.rs`. Both shell out to `mded` via
+  `tokio::process::Command` (matches the F.11 / F.12 Python
+  patterns), with pure-fn arg builders + JSON parser exposed
+  for tests. fleet_settings ships key / value_json / peers
+  text_inputs + Push button (empty key or value blocks before
+  the subprocess fires; empty peers collapses to "all").
+  fleet_revisions ships a Refresh button + scrollable
+  per-revision row list + inline Rollback button on each row
+  (busy guard so a refresh-in-flight doesn't race a rollback
+  click). `mded`-not-on-PATH surfaces a friendly install
+  hint via the shared `run_mded` helper. App wired both via
+  `Message::{FleetSettings, FleetRevisions}` + view dispatch
+  keyed on `(Group::Fleet, "settings"|"revisions")`; revisions
+  fires `load()` on navigation; settings has no load (push-
+  only surface). Remaining 3 panels (inventory, playbooks,
+  run_history) blocked on the follow-up backend items below.
 - [✓] **CB-1.6 Look & Feel group port (3 panels)** — shipped
   2026-05-20. Iced themes + fonts panels land in
   `crates/mde-workbench/src/panels/{themes,fonts}.rs`; the
@@ -3344,6 +3362,28 @@ under `LICENSES/`.
 ---
 
 ## Follow-ups from in-flight work
+
+- [ ] **CB-1.5.a Fleet inventory panel (Iced)** — port
+  `mackes/workbench/fleet/inventory.py`. Needs a node-roster
+  subcommand on mded — likely `mded nodes list --json`
+  (currently `mded status` returns aggregate health, not
+  individual node rows). Acceptance: panel lists every
+  enrolled peer with role + last-heartbeat + health colour,
+  click drills into a peers-why detail view.
+
+- [ ] **CB-1.5.b Fleet playbooks panel (Iced)** — port
+  `mackes/workbench/fleet/playbooks.py`. Needs `mded
+  playbooks list --json` + `mded playbooks run <name>
+  --peers <sel>` subcommands. Acceptance: panel lists every
+  curated playbook (Phase 1.3.0 lock: 7 in QNM-Shared),
+  click-to-run dispatches via ansible-pull on the targeted
+  peers.
+
+- [ ] **CB-1.5.c Fleet run_history panel (Iced)** — port
+  `mackes/workbench/fleet/run_history.py`. Needs `mded
+  ansible-history list --json` + per-row detail-view of
+  the ansible-pull output. Acceptance: scrollable list of
+  past runs with status + per-peer outcome.
 
 - [ ] **CB-1.4.a Devices displays panel (Iced)** — port
   `mackes/workbench/devices/displays.py`. F.4 already wired
