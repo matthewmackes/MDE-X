@@ -33,8 +33,8 @@ def isolated_xdg(tmp_path, monkeypatch):
 
     # Re-import state-touching modules so their HOME constants pick up the
     # patched environment variables. Drop the entire `mackes.*` namespace so
-    # cached package attributes on `mackes` (e.g. mackes.menu_integration)
-    # don't keep pointing at the stale module objects after submodule purge.
+    # cached package attributes on `mackes` don't keep pointing at the stale
+    # module objects after submodule purge.
     # Important: if we drop `mackes` itself but leave a cached
     # `mackes.mesh_perf` in sys.modules, a later `import mackes.mesh_perf`
     # returns the cached submodule WITHOUT re-binding it on the fresh
@@ -42,8 +42,10 @@ def isolated_xdg(tmp_path, monkeypatch):
     # pure-backend mesh_* / mdns_* / fleet / caddy_* submodules alongside
     # the package itself. Keep mackes.app / mackes.workbench / mackes.wizard
     # OUT because they import GTK and would fail to reload.
+    # (v2.0.0 Phase F.10: mackes.menu_integration retired; removed from the
+    # purge set.)
     _PURGE_EXACT = {"mackes", "mackes.state", "mackes.logging",
-                    "mackes.snapshots", "mackes.menu_integration",
+                    "mackes.snapshots",
                     "mackes.presets", "mackes.app_mgmt",
                     "mackes.uninstall", "mackes.xfconf_bridge",
                     "mackes.qnm_bridge", "mackes.fleet"}

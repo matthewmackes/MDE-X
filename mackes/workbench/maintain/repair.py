@@ -14,9 +14,10 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
-from mackes.menu_integration import (
-    hide_xfce_settings_entries, install_mackes_menu_entry, restore_xfce_settings_entries,
-)
+# v2.0.0 Phase F.10 — mackes.menu_integration deleted (XFCE settings
+# panels no longer installed). The repair actions that used to call
+# into it (re-hide / restore xfce4-settings menu entries, re-install
+# Mackes menu entry) are now no-ops that log an informational line.
 from mackes.presets import apply_preset, load_preset
 from mackes.state import MackesState
 from mackes.workbench._common import (
@@ -114,16 +115,27 @@ class RepairPanel(Gtk.Box):
         return apply_preset(preset)
 
     def _rehide_menus(self) -> list[str]:
-        """Re-hide xfce4-settings menu entries"""
-        return hide_xfce_settings_entries()
+        """v2.0.0 Phase F.10 — XFCE settings panels no longer
+        installed; nothing to hide."""
+        return [
+            "Re-hide menus: no-op on v2.0.0 (mackes.menu_integration "
+            "retired; XFCE settings panels no longer installed)."
+        ]
 
     def _restore_menus(self) -> list[str]:
-        """Restore xfce4-settings menu entries"""
-        return restore_xfce_settings_entries()
+        """v2.0.0 Phase F.10 — XFCE settings panels no longer
+        installed; nothing to restore."""
+        return [
+            "Restore menus: no-op on v2.0.0 (mackes.menu_integration "
+            "retired; XFCE settings panels no longer installed)."
+        ]
 
     def _reinstall_entry(self) -> list[str]:
-        """Re-install the Mackes menu entry"""
-        src = _ship_desktop()
-        if src is None:
-            return ["mackes-shell.desktop not found in shipped data."]
-        return install_mackes_menu_entry(src)
+        """v2.0.0 Phase F.10 — MDE ships its own .desktop entry
+        via the RPM; the v1.x re-install path is no longer needed
+        because the entry is owned by `data/applications/mde.desktop`
+        and refreshed on every `dnf upgrade`."""
+        return [
+            "Re-install entry: no-op on v2.0.0 (data/applications/ "
+            "mde.desktop is package-owned; reinstall the RPM to refresh)."
+        ]

@@ -125,13 +125,33 @@ def create_snapshot(label: str = "snapshot", *, source_preset: Optional[str] = N
         if src.exists():
             shutil.copytree(src, dest / name, symlinks=True, dirs_exist_ok=True)
 
-    # 3. manifest
+    # 3. v2.0.0 Phase F.7 / C.12 — also dump every MDE setting through
+    # the bridge so the snapshot round-trips on both v1.x (xfconf) and
+    # v2.0.0 (sidecar/gsettings) lines. settings.json carries the full
+    # key->value map; restore_snapshot re-applies via the bridge.
+    mde_settings: dict = {}
+    try:
+        from mackes.mde_settings_bridge import _KEY_MAP, get_setting
+        for key in _KEY_MAP:
+            v = get_setting(key)
+            if v is not None:
+                mde_settings[key] = v
+    except Exception:  # noqa: BLE001
+        pass
+    if mde_settings:
+        (dest / "settings.json").write_text(
+            json.dumps(mde_settings, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    # 4. manifest
     manifest = {
         "label": label,
         "created": datetime.now().isoformat(timespec="seconds"),
         "hostname": socket.gethostname(),
         "source_preset": source_preset,
         "channels": [c for c in XFCONF_CHANNELS if (xf_dir / f"{c}.txt").exists()],
+        "mde_keys": sorted(mde_settings.keys()),
     }
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
@@ -204,6 +224,22 @@ def restore_snapshot(snap: Snapshot) -> list[str]:
             channel = dump.stem
             if _xfconf_load_dump(channel, dump):
                 actions.append(f"restored xfconf channel: {channel}")
+
+    # 3. v2.0.0 — re-apply every MDE setting from settings.json via
+    # the bridge. Tolerates partial snapshots (older snapshots that
+    # don't carry settings.json) by simply skipping.
+    settings_path = snap.path / "settings.json"
+    if settings_path.exists():
+        try:
+            mde_data = json.loads(settings_path.read_text(encoding="utf-8"))
+            from mackes.mde_settings_bridge import set_setting
+            mde_count = 0
+            for key, value in mde_data.items():
+                if set_setting(key, value):
+                    mde_count += 1
+            actions.append(f"restored {mde_count} MDE settings keys")
+        except (OSError, json.JSONDecodeError, ImportError) as e:
+            actions.append(f"skip MDE settings restore: {e}")
 
     for line in actions:
         log_action(line)

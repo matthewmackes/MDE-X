@@ -585,18 +585,14 @@ class ApplyPage(Gtk.Box):
             return [f"import failed: {getattr(e, 'output', e)}"]
 
     def _step_menu(self):
-        from mackes.menu_integration import (
-            hide_xfce_settings_entries, install_mackes_menu_entry,
-        )
-        from pathlib import Path
-        out = hide_xfce_settings_entries()
-        for c in (Path("/usr/share/applications/mackes-shell.desktop"),
-                  Path(__file__).resolve().parent.parent.parent.parent
-                  / "data" / "applications" / "mackes-shell.desktop"):
-            if c.exists():
-                out.extend(install_mackes_menu_entry(c))
-                break
-        return out
+        """v2.0.0 Phase F.10 — mackes.menu_integration retired.
+        The .desktop entry is now package-owned (data/applications/
+        mde.desktop installed by the RPM); XFCE settings entries
+        no longer need hiding because XFCE is gone on v2.0.0."""
+        return [
+            "Menu integration: no-op on v2.0.0 (entry is package-owned; "
+            "XFCE settings panels no longer installed)."
+        ]
 
     def _step_finalize(self, merged):
         from mackes.state import MackesState

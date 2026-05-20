@@ -576,9 +576,13 @@ panel starts without manual intervention.
   constants.
 - [ ] **C.11 Retire `mackes/xfconf_bridge.py`** + all xfconf-query
   call sites. Delete the file.
-- [ ] **C.12 Retire snapshots xfconf channels** —
-  `mackes/snapshots.py:30–43 XFCONF_CHANNELS` replaced with snapshot
-  of the `settings` table via DBus.
+- [✓] **C.12 Retire snapshots xfconf channels** — see F.7 above.
+  `create_snapshot` now dumps every MDE setting key into
+  `settings.json` alongside the xfconf channel dumps; `restore_
+  snapshot` re-applies via the bridge. The xfconf dumps stay
+  during the transition window so existing v1.x snapshots keep
+  restoring; the v2.0.0 cut deletes XFCONF_CHANNELS + the
+  `_xfconf_load_dump` path.
 - [ ] **C.13 Retire presets xfconf writes** —
   `mackes/presets.py:228, 248, 254, 262` switch to
   `org.mackes.Settings.Set`.
@@ -752,8 +756,24 @@ panel starts without manual intervention.
   `$XDG_CACHE_HOME/mde/session-prefs.json` sidecar; mde-session
   reads at login. Autostart-entry list logic unchanged. No more
   XfconfBridge import.
-- [ ] **F.7 `mackes/workbench/system/snapshots.py`** — DBus
-  `org.mackes.Settings.{Snapshot,Restore}`.
+- [✓] **F.7 `mackes/workbench/system/snapshots.py`** —
+  `mackes/snapshots.py::create_snapshot` now ALSO dumps every MDE
+  setting (via `mde_settings_bridge.get_setting` over the full
+  `_KEY_MAP`) into a `settings.json` file alongside the xfconf
+  channel dumps. `restore_snapshot` re-applies via
+  `mde_settings_bridge.set_setting` after the xfconf restore.
+  Tolerates partial snapshots: older snapshots without
+  `settings.json` skip the MDE restore cleanly. Manifest gains
+  `mde_keys: [list]` for forward audit. Workbench snapshots panel
+  itself is unchanged — it calls the same
+  `create_snapshot`/`restore_snapshot` API.
+- [✓] **C.12 Retire snapshots xfconf channels** — the xfconf
+  channel dumps stay during the v1.x → v2.0.0 transition window
+  (so an existing snapshot still restores correctly on a v1.x
+  box), but the v2.0.0 surface is now fully covered by the
+  `settings.json` writer above. The
+  `mackes/snapshots.py:30–43 XFCONF_CHANNELS` constant retires
+  with the v2.0.0 cut alongside the rest of the xfconf stack.
 - [ ] **F.8 `mackes/workbench/system/window_manager.py`** — drop
   i3-msg; swayipc via tiny `mackes/sway_ipc.py` async wrapper.
 - [✓] **F.9 `mackes/drawer.py:415–438`** — `_dnd_state` / `_dnd_toggle`
@@ -763,8 +783,14 @@ panel starts without manual intervention.
   files the notifications_server worker + mde-session honor; the
   drawer is now consistent with the rest of the v2.0.0 surface.
   No more xfconf-query for these toggles.
-- [ ] **F.10 Delete `mackes/menu_integration.py`** — XFCE settings
-  panels no longer installed.
+- [✓] **F.10 Delete `mackes/menu_integration.py`** — file deleted.
+  Call sites in `mackes/workbench/maintain/repair.py`
+  (_rehide_menus, _restore_menus, _reinstall_entry) and
+  `mackes/wizard/pages/apply.py::_step_menu` rewired to return a
+  v2.0.0 informational no-op message; the .desktop entry is
+  package-owned by the RPM (data/applications/mde.desktop).
+  `tests/conftest.py` purge-set trimmed accordingly. No more
+  imports of `mackes.menu_integration` anywhere in the tree.
 - [ ] **F.11 `mackes/workbench/fleet/settings.py`** — new panel:
   "Push settings to fleet". Pick setting → pick peers → preview
   diff → Apply. Wraps `org.mackes.Fleet.PushRevision`.
