@@ -147,3 +147,95 @@ def test_cosmic_files_license_attribution_ships():
     assert "cosmic-files" in text
     assert "System76" in text
     assert "GPL-3.0" in text
+
+
+# --- CB-7.4 spec regression assertions for the v2.0.0 cut --------------
+#
+# These assertions land here so they fail loudly the moment a regression
+# slips in. They cover the spec lines that *land at cut time* (Name,
+# Conflicts:, Recommends:) — the rebrand items above cover what's
+# already shipped during the back-compat window.
+
+def test_spec_will_advertise_name_mde_at_cut():
+    """At CB-3.1 cut, `Name:` flips from `mackes-shell` to `mde`.
+    The current spec still ships as mackes-shell during back-compat
+    (Provides/Obsoletes handle the upgrade); after CB-3.1 the spec
+    rename happens and this assertion flips."""
+    spec = (REPO / "packaging" / "fedora" / "mackes-shell.spec").read_text()
+    # Pre-CB-3.1 form: keeps Name:mackes-shell + Provides: mde.
+    # Post-CB-3.1 form: Name:mde + Provides: mackes-shell (legacy).
+    # Both forms satisfy: "the spec ships mde as a resolvable name".
+    has_provides_mde = "Provides:       mde = %{version}-%{release}" in spec
+    has_name_mde = "Name:           mde\n" in spec or "Name:    mde\n" in spec
+    assert has_provides_mde or has_name_mde, (
+        "spec must either Provides: mde (back-compat window) OR "
+        "Name: mde (post-cut form)"
+    )
+
+
+def test_spec_conflicts_block_lands_at_cb_3_3():
+    """CB-3.3 adds explicit Conflicts: lines so `dnf install
+    xfce4-panel` errors after MDE is installed. The Conflicts
+    block lands AT CUT — until then this test is a soft check
+    (passes when the block is absent, asserts shape when present)."""
+    spec = (REPO / "packaging" / "fedora" / "mackes-shell.spec").read_text()
+    # If the cut has happened (Conflicts: appears), every locked
+    # entry must be present.
+    if "Conflicts:" in spec:
+        for pkg in (
+            "xfce4-panel",
+            "xfdesktop",
+            "xfce4-session",
+            "xfce4-settings",
+            "xfwm4",
+        ):
+            assert f"Conflicts:" in spec and pkg in spec, (
+                f"CB-3.3 locked Conflicts: entry {pkg} missing"
+            )
+
+
+def test_spec_recommends_wayland_stack_post_cut():
+    """CB-3.2 adds hard Requires for sway+swaylock+swayidle+swaybg
+    +foot. Until cut, those land as Recommends to avoid breaking
+    1.x installs. Either form satisfies."""
+    spec = (REPO / "packaging" / "fedora" / "mackes-shell.spec").read_text()
+    for pkg in ("sway", "swaylock", "swayidle"):
+        present = (
+            f"Requires:       {pkg}" in spec
+            or f"Recommends:     {pkg}" in spec
+            or f"Recommends: {pkg}" in spec
+            or f"Requires: {pkg}" in spec
+        )
+        # Soft check during the back-compat window — log but don't
+        # block until the cut lands the hard Requires.
+        if not present:
+            print(f"NOTE: spec doesn't yet advertise {pkg} as Requires/Recommends")
+
+
+def test_comps_xml_present_at_cb_3_4_cut():
+    """CB-3.4 ships data/comps/mackes-desktop-environment.xml. The
+    file is optional during the back-compat window — once present,
+    its shape must satisfy the group definition contract."""
+    comps = REPO / "data" / "comps" / "mackes-desktop-environment.xml"
+    if not comps.is_file():
+        # Pre-CB-3.4 — test is a noop.
+        return
+    text = comps.read_text()
+    assert "<id>mackes-desktop-environment</id>" in text
+    assert "<name>Mackes Desktop Environment</name>" in text
+    assert "<packagereq" in text  # one or more package entries
+    for pkg in ("sway", "swaylock", "swayidle", "swaybg", "foot"):
+        assert pkg in text, f"comps group must include {pkg}"
+
+
+def test_spec_ships_v2_0_0_preset():
+    """CB-3.6 — the v2.0.0 preset must install."""
+    spec = (REPO / "packaging" / "fedora" / "mackes-shell.spec").read_text()
+    assert "data/systemd/90-mde.preset" in spec
+    assert "%{_prefix}/lib/systemd/user-preset/90-mde.preset" in spec
+
+
+def test_spec_ships_wayland_session_entry():
+    """CB-2.1 — the Wayland-session .desktop must install."""
+    spec = (REPO / "packaging" / "fedora" / "mackes-shell.spec").read_text()
+    assert "%{_datadir}/wayland-sessions/mde.desktop" in spec

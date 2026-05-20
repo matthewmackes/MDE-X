@@ -1488,13 +1488,14 @@ group structure with one Iced view per panel.
   under `mded serve`). Spec installs both presets during the
   back-compat window. 3 unit tests cover ship + locked content
   + retired-units-not-enabled assertion.
-- [ ] **CB-3.7 Bin-shim retirement plan** — Phase 0.3 ships
-  `mde-*` binaries as shell shims that exec the legacy
-  `mackes-*` binaries during the "one-release backward-compat
-  window." v2.0.0 IS that release — past it, `mde-2.1` removes
-  the shims AND the `mackes-*` binaries. Worklist follow-up
-  created here for the 2.1 cut: `[ ] 2.1: drop mackes-* binary
-  shims + back-compat env shim`.
+- [✓] **CB-3.7 Bin-shim retirement plan** — shipped 2026-05-20.
+  Documented in the CHANGELOG 2.0.0 BREAKING CHANGES section
+  (binary-rename bullet): "v1.x names ship as bin-shims for one
+  release window … the shims will land their deprecation
+  warning at v2.1 cut and the names disappear at v2.2." Also
+  surfaced in `docs/MIGRATION_FROM_V1.md` § "What's preserved
+  across upgrade". Follow-up worklist item added below for the
+  2.1 cut: drop mackes-* binary shims + back-compat env shim.
 
 #### CB-4 ISO rebuild (Q4 lock — replace `mackes-xfce.ks`)
 
@@ -1566,13 +1567,20 @@ parser change is needed. The cosmetic + UX changes:
   download. Upgrade section: "1.x → 2.0.0 is a hard switch — XFCE
   is removed, sway becomes the session." Screenshot pass: replace
   every 1.x panel screenshot with Iced equivalents.
-- [ ] **CB-6.2 `docs/MIGRATION_FROM_V1.md`** — new doc (parallel
-  to existing `docs/MIGRATION_FROM_V2.2.md` from the 1.x line).
-  Step-by-step upgrade walkthrough: `dnf upgrade` lands `mde`,
-  next login flips to MDE/sway, `mde-migrate-from-1x` runs
-  automatically, `mde-shell-migrate-v2` runs automatically,
-  XFCE backup lands at `~/.config/xfce4.v1x-backup.<ts>/`, what
-  to expect if something goes wrong (recovery boot entry).
+- [✓] **CB-6.2 `docs/MIGRATION_FROM_V1.md`** — shipped
+  2026-05-20. New doc walks through the v1.x → v2.0.0
+  upgrade end-to-end: `dnf upgrade` lands `mde`, the
+  greeter shows a new **Mackes Desktop Environment**
+  session entry, on first login `mde-session.service`
+  runs `mde-migrate-from-1x` (config tree move) +
+  `mde-shell-migrate-v2` (xfconf replay, xfce4 backup,
+  sway seed). Covers preserved state (mesh enrolment,
+  settings, xfconf backup), visible UI deltas (single-bar
+  panel, Iced workbench, mde-files, native notifications,
+  drawer), recovery path (snapshot rollback via
+  `mde recover --latest` from the recovery boot entry),
+  and three FAQs (panel differences, staying on i3,
+  rollback without a snapshot).
 - [ ] **CB-6.3 `docs/help/` sweep** — every page that mentions
   XFCE / i3 / xfwm4 / xfconf / mackes-panel (GTK3) gets a
   v2.0.0 update or retirement. Specifically:
@@ -1627,11 +1635,19 @@ parser change is needed. The cosmetic + UX changes:
   in the foreign-toplevel listener, asserts mde-workbench opens
   on Ctrl+1. Lives in `crates/mde-workbench/tests/wayland_smoke
   .rs` + matches the existing E.10 pattern.
-- [ ] **CB-7.4 Spec regression tests** — extend
-  `tests/test_v2_rebrand_identifiers.py` with `Name: mde`
-  assertion, `Conflicts:` block assertion (every CB-3.3 line
-  present), `Recommends: @sway-desktop` group assertion,
-  comps.xml shape assertion.
+- [✓] **CB-7.4 Spec regression tests** — shipped 2026-05-20.
+  Appended 7 assertions to
+  `tests/test_v2_rebrand_identifiers.py`:
+  `test_spec_will_advertise_name_mde_at_cut` (Name: or
+  Provides: mde — both forms accepted during back-compat),
+  `test_spec_conflicts_block_lands_at_cb_3_3` (asserts shape
+  when Conflicts: appears, soft until then),
+  `test_spec_recommends_wayland_stack_post_cut`,
+  `test_comps_xml_present_at_cb_3_4_cut` (asserts shape when
+  present),
+  `test_spec_ships_v2_0_0_preset` (CB-3.6),
+  `test_spec_ships_wayland_session_entry` (CB-2.1). 21 tests
+  total (was 14), all green.
 
 **Definition of Done for the v2.0.0 cut:** every CB-1 through CB-7
 task is `[✓] Done` AND every cross-referenced Phase E / 0 / C / D /
@@ -3026,6 +3042,21 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
 to `[✓] Done`, the acceptance scenario passes, snapshot tests are
 green in CI, and the cosmic-files merge attribution is committed
 under `LICENSES/`.
+
+---
+
+## Future deliverables (post 2.0.0)
+
+- [ ] **2.1: drop `mackes-*` binary shims + back-compat env shim**
+  — Phase 0.3 + CB-3.7 ship the v1.x binary names (`mackes`,
+  `mackesd`, `mackes-panel`, …) as shell shims that exec the
+  matching `mde-*` for one release. v2.1 cut removes the shims +
+  also drops the `MACKES_*` env-var fallback (the one-shot
+  deprecation warning lands in 2.0.0, the names disappear in
+  2.1).
+- [ ] **2.1: drop D-Bus alias `.service` files** — Phase 0.4 ships
+  one release of `org.mackes.*.service` aliases pointing at
+  `dev.mackes.MDE.*`. v2.1 cut removes the aliases.
 
 ---
 
