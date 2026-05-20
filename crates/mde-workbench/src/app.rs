@@ -18,13 +18,14 @@ use crate::model::{view_from_focus_slug, Group, View};
 use crate::panels::{
     apps_installed as apps_installed_panel, apps_sources as apps_sources_panel,
     datetime as datetime_panel, default_apps as default_apps_panel, displays as displays_panel,
-    fleet_revisions as fleet_revisions_panel, fleet_settings as fleet_settings_panel,
-    fonts as fonts_panel, inventory as inventory_panel, logs as logs_panel,
-    notifications as notifications_panel, playbooks as playbooks_panel, power as power_panel,
-    printers as printers_panel, removable as removable_panel, repair as repair_panel,
-    resources as resources_panel, run_history as run_history_panel, session as session_panel,
-    snapshots as snapshots_panel, sound as sound_panel, system_update as system_update_panel,
-    themes as themes_panel, wallpaper as wallpaper_panel, window_manager as window_manager_panel,
+    firewall as firewall_panel, fleet_revisions as fleet_revisions_panel,
+    fleet_settings as fleet_settings_panel, fonts as fonts_panel, inventory as inventory_panel,
+    logs as logs_panel, notifications as notifications_panel, playbooks as playbooks_panel,
+    power as power_panel, printers as printers_panel, removable as removable_panel,
+    repair as repair_panel, resources as resources_panel, run_history as run_history_panel,
+    session as session_panel, snapshots as snapshots_panel, sound as sound_panel,
+    system_update as system_update_panel, themes as themes_panel, wallpaper as wallpaper_panel,
+    window_manager as window_manager_panel,
 };
 use crate::patternfly::{breadcrumb, page_subtitle, page_title};
 use crate::sidebar::SidebarState;
@@ -106,6 +107,8 @@ pub enum Message {
     AppsInstalled(apps_installed_panel::Message),
     /// CB-1.3 partial — Apps → Sources panel sub-message.
     AppsSources(apps_sources_panel::Message),
+    /// CB-1.8 partial — Network → Firewall panel sub-message.
+    Firewall(firewall_panel::Message),
     /// CB-1.5 partial — Fleet settings panel sub-message.
     FleetSettings(fleet_settings_panel::Message),
     /// CB-1.5 partial — Fleet revisions panel sub-message.
@@ -146,6 +149,7 @@ pub struct App {
     repair: repair_panel::RepairPanel,
     apps_installed: apps_installed_panel::AppsInstalledPanel,
     apps_sources: apps_sources_panel::AppsSourcesPanel,
+    firewall: firewall_panel::FirewallPanel,
     fleet_settings: fleet_settings_panel::FleetSettingsPanel,
     fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel,
     wallpaper: wallpaper_panel::WallpaperPanel,
@@ -209,6 +213,7 @@ impl App {
             repair: repair_panel::RepairPanel::new(),
             apps_installed: apps_installed_panel::AppsInstalledPanel::new(),
             apps_sources: apps_sources_panel::AppsSourcesPanel::new(),
+            firewall: firewall_panel::FirewallPanel::new(),
             fleet_settings: fleet_settings_panel::FleetSettingsPanel::new(),
             fleet_revisions: fleet_revisions_panel::FleetRevisionsPanel::new(),
             wallpaper: wallpaper_panel::WallpaperPanel::new(),
@@ -368,6 +373,12 @@ impl App {
         &self.apps_sources
     }
 
+    /// Read-only view of the firewall panel state.
+    #[must_use]
+    pub fn firewall(&self) -> &firewall_panel::FirewallPanel {
+        &self.firewall
+    }
+
     /// Read-only view of the fleet settings panel state.
     #[must_use]
     pub fn fleet_settings(&self) -> &fleet_settings_panel::FleetSettingsPanel {
@@ -479,6 +490,7 @@ impl App {
             Message::Repair(msg) => self.repair.update(msg),
             Message::AppsInstalled(msg) => self.apps_installed.update(msg),
             Message::AppsSources(msg) => self.apps_sources.update(msg),
+            Message::Firewall(msg) => self.firewall.update(msg),
             Message::FleetSettings(msg) => self.fleet_settings.update(msg),
             Message::FleetRevisions(msg) => self.fleet_revisions.update(msg),
             Message::Wallpaper(msg) => self.wallpaper.update(msg, self.backend()),
@@ -517,6 +529,7 @@ impl App {
             (Group::Maintain, "system_update") => system_update_panel::SystemUpdatePanel::load(),
             (Group::Apps, "installed") => apps_installed_panel::AppsInstalledPanel::load(),
             (Group::Apps, "sources") => apps_sources_panel::AppsSourcesPanel::load(),
+            (Group::Network, "firewall") => firewall_panel::FirewallPanel::load(),
             (Group::Fleet, "revisions") => fleet_revisions_panel::FleetRevisionsPanel::load(),
             // Fleet settings has no Load — it's a push-only
             // surface, so navigation doesn't fan a refresh.
@@ -696,6 +709,10 @@ impl App {
                 group: Group::Apps,
                 panel: "sources",
             } => self.apps_sources.view(),
+            View::Panel {
+                group: Group::Network,
+                panel: "firewall",
+            } => self.firewall.view(),
             View::Panel {
                 group: Group::Fleet,
                 panel: "settings",

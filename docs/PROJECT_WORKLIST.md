@@ -1576,7 +1576,7 @@ group structure with one Iced view per panel.
   These three are NOT in CB-1.7's v2.0.0 panel set; the
   remaining Maintain port is `repair.py` (reframable as
   MDE health-check).
-- [ ] **CB-1.8 Network group port (~14 panels)** — largest group.
+- [>] **CB-1.8 Network group port (~14 panels)** — largest group.
   `mesh_control.py` (9-tab notebook) + `mesh_pending.py` +
   `mesh_history.py` + `mesh_join.py` + `mesh_ssh.py` +
   `mesh_topology_render.py` + `mesh_services.py` + `wifi.py` +

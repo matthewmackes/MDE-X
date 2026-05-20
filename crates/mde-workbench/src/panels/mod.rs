@@ -9,6 +9,7 @@ pub mod apps_sources;
 pub mod datetime;
 pub mod default_apps;
 pub mod displays;
+pub mod firewall;
 pub mod fleet_revisions;
 pub mod fleet_settings;
 pub mod fonts;
