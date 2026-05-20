@@ -742,7 +742,21 @@ panel starts without manual intervention.
   LockPersonality, RestrictRealtime. `Install: WantedBy=graphical-
   session.target` so `systemctl --user enable mde-session` from
   the install hook turns it on automatically.
-- [ ] **D.7 Retire `bin/mackes-enforce-session`** + `bin/mackes-wm`.
+- [✓] **D.7 Retire `bin/mackes-enforce-session`** + `bin/mackes-wm`
+  — shipped 2026-05-20 as retirement guards. Both scripts now
+  short-circuit when the MDE Wayland session is active
+  (`XDG_CURRENT_DESKTOP=MDE` OR `mde-session.service` is running
+  for enforce-session; `SWAYSOCK` env var OR
+  `XDG_CURRENT_DESKTOP=MDE` for mackes-wm). The legacy v1.x
+  converge logic still fires on real v1.x sessions so the
+  back-compat window stays intact. `mackes-wm` retirement output
+  also points at the new paths (`swaymsg -t get_version`,
+  Workbench keybinds editor, `systemctl --user status
+  mde-session.service`). The actual file deletion happens at
+  the v2.0.0 cut commit; until then the v1.x autostart entries
+  point at scripts that no-op cleanly under MDE. 6 unit tests
+  cover bash syntax + the four short-circuit branches + the
+  legacy-fall-through path.
 
 #### Phase E — Panel rewrite to Iced + libcosmic
 

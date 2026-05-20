@@ -19,6 +19,21 @@
 
 set -euo pipefail
 
+# v2.0.0 Phase D.7 — retirement guard. When the MDE Wayland
+# session is active, this v1.x i3-management script is meaningless
+# (sway owns the WM role + the keybinds are reloaded via swayipc
+# by the Phase C.8 keybinds applier, not by editing
+# ~/.config/i3/config). The script short-circuits with a
+# pointer to the new path.
+if [ "${XDG_CURRENT_DESKTOP:-}" = "MDE" ] \
+   || [ -n "${SWAYSOCK:-}" ]; then
+    echo "mackes-wm: MDE / sway session detected — this script is retired." >&2
+    echo "mackes-wm:   * For sway WM status: 'swaymsg -t get_version'" >&2
+    echo "mackes-wm:   * For keybinds:       edit settings in Workbench → System → Keyboard" >&2
+    echo "mackes-wm:   * For session info:   'systemctl --user status mde-session.service'" >&2
+    exit 0
+fi
+
 DEFAULT_I3_CONFIG=/usr/share/mackes-shell/i3/config
 USER_I3_CONFIG="$HOME/.config/i3/config"
 

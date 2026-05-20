@@ -21,6 +21,17 @@ log() {
     echo "mackes-enforce-session: $*" >&2
 }
 
+# v2.0.0 Phase D.7 — retirement guard. mde-session.service is the
+# v2.0.0 replacement for the autostart converge-on-i3 hook. When
+# the v2.0.0 user-session is active (XDG_CURRENT_DESKTOP=MDE OR
+# the unit is running), the v1.x script must short-circuit so it
+# doesn't fight the new orchestrator.
+if [ "${XDG_CURRENT_DESKTOP:-}" = "MDE" ] \
+   || systemctl --user is-active mde-session.service >/dev/null 2>&1; then
+    log "MDE session detected — mackes-enforce-session is retired; mde-session.service owns the session converge. Skipping."
+    exit 0
+fi
+
 # 1. WM: if i3 isn't already the live WM, run `i3 --replace` to take
 #    over via the WM-replace protocol (xfwm4 exits cleanly when it
 #    sees the replace signal).
