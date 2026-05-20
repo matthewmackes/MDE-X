@@ -341,6 +341,19 @@ real data source.
   to a future phase, < 3 s first-packet SLO, < 10 s roaming
   handoff, no new security or monitoring requirements. Full Q&A
   + per-item evaluation in `docs/design/v12-connectivity-scope.md`.
+- **Phase 12.17 + 12.21 + 12.23 — connectivity layer extends.**
+  `crates/mackesd/src/stun.rs` ships a real RFC 5389/8489 STUN
+  client: pure-fn binding-request encoder, attribute-walking
+  binding-response parser that extracts XOR-MAPPED-ADDRESS for
+  IPv4 + IPv6, and a tokio `gather_endpoint(server, timeout)`
+  that validates the transaction-id echo before trusting the
+  reflexive address (13 tests). `lan_discovery` gains
+  `should_eager_bootstrap` (Phase 12.21 predicate — fresh + low-
+  RTT prewarm decision) and the multicast surface (Phase 12.23 —
+  locked group 239.42.7.16, wired-only Q16 guard,
+  `open_multicast_listener(iface)` that joins the group via
+  tokio). 4 new lan_discovery tests, taking the worker's unit
+  count from 16 → 20.
 - **Phase 12.14 + 12.15 + 12.22 — connectivity primitives shipped.**
   New worker `crates/mackesd/src/workers/lan_discovery.rs`
   announces `_mackes-peer._udp.local` via `mdns-sd` 0.11 and runs

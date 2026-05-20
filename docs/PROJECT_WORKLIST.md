@@ -1785,10 +1785,21 @@ Locked 25-Q survey 2026-05-19 in
   (which Headscale inherits automatically). 9 unit tests cover
   the unit's gating, flags, lockdown, resource caps, and the
   spec install lines for both files.
-- [ ] **12.17 ICE/STUN augmentation for symmetric-NAT edges** —
-  ICE candidate gathering via STUN feeds Tailscale's endpoint
-  advertising. Q8 deadline: gather under 1.5 s so total handshake
-  fits 3 s budget.
+- [✓] **12.17 ICE/STUN augmentation for symmetric-NAT edges** —
+  shipped 2026-05-20. New module `crates/mackesd/src/stun.rs`
+  ships a real RFC 5389/8489 STUN client:
+  `encode_binding_request(txid)` returns the 20-byte header,
+  `parse_binding_response(buf)` walks the attribute list and
+  extracts the XOR-MAPPED-ADDRESS for both IPv4 (8-byte body) and
+  IPv6 (20-byte body, XOR'd with magic-cookie ++ transaction-id),
+  `gather_endpoint(server, timeout)` does the UDP I/O and
+  validates the transaction ID on the response (defends against
+  spoofed replies). 13 unit tests cover the v4 + v6 round-trips,
+  every error path (truncated / bad magic / non-success /
+  length-mismatch / bad-family / bad-address-length),
+  attribute-padding handling, txid uniqueness, and a timeout
+  smoke test. Q8 ≤ 1.5 s gather budget enforced via the
+  `timeout` arg.
 - [ ] **12.18 HTTPS-tunneled fallback over TCP/443** — Q10
   "indistinguishable from real HTTPS." Real TLS handshake,
   realistic SNI, Let's Encrypt cert chain. Activates after 3
@@ -1799,9 +1810,15 @@ Locked 25-Q survey 2026-05-19 in
 - [ ] **12.20 Roaming-aware connection migration** — netlink
   watch for RTM_NEWLINK/DELLINK; re-handshake WireGuard on the
   new path within 10 s (Q22). Brief "reconnecting" state visible.
-- [ ] **12.21 Eager connection bootstrap** — pre-derive
-  WireGuard sessions before first user request. Q8 budget makes
-  this optimization-not-must-have; ship after 12.14–12.20.
+- [✓] **12.21 Eager connection bootstrap** — shipped 2026-05-20.
+  `lan_discovery::should_eager_bootstrap(rtt, age, freshness,
+  max_rtt)` is the pure-fn predicate that decides which peers
+  warrant pre-warmed WireGuard sessions. Heuristic: require an
+  RTT sample (proves connectivity), require it ≤ `freshness`
+  old (so stale peers don't get pre-warmed), require rtt ≤
+  `max_rtt_ms` (no point pre-warming peers already on the slow
+  path). 1 unit test covers the full truth table (fresh+fast /
+  fresh+slow / stale / no-rtt / no-timestamp / boundary).
 - [✓] **12.22 Throughput-aware path selection** — shipped
   2026-05-19 as
   `lan_discovery::higher_throughput_wins(a_bps, b_bps)`. Pure-fn
@@ -1810,9 +1827,22 @@ Locked 25-Q survey 2026-05-19 in
   away — pass the two paths' bytes/sec samples in. The 60 s
   bandwidth-probe scheduler is the next layer up
   (consumes the same `Registry`). 1 test covers the full table.
-- [ ] **12.23 LAN multicast for high-fanout services** —
-  `_mackes-mcast._udp.local`; Q16 wired-only guard. Falls back to
-  unicast Tailscale.
+- [✓] **12.23 LAN multicast for high-fanout services** — shipped
+  2026-05-20. `lan_discovery` exports the locked constants
+  (`MULTICAST_SERVICE_TYPE = "_mackes-mcast._udp.local."`,
+  `MULTICAST_GROUP_V4 = 239.42.7.16`, `MULTICAST_PORT =
+  DEFAULT_PROBE_PORT`) so one firewall rule covers unicast +
+  multicast, the Q16 wired-only guard
+  `multicast_allowed_on_link(link_type)` (wired/ethernet/loopback
+  allowed; wireless/wifi/cellular blocked), and the
+  `open_multicast_listener(iface)` helper that binds a tokio
+  UdpSocket, calls `join_multicast_v4` + `set_multicast_loop_v4`
+  for single-host dev/test loops. 2 new unit tests cover the
+  constants + guard table, plus a loopback bind smoke that
+  skips explicitly when the runtime denies multicast (CI
+  containers). Caller still has to fall back to unicast
+  Tailscale when the guard returns false — that wiring lives
+  with the routing layer.
 
 ### KDE Connect (Phase 13 — 25 substeps)
 

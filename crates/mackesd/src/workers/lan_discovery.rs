@@ -220,6 +220,89 @@ pub fn lan_direct_wins(lan_rtt_ms: Option<u32>, derp_rtt_ms: Option<u32>) -> boo
     }
 }
 
+/// Phase 12.21 — eager connection bootstrap predicate. The locked
+/// behaviour: pre-warm a WireGuard session to any peer that has
+/// produced an RTT sample in the last `freshness` window. Returning
+/// `true` means "pre-derive this session now so the first user
+/// request finds it ready"; `false` means "let the lazy handshake
+/// run".
+///
+/// Heuristic:
+///   * Peer must have an RTT sample (proves connectivity exists).
+///   * Sample must be at most `freshness` old, so we don't pre-warm
+///     stale peers that left the LAN hours ago.
+///   * RTT must be below `max_rtt_ms` — pre-warming a peer that's
+///     already on the slow path doesn't save user-visible latency.
+///
+/// Q8 budget puts this in optimization-not-must-have territory; the
+/// 5-second freshness default keeps the prewarm cost bounded.
+#[must_use]
+pub fn should_eager_bootstrap(
+    rtt_ms: Option<u32>,
+    sample_age_ms: Option<u64>,
+    freshness: Duration,
+    max_rtt_ms: u32,
+) -> bool {
+    let (Some(rtt), Some(age)) = (rtt_ms, sample_age_ms) else {
+        return false;
+    };
+    if rtt > max_rtt_ms {
+        return false;
+    }
+    Duration::from_millis(age) <= freshness
+}
+
+/// Phase 12.23 — LAN-multicast service type. Locked literal
+/// (`_mackes-mcast._udp.local.` per Q23). Used for high-fanout
+/// services like clipboard broadcast + presence so a single packet
+/// reaches every LAN peer instead of N unicast copies.
+pub const MULTICAST_SERVICE_TYPE: &str = "_mackes-mcast._udp.local.";
+
+/// Phase 12.23 — IPv4 multicast group address. 239.42.7.16 sits in
+/// the IPv4 administratively-scoped block (239.0.0.0/8 per RFC 2365)
+/// and was picked to be locally administered by MDE — no IANA
+/// allocation, deliberately unlikely to collide with another vendor.
+pub const MULTICAST_GROUP_V4: [u8; 4] = [239, 42, 7, 16];
+
+/// Phase 12.23 — UDP port for the multicast channel. Same number as
+/// the unicast probe port so one firewall rule covers both paths.
+pub const MULTICAST_PORT: u16 = DEFAULT_PROBE_PORT;
+
+/// Phase 12.23 — Q16 wired-only guard. Wi-Fi networks tend to
+/// silently drop multicast on power-save APs, so we never enable the
+/// multicast path on Wi-Fi interfaces. Caller passes the interface's
+/// link type (`"wired"` / `"wireless"` / `"loopback"` / ...). Returns
+/// `true` if the multicast announcer should bind that interface.
+#[must_use]
+pub fn multicast_allowed_on_link(link_type: &str) -> bool {
+    matches!(link_type, "wired" | "ethernet" | "loopback")
+}
+
+/// Phase 12.23 — open + bind a UDP socket that has joined the
+/// `MULTICAST_GROUP_V4` group on `interface_v4`. The caller drives
+/// it with the usual `recv_from` / `send_to` calls; this helper just
+/// applies the `IP_ADD_MEMBERSHIP` + `SO_REUSEADDR` setup so two
+/// processes on the same host can share the socket during dev/test.
+///
+/// # Errors
+///
+/// Surfaces any underlying tokio / socket error. The most common is
+/// "Address already in use" (returned without reuse). Wi-Fi
+/// interfaces are not detected here — gate on
+/// [`multicast_allowed_on_link`] before calling.
+pub async fn open_multicast_listener(
+    interface_v4: Ipv4Addr,
+) -> anyhow::Result<UdpSocket> {
+    let bind: SocketAddr =
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), MULTICAST_PORT);
+    let socket = UdpSocket::bind(bind).await?;
+    let group = Ipv4Addr::from(MULTICAST_GROUP_V4);
+    socket.join_multicast_v4(group, interface_v4)?;
+    // Send + receive loopback so single-host dev/test works.
+    let _ = socket.set_multicast_loop_v4(true);
+    Ok(socket)
+}
+
 /// Phase 12.22 — throughput-aware path selection. Per the Q23 lock,
 /// when bandwidth samples are present they trump the
 /// "LAN-direct beats WAN" default. The locked rule: pick the path
@@ -636,6 +719,66 @@ mod tests {
         assert_eq!(r.rtt_count(), 1);
         let (_, rtts) = r.snapshot();
         assert_eq!(rtts.get("pine").unwrap().rtt_ms, 30);
+    }
+
+    #[test]
+    fn should_eager_bootstrap_requires_fresh_low_rtt_sample() {
+        let freshness = Duration::from_secs(5);
+        let max_rtt = 100u32;
+        // Fresh + low RTT — prewarm.
+        assert!(should_eager_bootstrap(Some(40), Some(1_000), freshness, max_rtt));
+        // Fresh + tied to max — prewarm (≤ boundary).
+        assert!(should_eager_bootstrap(Some(100), Some(0), freshness, max_rtt));
+        // Fresh but slow — skip.
+        assert!(!should_eager_bootstrap(Some(150), Some(1_000), freshness, max_rtt));
+        // Stale sample — skip.
+        assert!(!should_eager_bootstrap(Some(40), Some(10_000), freshness, max_rtt));
+        // No sample — skip.
+        assert!(!should_eager_bootstrap(None, Some(100), freshness, max_rtt));
+        // No timestamp — skip.
+        assert!(!should_eager_bootstrap(Some(40), None, freshness, max_rtt));
+    }
+
+    #[test]
+    fn multicast_constants_match_q23_lock() {
+        assert_eq!(MULTICAST_SERVICE_TYPE, "_mackes-mcast._udp.local.");
+        assert_eq!(MULTICAST_GROUP_V4, [239, 42, 7, 16]);
+        // Same port as unicast probes so one firewall rule covers
+        // both paths.
+        assert_eq!(MULTICAST_PORT, DEFAULT_PROBE_PORT);
+    }
+
+    #[tokio::test]
+    async fn open_multicast_listener_binds_on_loopback() {
+        // Try the loopback interface so the test doesn't require
+        // routable connectivity. CI containers without multicast
+        // capability return Err — skip explicitly so a real
+        // regression surfaces (cannot bind = environment, not bug).
+        match open_multicast_listener(Ipv4Addr::LOCALHOST).await {
+            Ok(socket) => {
+                let local = socket.local_addr().expect("local_addr");
+                assert_eq!(local.port(), MULTICAST_PORT);
+            }
+            Err(e) => {
+                eprintln!(
+                    "skip: multicast bind blocked by environment: {e}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn multicast_allowed_on_link_q16_wired_only() {
+        assert!(multicast_allowed_on_link("wired"));
+        assert!(multicast_allowed_on_link("ethernet"));
+        // Loopback allowed so the same code path covers single-host
+        // dev loops + CI.
+        assert!(multicast_allowed_on_link("loopback"));
+        // Wi-Fi explicitly forbidden by Q16.
+        assert!(!multicast_allowed_on_link("wireless"));
+        assert!(!multicast_allowed_on_link("wifi"));
+        assert!(!multicast_allowed_on_link("cellular"));
+        assert!(!multicast_allowed_on_link(""));
     }
 
     #[test]

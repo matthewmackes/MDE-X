@@ -27,6 +27,10 @@ pub mod revisions;
 pub mod secrets;
 pub mod settings;
 pub mod store;
+// v2.0.0 Phase 12.17 — STUN client for ICE candidate gathering. Gated
+// behind `async-services` because it uses tokio UDP + tokio time.
+#[cfg(feature = "async-services")]
+pub mod stun;
 pub mod telemetry;
 pub mod topology;
 pub mod validation;
