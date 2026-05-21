@@ -19,6 +19,7 @@ pub mod backend;
 pub mod dbus;
 pub mod keyboard;
 pub mod model;
+pub mod panel_chrome;
 pub mod panels;
 pub mod patternfly;
 pub mod sidebar;

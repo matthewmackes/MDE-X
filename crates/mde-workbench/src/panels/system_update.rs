@@ -438,10 +438,7 @@ Obsoleting Packages
 
     #[tokio::test]
     async fn stream_subprocess_emits_finished_with_error_on_missing_binary() {
-        let stream = stream_subprocess(
-            "ghost".into(),
-            vec!["/definitely-not-a-binary".into()],
-        );
+        let stream = stream_subprocess("ghost".into(), vec!["/definitely-not-a-binary".into()]);
         let pinned = Box::pin(stream);
         let messages: Vec<Message> = collect_stream(pinned).await;
         assert!(!messages.is_empty());
@@ -453,10 +450,7 @@ Obsoleting Packages
     async fn stream_subprocess_yields_lines_then_finished() {
         // `printf "a\nb\nc\n"` exits 0; stream should yield 3
         // OutputLine + 1 Finished.
-        let stream = stream_subprocess(
-            "printf".into(),
-            vec!["printf".into(), "a\nb\nc\n".into()],
-        );
+        let stream = stream_subprocess("printf".into(), vec!["printf".into(), "a\nb\nc\n".into()]);
         let pinned = Box::pin(stream);
         let messages: Vec<Message> = collect_stream(pinned).await;
         let lines: Vec<&str> = messages
@@ -467,7 +461,10 @@ Obsoleting Packages
             })
             .collect();
         assert_eq!(lines, vec!["a", "b", "c"]);
-        assert!(matches!(messages.last(), Some(Message::Finished { success: true, .. })));
+        assert!(matches!(
+            messages.last(),
+            Some(Message::Finished { success: true, .. })
+        ));
     }
 
     #[tokio::test]
