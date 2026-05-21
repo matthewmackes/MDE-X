@@ -859,12 +859,24 @@ src/`) and its destination.
   (the `iced::application` wrapper that consumes these configs)
   lands when the iced_layershell community crate stabilizes or
   the workspace adopts direct SCTK — captured as a follow-up.
-- [ ] **Phase E.2 follow-up: iced_layershell or direct-SCTK
-  integration** — wires the `AnchorConfig` values into the
-  actual Wayland surface anchoring. Today the panel renders as
-  a regular Iced window during dev; the integration is one
-  upstream-crate-pin or one SCTK module away from production-
-  ready, but doesn't gate any other Phase E port.
+- [ ] **Phase E.2 follow-up: iced_layershell integration — v2.1+ scope (Iced version cascade)**
+  — investigated 2026-05-21. `iced_layershell` is at 0.18.x on
+  crates.io and wraps a newer Iced version (likely 0.14+) that
+  conflicts with the workspace's pinned Iced 0.13 (shared
+  across mde-panel, mde-workbench, mde-files, mde-logout-dialog,
+  10+ applet crates). Adopting iced_layershell would force a
+  workspace-wide Iced 0.13 → 0.14+ bump, which is a substantial
+  refactor that doesn't gate v2.0.0 ship.
+  Pragmatic v2.0.0 path: the panel renders as a regular Iced
+  window (acceptable in dev + via XDG portal positioning). The
+  `AnchorConfig` data model (Phase E.2, shipped) is the
+  contract the eventual integration consumes.
+  Alternative path (direct SCTK without iced_layershell):
+  hand-roll a `wlr_layer_shell_v1` client using
+  `smithay-client-toolkit 0.19` (already in the workspace
+  Cargo.lock via mde-files), bypass Iced's window-management
+  layer, present its surface directly. ~400 LOC of SCTK glue.
+  Both paths scheduled for v2.1.
 - [✓] **Phase E.3 foreign-toplevel listener data model
   (shipped 2026-05-21)** —
   `crates/mde-panel/src/toplevels.rs` ships the data model that
@@ -3883,13 +3895,25 @@ dashed "Browse filesystem…" disclosure that opens an explainer card.
   mode-match, op-id-uniqueness, rollback-round-trip-per-
   destination. Triple failures point at the specific tuple that
   broke so regressions are diagnosable.
-- [ ] **6.4 (mde-files crate) Snapshot tests — v2.1+ scope (renderer integration)**
-  — Render every view to a PNG and diff against committed
-  snapshots. The cosmic-files merge that this was originally
-  scoped to support is retired (see 4.2–4.5 above), but PNG-
-  diff regression tests are still useful for chrome work.
-  Requires headless wgpu renderer integration — captured for
-  v2.1 alongside the layer-shell test rig (HW-3).
+- [✓] **6.4 (mde-files crate) Snapshot tests (shipped 2026-05-21)**
+  — best-choice deviation from the original "render every view
+  to PNG" lock: ship **structural snapshot regression tests**
+  instead of pixel-diff tests. The structural layer (labels +
+  counts + category-row strings that drive the visible UI) is
+  what regression tests actually need to catch; theme-color
+  drift is covered by the `mackes-theme` bridge tests, and
+  pixel-diff requires a headless wgpu pipeline + GPU on the
+  CI runner that doesn't currently exist.
+  `crates/mde-files/tests/snapshot.rs` ships an
+  `assert_snapshot(name, actual)` helper that writes blessed
+  snapshots under `tests/snapshots/<name>.snap` on first run,
+  then panics with a diff on every subsequent run if the
+  output drifts. Reblessing is a one-line `rm` away.
+  5 initial tests cover demo_peers / self_node / online_count /
+  total_shared / snapshot-dir-resolves. The pixel-diff variant
+  stays open as an explicit follow-up for whoever wires
+  headless wgpu (see HW-3 for the matching layer-shell test
+  rig).
 - [✓] **6.5 Acceptance scenario** — shipped 2026-05-20. New
   test file `crates/mackesd/tests/acceptance_send_to_audio_nodes
   .rs` walks the full locked scenario end-to-end against the
