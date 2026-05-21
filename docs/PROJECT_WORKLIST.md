@@ -2077,7 +2077,7 @@ group structure with one Iced view per panel.
       tests.
   All 6 panels wired in `app.rs` via Message variants + view
   dispatch + load-on-navigate. 444 mde-workbench tests pass.
-- [ ] **CB-1.10 Wizard port (Iced) — v2.1+ scope (multi-session deferred bundle)
+- [✓] **CB-1.10 Wizard port (Iced) — shipped 2026-05-21 (multi-session deferred bundle)
   2026-05-20** — `mackes/wizard/` is ~12 pages of first-run
   provisioning flow (welcome, scan, legacy_import, preset,
   mesh_passcode, network, snapshot, apply) gated by

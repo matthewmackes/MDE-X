@@ -1,0 +1,46 @@
+[package]
+name        = "mde-wizard"
+description = "Mackes Desktop Environment (MDE) first-run wizard — Iced port of mackes/wizard/ (CB-1.10)."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+[[bin]]
+name = "mde-wizard"
+path = "src/main.rs"
+
+[lib]
+name = "mde_wizard"
+path = "src/lib.rs"
+
+[dependencies]
+iced       = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced"] }
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap       = { version = "4.5", features = ["derive"] }
+dirs       = "5"
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+mde-config = { path = "../mde-config" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code     = "forbid"
+unused_must_use = "deny"
+missing_docs    = "allow"
+
+[lints.clippy]
+pedantic                = { level = "allow", priority = -1 }
+nursery                 = { level = "allow", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate      = "allow"
+missing_errors_doc      = "allow"
+missing_panics_doc      = "allow"
+unwrap_used             = "warn"
+panic                   = "warn"
+todo                    = "warn"
