@@ -1,0 +1,25 @@
+[package]
+name        = "mde-applet-notification-bell"
+description = "Notification-bell pill — top-bar-right unread-count badge (Phase E1.2.5)."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+[[bin]]
+name = "mde-applet-notification-bell"
+path = "src/main.rs"
+
+[lib]
+name = "mde_applet_notification_bell"
+path = "src/lib.rs"
+
+[dependencies]
+mde-applet-api = { path = "../applet-api" }
+serde          = { version = "1", features = ["derive"] }
+serde_json     = "1"
+
+[lints]
+workspace = true

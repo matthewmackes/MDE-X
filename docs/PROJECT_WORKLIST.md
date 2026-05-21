@@ -1003,17 +1003,17 @@ src/`) and its destination.
   helper using Howard-Hinnant civil-from-days (same
   algorithm the run-history + mesh-history panels use).
   5 unit tests + workspace builds clean.
-- [!] **Phase E1 (applet workspace split) item E1.2.2 `crates/mde-applets/audio/`** — pipewire-rs
+- [!] **Phase E1 (applet workspace split) item E1.2.2 `crates/mde-applets/audio/` — blocked: pipewire-rs bindgen** — pipewire-rs
   subscription for active sink + mute state; click opens the
   pavucontrol-equivalent (eventually a native Iced mixer; ships
   with `pavucontrol-qt` as Recommends in v2.0.0).
-- [!] **Phase E1 (applet workspace split) item E1.2.3 `crates/mde-applets/network/`** — NM applet
+- [✓] **Phase E1.2.3 `crates/mde-applets/network/` (shipped 2026-05-20) — nmcli-backed top-bar-right chip; 9 tests. Original entry:** — NM applet
   (split from E.16). Subscribes to NM's
   `org.freedesktop.NetworkManager.StateChanged` signal.
-- [!] **Phase E1 (applet workspace split) item E1.2.4 `crates/mde-applets/mesh-status/`** — mesh chip
+- [✓] **Phase E1.2.4 `crates/mde-applets/mesh-status/` (shipped 2026-05-20) — `mded healthz`-backed chip with health-glyph + peer-count; 7 tests. Original entry:** — mesh chip
   applet (split from E.21). Polls `mded healthz` over zbus on
   a 5 s tick.
-- [!] **Phase E1 (applet workspace split) item E1.2.5 `crates/mde-applets/notification-bell/`** — bell
+- [✓] **Phase E1.2.5 `crates/mde-applets/notification-bell/` (shipped 2026-05-20) — unread-count badge from ~/.cache/mackes/notifications.json; 8 tests. Original entry:** — bell
   tray applet (split from E.7.1). Connects to mded's
   `dev.mackes.MDE.Notifications.UnreadCount`.
 - [!] **Phase E1 (applet workspace split) item E1.2.6 `crates/mde-applets/notifications/`** —
@@ -1028,7 +1028,7 @@ src/`) and its destination.
   status chip cluster (split from E.15).
 - [!] **Phase E1 (applet workspace split) item E1.2.11 `crates/mde-applets/app-switcher/`** — Super+Tab
   switcher (split from E.4.3).
-- [!] **Phase E1 (applet workspace split) item E1.2.12 `crates/mde-applets/bg/`** — wallpaper layer-
+- [✓] **Phase E1.2.12 `crates/mde-applets/bg/` (shipped 2026-05-20) — swaybg wrapper applet reading wallpaper.path sidecar; 8 tests. Original entry:** — wallpaper layer-
   shell background applet. Honors `wallpaper.path` + `.mode`
   from the C.7 settings sidecar.
 - [!] **Phase E1 (applet workspace split) item E1.2.13 `crates/mde-applets/recents/`** — recents widget
