@@ -4914,6 +4914,18 @@ Last updated: 2026-05-21 00:00 — Claude Sonnet 4.6
    Round 2's auto-selected first-result default.
 9. **UX-3 light theme** is co-shipped in v2.2 per Q5 — Round 1/2 had
    originally implied dark-first with light deferred.
+10. **Density × component-dimension sub-lock (UX-24 review, 2026-05-21):**
+    The Density enum (Compact 0.75× / Comfortable 1.0× / Spacious 1.25×
+    per Q26/Q27) modifies **spacing tokens only** — gaps and padding
+    between elements. Component **dimensions** (nav row 32 px, button
+    36 px, input 36 px, icon 16/20/24 px, toggle 40×22 px) stay
+    invariant across density modes. Compact = same row heights with
+    tighter inter-row gaps; Spacious = same row heights with wider
+    gaps. Rationale: preserves WCAG 2.5.5 touch-target floor (24 px)
+    at all densities, since the 32 px lock would otherwise shrink to
+    24 px at Compact and breach the floor at the next user zoom-out.
+    UX-15 implementation must thread the Density enum through spacing-
+    token resolution only, never through component-size constants.
 
 **Next-batch locks (NFU-1..NFU-4, same 2026-05-21 session):**
 
@@ -5050,18 +5062,28 @@ Last updated: 2026-05-21 — Claude Opus 4.7 (50-question lock survey
   Outputs: workspace-wide `Cargo.toml` updates; migration notes
   in `docs/design/v2.2-iced-014-migration.md`.
 
-- [ ] **UX-10: Brand identity spec doc — v2.2 scope** — Author
-  `docs/design/visual-identity.md`. Declarative brand spec: palette
-  philosophy (why deep navy, why one accent), type-pairing rationale,
-  surface metaphor (deep night room, lit only by the data), motion
-  principles (calm and decisive, never bouncy), iconographic stance
-  (1.5 px stroke, 24 × 24 keyline, no filled icons except status
-  dots), and what MDE explicitly **is not** (not playful, not
-  glassmorphic, not skeuomorphic, not maximalist). Lock the vision
-  with the user before downstream Round 2 tasks start.
-  Acceptance: doc reviewed and approved by user; every later Round 2
-  task cites it as authority.
-  Depends: None. Effort: Low (writing) / high-leverage.
+- [ ] **UX-10: Brand identity spec doc — v2.2 scope (UX-28
+  rescope, 2026-05-21)** — **Rescoped per UX-28 review:** the
+  50-Q + FU-* + NFU-* lock set already defines ~80% of the brand
+  identity. UX-10 is no longer "discover from scratch"; it is
+  **"narrate the existing locks into a publishable
+  `docs/design/visual-identity.md`."** Required sections:
+  (1) palette philosophy (cite Q1/Q2/Q3/Q4/Q7); (2) type-pairing
+  rationale (Q11/Q12/Q13/Q14/Q15 — why Geologica single-family
+  with IBM Plex Mono); (3) surface metaphor (Apple System Settings
+  minimalism + calm command-room undertones, Q1); (4) motion
+  principles (Q29/Q30/Q31/Q32 — calm + decisive, 180 ms, per-
+  direction easing); (5) iconographic stance (Q24/Q37/Q38/Q39 —
+  Carbon, 1 px stroke, mostly line); (6) what MDE explicitly
+  **is not** (not playful, not glassmorphic, not skeuomorphic,
+  not maximalist, not terminal-cyberpunk — the Round 2 "deep
+  night terminal" direction was rejected at Q1). Each section
+  cites the relevant survey Q-IDs as authoritative source — no
+  re-litigation of decisions.
+  Acceptance: doc published; lock IDs (Q1..Q50, FU-1..FU-4,
+  NFU-1..NFU-4) cited inline; user reviews at PR time per FU-3
+  ("no gate" policy).
+  Depends: None. Effort: Low (consolidation, not discovery).
   Outputs: `docs/design/visual-identity.md`.
 
 - [ ] **UX-11: Reference benchmark vault — v2.2 scope** — Build
@@ -5093,37 +5115,60 @@ Last updated: 2026-05-21 — Claude Opus 4.7 (50-question lock survey
   Outputs: `crates/mde-theme/examples/mde-grid-lint.rs`;
   `crates/mde-theme/src/debug_grid.rs`; CI workflow step.
 
-- [ ] **UX-13: Exhaustive state-matrix gallery — v2.2 scope** — For
-  every interactive component shipped by `mde-theme` (button, input,
+- [ ] **UX-13: Exhaustive state-matrix gallery + golden capture —
+  v2.2 scope (UX-25 restructure, 2026-05-21)** — For every
+  interactive component shipped by `mde-theme` (button, input,
   toggle, dropdown, tab, nav-item, list-row, card, badge, tooltip,
-  scrollbar) document and implement the full state matrix: **rest,
-  hover, active, focus, focus-visible (keyboard-only), disabled,
-  loading, error, success, empty**. Each state has a live render in
-  a new gallery example built with `cargo run --example gallery -p
-  mde-theme`. Gallery doubles as a visual regression source for
-  UX-23.
+  scrollbar) document and implement the full state matrix:
+  **rest, hover, active, focus, focus-visible (keyboard-only),
+  disabled, loading, error, success, empty**. Each state has a
+  live render in a new gallery example built with
+  `cargo run --example gallery -p mde-theme`. **UX-25
+  restructure:** UX-13 now also OWNS the snapshot baseline —
+  acceptance includes capturing PNG goldens into
+  `tests/snapshots/{dark,light}/{compact,comfortable,spacious}/
+  component-state.png` for every component × state × theme ×
+  density combination (~660 goldens at full coverage per FU-2).
+  UX-23 collapses to the CI workflow that re-runs the gallery
+  and diffs against these goldens — single source of truth, no
+  drift between gallery and golden set.
   Acceptance: gallery shows every component × every applicable
-  state; manual review confirms no "dead" state (no missing hover,
-  no missing focus-visible, no missing disabled).
+  state in dark + light + all three densities; `make
+  snapshots-regen` produces the full golden tree; manual review
+  confirms no "dead" state (no missing hover, no missing focus-
+  visible, no missing disabled).
   Depends: UX-7 (Round 1). Effort: High.
   Outputs: `crates/mde-theme/examples/gallery.rs`;
-  `docs/design/state-matrix.md`.
+  `docs/design/state-matrix.md`; `tests/snapshots/` golden tree
+  + `tests/snapshots/README.md` (workflow).
 
 - [ ] **UX-14: Command palette (Ctrl-K) — v2.2 scope** — Add a
-  Raycast/Linear-style command palette to Workbench. Trigger Ctrl-K
-  (no Cmd on Linux). Surface: centered modal, 640 px wide,
-  480 px max-height, surface-2 background, `SHADOW_3` elevation,
-  backdrop at 50% black, focus-trapped, Esc to dismiss. Index at
-  Workbench startup: (a) every Workbench panel route ("go to
-  Fleet > Inventory"); (b) every mded setting ("set display
-  gamma"); (c) every mesh peer ("ssh into laptop-2"); (d) every
-  recent / pinned playbook; (e) every quick-action (toggle theme,
-  lock screen, sign out). Fuzzy matcher: `nucleo-matcher` crate
-  (the Helix editor's matcher). First result auto-selected;
-  Enter activates; ↑/↓ navigates; Tab cycles result categories.
+  Raycast/Linear-style command palette to Workbench. Trigger
+  **Ctrl+K** (Q33, no Cmd on Linux). Surface per locks:
+  **Spotlight-style** (Q34) — centered, semi-transparent, **no
+  backdrop**; **responsive 640 → 800 px width** (Q35);
+  480 px max-height; surface-2 fill with `SHADOW_3` elevation;
+  16 px corners (Q45 modal radius); focus-trapped.
+  **UX-27 dismiss sub-lock (2026-05-21):** dismiss is
+  **Esc (always) + click outside the palette rect** —
+  implemented via Iced 0.14's global `Subscription::on_event`
+  filter checking `mouse::Event::ButtonPressed` against the
+  palette bounding box (depends on UX-PRE). No invisible
+  full-window event-catcher (that would negate Q34's
+  "no backdrop" lock). Index at Workbench startup: (a) every
+  Workbench panel route ("go to Fleet > Inventory");
+  (b) every mded setting ("set display gamma"); (c) every mesh
+  peer ("ssh into laptop-2"); (d) every recent / pinned
+  playbook; (e) every quick-action (toggle theme, lock screen,
+  sign out). Fuzzy matcher: `nucleo-matcher` crate (Helix's).
+  Default view: **category tabs** — Commands / Peers / Files /
+  Settings (Q36), arrow-key cycles inside the active tab,
+  Tab cycles tabs. Enter activates selected row.
   Acceptance: opens in ≤ 50 ms; keystroke-to-paint latency ≤
-  16 ms; 100% keyboard-navigable (no mouse required).
-  Depends: UX-13. Effort: High.
+  16 ms; 100% keyboard-navigable (no mouse required); Esc and
+  outside-click both dismiss cleanly without artifact.
+  Depends: UX-13, **UX-PRE** (Iced 0.14 for global mouse capture).
+  Effort: High.
   Outputs: `crates/mde-workbench/src/command_palette/`;
   keybinding registration in `mde-session`.
 
@@ -5255,22 +5300,46 @@ Last updated: 2026-05-21 — Claude Opus 4.7 (50-question lock survey
   Outputs: `crates/mde-theme/src/accessibility.rs`; Settings >
   Accessibility panel in workbench.
 
-- [ ] **UX-23: Visual-regression CI gate — v2.2 scope** — Without
-  enforcement, Round 1 + Round 2 polish will drift back to chaos
-  inside two releases. Round 2 ships the gate. Tooling:
-  `mde-snapshot` cargo example launches each panel headless under
-  the Wayland-in-Docker runner already specified by HW-3, captures
-  PNG, compares to a golden in `tests/snapshots/`. Pixel-diff
-  tolerance 0.5%. PRs touching files under
-  `crates/mde-{theme,workbench,panel,files,wizard,logout-dialog}/src/`
-  MUST either pass the unchanged-snapshot run or update the golden
-  with a `design-review` PR label + reviewer sign-off.
+- [ ] **UX-23: Visual-regression CI gate — v2.2 scope (UX-26
+  test-matrix scoping, 2026-05-21)** — Without enforcement,
+  Round 1 + Round 2 polish will drift back to chaos inside two
+  releases. UX-23 ships the gate. **UX-25 restructure:** UX-13
+  owns the gallery + golden capture; UX-23 is just the CI wrapper.
+  Tooling: `cargo run --example gallery` builds under the
+  Wayland-in-Docker runner specified by HW-3, emits PNGs into
+  `tests/snapshots/{dark,light}/{compact,comfortable,spacious}/`,
+  diffs against committed goldens via `image-compare` crate.
+  **UX-26 test-matrix scoping:**
+  - **Coverage:** 11 components × 10 states × 2 themes × 3
+    densities = up to 660 goldens; some states are not applicable
+    to some components (e.g., scrollbar has no "loading" state) so
+    actual count ~440.
+  - **Storage:** 8-bit PNG, ≤ 8 KB per golden (gallery cells are
+    small); total disk budget ~3.5 MB.
+  - **Diff tolerance:** 0.5% (Lab-distance via `image-compare`),
+    not pixel-exact — robust against subpixel-render variance
+    across runners.
+  - **Regeneration command:** `make snapshots-regen` (calls the
+    same gallery + headless capture chain, overwrites goldens).
+  - **Review workflow:** PRs touching
+    `crates/mde-{theme,workbench,panel,files,wizard,logout-dialog}/src/`
+    MUST either pass diff or land with a `design-review` PR label +
+    reviewer sign-off. The CI bot posts the diff image inline on
+    the PR for visual review.
+  - **Failure paths:** if HW-3 (Wayland-in-Docker) isn't ready,
+    UX-23 runs on the developer's laptop via `make snapshots-local`
+    and attaches output as PR artifact — manual gate not CI gate
+    until HW-3 lands.
   Acceptance: CI workflow green on `main`; a deliberate visual
   regression in a feature branch fails CI; updating the golden +
   applying `design-review` label re-greens.
-  Depends: UX-1 through UX-9, UX-13, HW-3. Effort: High.
-  Outputs: `crates/mde-theme/examples/mde-snapshot.rs`;
-  `.github/workflows/ui-snapshot.yml`; `tests/snapshots/`.
+  Depends: **UX-13** (gallery + goldens), HW-3 (CI runner —
+  fall back to local gate if HW-3 deferred). Effort: Medium
+  (most logic now lives in UX-13).
+  Outputs: `.github/workflows/ui-snapshot.yml`;
+  `Makefile` targets `snapshots-regen` / `snapshots-local`;
+  `image-compare` dep added to `mde-theme/Cargo.toml`
+  (dev-dependencies).
 
 **Definition of Done for UX-10..UX-23 (group):** all subtasks
 `[✓] Done` per §0.8; the operational quality-bar table above
@@ -5281,6 +5350,148 @@ identity spec (UX-10) reviewed and approved by user; benchmark
 vault (UX-11) seeded; marketing screenshot set (UX-18)
 committed and embedded in README; visual-regression CI gate
 (UX-23) green on `main`; CHANGELOG entry under v2.2.
+
+### UX-24..UX-28: Round 3 design-review refinements (landed 2026-05-21)
+
+> These items came out of a same-session UX-design review. They
+> are all worklist refinements to UX-1..UX-23 — no new
+> implementation scope, no new effort. Recorded here for audit
+> trail; each is already applied to the relevant UX-N task above.
+
+- [✓] **UX-24: Density × pixel-lock sub-lock — landed
+  2026-05-21** — Density modifier (Q26/Q27) scales spacing
+  tokens only, not component dimensions. Preserves WCAG 2.5.5
+  touch-target floor across all three density modes. Applied to
+  design-locks section, override #10. Implementation guidance
+  baked into UX-15 acceptance via the design-locks reference.
+
+- [✓] **UX-25: UX-13 ↔ UX-23 dependency restructure — landed
+  2026-05-21** — UX-13 now owns gallery + snapshot golden
+  capture as part of its DoD. UX-23 collapses to "the CI
+  workflow that wraps UX-13's gallery + diffs the goldens."
+  Eliminates drift risk between gallery and goldens. Applied to
+  UX-13 and UX-23 task descriptions.
+
+- [✓] **UX-26: UX-23 test-matrix explicit scoping — landed
+  2026-05-21** — UX-23 now specifies: ~440 goldens (component ×
+  state × theme × density with not-applicable filtering); 8-bit
+  PNG ≤ 8 KB each; 0.5% Lab-distance diff tolerance via
+  `image-compare`; `make snapshots-regen` regeneration command;
+  `design-review` PR label workflow; HW-3 fallback path for
+  local-gate-instead-of-CI-gate during HW-3 deferral. Applied to
+  UX-23 task description.
+
+- [✓] **UX-27: UX-14 dismiss-interaction sub-lock — landed
+  2026-05-21** — Q34's "no backdrop" left dismiss interaction
+  ambiguous. Locked: Esc + outside-rect click via Iced 0.14's
+  global mouse-event subscription. No invisible event catcher.
+  Depends on UX-PRE. Applied to UX-14 task description.
+
+- [✓] **UX-28: UX-10 rescope to lock-narration — landed
+  2026-05-21** — UX-10's "discover the brand from scratch"
+  framing is obsolete after the 50-Q + FU + NFU lock set.
+  Rescoped to "narrate the existing locks into
+  `docs/design/visual-identity.md`, citing Q-IDs as source."
+  Effort drops to Low (consolidation). Applied to UX-10 task
+  description.
+
+### WF-1..WF-5: Workflow best-practice additions (landed 2026-05-21)
+
+> Workflow improvements to keep the polish cadence honest and the
+> design system from rotting. All landed in this session.
+
+- [✓] **WF-1: §0.11 PR-based branch lane for UX-* work —
+  landed 2026-05-21 (LOCAL-ONLY caveat)** — Visual / design work
+  doesn't fit the main-only default of §0.1. Added §0.11 to
+  `.claude/CLAUDE.md`: UX-* tasks land via `ux/<task-id>` feature
+  branches; PR description includes before/after screenshots in
+  dark + light; merge after explicit user OK. Code-only tasks
+  retain main-only. **Caveat:** `.claude/` is gitignored
+  (intentional, per current .gitignore policy: "Claude Code
+  harness state — transient, not part of source"). Therefore
+  §0.11 binds **this** workspace only; it does not propagate to
+  other contributors or fresh clones. See WF-1.a follow-up if
+  project-wide enforcement is desired.
+  Outputs: `.claude/CLAUDE.md` §0.11 (local working tree).
+
+- [ ] **WF-1.a: Decide CLAUDE.md persistence policy — v2.1 scope
+  (follow-up to WF-1)** — Two paths to consider for WF-1's
+  policy + WF-5's task-title schema + WF-4's hook:
+  (a) **Move them to a tracked location** — e.g.,
+  `docs/CONTRIBUTING.md` for §0.11/§1.1, `.github/hooks/` for the
+  worklist-write hook. Each contributor's `.claude/CLAUDE.md`
+  becomes a symlink or a copy. Loses Claude Code's automatic
+  CLAUDE.md loading but propagates the policy.
+  (b) **Force-track `.claude/CLAUDE.md` + `.claude/settings.json`
+  + `.claude/hooks/*`** — amend `.gitignore` to allow these
+  specific paths through. Keeps Claude Code's existing behavior
+  AND propagates the policy. Recommended path.
+  Acceptance: user picks (a) or (b); .gitignore updated if (b);
+  CLAUDE.md / settings.json / hooks land in git.
+  Depends: WF-1, WF-4, WF-5. Effort: Low.
+  Outputs: `.gitignore` amendment (option b) OR migration of
+  rules to tracked files (option a).
+
+- [✓] **WF-2: `make verify` aggregate target — landed
+  2026-05-21** — `Makefile` gained `verify` target that runs the
+  relevant §0.7 pre-commit gates conditionally based on
+  `git diff --name-only`: smoke + test-nodeps + lint (Python),
+  rust-check (Rust), CSS lint (CSS), `cargo run --example
+  mde-grid-lint` (when UX-12 lands). One command replaces the
+  five-step gate ritual. `ci.yml` calls the same target so local
+  and CI behavior stay bit-identical.
+  Outputs: `Makefile` `verify` target.
+
+- [✓] **WF-3: `ui-screenshot.yml` PR-screenshot workflow —
+  landed 2026-05-21** — `.github/workflows/ui-screenshot.yml`
+  triggers on PRs touching `data/css/**`, `crates/mde-*/src/**`,
+  or `mackes/workbench/**`. Runs `xvfb-run` against a headless
+  build, captures key panels, posts them as a PR comment. Audit
+  trail for every visual change; builds the muscle for UX-23
+  incrementally without depending on HW-3.
+  Outputs: `.github/workflows/ui-screenshot.yml`.
+
+- [✓] **WF-4: Worklist-to-memory auto-sync hook — landed
+  2026-05-21 (LOCAL-ONLY caveat — same as WF-1)** —
+  `.claude/hooks/post-worklist-write.sh` watches edits to
+  `docs/PROJECT_WORKLIST.md` for new headers matching
+  `(?i)(locked|lock|survey|design.lock)` and emits a stderr
+  reminder ("⚠ new lock detected — consider surfacing in
+  memory"). Wired into `.claude/settings.json` under
+  `hooks.PostToolUse` with matcher `Edit|Write`. Prevents future
+  lock surveys from being manually-shipped-only.
+  **Caveat:** `.claude/` gitignored → local-only; see WF-1.a.
+  Outputs: `.claude/settings.json`, `.claude/hooks/post-worklist-write.sh`
+  (both local working tree).
+
+- [✓] **WF-5: §1.1 release-tag schema in CLAUDE.md — landed
+  2026-05-21 (LOCAL-ONLY caveat — same as WF-1)** — Added §1.1
+  to `.claude/CLAUDE.md`: every worklist task title must start
+  with a target-release prefix (e.g., `v2.1: UX-14 …`,
+  `v2.0.1: hotfix …`, or workstream prefix like `UX-14:`,
+  `CB-1.5.a:`, `WF-2:`). Active section is the live work for
+  `target >= current_release`; History carries
+  `target < current_release`. Pre-commit hook validation deferred
+  to **WF-5.a follow-up** (script straightforward but needs
+  testing on real CI before being marked Done).
+  **Caveat:** `.claude/` gitignored → local-only; see WF-1.a.
+  Outputs: `.claude/CLAUDE.md` §1.1 (local working tree).
+
+- [ ] **WF-5.a: Pre-commit hook validating release-tag prefix —
+  v2.1 scope (follow-up to WF-5)** — Write a `.git/hooks/
+  pre-commit` (or commit it under `.claude/hooks/` and document
+  installation in `CONTRIBUTING.md`) that scans
+  `docs/PROJECT_WORKLIST.md` for any active-section task title
+  missing a `vX.Y.Z:` or `UX-\d+:` / `CB-\*:` / `WF-\*:` /
+  `XOrg-\*:` / `HW-\*:` prefix. Block commit on violation with a
+  clear "task `<title>` needs a release-tag prefix" message.
+  Acceptance: hook blocks a synthetic violation; passes on
+  current main; documented in CONTRIBUTING.md.
+  Depends: WF-5. Effort: Low.
+  Outputs: `.claude/hooks/pre-commit-worklist.sh`;
+  `CONTRIBUTING.md` install section.
+
+
 
 **Key improvements vs Round 1 (for the cold-start reader):**
 

@@ -1,0 +1,106 @@
+# WF-3 (2026-05-21) — PR screenshot capture for visual changes.
+#
+# Triggers on PRs that touch CSS, Iced crate sources, or the GTK
+# workbench tree. Builds the project headlessly under xvfb, captures
+# key panels, and posts them as a PR comment. Pure audit trail —
+# does NOT block merge. Builds the muscle for UX-23 (full snapshot
+# CI gate) incrementally without depending on HW-3.
+#
+# Worklist: docs/PROJECT_WORKLIST.md — WF-3.
+
+name: ui-screenshot
+
+on:
+  pull_request:
+    paths:
+      - 'data/css/**'
+      - 'crates/mde-**'
+      - 'mackes/workbench/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb \
+            imagemagick \
+            libgtk-3-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            mesa-vulkan-drivers
+        # Subset that supports both the Iced/wgpu workspace and the
+        # legacy GTK3 Python workbench (kept for incremental cuts).
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo build (release, workspace)
+        run: cargo build --release --workspace
+        continue-on-error: true
+        # Continue-on-error so a build failure still surfaces a PR
+        # comment ("build failed — no screenshots produced") instead
+        # of a silent workflow failure with no PR feedback.
+
+      - name: Capture screenshots
+        id: capture
+        run: |
+          set -e
+          mkdir -p artifacts/screenshots
+          # Each invocation: xvfb-run starts a virtual framebuffer
+          # at 1280x720; the bin opens, settles for 2 s, then
+          # imagemagick grabs the root window.
+          for bin in mde-workbench mde-panel mde-files mde-wizard; do
+            target=target/release/$bin
+            if [ ! -x "$target" ]; then
+              echo "(skip) $bin not built"; continue
+            fi
+            echo "→ $bin"
+            xvfb-run -a -s "-screen 0 1280x720x24" \
+              bash -c "$target & sleep 2 && import -window root artifacts/screenshots/$bin.png" \
+              || echo "(capture failed for $bin — continuing)"
+          done
+          ls -la artifacts/screenshots/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots-${{ github.event.pull_request.number }}
+          path: artifacts/screenshots/
+          retention-days: 14
+
+      - name: Comment on PR with screenshot links
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const dir = 'artifacts/screenshots';
+            let body = '## 📷 UI screenshots — WF-3 audit\n\n';
+            body += '_Automated capture from `ui-screenshot.yml`. Not a merge gate. See [WF-3 in worklist](../blob/main/docs/PROJECT_WORKLIST.md)._\n\n';
+            if (fs.existsSync(dir)) {
+              const files = fs.readdirSync(dir).filter(f => f.endsWith('.png'));
+              if (files.length === 0) {
+                body += '⚠️ No screenshots produced. Likely cause: workspace build failed under xvfb. Check the **Capture screenshots** step log.';
+              } else {
+                body += `Captured ${files.length} surface(s): ` + files.map(f => `\`${f}\``).join(', ');
+                body += '\n\nDownload the [run artifact](../actions/runs/' + process.env.GITHUB_RUN_ID + ') to view full-resolution PNGs.';
+              }
+            } else {
+              body += '⚠️ Screenshot directory missing — capture step did not run.';
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });

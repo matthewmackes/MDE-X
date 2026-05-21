@@ -12,7 +12,7 @@ NAME    := mackes-shell
 VERSION := $(shell python3 -c "import mackes; print(mackes.__version__)")
 SDIST   := dist/$(NAME)-$(VERSION).tar.gz
 
-.PHONY: sdist rpm test smoke lint rust rust-check clean install-deps
+.PHONY: sdist rpm test test-nodeps smoke lint verify rust rust-check docs iso clean install-deps
 
 sdist:
 	@# Prefer PEP 517 build (works on Fedora 40+ without distutils).
@@ -54,6 +54,46 @@ smoke:
 fails=[]; \
 [ (importlib.import_module(n) ) for _,n,_ in pkgutil.walk_packages(mackes.__path__, prefix='mackes.') ]; \
 print('smoke OK')"
+
+# WF-2 (2026-05-21) — aggregate pre-commit gate. Mirrors §0.7 of
+# .claude/CLAUDE.md. Runs only the gates relevant to staged changes,
+# detected via `git diff --name-only`. ci.yml calls this same target
+# so local-pass means ci-pass.
+verify:
+	@set -e; \
+	CHANGED="$$(git diff --cached --name-only 2>/dev/null || true)"; \
+	if [ -z "$$CHANGED" ]; then \
+		CHANGED="$$(git diff --name-only HEAD 2>/dev/null || true)"; \
+	fi; \
+	echo "verify: scanning changed files…"; \
+	echo "$$CHANGED"; \
+	NEED_PY=0; NEED_RUST=0; NEED_CSS=0; NEED_PKG=0; \
+	for f in $$CHANGED; do \
+		case "$$f" in \
+			mackes/*|tests/*) NEED_PY=1 ;; \
+			crates/*) NEED_RUST=1 ;; \
+			data/css/*) NEED_CSS=1 ;; \
+			packaging/*|setup.py|pyproject.toml|data/*|mackes/birthright.py) NEED_PKG=1 ;; \
+		esac; \
+	done; \
+	if [ $$NEED_PY -eq 1 ]; then \
+		echo "→ python: smoke + test-nodeps + lint"; \
+		$(MAKE) smoke; \
+		$(MAKE) test-nodeps; \
+		$(MAKE) lint; \
+	fi; \
+	if [ $$NEED_RUST -eq 1 ]; then \
+		echo "→ rust: rust-check (fmt + clippy + check)"; \
+		$(MAKE) rust-check; \
+	fi; \
+	if [ $$NEED_CSS -eq 1 ] && [ -x install-helpers/lint-css.sh ]; then \
+		echo "→ css: install-helpers/lint-css.sh"; \
+		install-helpers/lint-css.sh; \
+	fi; \
+	if [ $$NEED_PKG -eq 1 ]; then \
+		echo "→ packaging touched — recommend running \`make rpm\` before commit"; \
+	fi; \
+	echo "verify: ok"
 
 iso:
 	@command -v livemedia-creator >/dev/null 2>&1 \
