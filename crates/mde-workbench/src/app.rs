@@ -721,6 +721,7 @@ impl App {
         let sidebar = crate::sidebar::view(
             &self.sidebar,
             self.view,
+            self.focused_pane,
             Message::SelectGroup,
             |group, panel| Message::SelectPanel { group, panel },
         );
