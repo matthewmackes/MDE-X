@@ -4868,7 +4868,7 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `data/css/mde-chrome.css`; `mackes/workbench/shell/sidebar_window.py`
   (GTK path, already partially Carbon); Iced workbench title widget.
 
-- [ ] **UX-5: Sidebar navigation — v2.1 scope** — Upgrade the
+- [>] **UX-5: Sidebar navigation — v2.1 scope (in progress 2026-05-21 on `ux/UX-5-sidebar`)** — Upgrade the
   Workbench sidebar: (a) 240 px fixed width with `SPACE_16` padding;
   (b) nav item height 40 px, icon 20 px, label 14 sp; (c) selected
   state: full-width highlight bar in accent at 10% opacity + accent

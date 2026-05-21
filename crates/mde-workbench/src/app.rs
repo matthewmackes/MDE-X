@@ -690,6 +690,7 @@ impl App {
         let sidebar = crate::sidebar::view(
             &self.sidebar,
             self.view,
+            self.focused_pane,
             Message::SelectGroup,
             |group, panel| Message::SelectPanel { group, panel },
         );
@@ -1180,9 +1181,24 @@ mod tests {
             0x1d as f32 / 255.0,
             0x1f as f32 / 255.0,
         );
-        assert!((bg.r - expected.0).abs() < 1e-4, "r {} vs {}", bg.r, expected.0);
-        assert!((bg.g - expected.1).abs() < 1e-4, "g {} vs {}", bg.g, expected.1);
-        assert!((bg.b - expected.2).abs() < 1e-4, "b {} vs {}", bg.b, expected.2);
+        assert!(
+            (bg.r - expected.0).abs() < 1e-4,
+            "r {} vs {}",
+            bg.r,
+            expected.0
+        );
+        assert!(
+            (bg.g - expected.1).abs() < 1e-4,
+            "g {} vs {}",
+            bg.g,
+            expected.1
+        );
+        assert!(
+            (bg.b - expected.2).abs() < 1e-4,
+            "b {} vs {}",
+            bg.b,
+            expected.2
+        );
     }
 
     #[test]
