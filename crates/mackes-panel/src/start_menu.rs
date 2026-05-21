@@ -222,7 +222,9 @@ fn build_quick_action(action: &'static ActionSpec, popover: &gtk::Popover) -> gt
                 spawn(bin, args);
             }
             ActionCommand::LogoutDialog => {
-                crate::logout_dialog::open();
+                // E.25 — retire the inline GTK module + delegate to
+                // the stand-alone Iced binary that v2.0.0 ships.
+                spawn("mde-logout-dialog", &[]);
             }
         }
         popover_for_handler.popdown();

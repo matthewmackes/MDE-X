@@ -31,7 +31,6 @@ mod hero;
 mod i3_cluster;
 mod icon_mapper;
 mod icons;
-mod logout_dialog;
 mod mesh_module;
 mod mesh_sync;
 mod network_manager;

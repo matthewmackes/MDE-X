@@ -952,7 +952,7 @@ src/`) and its destination.
 - [!] **Phase E (panel rewrite to Iced+libcosmic) item E.24 `src/recover.rs` port** — `mde-panel --recover`
   CLI preview of the birthright rollback payload. Plain text
   output, no Iced — just a sub-command in `main.rs`.
-- [!] **Phase E (panel rewrite to Iced+libcosmic) item E.25 `src/logout_dialog.rs` retire** — superseded by
+- [✓] **Phase E.25 — `src/logout_dialog.rs` retired (shipped 2026-05-20).** Deleted the 255-line GTK toplevel module from mackes-panel. start_menu.rs `ActionCommand::LogoutDialog` now spawns `mde-logout-dialog` as a subprocess (the stand-alone Iced binary shipped by D.2). 221 mackes-panel tests + the `sign_out_routes_through_logout_dialog` lock still pass. Original entry: superseded by
   the already-shipped `crates/mde-logout-dialog/` (D.2). Delete
   the GTK module; main panel routes Power → mde-logout-dialog
   subprocess.
