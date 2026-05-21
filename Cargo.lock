@@ -3248,10 +3248,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "mde-theme-alias"
+name = "mde-theme"
 version = "0.0.0"
 dependencies = [
- "mackes-theme",
+ "iced_core",
 ]
 
 [[package]]

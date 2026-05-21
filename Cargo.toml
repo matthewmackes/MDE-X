@@ -42,7 +42,7 @@ members  = [
     "crates/mde-mesh-types",
     "crates/mde-panel",
     "crates/mde-session",
-    "crates/mde-theme-alias",
+    "crates/mde-theme",
     "crates/mde-wizard",
     "crates/mde-workbench",
     "crates/mded",

@@ -4675,7 +4675,17 @@ the visual system can scale across the app.
 **Design system entry point:** `data/css/tokens.css` (GTK layer) +
 Iced-side style constants (introduce `crates/mde-theme/` if needed).
 
-- [ ] **UX-1: Design token layer — v2.1 scope** — Audit every
+- [✓] **UX-1: Design token layer — landed 2026-05-21** — `crates/mde-theme/` ships
+  the Rust-native design system: `color::Rgba` primitive, `palette::Palette` (dark
+  + light per Q3/Q5), `spacing::Space` (12-step modular scale per NFU-1,
+  density-aware per UX-24), `typography::{FontSize, LetterSpacing, FontWeight}`
+  (Geologica + IBM Plex Mono per Q11/Q12/Q13/Q14/Q15), `radii::Radii` (8 px buttons
+  per Q41, 16 px modals per Q45), `shadows::Shadow` (modal SHADOW_3 per Q20),
+  `density::Density` (Compact/Comfortable/Spacious per Q26/Q27), and
+  `theme::{Theme, Tokens}` resolver. Iced 0.13/0.14 conversion helpers behind the
+  optional `iced` feature; default build is dep-free. 42 unit tests, all
+  passing. `mde-theme-alias` retired (zero downstream consumers). Original
+  scope text retained below for audit. Audit every
   hardcoded color, font size, spacing value, and border radius across
   the Iced crates. Extract to a single `crates/mde-theme/src/tokens.rs`
   (Rust constants) and a companion `data/css/mde-tokens.css` (GTK
