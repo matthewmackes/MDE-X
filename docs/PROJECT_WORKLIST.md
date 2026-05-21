@@ -5271,7 +5271,16 @@ Last updated: 2026-05-21 — Claude Opus 4.7 (50-question lock survey
   Outputs: `crates/mde-wizard/src/`;
   `data/illustrations/wizard/*.svg`.
 
-- [ ] **UX-17: App icon + brand mark refinement — v2.2 scope** —
+- [>] **UX-17: App icon + brand mark refinement — initial cut
+  landed 2026-05-21; multi-resolution + logotype tracked as
+  UX-17.a** — Source SVG preserved at
+  `docs/design/v2.2-icon-source/map-icon.svg` (NFU-2).
+  Initial recolor at `data/branding/mde-icon.svg`: charcoal
+  background (`#1d1d1f` per Q3) + indigo accent squares
+  (`#5b6af5` per Q2). Geometry untouched — visual lineage to
+  MAP2-audio preserved per Q50. Full deliverables (multi-size
+  PNG renders, logotype with Geologica wordmark, README banner
+  in dark + light, installer splash) tracked as UX-17.a.
   **Locked source (Q50):** start from the existing MAP2-audio mark
   at `https://github.com/matthewmackes/map2-audio/blob/master/branding/assets/map-icon.svg`
   and clean it up for MDE. The current xfce11-unified icon is retired.
@@ -5587,6 +5596,19 @@ These items emerged from the iteration loop's pragmatic landing of
 UX-1..UX-12 + UX-21/22 token-layer + skeletons. Each closes the
 "data layer / structure" gate of its parent task; the open follow-
 ups close the "consumer-side wiring" or "content fill-in" gate.
+
+- [ ] **UX-17.a: App icon multi-resolution renders + logotype +
+  README banner — v2.2 scope** — Render `data/branding/mde-icon.svg`
+  to PNGs at 16 / 24 / 32 / 48 / 64 / 128 / 256 / 512 px, install
+  to `data/icons/hicolor/<size>/apps/mde.png` per freedesktop spec.
+  Compose the logotype (icon + "Mackes Desktop Environment" in
+  Geologica per Q11/Q12). Compose README banners (1280 × 320 dark
+  + light per Q5 / Q49). Wire installer splash. Depends: UX-17
+  initial cut (done). Effort: Medium (needs ImageMagick / Inkscape
+  +  design eye + user coordination). Outputs:
+  `data/icons/hicolor/{16x16,24x24,...}/apps/mde.png`;
+  `data/branding/mde-logotype.svg`;
+  `data/branding/readme-banner-{dark,light}.png`.
 
 - [ ] **UX-11.a: Benchmark vault content fill-in — v2.2 scope** —
   Capture and annotate ≥ 12 screenshots across the six target
