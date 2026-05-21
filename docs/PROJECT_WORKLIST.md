@@ -4055,9 +4055,9 @@ under `LICENSES/`.
   inverted to assert zero Obsoletes lines for those packages.
   RPM clean. Awaiting commit + push + tag.
 
-- [>] **Workbench call-site repair + mde facade stale-name purge
-  (2026-05-21 — awaiting commit)** — two parallel runtime-bug
-  cleanups landed in the working tree:
+- [✓] **Workbench call-site repair + mde facade stale-name purge
+  (2026-05-21 — committed f0f06b8, pushed origin/main)** — two
+  parallel runtime-bug cleanups:
 
   * **`error_state()` callers using positional args after `reason`**
     — `error_state()` has a `*,` boundary after `reason`, so the
@@ -4092,7 +4092,7 @@ under `LICENSES/`.
   `make test-nodeps` = 262 passed · 93 skipped · 0 failed; import
   smoke clean for all 7 touched modules; AST scan confirms zero
   positional callers remain after the keyword-only boundaries.
-  Awaiting `git add` + commit + `git push origin main`.
+  Commit `f0f06b8` pushed to `origin/main`.
 
 
 
