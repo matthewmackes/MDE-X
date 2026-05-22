@@ -4973,26 +4973,33 @@ under `LICENSES/`.
 
 ## Future deliverables (post 2.0.0)
 
-- [ ] **12.18 follow-up: HTTPS-tunnel — v2.1+ scope (rustls + cert chain work) wire-protocol module** —
-  Phase 12.18 policy layer ships in 2.0.0; the actual
-  rustls-backed TLS handshake + realistic SNI + Let's Encrypt
-  cert chain + TCP/443 transport lands in a follow-up crate
-  `mackes-https-tunnel` that consumes
-  `mackesd::https_fallback::HttpsFallbackState::is_active()`
-  as its activation gate. Depends on a rustls dep pull + the
-  reverse-proxy SNI policy from the Q10 connectivity survey.
-  Acceptance: pcap of an active tunnel session is
+- [✓] **12.18 follow-up: HTTPS-tunnel** — Retired from v3.0 scope
+  2026-05-22. The Phase 12.18 *policy* layer
+  (`HttpsFallbackState::is_active()` + the operator-visible
+  toggle) shipped in v2.0.0. The actual cross-firewall TLS
+  tunnel crate (`mackes-https-tunnel`) is post-v3.0 work: it
+  needs a rustls handshake, Let's Encrypt cert chain
+  bootstrap, and a TCP/443 transport implementation. None of
+  the v3.0 deliverables route through this fallback (KdcTls
+  + DirectUdp + DerpRelay cover the connectivity matrix the
+  v3.0 cut ships against). Re-open as a fresh task in the
+  post-v3.0 connectivity-pass when an operator surfaces a
+  scenario it would unblock.
   byte-indistinguishable from a curl-to-nginx baseline.
-- [ ] **2.1 post-v2.0.0: `mackes-*` binary shims + back-compat env shim**
-  — Phase 0.3 + CB-3.7 ship the v1.x binary names (`mackes`,
-  `mackesd`, `mackes-panel`, …) as shell shims that exec the
-  matching `mde-*` for one release. v2.1 cut removes the shims +
-  also drops the `MACKES_*` env-var fallback (the one-shot
-  deprecation warning lands in 2.0.0, the names disappear in
-  2.1).
-- [ ] **2.1 post-v2.0.0: D-Bus alias `.service` files** — Phase 0.4 ships
-  one release of `org.mackes.*.service` aliases pointing at
-  `dev.mackes.MDE.*`. v2.1 cut removes the aliases.
+- [✓] **2.1 post-v2.0.0: `mackes-*` binary shims + back-compat env shim**
+  — Resolved 2026-05-22. The v2.0.0 cut already shipped without
+  the planned shell shims (no `bin/mackes-shim*` files, no
+  `/usr/bin/mackes` symlink in the spec); the `MACKES_*` env
+  vars that survived are legitimate config (e.g.
+  `MACKES_USE_MACKESD` toggle in `mackes/mackesd_bridge.py`)
+  rather than shim fallbacks. v3.0 ships clean.
+- [✓] **2.1 post-v2.0.0: D-Bus alias `.service` files** — Shipped
+  2026-05-22 as part of the v3.0 cut prep. The four
+  `org.mackes.{Shell,Settings,Session,Fleet}.service` aliases
+  were deleted from `data/dbus-1/services/` + the spec's
+  `%files` glob updated to drop the
+  `org.mackes.*.service` line. Only the
+  `dev.mackes.MDE.*.service` files ship from v3.0 onward.
 
 ### KDC2 — Native KDE Connect (v2.1 scope, locked 2026-05-22)
 

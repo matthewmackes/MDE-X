@@ -1,7 +1,0 @@
-[D-BUS Service]
-# v2.0.0 Phase 0.4 backward-compat alias for one release. External
-# integrations that hard-coded `org.mackes.Shell` still resolve.
-# Drops in v2.1 alongside the env-var fallback shim.
-Name=org.mackes.Shell
-Exec=/usr/bin/mded serve
-SystemdService=mded.service
