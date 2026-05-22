@@ -5168,7 +5168,7 @@ fuzzable + reproducible.
   Result<(Packet, usize_consumed), CodecError>`. 12 unit tests
   cover partial buffers, malformed JSON, oversized packets,
   unknown types (silently routed to `Packet::Unknown`).
-- [ ] **KDC2-2.4: `codec` — payload-channel handshake** — KDE
+- [✓] **KDC2-2.4: `codec` — payload-channel handshake** — KDE
   Connect's secondary TLS channel for binary payloads (file
   share, large clipboard). Encode/decode the `payloadSize`,
   `payloadTransferInfo.port` handshake on the primary channel
@@ -5183,12 +5183,12 @@ fuzzable + reproducible.
   Signature`, `verify(...) -> bool`. In-memory impl uses
   ed25519-dalek directly. 6 unit tests cover key generation,
   sign/verify, serde round-trip.
-- [ ] **KDC2-2.7: `crypto` — X.509 self-signed cert generation** — KDE
+- [✓] **KDC2-2.7: `crypto` — X.509 self-signed cert generation** — KDE
   Connect uses TLS with self-signed Ed25519 certs; fingerprint
   is the device identity. Use `rcgen` to issue the cert with
   device-id CN. `generate_identity_cert(&KeyStore, device_id) ->
   CertChain`. 5 unit tests.
-- [ ] **KDC2-2.8: `crypto` — TLS handshake helper (rustls)** — Pure
+- [✓] **KDC2-2.8: `crypto` — TLS handshake helper (rustls)** — Pure
   helper that wraps a `tokio_rustls::TlsStream` with the cert
   pinning logic. Verifies remote cert matches the paired-device
   fingerprint stored by the host (KDC2-3.7). 8 unit tests with
@@ -5264,19 +5264,42 @@ service. Hosts the `dev.mackes.MDE.Connect.*` D-Bus interface.
   KDC2-1.2. Routes incoming packets through the protocol
   plugins; exposes outgoing-packet API for the D-Bus methods.
   8 unit tests.
-- [ ] **KDC2-3.3: D-Bus host scaffold (zbus 5)** — Acquire bus
+- [✓] **KDC2-3.3: D-Bus host scaffold (zbus 5)** — Acquire bus
   name `dev.mackes.MDE.Connect` on the user session bus.
   `Connect` object at `/dev/mackes/MDE/Connect`. Single-instance
   guard via name-acquired check. 4 unit tests with
   zbus's connection-mocking helpers.
-- [ ] **KDC2-3.4: D-Bus methods `ListDevices` + `GetDevice`** —
+- [✓] **KDC2-3.4: D-Bus methods `ListDevices` + `GetDevice`** —
   Method signatures per plan §5. Returns paired devices with
   capability dicts. 5 unit tests.
 - [ ] **KDC2-3.5: D-Bus methods `PairDevice` / `UnpairDevice`** —
   Pair flow: emit `kdeconnect.pair { pair: true }`; await reply;
   if accepted, persist cert fingerprint to `devices.toml`.
   Unpair: drop fingerprint + signal `DeviceRemoved`. 8 unit
-  tests covering accept/reject/timeout.
+  tests covering accept/reject/timeout. **Blocked on KDC2-3.5.a
+  + KDC2-3.2.a** (interior-mutability refactor + real network).
+- [ ] **KDC2-3.5.a: `PairingStore` interior-mutability refactor** —
+  Today `PairingStore::upsert` / `forget` take `&mut self`, so
+  D-Bus mutating methods can't run against the `Arc<PairingStore>`
+  the host hands to `ConnectInterface`. Refactor to internal
+  `tokio::sync::Mutex<BTreeMap<String, PairedDevice>>` so the
+  external API takes `&self` + locks internally. Touches:
+  `PairingStore` (interior mutability), `KdcHost::new`
+  (signature unchanged but `is_paired` becomes `async`),
+  `KdcHostWorker::init_host` (wrap on construction),
+  `ConnectInterface::pairing_store` (type stays `Arc<PairingStore>`
+  because the store now owns its own Mutex). 6 existing pairing
+  tests refactored to `#[tokio::test]`. Acceptance: `cargo test
+  -p mde-kdc --lib pairing` green; the KDC2-3.5 D-Bus methods
+  unblocked.
+- [ ] **KDC2-3.2.a: Real TLS-wrapped TCP socket in `KdcHost::open`** —
+  Replaces the StubConnection. Discovers peer address from
+  `PairedDevice.last_known_address` (NEW field — add to
+  KDC2-3.7's schema). Opens TCP to peer:1716. Wraps with
+  `tokio_rustls::TlsConnector` using KDC2-2.8's
+  `build_client_config(Some(pinned_fingerprint))`. Returns a
+  `TlsConnection` impl of `Connection`. 4 integration tests
+  with a local TLS server fixture.
 - [ ] **KDC2-3.6: D-Bus methods `RingDevice` + `SendSms` +
   `SendClipboard` + `SendFile`** — Action methods. Each routes
   through `mesh_router.choose(peer_id, MessageClass)` to pick
@@ -5316,12 +5339,12 @@ opened by KDC2-2.11. Collapses 3 separate code paths from
 v13.0 (bridge service, kdc_bridge worker, mesh announce
 re-relay) into one.
 
-- [ ] **KDC2-4.1: `mackesd` writes phone-reachability to
+- [✓] **KDC2-4.1: `mackesd` writes phone-reachability to
   `QNM-Shared/<peer>/connect/phones.json`** — When `KdcHost`
   on peer A pairs a phone, write the phone's identity (id,
   name, fingerprint, capabilities, last_seen) to the per-peer
   phones manifest in QNM-Shared. 6 unit tests with tempdir.
-- [ ] **KDC2-4.2: `mackesd` reads neighbors' `phones.json` on tick** —
+- [>] **KDC2-4.2: `mackesd` reads neighbors' `phones.json` on tick** —
   Existing reconcile worker tick (`crates/mackesd/src/worker.rs`)
   walks neighbors' QNM-Shared dirs; extend to also read
   `<neighbor>/connect/phones.json`. 4 unit tests.
