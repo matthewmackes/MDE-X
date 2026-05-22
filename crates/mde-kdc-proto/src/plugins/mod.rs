@@ -15,17 +15,23 @@
 
 pub mod battery;
 pub mod clipboard;
+pub mod findmyphone;
+pub mod mpris;
 pub mod notification;
 pub mod ping;
 pub mod share;
 pub mod sms;
+pub mod telephony;
 
 pub use battery::{battery_packet, BatteryBody};
 pub use clipboard::{clipboard_packet, from_packet_body, ClipboardBody};
+pub use findmyphone::{find_my_phone_packet, FindMyPhoneBody};
+pub use mpris::{mpris_command_packet, MprisBody, MprisKind};
 pub use notification::{notification_packet, NotificationBody};
 pub use ping::{ping_packet, PingBody};
 pub use share::{file_share_packet, url_share_packet, ShareBody, ShareKind};
 pub use sms::{sms_messages_packet, SmsMessage, SmsMessagesBody};
+pub use telephony::{telephony_packet, TelephonyBody, TelephonyEvent};
 
 use std::fmt;
 
