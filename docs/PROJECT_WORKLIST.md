@@ -157,16 +157,80 @@ dock. The fixes below are scoped for v2.0.3 cut.
   fires. Not a v2.0.3 cut gate. Acceptance: fresh
   install of mde shows no failed `dunst.service`; a
   `notify-send` call surfaces a mako toast.
-- [ ] **v2.0.3: dual-monitor default scaling config** —
+- [✓] **v2.0.3: pkexec for right-click admin menu
+  (operator-verification 2026-05-22)** — legacy
+  `mackes-panel/src/admin_menu.rs` spawned
+  `terminator -x bash -c 'sudo ...'` for every
+  privileged action. Under Wayland sessions
+  terminator doesn't always inherit a controlling
+  TTY (sway, lightdm, mde-session all spawn it
+  without one), so sudo's password prompt failed
+  with "a terminal is required to read the
+  password". Reported by the operator as "most
+  right-click options provide a sudo error".
+  Fix: switched every elevation call site to
+  `pkexec sh -c '<cmd>'` so the polkit auth agent
+  (Wayland-clean) owns the prompt. Drive-by
+  cleanups while threading the runner enum: read-
+  only `systemctl status` + `dnf history list`
+  dropped the escalation (they don't need root);
+  `sudo -i` became `pkexec bash -l`; `sudoedit`
+  became `pkexec nano` because sudoedit's drop-
+  privileges editor handoff doesn't survive
+  pkexec's env scrubbing. Tooltip now reports
+  polkit-agent presence instead of stale sudo-
+  cache state. 5 new tests + a hard regression
+  guard that fails CI if any future SECTIONS edit
+  reintroduces `sudo`. Watermark left-click `sudo
+  dnf upgrade` → `pkexec dnf upgrade` for the
+  same reason.
+- [✓] **v2.0.3: watermark branding refresh + synced
+  build date (operator-verification 2026-05-22)** —
+  the legacy GTK desktop watermark still showed
+  "Mackes XFCE Workstation" (v1.x project name).
+  v2.0.0 rebranded the whole platform to "Mackes
+  Desktop Environment" but this string was missed.
+  Updated to the new identity. The version line
+  now reads "MDE X.Y.Z (build <hash>) · Built
+  <YYYY-MM-DD>" — the date stamp is new in v2.0.3,
+  written by the RPM `%install` step to
+  `/usr/share/mde/build-date` (with
+  SOURCE_DATE_EPOCH support for reproducible
+  builds) and read by BOTH watermarks (legacy GTK
+  in `mackes-panel` + Iced in `mde-panel`) so
+  they can never drift on which build is
+  reported. `mackes_version()` tries `mde
+  --version` first, falls back to `mackes
+  --version` for the one-release back-compat
+  window. 4 new mde-panel watermark tests cover
+  the date-line ordering + edge cases.
+- [✓] **v2.0.3: dual-monitor default scaling config** —
   Bench rig is laptop eDP-1 1366×768 + 4K-TV DP-2
   3840×2160 at scale=1.0. UI elements on the 4K TV at
-  scale 1.0 are unreadable across a living room. Add a
-  scale-detection helper to `mde-wm` that reads the EDID
-  manufacturer/model + resolution and applies a
-  reasonable default (`scale=2.0` for ≥3840-wide
-  displays; `scale=1.0` for ≤1920-wide). Acceptance:
-  fresh login on the bench rig leaves DP-2 readable
-  without manual `wlr-randr --scale` invocation.
+  scale 1.0 are unreadable across a living room.
+  Shipped `bin/mde-output-autoscale`: width-based
+  heuristic (4K → 2.0, 2K → 1.5, ≤1080p → 1.0)
+  applied via `swaymsg output ... scale ...` at every
+  session start. `exec_always` in `data/sway/config`
+  so display hotplug triggers a re-pick. Operator
+  overrides (current scale ≠ 1.0) are sacred — the
+  helper skips. 11 unit tests lock the heuristic +
+  override-respect + malformed-input handling.
+  Follow-up: EDID-aware physical-size adjustment so
+  a 27" 4K monitor uses 1.5 (high DPI viewer ~60 cm
+  away) while a 40"+ 4K TV uses 2.0 (sofa distance).
+  Captured as v2.1+ scope task below.
+
+- [ ] **v2.1: EDID-aware per-output scale** — Refine the
+  width-only heuristic in `bin/mde-output-autoscale`
+  by parsing the output's EDID (via `wlr-randr --json`
+  or sway's `get_outputs` if it ever exposes physical
+  size + EDID directly) so a 27" 4K monitor gets 1.5
+  (high DPI, viewer ~60 cm away) while a 40"+ 4K TV
+  gets 2.0 (sofa distance). Acceptance: a 4K Acer
+  XB272 monitor + a 4K Vizio V405 TV plugged into the
+  same machine pick different scales without manual
+  intervention. Effort: Medium.
 
 ### Notification Center (new — Rust Desktop handoff bundle, 2026-05-19)
 
