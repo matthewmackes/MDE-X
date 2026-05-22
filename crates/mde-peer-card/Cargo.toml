@@ -34,6 +34,11 @@ mde-drawer = { path = "../mde-drawer" }
 # `iced` feature gives us Rgba → iced::Color conversion helpers.
 mde-theme  = { path = "../mde-theme", features = ["iced"] }
 
+# PC-2 (2026-05-21) — PeerProbe schema lives in mde-mesh-types
+# as its production home; this crate re-exports for backwards
+# compatibility through the placeholder-retirement window.
+mde-mesh-types = { path = "../mde-mesh-types" }
+
 [lints.rust]
 unsafe_code     = "forbid"
 unused_must_use = "deny"

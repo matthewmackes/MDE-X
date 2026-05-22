@@ -4,8 +4,22 @@
 //! as a first-class dock item — a peer, a mounted share, or an advertised
 //! service. Per the 50-question lock (Q9 / Q10 / Q33), these interleave
 //! with apps in the bottom dock.
+//!
+//! ## Peer-probe schema (PC-2)
+//!
+//! [`peer_probe::PeerProbe`] + its section types live here as
+//! their production home (PC-2 lock, 2026-05-21). Consumers
+//! (`mded`'s peer-join worker, `mde-peer-card`, future tooling)
+//! import via `use mackes_mesh_types::peer_probe::*;` or the
+//! `mde_mesh_types::peer_probe::*` facade.
 
 #![forbid(unsafe_code)]
+
+pub mod peer_probe;
+
+pub use peer_probe::{
+    BusTopology, Descriptors, KernelDriver, NatClass, PeerProbe, PowerThermal,
+};
 
 use serde::{Deserialize, Serialize};
 

@@ -3240,6 +3240,7 @@ dependencies = [
  "dirs",
  "iced",
  "mde-drawer",
+ "mde-mesh-types",
  "mde-theme",
  "serde",
  "serde_json",

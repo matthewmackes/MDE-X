@@ -139,14 +139,16 @@ spacing on the modular 12-step scale (NFU-1).
   installed by `mde` RPM (tracked as PC-12); `--help` lists
   `--peer` and `--dry-run`.
 
-- [ ] **PC-2: `PeerProbe` schema in `mde-mesh-types`** —
-  `crates/mde-mesh-types/src/peer_probe.rs`. Serde struct
-  capturing: bus & topology (lspci/lsusb tree + mesh ICE
-  candidate + RTT + NAT class), kernel & driver, power & thermal,
-  descriptors / capabilities. **In-tree placeholder shipped in
-  PC-1's crate** under `mde_peer_card::probe::PeerProbe`; final
-  home is `mde-mesh-types` once the schema stabilizes and is
-  consumed cross-crate.
+- [✓] **PC-2: `PeerProbe` schema in `mde-mesh-types` — landed
+  2026-05-21** — moved from the PC-1 placeholder in
+  `mde_peer_card::probe` to the canonical home at
+  `crates/mackes-mesh-types/src/peer_probe.rs` (re-exported as
+  `mde_mesh_types::peer_probe::*`). `mde_peer_card::probe` now
+  re-exports from the canonical home so existing call sites
+  (`use mde_peer_card::probe::PeerProbe`) keep working without
+  churn. Cross-crate consumers (`mded`'s peer-join worker
+  PC-3, future mde-workbench Fleet → Peer panel) now share one
+  definition.
 
 - [ ] **PC-3: `mded` peer-join worker — v2.1+ scope (chain on PC-2)** —
   `crates/mded/src/workers/peer_join.rs`. On `peer_joined { id }`,
