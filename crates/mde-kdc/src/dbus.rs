@@ -158,6 +158,34 @@ impl ConnectInterface {
             zbus::fdo::Error::Failed(format!("NoSuchDevice: {device_id}"))
         })
     }
+
+    /// KDC2-3.9 — emitted when a fresh device pairs. Subscribers
+    /// (`mde-workbench` peer list, `mde-peer-card`, drawer
+    /// notifications) refresh their views off this signal.
+    #[zbus(signal)]
+    async fn device_added(
+        emitter: &zbus::object_server::SignalEmitter<'_>,
+        device: DeviceInfo,
+    ) -> zbus::Result<()>;
+
+    /// KDC2-3.9 — emitted when a previously-paired device is
+    /// unpaired (operator-initiated unpair OR cert-key
+    /// mismatch on re-handshake).
+    #[zbus(signal)]
+    async fn device_removed(
+        emitter: &zbus::object_server::SignalEmitter<'_>,
+        device_id: String,
+    ) -> zbus::Result<()>;
+
+    /// KDC2-3.9 — emitted on device state change (online ↔
+    /// offline transition, capability set update, battery
+    /// snapshot, etc.). Subscribers re-fetch via `GetDevice`
+    /// to read the new state.
+    #[zbus(signal)]
+    async fn device_updated(
+        emitter: &zbus::object_server::SignalEmitter<'_>,
+        device_id: String,
+    ) -> zbus::Result<()>;
 }
 
 /// Live D-Bus host handle. Holds the zbus Connection so it

@@ -5315,7 +5315,7 @@ service. Hosts the `dev.mackes.MDE.Connect.*` D-Bus interface.
   missing, generate Ed25519 keypair + self-signed cert via
   KDC2-2.6/2.7 + persist atomically. Audit-log the event.
   3 unit tests.
-- [ ] **KDC2-3.9: D-Bus signals `DeviceAdded` / `DeviceRemoved`
+- [✓] **KDC2-3.9: D-Bus signals `DeviceAdded` / `DeviceRemoved`
   / `DeviceUpdated`** — Emit on pair, unpair, online/offline
   transition, capability change. Subscribers: `mde-workbench`
   peer list, `mde-peer-card`, `mde-drawer` notifications.
