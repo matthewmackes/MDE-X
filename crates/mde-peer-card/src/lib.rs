@@ -37,6 +37,7 @@ use std::path::PathBuf;
 pub use mde_drawer::{DRAWER_WIDTH_PX, SLIDE_DURATION_MS};
 
 pub use enrich::{Enrichment, EnrichmentCacheKey};
+pub use mde_mesh_types::{BatterySnapshot, ConnectFacts, PairingState, PeerKind};
 pub use probe::{NatClass, PeerProbe};
 
 /// One peer's complete card data — the probe (always present) +
@@ -52,6 +53,15 @@ pub struct PeerCardData {
     /// Any enrichment data resolved so far. May be empty
     /// initially; streams in.
     pub enrichment: Enrichment,
+    /// KDC2-5.3 — KDC connect facts for this peer. `None` when
+    /// the peer is not paired via KDC (most mesh peers; only
+    /// phones / tablets / opt-in MDE pairs populate this). The
+    /// daemon-API layer fills it through the future
+    /// `dev.mackes.MDE.Connect.GetDevice` D-Bus method
+    /// (KDC2-3.4); the conditional phone-section view
+    /// (KDC2-5.4) reads it via [`ConnectFacts::
+    /// shows_phone_sections`].
+    pub connect: Option<ConnectFacts>,
 }
 
 impl PeerCardData {
@@ -63,7 +73,34 @@ impl PeerCardData {
         Self {
             probe,
             enrichment: Enrichment::hwdb_only(),
+            connect: None,
         }
+    }
+
+    /// Attach KDC connect facts to the card (KDC2-5.3). Builder
+    /// so consumers can chain construction:
+    ///
+    /// ```ignore
+    /// let card = PeerCardData::hwdb_only(probe).with_connect(facts);
+    /// ```
+    ///
+    /// Pass `None` to clear (mostly useful in tests).
+    #[must_use]
+    pub fn with_connect(mut self, connect: Option<ConnectFacts>) -> Self {
+        self.connect = connect;
+        self
+    }
+
+    /// True when the conditional phone section (battery / ring /
+    /// find / SMS / share) should render in the UI. Delegates to
+    /// [`ConnectFacts::shows_phone_sections`] when connect facts
+    /// are present; returns `false` otherwise (peers without KDC
+    /// pairing never show phone-only sections).
+    #[must_use]
+    pub fn shows_phone_sections(&self) -> bool {
+        self.connect
+            .as_ref()
+            .is_some_and(|c| c.shows_phone_sections())
     }
 
     /// Cache path for this peer's enrichment blob.
@@ -197,6 +234,58 @@ mod tests {
                     && !verb.contains("Write"),
                 "verb {verb:?} smells mutating; reject"
             );
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // KDC2-5.3 — connect facts field on PeerCardData
+    // ─────────────────────────────────────────────────────────
+
+    fn sample_probe() -> PeerProbe {
+        // Reuse the workspace fixture rather than building a
+        // bespoke shape — keeps these tests insulated from any
+        // future PeerProbe field additions.
+        PeerProbe::fixture()
+    }
+
+    fn sample_connect(kind: PeerKind) -> ConnectFacts {
+        ConnectFacts {
+            kind,
+            pairing: PairingState::Paired,
+            battery: None,
+            capabilities: vec![],
+            last_seen_at: 0,
+        }
+    }
+
+    #[test]
+    fn hwdb_only_starts_with_no_connect_facts() {
+        let card = PeerCardData::hwdb_only(sample_probe());
+        assert!(card.connect.is_none());
+        assert!(!card.shows_phone_sections());
+    }
+
+    #[test]
+    fn with_connect_attaches_facts() {
+        let facts = sample_connect(PeerKind::Phone);
+        let card = PeerCardData::hwdb_only(sample_probe()).with_connect(Some(facts.clone()));
+        assert_eq!(card.connect, Some(facts));
+    }
+
+    #[test]
+    fn with_connect_none_clears_existing() {
+        let card = PeerCardData::hwdb_only(sample_probe())
+            .with_connect(Some(sample_connect(PeerKind::Phone)))
+            .with_connect(None);
+        assert!(card.connect.is_none());
+    }
+
+    #[test]
+    fn shows_phone_sections_true_only_for_handheld_kinds() {
+        for kind in PeerKind::all() {
+            let card = PeerCardData::hwdb_only(sample_probe())
+                .with_connect(Some(sample_connect(kind)));
+            assert_eq!(card.shows_phone_sections(), kind.is_handheld());
         }
     }
 }
