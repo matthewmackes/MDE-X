@@ -19,6 +19,7 @@ pub mod findmyphone;
 pub mod mpris;
 pub mod notification;
 pub mod ping;
+pub mod run_command;
 pub mod share;
 pub mod sms;
 pub mod telephony;
@@ -29,6 +30,7 @@ pub use findmyphone::{find_my_phone_packet, FindMyPhoneBody};
 pub use mpris::{mpris_command_packet, MprisBody, MprisKind};
 pub use notification::{notification_packet, NotificationBody};
 pub use ping::{ping_packet, PingBody};
+pub use run_command::{run_command_packet, RunCommandBody};
 pub use share::{file_share_packet, url_share_packet, ShareBody, ShareKind};
 pub use sms::{sms_messages_packet, SmsMessage, SmsMessagesBody};
 pub use telephony::{telephony_packet, TelephonyBody, TelephonyEvent};
@@ -36,7 +38,10 @@ pub use telephony::{telephony_packet, TelephonyBody, TelephonyEvent};
 use std::fmt;
 
 /// The canonical set of KDE Connect plugin types v2.1 KDC2 ships
-/// at wire-compat parity with upstream.
+/// at wire-compat parity with upstream — plus `RunCommand`,
+/// which exists in upstream as an optional non-default plugin
+/// and ships deny-default in MDE's policy.toml per the v2.1
+/// security-review lock.
 ///
 /// The serde token (snake_case via Display) matches the `Packet
 /// .kind` suffix (`kdeconnect.<token>`). Adding a new plugin
@@ -62,6 +67,15 @@ pub enum PluginKind {
     Sms,
     /// Phone-call state mirror.
     Telephony,
+    /// KDC2-2.19 — Remote command execution. Upstream KDE
+    /// Connect ships this as an optional plugin; MDE registers
+    /// it for wire compat with phones that offer it BUT denies
+    /// it by default in `policy.toml`'s `[plugins].deny`. The
+    /// dispatch-time check (KDC2-3.11) refuses the packet
+    /// before the body type's handler runs. Operators opt in
+    /// per-device via the KDC2-3.11.a per-device allow list
+    /// (deferred).
+    RunCommand,
 }
 
 impl PluginKind {
@@ -72,7 +86,7 @@ impl PluginKind {
     /// in a deterministic shape (some KDC clients are sensitive to
     /// list order during pairing).
     #[must_use]
-    pub const fn all() -> [PluginKind; 9] {
+    pub const fn all() -> [PluginKind; 10] {
         [
             PluginKind::Ping,
             PluginKind::Clipboard,
@@ -83,6 +97,7 @@ impl PluginKind {
             PluginKind::Mpris,
             PluginKind::Sms,
             PluginKind::Telephony,
+            PluginKind::RunCommand,
         ]
     }
 
@@ -99,6 +114,7 @@ impl PluginKind {
             PluginKind::Mpris => "mpris",
             PluginKind::Sms => "sms.messages",
             PluginKind::Telephony => "telephony",
+            PluginKind::RunCommand => "runcommand",
         }
     }
 
@@ -279,10 +295,10 @@ mod tests {
 
     #[test]
     fn plugin_kind_count_matches_upstream_kdc() {
-        // v2.1 KDC2 lock: parity with upstream KDE Connect's 9
-        // canonical plugins. Adding a 10th means a new variant +
-        // a survey lock + a memory note.
-        assert_eq!(PluginKind::all().len(), 9);
+        // v2.1 KDC2: parity with upstream KDE Connect's 9
+        // canonical plugins + RunCommand (KDC2-2.19, deny-by-
+        // default in policy.toml).
+        assert_eq!(PluginKind::all().len(), 10);
     }
 
     #[test]
@@ -324,11 +340,12 @@ mod tests {
     #[test]
     fn plugin_kind_tokens_are_unique() {
         // Two plugins sharing the same token would silently merge
-        // in the registry. Hard-lock uniqueness.
+        // in the registry. Hard-lock uniqueness across all 10
+        // variants (9 canonical + RunCommand).
         let mut tokens: Vec<&'static str> = PluginKind::all().iter().map(|k| k.token()).collect();
         tokens.sort_unstable();
         tokens.dedup();
-        assert_eq!(tokens.len(), 9);
+        assert_eq!(tokens.len(), 10);
     }
 
     // ─────────────────────────────────────────────────────────
@@ -365,6 +382,7 @@ mod tests {
                 PluginKind::FindMyPhone => vec!["kdeconnect.findmyphone.request"],
                 PluginKind::Sms => vec!["kdeconnect.sms.messages"],
                 PluginKind::Telephony => vec!["kdeconnect.telephony"],
+                PluginKind::RunCommand => vec!["kdeconnect.runcommand"],
             };
             Self {
                 kind,

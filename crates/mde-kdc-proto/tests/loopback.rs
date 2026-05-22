@@ -278,6 +278,12 @@ fn every_plugin_kind_dispatches_unambiguously_on_packet_kind() {
                 is_cancel: false,
             },
         ),
+        plugins::run_command_packet(
+            10,
+            "open-browser".to_string(),
+            "Open browser".to_string(),
+            "xdg-open https://example.com".to_string(),
+        ),
     ];
 
     for p in &samples {
@@ -291,7 +297,7 @@ fn every_plugin_kind_dispatches_unambiguously_on_packet_kind() {
     while let Some(p) = alice.next_packet() {
         received.push(p);
     }
-    assert_eq!(received.len(), 9, "received one packet per plugin");
+    assert_eq!(received.len(), 10, "received one packet per plugin (9 canonical + RunCommand)");
 
     for pkt in &received {
         let matching: Vec<PluginKind> = PluginKind::all()
