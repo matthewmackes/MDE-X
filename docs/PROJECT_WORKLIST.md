@@ -5514,15 +5514,15 @@ sections are conditional on `device.kind == Phone | Tablet`.
 Removes the platform's last Qt surface. Adds explicit
 `Conflicts:` so users can't accidentally co-install upstream.
 
-- [ ] **KDC2-6.1: Drop `Requires: kdeconnectd` from spec** — Edit
+- [✓] **KDC2-6.1: Drop `Requires: kdeconnectd` from spec** — Edit
   `packaging/fedora/mackes-shell.spec:92-95`. Single-line
   removal. RPM rebuild verifies dnf no longer pulls
   kdeconnectd.
-- [ ] **KDC2-6.2: Add `Obsoletes: kdeconnect kdeconnectd
+- [✓] **KDC2-6.2: Add `Obsoletes: kdeconnect kdeconnectd
   kdeconnect-cli kdeconnect-indicator`** — Forces dnf to
   uninstall upstream packages on upgrade. 0.0.0 version
   bound so it always wins.
-- [ ] **KDC2-6.3: Add `Conflicts: kdeconnect kdeconnect-cli
+- [✓] **KDC2-6.3: Add `Conflicts: kdeconnect kdeconnect-cli
   gsconnect`** — Prevents co-installation. Both would try
   to bind port 1716; the conflict surfaces the issue at
   install time rather than runtime.

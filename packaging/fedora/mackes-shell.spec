@@ -89,10 +89,25 @@ Requires:       slurp
 Requires:       mako
 Conflicts:      dunst
 
-# Phase 13.1.1 — KDE Connect Option A integration. Workbench
-# Connect talks org.kde.kdeconnect.* DBus + a mesh-mDNS bridge.
-# The upstream kdeconnectd daemon stays user-session-autostarted.
-Requires:       kdeconnectd
+# v2.1+ KDC2 — native re-implementation supersedes the v13
+# Option A wrapper of upstream kdeconnectd. The KDC protocol
+# runs in-process inside mackesd via the mde-kdc + mde-kdc-proto
+# crates; upstream kdeconnectd is no longer needed and must
+# not co-install (it would race on UDP/1716 + D-Bus name
+# acquisition).
+#
+# KDC2-6.2 Obsoletes: forces dnf to drop kdeconnectd and the
+# Qt-laden kdeconnect-cli / kdeconnect-indicator on upgrade.
+# KDC2-6.3 Conflicts: prevents a re-install from a manual
+# `dnf install kdeconnect-cli` after MDE is up — both would
+# bind the same D-Bus service name.
+Obsoletes:      kdeconnect < 999
+Obsoletes:      kdeconnectd < 999
+Obsoletes:      kdeconnect-cli < 999
+Obsoletes:      kdeconnect-indicator < 999
+Conflicts:      kdeconnect
+Conflicts:      kdeconnect-cli
+Conflicts:      gsconnect
 
 # SSH enabled by default on every Mackes install
 Requires:       openssh-server
