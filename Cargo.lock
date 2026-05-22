@@ -2957,6 +2957,15 @@ name = "mackes-theme"
 version = "0.0.0"
 
 [[package]]
+name = "mackes-transport"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mackesd"
 version = "0.0.0"
 dependencies = [
@@ -2970,6 +2979,7 @@ dependencies = [
  "insta",
  "mackes-kdc",
  "mackes-mesh-types",
+ "mackes-transport",
  "mdns-sd",
  "rand 0.8.6",
  "rusqlite",

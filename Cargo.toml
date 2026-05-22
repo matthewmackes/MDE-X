@@ -16,6 +16,7 @@ members  = [
     "crates/mackes-mesh-types",
     "crates/mackes-panel",
     "crates/mackes-theme",
+    "crates/mackes-transport",
     "crates/mackesd",
     "crates/mde-applets/app-switcher",
     "crates/mde-applets/apple-menu",

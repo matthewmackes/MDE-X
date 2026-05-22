@@ -41,6 +41,13 @@ pub struct Edge {
 /// between the same pair via different transports are tracked
 /// independently — the operator's diff overlay (12.9.3) renders
 /// them as separate lines.
+///
+/// Stays in lock-step with `mackes_transport::TransportKind`: the
+/// `From<TransportKind> for EdgeKind` conversion below is the
+/// single bridge between the two enums, so adding a new transport
+/// (KDC2-7 deferred BLE / LoRa / Matrix variants, future
+/// post-quantum transport, etc.) means edits in exactly two
+/// places — the `TransportKind` enum and this one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeKind {
@@ -51,6 +58,26 @@ pub enum EdgeKind {
     DerpRelay,
     /// HTTPS-tunneled fallback over TCP/443 (per 12.18).
     Https443,
+    /// KDE Connect wire over TLS (KDC2-1, v2.1 lock 2026-05-22).
+    /// Used for phone↔peer + peer↔peer-via-KDC paths once
+    /// `mde-kdc` (KDC2-3) lands. The reconciler renders KDC edges
+    /// the same way it renders DERP edges in the diff overlay.
+    KdcTls,
+}
+
+impl From<mackes_transport::TransportKind> for EdgeKind {
+    /// Bridge `mackes_transport`'s enum into the topology engine's
+    /// enum. Every variant maps 1:1 — if this match becomes
+    /// non-exhaustive a `TransportKind` was added without the
+    /// corresponding `EdgeKind`.
+    fn from(t: mackes_transport::TransportKind) -> Self {
+        match t {
+            mackes_transport::TransportKind::DirectUdp => EdgeKind::DirectUdp,
+            mackes_transport::TransportKind::DerpRelay => EdgeKind::DerpRelay,
+            mackes_transport::TransportKind::Https443 => EdgeKind::Https443,
+            mackes_transport::TransportKind::KdcTls => EdgeKind::KdcTls,
+        }
+    }
 }
 
 /// Snapshot value passed into `calculate()`. Pure-function input —
@@ -467,9 +494,29 @@ mod tests {
         let k1 = serde_json::to_string(&EdgeKind::DirectUdp).unwrap();
         let k2 = serde_json::to_string(&EdgeKind::DerpRelay).unwrap();
         let k3 = serde_json::to_string(&EdgeKind::Https443).unwrap();
+        let k4 = serde_json::to_string(&EdgeKind::KdcTls).unwrap();
         assert_eq!(k1, "\"direct_udp\"");
         assert_eq!(k2, "\"derp_relay\"");
         assert_eq!(k3, "\"https443\"");
+        assert_eq!(k4, "\"kdc_tls\"");
+    }
+
+    #[test]
+    fn transport_kind_into_edge_kind_is_total_and_token_aligned() {
+        // KDC2-1 lock: every TransportKind has a 1:1 EdgeKind. The
+        // serde tokens MUST match between the two enums so audit
+        // chain readers + the operator's topology diff overlay
+        // (12.9.3) report the same string regardless of which
+        // enum they encounter the variant through.
+        for t in mackes_transport::TransportKind::all() {
+            let e: EdgeKind = t.into();
+            let t_tok = serde_json::to_string(&t).unwrap();
+            let e_tok = serde_json::to_string(&e).unwrap();
+            assert_eq!(
+                t_tok, e_tok,
+                "serde token drift between TransportKind::{t:?} and EdgeKind::{e:?}",
+            );
+        }
     }
 
     #[test]

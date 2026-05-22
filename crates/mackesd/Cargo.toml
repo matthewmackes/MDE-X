@@ -41,6 +41,13 @@ mackes-mesh-types = { path = "../mackes-mesh-types" }
 # `crates/mackesd/src/workers/kdc_bridge.rs` under async-services.
 mackes-kdc = { path = "../mackes-kdc" }
 
+# KDC2-1 (v2.1, locked 2026-05-22) — Transport trait + capability
+# model. Consumed by `crates/mackesd/src/topology/mod.rs` to bridge
+# `TransportKind` → `EdgeKind`, and by the future mesh_router
+# worker (KDC2-3). Implementations live elsewhere (mde-kdc,
+# mackes-https-tunnel, mackesd::transport::direct_udp).
+mackes-transport = { path = "../mackes-transport" }
+
 # Storage: SQLite via rusqlite (sync, no async runtime needed for the
 # reconcile loop's cadence). WAL mode + 5 s busy timeout per 12.A.2.
 rusqlite = { version = "0.32", features = ["bundled"] }
