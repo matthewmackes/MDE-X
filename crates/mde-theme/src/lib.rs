@@ -37,6 +37,7 @@
 #![warn(missing_docs)]
 
 pub mod accessibility;
+pub mod animation;
 pub mod brand;
 pub mod color;
 pub mod components;
@@ -59,6 +60,7 @@ pub use density::Density;
 pub use icons::{
     icon_for_device_type, mde_icon, Icon, IconSize, ResolvedIcon, CARBON_LINE_WEIGHT_PX,
 };
+pub use animation::{ease, lerp_f32, pulse_scale, LoopingTween, Tween};
 pub use motion::{Easing, Motion, PANEL_MOUNT_TRANSLATE_Y_PX, PULSE_MAX_SCALE};
 pub use palette::Palette;
 pub use prefs::Preferences;

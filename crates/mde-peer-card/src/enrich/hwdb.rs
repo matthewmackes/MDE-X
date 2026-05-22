@@ -35,6 +35,9 @@ use serde::{Deserialize, Serialize};
 /// Default location of usb.ids on Fedora / RHEL / Debian.
 pub const DEFAULT_USB_IDS_PATH: &str = "/usr/share/hwdata/usb.ids";
 
+/// Default location of pci.ids — same hwdata package as usb.ids.
+pub const DEFAULT_PCI_IDS_PATH: &str = "/usr/share/hwdata/pci.ids";
+
 /// Local-resolved vendor/product display info.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HwdbInfo {
@@ -119,6 +122,20 @@ impl Hwdb {
         Self::load_usb_ids(&PathBuf::from(DEFAULT_USB_IDS_PATH))
     }
 
+    /// PC-4.b — load + parse the pci.ids file at `path`. Same
+    /// format as usb.ids (the hwdata package ships both), so
+    /// the shared `parse()` handles both.
+    #[must_use]
+    pub fn load_pci_ids(path: &Path) -> Self {
+        Self::load_usb_ids(path)
+    }
+
+    /// PC-4.b — load the system-installed pci.ids file.
+    #[must_use]
+    pub fn system_pci() -> Self {
+        Self::load_pci_ids(&PathBuf::from(DEFAULT_PCI_IDS_PATH))
+    }
+
     /// Process-wide cached `Hwdb`. The first caller pays the
     /// parse cost (~50 ms for 1 MB of usb.ids); subsequent
     /// callers get a `&'static Hwdb` reference.
@@ -128,6 +145,14 @@ impl Hwdb {
     pub fn shared() -> &'static Hwdb {
         static CACHE: OnceLock<Hwdb> = OnceLock::new();
         CACHE.get_or_init(Self::system)
+    }
+
+    /// PC-4.b — process-wide cached pci.ids index. Separate
+    /// `OnceLock` from `shared()` so callers can hold both at
+    /// once without contention.
+    pub fn shared_pci() -> &'static Hwdb {
+        static CACHE: OnceLock<Hwdb> = OnceLock::new();
+        CACHE.get_or_init(Self::system_pci)
     }
 
     /// Parse the on-disk text format.
@@ -294,5 +319,30 @@ mod tests {
     fn missing_file_yields_empty_hwdb() {
         let h = Hwdb::load_usb_ids(Path::new("/tmp/definitely-does-not-exist-xyz123.ids"));
         assert_eq!(h.vendor_count(), 0);
+    }
+
+    #[test]
+    fn pci_ids_parses_with_same_format() {
+        // PC-4.b — pci.ids uses the same vendor/device line
+        // shape as usb.ids, so `Hwdb::load_pci_ids` should
+        // resolve PCI vendor/device lookups identically.
+        let pci_fixture = "\
+8086  Intel Corporation
+\t1237  440FX - 82441FX PMC [Natoma]
+\t7000  82371SB PIIX3 ISA [Natoma/Triton II]
+10de  NVIDIA Corporation
+\t1c03  GP106 [GeForce GTX 1060 6GB]
+";
+        let h = Hwdb::parse(pci_fixture);
+        assert_eq!(h.vendor("8086"), Some("Intel Corporation"));
+        assert_eq!(h.vendor("10de"), Some("NVIDIA Corporation"));
+        assert_eq!(h.product("10de", "1c03"), Some("GP106 [GeForce GTX 1060 6GB]"));
+    }
+
+    #[test]
+    fn default_pci_ids_path_lives_under_hwdata() {
+        // PC-4.b — guard against drift in the path constant.
+        assert!(DEFAULT_PCI_IDS_PATH.ends_with("pci.ids"));
+        assert!(DEFAULT_PCI_IDS_PATH.contains("hwdata"));
     }
 }

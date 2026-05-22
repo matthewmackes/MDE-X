@@ -200,9 +200,12 @@ spacing on the modular 12-step scale (NFU-1).
   9 unit tests against a small `usb.ids` fixture cover: vendor
   count, product resolution, interface-line skip, unknown
   lookups, case-insensitivity, fallback behavior, missing-file
-  graceful empty index. Production PCI ids (`/usr/share/hwdata/
-  pci.ids`) would parse identically; deferred to PC-4.b if a
-  future surface needs it.
+  graceful empty index. **PC-4.b — PCI ids — landed 2026-05-22:**
+  `Hwdb::load_pci_ids` + `Hwdb::system_pci` + `Hwdb::shared_pci`
+  parse `/usr/share/hwdata/pci.ids` via the same `parse()`
+  (the format is identical). Separate `OnceLock` cache so USB
+  + PCI indexes coexist without contention. 2 new tests
+  (pci.ids fixture parses, default path lock).
 
 - [ ] **PC-5: Online enrichment — Linux Hardware DB — v2.1+ scope** —
   `enrich/lhdb.rs` queries linux-hardware.org for driver
@@ -5070,8 +5073,10 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `crates/mde-logout-dialog/`; `crates/mde-workbench/src/
   notification_center.rs`; Iced animation subscriptions.
 
-- [ ] **UX-9.a: Motion wiring — subscription-driven panel mount +
-  notification pulse + tooltip — v2.1+ scope (chain on UX-9 Phase 1)** —
+- [>] **UX-9.a: Motion wiring — subscription-driven panel mount +
+  notification pulse + tooltip — v2.1+ scope (Phase A landed
+  2026-05-22: `mde_theme::animation` tween math + ease curves +
+  pulse_scale; Phase B = consumer wiring chains here)** —
   Use the locked tokens in `mde_theme::motion` to actually
   animate. (a) Sidebar panel mount: wire an `iced::Subscription`
   on `Message::SelectPanel` that schedules a 180 ms opacity +
