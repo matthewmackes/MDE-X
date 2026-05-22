@@ -145,4 +145,95 @@ mod tests {
         let back: MprisBody = serde_json::from_str(&s).unwrap();
         assert_eq!(back, body);
     }
+
+    // ─────────────────────────────────────────────────────────
+    // KDC2-2.17 — MprisPlugin (Plugin trait impl)
+    // ─────────────────────────────────────────────────────────
+
+    use crate::plugins::{Plugin, PluginContext, PluginKind};
+
+    #[test]
+    fn mpris_plugin_kind_and_handles_match_token() {
+        let p = MprisPlugin::new();
+        assert_eq!(p.kind(), PluginKind::Mpris);
+        assert_eq!(p.handles(), &["kdeconnect.mpris"]);
+    }
+
+    #[test]
+    fn mpris_plugin_queues_state_reports() {
+        let mut plugin = MprisPlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        let body = MprisBody {
+            player: "spotify".to_string(),
+            is_playing: true,
+            length: 245_000,
+            pos: 80_000,
+            action: String::new(),
+        };
+        let pkt = mpris_command_packet(1, String::new());
+        // Reuse the same packet kind path; substitute body.
+        let pkt = Packet {
+            body: serde_json::to_value(&body).unwrap(),
+            ..pkt
+        };
+        plugin.process(&pkt, &ctx);
+        assert_eq!(plugin.take_received().len(), 1);
+    }
+}
+
+// ────────────────────────────────────────────────────────────────
+// KDC2-2.17b — MprisPlugin (Plugin trait impl, adapter pattern)
+// ────────────────────────────────────────────────────────────────
+
+/// `Plugin` impl that mirrors MPRIS state reports + remote
+/// commands. Host (`mde-kdc`) drains via `take_received()`;
+/// peer-card's media section renders the latest state.
+#[derive(Debug, Default)]
+pub struct MprisPlugin {
+    received: Vec<MprisBody>,
+    handles: [&'static str; 1],
+}
+
+impl MprisPlugin {
+    /// New empty plugin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            received: Vec::new(),
+            handles: ["kdeconnect.mpris"],
+        }
+    }
+
+    /// Drain every received MPRIS body.
+    #[must_use]
+    pub fn take_received(&mut self) -> Vec<MprisBody> {
+        std::mem::take(&mut self.received)
+    }
+
+    /// Items currently queued.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.received.len()
+    }
+}
+
+impl crate::plugins::Plugin for MprisPlugin {
+    fn kind(&self) -> crate::plugins::PluginKind {
+        crate::plugins::PluginKind::Mpris
+    }
+
+    fn handles(&self) -> &[&'static str] {
+        &self.handles
+    }
+
+    fn process(
+        &mut self,
+        packet: &crate::wire::Packet,
+        _ctx: &crate::plugins::PluginContext,
+    ) -> Vec<crate::wire::Packet> {
+        if let Ok(body) = crate::plugins::from_packet_body::<MprisBody>(packet) {
+            self.received.push(body);
+        }
+        Vec::new()
+    }
 }

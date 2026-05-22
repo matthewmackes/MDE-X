@@ -195,4 +195,84 @@ mod tests {
         let back: ShareBody = serde_json::from_str(&s).unwrap();
         assert_eq!(back, body);
     }
+
+    // KDC2-2.15 — SharePlugin Plugin trait impl
+    use crate::plugins::{Plugin, PluginContext, PluginKind};
+
+    #[test]
+    fn share_plugin_queues_inbound_url() {
+        let mut plugin = SharePlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        plugin.process(
+            &url_share_packet(1, "https://example.com".into(), false),
+            &ctx,
+        );
+        let drained = plugin.take_received();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].url, "https://example.com");
+        assert_eq!(drained[0].kind(), ShareKind::Url);
+    }
+
+    #[test]
+    fn share_plugin_queues_inbound_file_announce() {
+        let mut plugin = SharePlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        plugin.process(
+            &file_share_packet(1, "doc.pdf".into(), 1024, "hash".into()),
+            &ctx,
+        );
+        let drained = plugin.take_received();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].kind(), ShareKind::File);
+    }
+}
+
+/// KDC2-2.15 — SharePlugin. Queues both URL + file-announce
+/// bodies; the actual binary payload streaming over the KDC
+/// file-transfer port is a separate KDC2-3.x mechanism the host
+/// drives off the file-share announcement.
+#[derive(Debug, Default)]
+pub struct SharePlugin {
+    received: Vec<ShareBody>,
+    handles: [&'static str; 1],
+}
+
+impl SharePlugin {
+    /// New empty plugin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            received: Vec::new(),
+            handles: ["kdeconnect.share.request"],
+        }
+    }
+    /// Drain every queued share body.
+    #[must_use]
+    pub fn take_received(&mut self) -> Vec<ShareBody> {
+        std::mem::take(&mut self.received)
+    }
+    /// Items currently queued.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.received.len()
+    }
+}
+
+impl crate::plugins::Plugin for SharePlugin {
+    fn kind(&self) -> crate::plugins::PluginKind {
+        crate::plugins::PluginKind::Share
+    }
+    fn handles(&self) -> &[&'static str] {
+        &self.handles
+    }
+    fn process(
+        &mut self,
+        packet: &crate::wire::Packet,
+        _ctx: &crate::plugins::PluginContext,
+    ) -> Vec<crate::wire::Packet> {
+        if let Ok(body) = crate::plugins::from_packet_body::<ShareBody>(packet) {
+            self.received.push(body);
+        }
+        Vec::new()
+    }
 }

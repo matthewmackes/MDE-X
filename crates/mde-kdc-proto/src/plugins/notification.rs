@@ -61,6 +61,83 @@ pub fn notification_packet(id_ms: i64, body: NotificationBody) -> Packet {
     }
 }
 
+// ────────────────────────────────────────────────────────────────
+// KDC2-2.13 — NotificationPlugin (Plugin trait impl)
+// ────────────────────────────────────────────────────────────────
+
+/// `Plugin` impl that mirrors inbound notification packets.
+///
+/// Adapter pattern: the protocol crate stays pure (no I/O,
+/// no notification-daemon calls). Received packets are decoded
+/// + pushed into an internal queue; the host crate
+/// (`mde-kdc`) polls `take_received()` from its event loop and
+/// forwards each `NotificationBody` to the OS notification
+/// daemon (mako on Wayland).
+///
+/// Outgoing notification packets (e.g. dismiss-request relay)
+/// are constructed via the existing `notification_packet()`
+/// factory — this plugin's `process()` returns `Vec::new()`
+/// because every wire-level notification is one-way (the
+/// receiver applies it locally; no reply packet flows back).
+#[derive(Debug, Default)]
+pub struct NotificationPlugin {
+    received: Vec<NotificationBody>,
+    handles: [&'static str; 1],
+}
+
+impl NotificationPlugin {
+    /// New empty plugin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            received: Vec::new(),
+            handles: ["kdeconnect.notification"],
+        }
+    }
+
+    /// Drain every received notification body. The host calls
+    /// this on each tick of its event loop + delivers the
+    /// bodies to the OS notification daemon. Drains rather than
+    /// clones so the queue stays bounded.
+    #[must_use]
+    pub fn take_received(&mut self) -> Vec<NotificationBody> {
+        std::mem::take(&mut self.received)
+    }
+
+    /// How many notifications are currently queued. Used by
+    /// tests + the host's `mded healthz` instrumentation.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.received.len()
+    }
+}
+
+impl crate::plugins::Plugin for NotificationPlugin {
+    fn kind(&self) -> crate::plugins::PluginKind {
+        crate::plugins::PluginKind::Notification
+    }
+
+    fn handles(&self) -> &[&'static str] {
+        &self.handles
+    }
+
+    fn process(
+        &mut self,
+        packet: &Packet,
+        _ctx: &crate::plugins::PluginContext,
+    ) -> Vec<Packet> {
+        // Best-effort decode — a malformed body from a peer
+        // drops the packet rather than poisoning the queue.
+        if let Ok(body) = crate::plugins::from_packet_body::<NotificationBody>(packet)
+        {
+            self.received.push(body);
+        }
+        // Notifications are one-way at the wire layer — no
+        // response packet.
+        Vec::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +193,56 @@ mod tests {
         // their handler.
         let p = notification_packet(1, sample());
         assert_eq!(p.kind, crate::plugins::PluginKind::Notification.packet_kind());
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // KDC2-2.13 — NotificationPlugin (Plugin trait impl)
+    // ─────────────────────────────────────────────────────────
+
+    use crate::plugins::{Plugin, PluginContext, PluginKind};
+
+    #[test]
+    fn plugin_kind_and_handles_match_token() {
+        let p = NotificationPlugin::new();
+        assert_eq!(p.kind(), PluginKind::Notification);
+        assert_eq!(p.handles(), &["kdeconnect.notification"]);
+    }
+
+    #[test]
+    fn plugin_queues_received_notification() {
+        let mut plugin = NotificationPlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        let pkt = notification_packet(1, sample());
+        let response = plugin.process(&pkt, &ctx);
+        assert!(response.is_empty(), "notifications are one-way at wire");
+        assert_eq!(plugin.pending_count(), 1);
+    }
+
+    #[test]
+    fn take_received_drains_the_queue() {
+        let mut plugin = NotificationPlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        plugin.process(&notification_packet(1, sample()), &ctx);
+        plugin.process(&notification_packet(2, sample()), &ctx);
+        let drained = plugin.take_received();
+        assert_eq!(drained.len(), 2);
+        // Drain → queue empty.
+        assert_eq!(plugin.pending_count(), 0);
+    }
+
+    #[test]
+    fn plugin_drops_malformed_packet_without_panic() {
+        let mut plugin = NotificationPlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        let bad = Packet {
+            id: 1,
+            kind: "kdeconnect.notification".to_string(),
+            body: serde_json::json!({"wrong_field": 42}),
+            mde_caps: None,
+        };
+        let response = plugin.process(&bad, &ctx);
+        assert!(response.is_empty());
+        // Malformed → silently dropped, queue stays empty.
+        assert_eq!(plugin.pending_count(), 0);
     }
 }

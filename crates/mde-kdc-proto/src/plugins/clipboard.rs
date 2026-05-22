@@ -129,4 +129,101 @@ mod tests {
         assert_eq!(p1.id, p2.id);
         assert_eq!(p1.body, p2.body);
     }
+
+    // ─────────────────────────────────────────────────────────
+    // KDC2-2.14 — ClipboardPlugin (Plugin trait impl)
+    // ─────────────────────────────────────────────────────────
+
+    use crate::plugins::{Plugin, PluginContext, PluginKind};
+
+    #[test]
+    fn clipboard_plugin_kind_and_handles_match_token() {
+        let p = ClipboardPlugin::new();
+        assert_eq!(p.kind(), PluginKind::Clipboard);
+        assert_eq!(p.handles(), &["kdeconnect.clipboard"]);
+    }
+
+    #[test]
+    fn clipboard_plugin_queues_inbound_content() {
+        let mut plugin = ClipboardPlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        plugin.process(&clipboard_packet(1, "hello".into()), &ctx);
+        let drained = plugin.take_received();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].content, "hello");
+    }
+
+    #[test]
+    fn clipboard_plugin_drops_malformed_without_panic() {
+        let mut plugin = ClipboardPlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        let bad = Packet {
+            id: 1,
+            kind: "kdeconnect.clipboard".to_string(),
+            body: serde_json::json!({"not_content": 42}),
+            mde_caps: None,
+        };
+        plugin.process(&bad, &ctx);
+        assert_eq!(plugin.pending_count(), 0);
+    }
+}
+
+// ────────────────────────────────────────────────────────────────
+// KDC2-2.14 — ClipboardPlugin (Plugin trait impl, adapter pattern)
+// ────────────────────────────────────────────────────────────────
+
+/// `Plugin` impl that mirrors inbound clipboard content.
+///
+/// Adapter pattern (same as `NotificationPlugin`): the protocol
+/// crate stays pure. Host (`mde-kdc`) drains via
+/// `take_received()` and writes to the local clipboard (via
+/// `wl-copy` on Wayland or equivalent).
+#[derive(Debug, Default)]
+pub struct ClipboardPlugin {
+    received: Vec<ClipboardBody>,
+    handles: [&'static str; 1],
+}
+
+impl ClipboardPlugin {
+    /// New empty plugin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            received: Vec::new(),
+            handles: ["kdeconnect.clipboard"],
+        }
+    }
+
+    /// Drain every received clipboard body.
+    #[must_use]
+    pub fn take_received(&mut self) -> Vec<ClipboardBody> {
+        std::mem::take(&mut self.received)
+    }
+
+    /// Items currently queued.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.received.len()
+    }
+}
+
+impl crate::plugins::Plugin for ClipboardPlugin {
+    fn kind(&self) -> crate::plugins::PluginKind {
+        crate::plugins::PluginKind::Clipboard
+    }
+
+    fn handles(&self) -> &[&'static str] {
+        &self.handles
+    }
+
+    fn process(
+        &mut self,
+        packet: &crate::wire::Packet,
+        _ctx: &crate::plugins::PluginContext,
+    ) -> Vec<crate::wire::Packet> {
+        if let Ok(body) = from_packet_body::<ClipboardBody>(packet) {
+            self.received.push(body);
+        }
+        Vec::new()
+    }
 }

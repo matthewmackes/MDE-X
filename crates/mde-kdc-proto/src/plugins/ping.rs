@@ -82,4 +82,66 @@ mod tests {
         let p = ping_packet(1, "x".to_string());
         assert_eq!(p.kind, crate::plugins::PluginKind::Ping.packet_kind());
     }
+
+    // KDC2-2.16 — PingPlugin Plugin trait impl
+
+    use crate::plugins::{Plugin, PluginContext, PluginKind};
+
+    #[test]
+    fn ping_plugin_queues_received_message() {
+        let mut plugin = PingPlugin::new();
+        let ctx = PluginContext::new("alice", true);
+        plugin.process(&ping_packet(1, "ping from alice".into()), &ctx);
+        let drained = plugin.take_received();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].message, "ping from alice");
+    }
+}
+
+/// KDC2-2.16 — PingPlugin (adapter pattern). Inbound pings get
+/// queued for host-side notification surfacing.
+#[derive(Debug, Default)]
+pub struct PingPlugin {
+    received: Vec<PingBody>,
+    handles: [&'static str; 1],
+}
+
+impl PingPlugin {
+    /// New empty plugin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            received: Vec::new(),
+            handles: ["kdeconnect.ping"],
+        }
+    }
+    /// Drain every queued inbound ping body.
+    #[must_use]
+    pub fn take_received(&mut self) -> Vec<PingBody> {
+        std::mem::take(&mut self.received)
+    }
+    /// Items currently queued.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.received.len()
+    }
+}
+
+impl crate::plugins::Plugin for PingPlugin {
+    fn kind(&self) -> crate::plugins::PluginKind {
+        crate::plugins::PluginKind::Ping
+    }
+    fn handles(&self) -> &[&'static str] {
+        &self.handles
+    }
+    fn process(
+        &mut self,
+        packet: &crate::wire::Packet,
+        _ctx: &crate::plugins::PluginContext,
+    ) -> Vec<crate::wire::Packet> {
+        if let Ok(body) = crate::plugins::from_packet_body::<PingBody>(packet) {
+            self.received.push(body);
+        }
+        Vec::new()
+    }
 }

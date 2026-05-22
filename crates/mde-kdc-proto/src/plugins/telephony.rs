@@ -143,4 +143,68 @@ mod tests {
         assert_eq!(body.contact_name, "");
         assert!(!body.is_cancel);
     }
+
+    // KDC2-2.18 — TelephonyPlugin Plugin trait impl
+    use crate::plugins::{Plugin, PluginContext, PluginKind};
+
+    #[test]
+    fn telephony_plugin_queues_inbound_event() {
+        let mut plugin = TelephonyPlugin::new();
+        let ctx = PluginContext::new("phone", true);
+        let body = TelephonyBody {
+            event: TelephonyEvent::Ringing,
+            phone_number: "+15551234".to_string(),
+            contact_name: "Alice".to_string(),
+            is_cancel: false,
+        };
+        plugin.process(&telephony_packet(1, body.clone()), &ctx);
+        assert_eq!(plugin.take_received(), vec![body]);
+    }
+}
+
+/// KDC2-2.18a — TelephonyPlugin (Plugin trait impl)
+#[derive(Debug, Default)]
+pub struct TelephonyPlugin {
+    received: Vec<TelephonyBody>,
+    handles: [&'static str; 1],
+}
+
+impl TelephonyPlugin {
+    /// New empty plugin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            received: Vec::new(),
+            handles: ["kdeconnect.telephony"],
+        }
+    }
+    /// Drain every queued telephony body.
+    #[must_use]
+    pub fn take_received(&mut self) -> Vec<TelephonyBody> {
+        std::mem::take(&mut self.received)
+    }
+    /// Items currently queued.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.received.len()
+    }
+}
+
+impl crate::plugins::Plugin for TelephonyPlugin {
+    fn kind(&self) -> crate::plugins::PluginKind {
+        crate::plugins::PluginKind::Telephony
+    }
+    fn handles(&self) -> &[&'static str] {
+        &self.handles
+    }
+    fn process(
+        &mut self,
+        packet: &crate::wire::Packet,
+        _ctx: &crate::plugins::PluginContext,
+    ) -> Vec<crate::wire::Packet> {
+        if let Ok(body) = crate::plugins::from_packet_body::<TelephonyBody>(packet) {
+            self.received.push(body);
+        }
+        Vec::new()
+    }
 }

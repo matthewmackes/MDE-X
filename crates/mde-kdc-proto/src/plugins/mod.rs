@@ -24,16 +24,16 @@ pub mod share;
 pub mod sms;
 pub mod telephony;
 
-pub use battery::{battery_packet, BatteryBody};
-pub use clipboard::{clipboard_packet, from_packet_body, ClipboardBody};
-pub use findmyphone::{find_my_phone_packet, FindMyPhoneBody};
-pub use mpris::{mpris_command_packet, MprisBody, MprisKind};
-pub use notification::{notification_packet, NotificationBody};
-pub use ping::{ping_packet, PingBody};
+pub use battery::{battery_packet, BatteryBody, BatteryPlugin};
+pub use clipboard::{clipboard_packet, from_packet_body, ClipboardBody, ClipboardPlugin};
+pub use findmyphone::{find_my_phone_packet, FindMyPhoneBody, FindMyPhonePlugin};
+pub use mpris::{mpris_command_packet, MprisBody, MprisKind, MprisPlugin};
+pub use notification::{notification_packet, NotificationBody, NotificationPlugin};
+pub use ping::{ping_packet, PingBody, PingPlugin};
 pub use run_command::{run_command_packet, RunCommandBody};
-pub use share::{file_share_packet, url_share_packet, ShareBody, ShareKind};
-pub use sms::{sms_messages_packet, SmsMessage, SmsMessagesBody};
-pub use telephony::{telephony_packet, TelephonyBody, TelephonyEvent};
+pub use share::{file_share_packet, url_share_packet, ShareBody, ShareKind, SharePlugin};
+pub use sms::{sms_messages_packet, SmsMessage, SmsMessagesBody, SmsPlugin};
+pub use telephony::{telephony_packet, TelephonyBody, TelephonyEvent, TelephonyPlugin};
 
 use std::fmt;
 

@@ -165,4 +165,67 @@ mod tests {
         assert_eq!(m.address, "");
         assert!(!m.read);
     }
+
+    // KDC2-2.18 — SmsPlugin Plugin trait impl
+    use crate::plugins::{Plugin, PluginContext, PluginKind};
+
+    #[test]
+    fn sms_plugin_queues_inbound_message_list() {
+        let mut plugin = SmsPlugin::new();
+        let ctx = PluginContext::new("phone", true);
+        let msgs = vec![sample_msg(1, 1, "hi"), sample_msg(2, 1, "back")];
+        plugin.process(&sms_messages_packet(1, msgs.clone()), &ctx);
+        let drained = plugin.take_received();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].messages.len(), 2);
+    }
+}
+
+/// KDC2-2.18 — SmsPlugin. Queues inbound SmsMessagesBody packets;
+/// host's SMS view groups + renders by thread.
+#[derive(Debug, Default)]
+pub struct SmsPlugin {
+    received: Vec<SmsMessagesBody>,
+    handles: [&'static str; 1],
+}
+
+impl SmsPlugin {
+    /// New empty plugin.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            received: Vec::new(),
+            handles: ["kdeconnect.sms.messages"],
+        }
+    }
+    /// Drain every queued SMS message-list body.
+    #[must_use]
+    pub fn take_received(&mut self) -> Vec<SmsMessagesBody> {
+        std::mem::take(&mut self.received)
+    }
+    /// Items currently queued.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.received.len()
+    }
+}
+
+impl crate::plugins::Plugin for SmsPlugin {
+    fn kind(&self) -> crate::plugins::PluginKind {
+        crate::plugins::PluginKind::Sms
+    }
+    fn handles(&self) -> &[&'static str] {
+        &self.handles
+    }
+    fn process(
+        &mut self,
+        packet: &crate::wire::Packet,
+        _ctx: &crate::plugins::PluginContext,
+    ) -> Vec<crate::wire::Packet> {
+        if let Ok(body) = crate::plugins::from_packet_body::<SmsMessagesBody>(packet)
+        {
+            self.received.push(body);
+        }
+        Vec::new()
+    }
 }
