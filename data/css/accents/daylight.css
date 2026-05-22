@@ -1,8 +1,0 @@
-/* Daylight — cool yellow (Carbon Yellow 30) on Gray 100.
- * Even on a dark chrome, the accent should evoke daytime productivity.
- */
-@define-color mackes_accent        #f1c21b;
-@define-color mackes_accent_hover  alpha(@mackes_accent, 0.85);
-@define-color mackes_accent_active alpha(@mackes_accent, 0.70);
-@define-color mackes_accent_dim    alpha(@mackes_accent, 0.20);
-@define-color mackes_accent_focus  @mackes_accent;

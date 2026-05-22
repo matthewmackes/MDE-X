@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 mackes-config     = { path = "../mackes-config" }
 mackes-mesh-types = { path = "../mackes-mesh-types" }
+mackes-theme      = { path = "../mackes-theme" }
 gtk               = { version = "0.18", package = "gtk", features = ["v3_24"] }
 gdk               = { version = "0.18" }
 gdk-pixbuf        = { version = "0.18" }

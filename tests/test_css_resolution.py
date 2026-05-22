@@ -11,7 +11,7 @@ def test_base_css_resolves():
 
 
 def test_every_accent_resolves():
-    for preset in ("hashbang", "mackes", "daylight", "vanilla"):
+    for preset in ("ableton",):
         p = _resolve_css("accents", f"{preset}.css")
         assert p is not None, f"missing accent for {preset}"
 

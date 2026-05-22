@@ -433,6 +433,21 @@ fn install_global_styling() {
         }
     }
 
+    // Load the active preset's accent override CSS so the GTK panel
+    // stays in sync with the Iced apps and the Python Workbench.
+    if let Some(preset) = mackes_theme::read_active_preset() {
+        if let Some(accent_path) = mackes_theme::locate_accent_css(&preset) {
+            let provider = gtk::CssProvider::new();
+            if provider.load_from_path(accent_path.to_str().unwrap_or("")).is_ok() {
+                gtk::StyleContext::add_provider_for_screen(
+                    &screen,
+                    &provider,
+                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 5,
+                );
+            }
+        }
+    }
+
     // Inline backup — overlays the tokens with our panel-specific bits
     // (window IDs, hairline borders). Higher priority so it wins on the
     // panel IDs without stomping general token rules.

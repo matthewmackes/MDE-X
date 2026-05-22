@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use iced::theme::{Custom, Palette};
 use iced::{Color, Theme};
 
-use mackes_theme::{parse_tokens, token_value, TokenTable};
+use mackes_theme::{apply_preset_accent, parse_tokens, token_value, TokenTable};
 
 // ──────────────────────────────────────────────────────────────
 // Token-name lock — every name below must exist in
@@ -98,7 +98,11 @@ pub fn theme_from_tokens(tokens: &TokenTable) -> Theme {
 pub fn load_theme() -> Theme {
     locate_tokens_css()
         .and_then(|p| read_css(&p))
-        .map(|css| theme_from_tokens(&parse_tokens(&css)))
+        .map(|css| {
+            let mut tokens = parse_tokens(&css);
+            apply_preset_accent(&mut tokens);
+            theme_from_tokens(&tokens)
+        })
         .unwrap_or(Theme::Dark)
 }
 

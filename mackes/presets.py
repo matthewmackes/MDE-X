@@ -31,7 +31,7 @@ SHIPPED_PRESET_DIRS = [
 
 # Name of the preset that gets pre-selected in the wizard and used as the
 # implicit "active" preset when nothing is set in state.json.
-DEFAULT_PRESET_NAME = "hashbang"
+DEFAULT_PRESET_NAME = "ableton"
 
 
 # ---------------------------------------------------------------------------

@@ -24,8 +24,9 @@ path = "src/main.rs"
 [dependencies]
 # Iced is the v2.0.0 Wayland-only UI toolkit (already a workspace
 # member via mde-files). Same feature set so we share its dep tree.
-iced       = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced"] }
-clap       = { version = "4.5", features = ["derive"] }
+iced         = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced"] }
+clap         = { version = "4.5", features = ["derive"] }
+mackes-theme = { path = "../mackes-theme" }
 
 [features]
 # `wayland` (default): Wayland window hints via Iced.

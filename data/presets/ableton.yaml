@@ -1,13 +1,15 @@
-# Mackes — the house style.
+# Ableton Live — dark production aesthetic.
 #
-# Warm-dark, polished, opinionated. The aesthetic and curated tool set the
-# project was built around. Standard XFCE shell underneath the house theme.
+# Warm near-black surfaces, muted gray text, and Ableton's signature
+# orange highlight. Built for focus, flow, and audio production work
+# on Linux (Bitwig Studio, Ardour, Carla).
 
-name: mackes
-display_name: "Mackes"
+name: ableton
+display_name: "Ableton"
 description: >
-  The house style — warm-dark, polished. Orchis-Dark GTK + Red Hat
-  typography (PatternFly v6), curated development tool set. Standard XFCE shell.
+  Ableton Live-inspired dark UI. Warm near-black surfaces, muted gray
+  text, and the signature #ff7700 orange highlight. Curated for audio
+  production and creative focus work.
 
 appearance:
   gtk_theme:      "Orchis-Dark"
@@ -20,7 +22,7 @@ appearance:
 
 devices:
   display_scaling:    "auto"
-  power_profile:      "balanced"
+  power_profile:      "performance"
   audio_default_sink: "pipewire"
 
 network:
@@ -28,13 +30,12 @@ network:
   firewall_default_zone: "FedoraWorkstation"
 
 system:
-  workspace_count:       1   # Q29 lock: workspaces dropped — single desktop, Cmd+Tab for app switch
+  workspace_count:       1
   window_manager_theme:  "Shiki-Statler"
   notifications_enabled: true
   autostart_extras: []
 
 panel:
-  # Clock plugin — captured from live xfconf as the standard layout.
   clock:
     digital-layout:      1
     digital-date-format: "%B %d, %Y"
@@ -44,29 +45,19 @@ panel:
 
 apps:
   install:
-    - filezilla
     - terminator
     - vlc
-    - microsoft-edge-stable
-    - code              # VS Code (Microsoft repo)
-    - cursor            # AppImage to ~/.local/bin
-    - claude-code       # `npm i -g @anthropic-ai/claude-code`
-    - remmina
-    - mc
-    - neofetch
+    - ardour
+    - carla
+    - qjackctl
     - menulibre
 
   remove_bloat:
     - gnome-software
     - gnome-tour
     - gnome-maps
-    - gnome-weather
-    - gnome-contacts
-    - gnome-clocks
-    - gnome-calendar
     - gnome-music
     - totem
-    - "libreoffice-*"
     - asunder
     - parole
     - pragha
@@ -76,4 +67,4 @@ apps:
     - pidgin
 
 snapshot:
-  initial_snapshot_name: "mackes-baseline"
+  initial_snapshot_name: "ableton-baseline"

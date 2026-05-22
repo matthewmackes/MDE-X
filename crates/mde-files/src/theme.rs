@@ -1,7 +1,16 @@
 //! Visual tokens — Rust translation of the PatternFly v6 + Mackes warm-dark
 //! palette declared at the top of the prototype's `:root { ... }` block.
+//!
+//! The `theme()` function loads the canonical `data/css/tokens.css` at
+//! runtime and applies the active preset's accent override, so the Iced
+//! palette stays in sync with the GTK layer. The const color values below
+//! serve as (a) compile-time fallbacks and (b) widget-level detail colors
+//! not covered by the five-slot Iced palette.
+
+use std::path::PathBuf;
 
 use iced::Color;
+use mackes_theme::{apply_preset_accent, parse_tokens, token_value};
 
 const fn rgb_hex(r: u8, g: u8, b: u8) -> Color {
     Color {
@@ -116,12 +125,20 @@ pub fn peer_status_dot(status: PeerStatus) -> Color {
 
 // ─── Iced theme ────────────────────────────────────────────────────────────
 
-/// Build the project's Iced theme — a custom dark palette derived from the
-/// PatternFly + warm-dark tokens above.
+/// Build the Iced theme from `tokens.css` + the active preset's accent
+/// override. Falls back to the hardcoded warm-dark palette when no token
+/// file is found (dev builds without the install tree).
 #[must_use]
 pub fn theme() -> iced::Theme {
+    if let Some(path) = locate_tokens_css() {
+        if let Ok(css) = std::fs::read_to_string(path) {
+            let mut tokens = parse_tokens(&css);
+            apply_preset_accent(&mut tokens);
+            return theme_from_tokens(&tokens);
+        }
+    }
     iced::Theme::custom(
-        "MDE Warm Dark".into(),
+        "MDE".into(),
         iced::theme::Palette {
             background: WINDOW,
             text: FG,
@@ -130,4 +147,40 @@ pub fn theme() -> iced::Theme {
             danger: PF_DANGER,
         },
     )
+}
+
+fn locate_tokens_css() -> Option<PathBuf> {
+    [
+        PathBuf::from("/usr/share/mde/css/tokens.css"),
+        PathBuf::from("/usr/share/mackes-shell/data/css/tokens.css"),
+        PathBuf::from("data/css/tokens.css"),
+        PathBuf::from("../../data/css/tokens.css"),
+    ]
+    .into_iter()
+    .find(|p| p.exists())
+}
+
+fn theme_from_tokens(tokens: &mackes_theme::TokenTable) -> iced::Theme {
+    let mut palette = iced::theme::Palette {
+        background: WINDOW,
+        text: FG,
+        primary: ACCENT,
+        success: PF_SUCCESS,
+        danger: PF_DANGER,
+    };
+    let seeds: &[(&str, fn(&mut iced::theme::Palette, Color))] = &[
+        ("cds_bg_default",    |p, c| p.background = c),
+        ("cds_text_primary",  |p, c| p.text = c),
+        ("mackes_accent",     |p, c| p.primary = c),
+        ("cds_support_success", |p, c| p.success = c),
+        ("cds_support_error", |p, c| p.danger = c),
+    ];
+    for (name, setter) in seeds {
+        if let Some(val) = token_value(tokens, name) {
+            if let Some((r, g, b, _)) = mackes_theme::parse_hex_color(val) {
+                setter(&mut palette, Color::from_rgb8(r, g, b));
+            }
+        }
+    }
+    iced::Theme::custom("MDE".into(), palette)
 }

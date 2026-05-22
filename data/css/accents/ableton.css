@@ -1,0 +1,32 @@
+/* Ableton Live — signature orange accent on warm dark surfaces.
+ * Matches Ableton Live 12's UI palette: near-black chrome,
+ * warm mid-gray panels, pure-orange highlight.
+ */
+@define-color mackes_accent        #ff7700;
+@define-color mackes_accent_hover  alpha(@mackes_accent, 0.88);
+@define-color mackes_accent_active alpha(@mackes_accent, 0.72);
+@define-color mackes_accent_dim    alpha(@mackes_accent, 0.18);
+@define-color mackes_accent_soft   alpha(@mackes_accent, 0.12);
+@define-color mackes_accent_focus  @mackes_accent;
+
+/* Ableton surface palette — warmer neutral vs PF v6's blueish-dark */
+@define-color cds_bg_default       #1a1a1a;
+@define-color cds_bg_layer_01      #242424;
+@define-color cds_bg_layer_02      #2e2e2e;
+@define-color cds_bg_layer_03      #3a3a3a;
+@define-color cds_bg_hover         #333333;
+@define-color cds_bg_active        #3a3a3a;
+@define-color cds_bg_selected      #3a2000;
+
+/* Text — slightly softer than PF's near-white */
+@define-color cds_text_primary     #cccccc;
+@define-color cds_text_secondary   #999999;
+@define-color cds_text_helper      #777777;
+@define-color cds_text_placeholder #555555;
+@define-color cds_text_disabled    #4a4a4a;
+
+/* Borders — very subtle warm gray */
+@define-color cds_border_subtle_00 #2e2e2e;
+@define-color cds_border_subtle_01 #3a3a3a;
+@define-color cds_border_subtle_02 #4a4a4a;
+@define-color cds_border_strong_01 #555555;

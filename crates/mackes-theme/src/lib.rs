@@ -32,6 +32,7 @@
 #![warn(missing_docs)]
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 /// One parsed token. The hex value is held as a `String` so this
 /// crate stays dep-free; downstream cosmic-theme builders convert
@@ -181,6 +182,65 @@ pub fn token_value<'a>(table: &'a TokenTable, name: &str) -> Option<&'a str> {
     table.get(name).map(|t| t.value.as_str())
 }
 
+// ─── Runtime loaders (std-only, no new deps) ────────────────────────────────
+
+/// Search the standard install + dev locations for `<preset>.css`
+/// inside an `accents/` directory, returning the first path that
+/// exists on disk.
+#[must_use]
+pub fn locate_accent_css(preset: &str) -> Option<PathBuf> {
+    let filename = format!("{preset}.css");
+    [
+        PathBuf::from("/usr/share/mde/css/accents").join(&filename),
+        PathBuf::from("/usr/share/mackes-shell/data/css/accents").join(&filename),
+        PathBuf::from("data/css/accents").join(&filename),
+        PathBuf::from("../../data/css/accents").join(&filename),
+    ]
+    .into_iter()
+    .find(|p| p.exists())
+}
+
+/// Read the active preset name from `$XDG_CONFIG_HOME/mde/state.json`
+/// (defaults to `~/.config/mde/state.json`). Uses minimal string
+/// search — no serde_json dep.
+#[must_use]
+pub fn read_active_preset() -> Option<String> {
+    let path = mde_state_json_path()?;
+    let text = std::fs::read_to_string(path).ok()?;
+    json_string_field(&text, "preset")
+}
+
+/// Apply the active preset's accent CSS to `base` in-place.
+///
+/// Reads preset name → finds `accents/<preset>.css` → parses every
+/// `@define-color` → merges into `base` (accent entries win).
+/// No-ops gracefully when any file is missing.
+pub fn apply_preset_accent(base: &mut TokenTable) {
+    let Some(preset) = read_active_preset() else { return };
+    let Some(path) = locate_accent_css(&preset) else { return };
+    let Ok(css) = std::fs::read_to_string(path) else { return };
+    base.extend(parse_tokens(&css));
+}
+
+fn mde_state_json_path() -> Option<PathBuf> {
+    let config_root = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config"))
+        })?;
+    Some(config_root.join("mde").join("state.json"))
+}
+
+fn json_string_field(json: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\"");
+    let start = json.find(&needle)? + needle.len();
+    let after_colon = json[start..].trim_start().strip_prefix(':')?.trim_start();
+    let inner = after_colon.strip_prefix('"')?;
+    let end = inner.find('"')?;
+    let value = &inner[..end];
+    if value.is_empty() { None } else { Some(value.to_string()) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,6 +345,37 @@ mod tests {
         assert_eq!(t.len(), 2);
         assert_eq!(token_value(&t, "mackes_accent"), Some("#112233"));
         assert_eq!(token_value(&t, "cds_focus"), Some("#112233"));
+    }
+
+    #[test]
+    fn json_string_field_extracts_known_key() {
+        let s = r#"{"provisioned":true,"preset":"ableton","other":"x"}"#;
+        assert_eq!(json_string_field(s, "preset"), Some("ableton".to_string()));
+    }
+
+    #[test]
+    fn json_string_field_handles_whitespace() {
+        let s = r#"{ "preset" :  "ableton"  }"#;
+        assert_eq!(json_string_field(s, "preset"), Some("ableton".to_string()));
+    }
+
+    #[test]
+    fn json_string_field_missing_key_returns_none() {
+        assert_eq!(json_string_field(r#"{"other":"x"}"#, "preset"), None);
+    }
+
+    #[test]
+    fn json_string_field_empty_value_returns_none() {
+        assert_eq!(json_string_field(r#"{"preset":""}"#, "preset"), None);
+    }
+
+    #[test]
+    fn apply_preset_accent_does_not_panic_without_state_file() {
+        let mut tokens = parse_tokens("@define-color mackes_accent #ff0000;");
+        // No state.json in test env — should no-op without panic.
+        apply_preset_accent(&mut tokens);
+        // Base token survives untouched when no override applies.
+        assert!(token_value(&tokens, "mackes_accent").is_some());
     }
 
     #[test]
