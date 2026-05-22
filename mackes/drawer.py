@@ -554,10 +554,15 @@ def _load_pending_notifications() -> list:
     Mackes services as they emit events). Empty list when there's
     nothing to surface.
 
-    Phase 13.4 — also merges mirrored KDE Connect notifications from
-    ~/.cache/mackes/kdeconnect-notifications.json so phone events
-    surface in the drawer with an ``origin: "phone"`` marker
-    (rendered by `_notifications_section` with a 📱 badge).
+    KDC2-5.10 (v2.1+) — the Phase 13.4 KDE Connect mirrored-
+    notifications merge is retired. Phone notifications now flow
+    directly into the local notification stack via mako (the
+    Wayland-native notification daemon) over the
+    `dev.mackes.MDE.Connect` D-Bus signal surface, and the
+    Iced applet at `crates/mde-applets/notifications/` renders
+    the phone glyph badge (KDC2-5.11). The drawer's only
+    notification source is now the local
+    `notifications.json` snapshot.
     """
     notes = []
     cache = _cache_root()
@@ -567,26 +572,6 @@ def _load_pending_notifications() -> list:
             notes = list(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, json.JSONDecodeError):
             notes = []
-    # Merge KDE Connect mirrored notifications (Phase 13.4). Each
-    # mirrored entry gets `origin: "phone"` so the drawer can show
-    # the phone glyph badge without an extra DBus call.
-    phone_path = cache / "mackes" / "kdeconnect-notifications.json"
-    if phone_path.is_file():
-        try:
-            phone_raw = json.loads(phone_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            phone_raw = []
-        if not isinstance(phone_raw, list):
-            phone_raw = []
-        for n in phone_raw:
-            if not isinstance(n, dict):
-                continue
-            merged = dict(n)
-            merged.setdefault("origin", "phone")
-            merged.setdefault("app", n.get("device", "phone"))
-            merged.setdefault("title", n.get("title", "(no title)"))
-            merged.setdefault("body", n.get("text") or n.get("body", ""))
-            notes.append(merged)
     return notes
 
 
@@ -977,16 +962,13 @@ def _notifications_section(state: LiveState, on_clear) -> Gtk.Widget:
         nbox.get_style_context().add_class("mackes-drawer-notif")
         if u in ("warn", "crit"):
             nbox.get_style_context().add_class(u)
-        # Phase 13.4 — KDE Connect mirrored notifications carry
-        # `origin: "phone"` so we prefix the app row with a phone
-        # glyph badge. Falls through cleanly for non-phone origins.
+        # KDC2-5.10 (v2.1+) — the Phase 13.4 phone-origin badge
+        # is retired here. Phone notifications now arrive through
+        # mako (Wayland-native daemon) and the Iced applet at
+        # `crates/mde-applets/notifications/` paints the badge
+        # (KDC2-5.11). The drawer renders the local stack
+        # uniformly without a phone-specific branch.
         app_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        if n.get("origin") == "phone":
-            app_row.pack_start(_label("📱",
-                                        classes=("mackes-drawer-meta",
-                                                 "mackes-drawer-mono",
-                                                 "mackes-drawer-notif-phone")),
-                                False, False, 0)
         app_row.pack_start(_label(n.get("app", "system"),
                                     classes=("mackes-drawer-meta",
                                              "mackes-drawer-mono")),

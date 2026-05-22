@@ -56,6 +56,27 @@ pub struct NotificationRow {
     /// Dismissed state — implies read.
     #[serde(default)]
     pub dismissed: bool,
+    /// KDC2-5.11 — origin token. When `"phone"`, the renderer
+    /// prefixes the row with the phone glyph badge. Stays
+    /// blank for local notifications. Wire-compatible with the
+    /// Phase 13.4 drawer's marker so old `notifications.json`
+    /// snapshots round-trip cleanly.
+    #[serde(default)]
+    pub origin: String,
+}
+
+/// KDC2-5.11 — phone glyph the center prepends to rows whose
+/// `origin == "phone"`. Constant so the Iced renderer + the
+/// format_center helper agree on the glyph.
+pub const PHONE_ORIGIN_GLYPH: &str = "📱";
+
+/// True when the row originated from a paired phone (mirror via
+/// the `dev.mackes.MDE.Connect` D-Bus signal flow). Used by the
+/// renderer to prepend the glyph + by tests to assert the
+/// badging logic.
+#[must_use]
+pub fn is_phone_origin(row: &NotificationRow) -> bool {
+    row.origin == "phone"
 }
 
 #[must_use]
@@ -109,7 +130,13 @@ pub fn format_center(groups: &[(String, Vec<NotificationRow>)]) -> String {
         for r in rows {
             let mark = if r.read { " " } else { "•" };
             let body_preview: String = r.body.chars().take(60).collect();
-            out.push_str(&format!("{mark} {} · {body_preview}\n", r.title));
+            // KDC2-5.11 — phone-origin rows wear the badge.
+            let badge = if is_phone_origin(r) {
+                format!("{PHONE_ORIGIN_GLYPH} ")
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("{mark} {badge}{} · {body_preview}\n", r.title));
         }
     }
     out.trim_end_matches('\n').to_string()
@@ -133,6 +160,7 @@ mod tests {
             created_at: ts,
             read,
             dismissed: false,
+            origin: String::new(),
         }
     }
 
@@ -235,5 +263,57 @@ mod tests {
     #[test]
     fn handle_host_short_circuits_shutdown() {
         assert!(!handle_host(&HostMessage::Shutdown));
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // KDC2-5.11 — phone-origin badge
+    // ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_phone_origin_matches_only_on_phone_token() {
+        let mut r = NotificationRow::default();
+        assert!(!is_phone_origin(&r), "default origin is local");
+        r.origin = "phone".into();
+        assert!(is_phone_origin(&r));
+        r.origin = "tablet".into();
+        assert!(!is_phone_origin(&r), "tablet is not phone");
+    }
+
+    #[test]
+    fn format_center_prepends_phone_glyph_for_phone_origin_rows() {
+        let mut row = make_row("p1", "alpha", "Ring", 100, false);
+        row.origin = "phone".into();
+        let groups = vec![("alpha".to_string(), vec![row])];
+        let s = format_center(&groups);
+        assert!(s.contains(PHONE_ORIGIN_GLYPH), "phone badge missing: {s}");
+        assert!(s.contains("Ring"));
+    }
+
+    #[test]
+    fn format_center_omits_glyph_for_local_rows() {
+        let groups = vec![(
+            "".to_string(),
+            vec![make_row("l1", "", "Local", 100, false)],
+        )];
+        let s = format_center(&groups);
+        assert!(
+            !s.contains(PHONE_ORIGIN_GLYPH),
+            "local row must not wear phone glyph",
+        );
+    }
+
+    #[test]
+    fn phone_origin_round_trips_through_json() {
+        // Wire-compat lock with the v1.x drawer's `origin:
+        // "phone"` marker — snapshots from the old format
+        // deserialize cleanly.
+        let raw = r#"[
+            {"id": "p1", "peer": "alpha", "title": "T", "body": "B",
+             "created_at": 100, "read": false, "dismissed": false,
+             "origin": "phone"}
+        ]"#;
+        let rows = parse_notifications(raw);
+        assert_eq!(rows.len(), 1);
+        assert!(is_phone_origin(&rows[0]));
     }
 }

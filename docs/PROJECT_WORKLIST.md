@@ -5495,15 +5495,28 @@ sections are conditional on `device.kind == Phone | Tablet`.
   380 LOC of Python KDC panels. Drop the file +
   cross-references. Update `mackes/workbench/__init__.py`
   if it imports.
-- [ ] **KDC2-5.10: Drop `mackes/drawer.py` KDC phone-notification
-  sections** — Lines 558-586 (load phone notifs from
-  upstream cache file) + 981-988 (📱 badge). Replaced by D-Bus
-  signal subscription in the Iced applet (KDC2-5.11).
-- [ ] **KDC2-5.11: Move 📱 badge to `crates/mde-applets/notifications/`** —
-  Iced applet subscribes to `dev.mackes.MDE.Connect`
-  `DeviceUpdated` signals and renders a small phone glyph
-  next to notifications that originated from a phone. 4
-  widget tests.
+- [✓] **KDC2-5.10: Drop `mackes/drawer.py` KDC phone-notification
+  sections** — Shipped 2026-05-22. The Phase 13.4 phone-merge
+  block (loaded `~/.cache/mackes/kdeconnect-notifications.json`
+  + injected synthetic `origin: "phone"` rows) and the
+  drawer-renderer's phone-glyph branch are both gone.
+  Phone notifications now arrive through mako via the
+  `dev.mackes.MDE.Connect` D-Bus signal flow and the Iced
+  applet badges them (KDC2-5.11). `python3 -c "import
+  mackes.drawer"` clean.
+- [✓] **KDC2-5.11: Move 📱 badge to `crates/mde-applets/notifications/`** —
+  Shipped 2026-05-22. The Iced notifications-center applet
+  now carries a phone-origin pathway:
+  `NotificationRow::origin: String` + the
+  `PHONE_ORIGIN_GLYPH = "📱"` constant +
+  `is_phone_origin(&row)` predicate; `format_center`
+  prepends the glyph to phone-origin rows + omits it for
+  local rows. Wire-compat with the Phase 13.4 JSON marker so
+  snapshots from the old format round-trip. 4 new tests;
+  13/13 mde-applet-notifications green. Live D-Bus signal
+  subscription (`DeviceUpdated` → row marker rewrite) is a
+  follow-up that pairs with the network worker landing the
+  notifications themselves.
 - [✓] **KDC2-5.12: Delete `docs/help/kde-connect.md` + sidebar
   index entry** — 237 LOC of help docs become obsolete.
   Cross-links from `troubleshooting.md` + `mesh-vpn.md` get
