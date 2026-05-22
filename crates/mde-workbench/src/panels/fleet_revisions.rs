@@ -8,8 +8,10 @@
 
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Element, Length, Task};
+use mde_theme::{Density, EmptyState, Icon, Palette};
 use serde::Deserialize;
 
+use crate::panel_chrome::{empty_state, panel_container};
 use crate::panels::fleet_settings::run_mded;
 
 /// One row from `mded revisions list --json`.
@@ -139,15 +141,28 @@ impl FleetRevisionsPanel {
             .map(|rev| revision_row(rev, self.busy))
             .collect();
 
-        let list_body: Element<'_, crate::Message> = if rows.is_empty() {
-            text("(no revisions yet — `mded` returned an empty list)")
-                .size(13)
-                .into()
-        } else {
-            scrollable(column(rows).spacing(4))
-                .height(Length::Fixed(360.0))
-                .into()
-        };
+        if rows.is_empty() {
+            // UX-6.b — polished empty-state with refresh CTA.
+            let _ = refresh_btn;
+            let state = EmptyState::with_cta(
+                "No revisions yet",
+                "Applied desired-config revisions show up here. Push a \
+                 configuration through the Fleet panel (or via `mded apply`) \
+                 to create the first one.",
+                "Refresh",
+            )
+            .with_icon(Icon::History);
+            return panel_container(
+                empty_state(state, Palette::dark(), || {
+                    crate::Message::FleetRevisions(Message::RefreshClicked)
+                }),
+                Density::Comfortable,
+            );
+        }
+
+        let list_body: Element<'_, crate::Message> = scrollable(column(rows).spacing(4))
+            .height(Length::Fixed(360.0))
+            .into();
 
         column![
             row![refresh_btn, text(&self.status).size(13)].spacing(12),

@@ -13,6 +13,9 @@ use std::path::PathBuf;
 
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Element, Length, Padding, Task};
+use mde_theme::{Density, EmptyState, Icon, Palette};
+
+use crate::panel_chrome::{empty_state, panel_container};
 
 /// One row in the run-history table.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -111,21 +114,22 @@ impl RunHistoryPanel {
             button(text("Refresh")).on_press(crate::Message::RunHistory(Message::RefreshClicked));
 
         if self.rows.is_empty() {
-            return column![
-                text("No runs recorded").size(18),
-                text(
-                    "MDE reads ansible-pull history from \
-                     ~/QNM-Shared/.qnm-sync/ansible-runs/<peer>/. \
-                     Run a playbook from Fleet → Playbooks and \
-                     refresh.",
-                )
-                .size(13),
-                row![refresh_btn, text(&self.status).size(13)].spacing(12),
-            ]
-            .spacing(8)
-            .width(Length::Fill)
-            
-            .into();
+            // UX-6.b — empty-state with refresh CTA.
+            let _ = refresh_btn;
+            let state = EmptyState::with_cta(
+                "No runs recorded",
+                "MDE reads ansible-pull history from \
+                 ~/QNM-Shared/.qnm-sync/ansible-runs/<peer>/. Run a playbook \
+                 from Fleet → Playbooks and refresh.",
+                "Refresh",
+            )
+            .with_icon(Icon::History);
+            return panel_container(
+                empty_state(state, Palette::dark(), || {
+                    crate::Message::RunHistory(Message::RefreshClicked)
+                }),
+                Density::Comfortable,
+            );
         }
 
         let header = row![

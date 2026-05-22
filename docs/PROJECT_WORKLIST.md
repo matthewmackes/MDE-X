@@ -4921,8 +4921,8 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   view exists for every panel that can render zero rows.
   Effort: Medium-to-High (one panel ≈ 5 min; sweep ≈ 2–3 hrs).
 
-- [ ] **UX-6.b: Empty-state coverage for data panels — v2.1+ scope
-  (chain on UX-6.a)** — UX-6.a moved the SPACE_24 outer padding
+- [✓] **UX-6.b: Empty-state coverage for data panels — v2.1+ scope
+  (landed 2026-05-21 on `main`)** — UX-6.a moved the SPACE_24 outer padding
   to `App::view()` so every panel inherits it. Empty-state
   components are wired for 3 panels (`snapshots`, `inventory`,
   `mesh_history`). Panels that load data + can render zero rows

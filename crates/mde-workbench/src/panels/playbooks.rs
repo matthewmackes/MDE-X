@@ -24,7 +24,10 @@ use std::path::PathBuf;
 
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Element, Length, Task};
+use mde_theme::{Density, EmptyState, Icon, Palette};
 use tokio::process::Command;
+
+use crate::panel_chrome::{empty_state, panel_container};
 
 /// One role under `roles/` — `name` is the directory name, the
 /// canonical Ansible role identifier.
@@ -117,20 +120,21 @@ impl PlaybooksPanel {
             button(text("Refresh")).on_press(crate::Message::Playbooks(Message::RefreshClicked));
 
         if self.playbooks.is_empty() {
-            return column![
-                text("No curated playbooks found").size(18),
-                text(
-                    "MDE reads roles from `~/QNM-Shared/.qnm-sync/playbooks/roles/`. \
-                     Mount QNM-Shared (or seed the curated 7-role tree) and \
-                     refresh.",
-                )
-                .size(13),
-                row![refresh_btn, text(&self.status).size(13)].spacing(12),
-            ]
-            .spacing(8)
-            .width(Length::Fill)
-            
-            .into();
+            // UX-6.b — empty-state with refresh CTA.
+            let _ = refresh_btn;
+            let state = EmptyState::with_cta(
+                "No curated playbooks found",
+                "MDE reads roles from `~/QNM-Shared/.qnm-sync/playbooks/roles/`. \
+                 Mount QNM-Shared (or seed the curated 7-role tree) and refresh.",
+                "Refresh",
+            )
+            .with_icon(Icon::Playbook);
+            return panel_container(
+                empty_state(state, Palette::dark(), || {
+                    crate::Message::Playbooks(Message::RefreshClicked)
+                }),
+                Density::Comfortable,
+            );
         }
 
         let rows = self.playbooks.iter().fold(column![], |col, pb| {
