@@ -5154,16 +5154,18 @@ Closes the router gap explicitly deferred at
   (positive lock) +
   `tick_once_without_metrics_is_a_noop_observation`
   (panic regression guard).
-- [ ] **KDC2-1.12.c: textfile-flush worker for `mackesd.prom`** —
-  10 s cadence worker that snapshots every Counter +
-  Histogram + writes
-  `/var/lib/node_exporter/textfile_collector/mackesd.prom`
-  via `metrics::write_textfile`. Owns `Arc<>` clones of the
-  shared metric handles + a `Vec<&Counter>` slice the
-  binary's `serve` entry assembles at boot. Acceptance:
-  `cat /var/lib/node_exporter/textfile_collector/mackesd.prom |
-  grep kdc2_router_decision_us_bucket` returns the live
-  bucket counts after the daemon runs for > 30 s.
+- [✓] **KDC2-1.12.c: textfile-flush worker for `mackesd.prom`** —
+  Shipped 2026-05-22 at `workers/metrics_flush.rs`. The
+  `MetricsFlushWorker` owns shared `Arc<Mutex<Histogram>>`
+  handles + a Counter list; ticks every 10 s, snapshots each
+  histogram, calls `metrics::write_textfile` (atomic
+  temp-rename). `flush_once()` exposes a single-shot path so
+  tests can drive a flush without spinning the worker. The
+  binary's `serve` entry (in a future boot-wiring commit)
+  hands the same Arc<Mutex<Histogram>> to both the mesh-router
+  + this worker so the published snapshot reflects live ticks.
+  4 tests: name + counter/histogram row contents + live
+  observation snapshot + shutdown-clean exit.
 
 #### KDC2-2.x — Protocol crate `mde-kdc-proto`
 

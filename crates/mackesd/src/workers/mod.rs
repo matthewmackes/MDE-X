@@ -92,6 +92,7 @@ pub mod lan_discovery;
 pub mod mdns;
 pub mod media_sync;
 pub mod mesh_router;
+pub mod metrics_flush;
 pub mod nats;
 pub mod notification_relay;
 pub mod perf;
