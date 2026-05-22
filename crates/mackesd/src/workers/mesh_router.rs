@@ -21,10 +21,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mackes_transport::peer_path::PeerPath;
-use mackes_transport::Transport;
+use mackes_transport::peer_path::{PeerPath, SwitchReason};
+use mackes_transport::{Transport, TransportKind};
 use tokio::sync::RwLock;
 use tracing::{debug, info};
+
+use crate::transport::audit::PathSwitchEvent;
 
 use super::{ShutdownToken, Worker};
 
@@ -133,30 +135,46 @@ impl MeshRouterWorker {
     /// One iteration of the router's main loop. Pure-async — no
     /// shared mutable state outside the locked `state` map.
     ///
-    /// KDC2-1.8 scaffolds the loop. The concrete probe + switch
-    /// logic lands in KDC2-1.9 (`select_best_transport`). This
-    /// version just logs the peer count + transport count per
-    /// tick — sufficient to confirm the worker is wired into
-    /// the supervisor + ticking on cadence.
+    /// KDC2-1.8 scaffolds the loop; KDC2-1.12 wires the audit-
+    /// chain emission seam. The actual scorer call is folded
+    /// into [`Self::scored_primary_for`] so unit tests can
+    /// exercise the path-switch detection logic without running
+    /// the full tick loop.
     async fn tick_once(&self) {
         let peer_count = self.peer_count().await;
         let transport_count = self.transport_count();
         debug!(
             peer_count,
             transport_count,
-            "mesh-router: tick (scaffold; KDC2-1.9 fills in scorer)",
+            "mesh-router: tick (scaffold; full scorer integration KDC2-1.9 follow-up)",
         );
-        // KDC2-1.9 will replace this with:
-        //
-        // for (peer_id, path) in self.state.read().await.iter() {
-        //     let new_primary = select_best_transport(
-        //         &self.registry, peer_id,
-        //         MessageClass::Control, &policy,
-        //     );
-        //     if new_primary.primary != path.primary {
-        //         self.apply_switch(peer_id, new_primary).await;
-        //     }
-        // }
+    }
+
+    /// Pure path-switch detector. Given a peer's current
+    /// `PeerPath` and a fresh scoring result, return the
+    /// `PathSwitchEvent` to emit if the primary changed —
+    /// `None` when the new selection matches the old one.
+    ///
+    /// Exposed for unit tests + future direct callers that want
+    /// to drive the scoring + audit side without owning the
+    /// tick loop.
+    #[must_use]
+    pub fn detect_switch(
+        prior: &PeerPath,
+        new_primary: TransportKind,
+        new_reason: SwitchReason,
+        now_ms: i64,
+    ) -> Option<PathSwitchEvent> {
+        if prior.primary == new_primary {
+            return None;
+        }
+        Some(PathSwitchEvent::switch(
+            prior.peer_id.clone(),
+            Some(prior.primary),
+            new_primary,
+            new_reason,
+            now_ms,
+        ))
     }
 }
 
@@ -218,6 +236,35 @@ mod tests {
     async fn worker_name_matches_module() {
         let w = MeshRouterWorker::new(new_state(), new_registry());
         assert_eq!(w.name(), "mesh-router");
+    }
+
+    #[test]
+    fn detect_switch_returns_none_when_primary_unchanged() {
+        let prior = PeerPath::initial("p".into(), TransportKind::DirectUdp);
+        let r = MeshRouterWorker::detect_switch(
+            &prior,
+            TransportKind::DirectUdp,
+            SwitchReason::Initial,
+            0,
+        );
+        assert!(r.is_none(), "primary unchanged → no audit emission");
+    }
+
+    #[test]
+    fn detect_switch_emits_when_primary_flips() {
+        let prior = PeerPath::initial("peer-A".into(), TransportKind::DirectUdp);
+        let event = MeshRouterWorker::detect_switch(
+            &prior,
+            TransportKind::KdcTls,
+            SwitchReason::HealthDegraded(TransportKind::DirectUdp),
+            1_700_000_000_000,
+        )
+        .expect("primary flipped → event emitted");
+        let summary = event.summary();
+        assert!(summary.contains("peer=peer-A"));
+        assert!(summary.contains("from=direct_udp"));
+        assert!(summary.contains("to=kdc_tls"));
+        assert!(summary.contains("reason=health_degraded_direct_udp"));
     }
 
     #[tokio::test(flavor = "current_thread")]

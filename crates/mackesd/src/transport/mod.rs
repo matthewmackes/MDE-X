@@ -11,4 +11,5 @@
 //! mackesd's existing infrastructure (SQLite store, audit chain,
 //! worker supervisor).
 
+pub mod audit;
 pub mod policy;
