@@ -60,6 +60,12 @@ clap = { version = "4.5", features = ["derive", "env"] }
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
 
+# KDC2-1.11 — TOML parser for /etc/mde/connect/policy.toml +
+# operator override at ~/.config/mde/connect/policy.toml.
+# default-features = false because we don't need TOML's
+# date / preserve_order features here.
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+
 # Time: chrono for ISO-8601 timestamps stored in SQLite TEXT columns.
 chrono = { version = "0.4", features = ["serde"] }
 

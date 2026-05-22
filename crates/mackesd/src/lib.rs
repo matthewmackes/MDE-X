@@ -66,6 +66,11 @@ pub mod store;
 pub mod stun;
 pub mod telemetry;
 pub mod topology;
+// KDC2-1.11 — policy.toml loader. Lives in transport/ rather
+// than at the top level so it can grow more files (the future
+// KdcTls Transport impl glue, audit integration, etc.) without
+// repeatedly editing lib.rs.
+pub mod transport;
 pub mod validation;
 pub mod worker;
 

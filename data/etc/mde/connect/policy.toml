@@ -1,0 +1,55 @@
+# MDE Connect routing policy — system defaults.
+#
+# This file ships as `%config(noreplace)` in the mde RPM. Operator
+# overrides land at `~/.config/mde/connect/policy.toml` and are
+# merged on top of these defaults at mackesd startup (the merge
+# is shallow per-section — a user file that omits the [weights]
+# section inherits these defaults unchanged).
+#
+# Schema lock: KDC2-1.10 (v2.1, locked 2026-05-22). Adding a new
+# field requires updating both this file and
+# `crates/mackesd/src/transport/policy.rs::parse_policy`.
+
+[weights]
+# Per-message-class scoring weights consumed by the mesh-router.
+# Lower weights amplify the TransportKind preference order
+# (DirectUdp > KdcTls > DerpRelay > Https443); higher weights
+# flatten it. 0.7 is the v2.1 baseline.
+latency      = 0.7   # Clipboard / Control
+throughput   = 0.7   # FileBulk
+reliability  = 0.7   # Notification
+
+# Score points subtracted from a transport per recent failure
+# (capped at 4 failures = 1.0 points). Balanced against the
+# Healthy-vs-Degraded penalty (10.0) so a few flaps don't
+# override a clear health signal.
+flap_penalty = 0.25
+
+# Hard pin: when present, the router uses this transport for
+# every peer regardless of scoring. Useful for debug / lab
+# setups. Empty = no pinning.
+pinned_primary = []
+
+# Hard deny: the router never selects these transports. Use to
+# turn off a problematic path without recompiling mackesd.
+denylist = []
+
+[plugins]
+# KDC plugin gates. Plugins listed in `deny` are refused at the
+# host-integration layer (KDC2-3.11) regardless of operator
+# pairing state. `run_command` ships denied by default — opt in
+# explicitly per the v2.1 KDC2 security review.
+allow = [
+    "ping",
+    "clipboard",
+    "share",
+    "notification",
+    "findmyphone",
+    "battery",
+    "mpris",
+    "sms",
+    "telephony",
+]
+deny = [
+    "run_command",
+]

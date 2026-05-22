@@ -439,6 +439,11 @@ install -D -m 0644 data/i3/config.d/mackes-defaults.conf \
 install -D -m 0644 data/sway/config %{buildroot}%{_datadir}/mde/sway/config
 install -D -m 0644 data/sway/config.d/mackes-defaults.conf \
     %{buildroot}%{_datadir}/mde/sway/config.d/mackes-defaults.conf
+
+# KDC2-1.10 — Connect routing policy default. Ships as a
+# %config(noreplace) so operator edits survive package upgrades.
+install -D -m 0644 data/etc/mde/connect/policy.toml \
+    %{buildroot}%{_sysconfdir}/mde/connect/policy.toml
 # v2.0.0 Phase 0.5 + H.5 — first-boot config migrators.
 install -D -m 0755 bin/mde-migrate-from-1x \
     %{buildroot}%{_bindir}/mde-migrate-from-1x
@@ -854,6 +859,11 @@ fi
 # %{_datadir}/%{name}/comps/ which is now covered by the
 # %{_datadir}/%{name}/ catch-all below.
 %config(noreplace) /etc/sudoers.d/mackes-shell
+# KDC2-1.10 — Connect routing policy. Operator edits survive
+# package upgrades.
+%dir %{_sysconfdir}/mde
+%dir %{_sysconfdir}/mde/connect
+%config(noreplace) %{_sysconfdir}/mde/connect/policy.toml
 # v2.0.0 cut: C panel plugins (mackes-clipboard, mackes-launcher,
 # mackes-drawer) retired alongside xfce4-panel.  Their roles
 # move to native mackes-panel applets in Phase E.1.x (Iced

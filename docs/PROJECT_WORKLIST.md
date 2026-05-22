@@ -5027,6 +5027,17 @@ under `LICENSES/`.
 > validation lives separately in the Hardware Testing epic per
 > [[feedback_hardware_testing_epic]].
 
+> **Progress note (2026-05-22 iteration run):** ~25 of 78 KDC2
+> sub-tasks committed on `main`: 1.1, 1.3..1.10 (1.11 in
+> progress), 1.7..1.9, 2.1..2.10 + 2.20 + 2.3 loopback, 2.4a..c,
+> 3.1. Workspace `cargo check --workspace` clean. mackes-transport
+> 42 unit tests; mde-kdc-proto 119 tests across 5 surfaces;
+> mde-kdc 4 tests; mackesd +7 tests (mesh_router + topology
+> bridge + policy parser pending). Remaining at this point:
+> 1.12 audit + 2.7/2.8 TLS layer + 3.2..3.11 host integration +
+> 4.x mesh-shunt + 5.x UI fold + 6.x packaging hardcut + 7.x
+> acceptance gates.
+
 #### KDC2-1.x — Transport trait + mesh router
 
 Closes the router gap explicitly deferred at
