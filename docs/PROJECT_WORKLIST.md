@@ -5475,19 +5475,27 @@ re-relay) into one.
   so the local discovery stream sees the phone as a peer. Phone
   appears in `ListDevices` D-Bus output. 5 unit tests.
 - [ ] **KDC2-4.4: TLS channel uses `mesh-transport` Tailscale impl
-  when remote is mesh-shunted** — When `KdcHost::open()` is
-  called for a synthetic phone, route the TLS bytes through
-  the Tailscale `Transport` (not direct LAN). 4 unit tests +
-  integration test confirming end-to-end byte flow.
+  when remote is mesh-shunted** — [Hardware Testing epic /
+  blocked on no concrete `Tailscale` Transport impl.]
+  When `KdcHost::open()` is called for a synthetic phone, route
+  the TLS bytes through the Tailscale `Transport` (not direct
+  LAN). Today the only concrete `Transport` is `KdcTls`; a
+  `Tailscale` impl doesn't exist yet (mackes-transport defines
+  the `DerpRelay`/`Https443` variants in `TransportKind` but no
+  wired backend). Sign-off depends on the Tailscale impl
+  landing first — does not gate the v3.0 cut per the operator's
+  hardware-testing carve-out.
 - [✓] **KDC2-4.5: `PathSwitch` log distinguishes direct-LAN vs
   mesh-shunt phone reach** — Extend `SwitchReason` with
   `MeshShuntActivated` + `DirectLanRecovered` variants so the
   audit log differentiates. 3 unit tests.
-- [ ] **KDC2-4.6: 3-peer + 1-phone integration test** — Docker
-  fixture (already exists per Phase I.2) extended with a fake
-  Android client. Phone pairs with peer-A; assert peer-B + C
-  also see it; send Clipboard from peer-C; assert phone
-  receives. End-to-end gate.
+- [ ] **KDC2-4.6: 3-peer + 1-phone integration test** — [Hardware
+  Testing epic.] Docker fixture (already exists per Phase I.2)
+  extended with a fake Android client. Phone pairs with peer-A;
+  assert peer-B + C also see it; send Clipboard from peer-C;
+  assert phone receives. End-to-end gate against a real (or
+  containerized) KDC peer; does not gate the v3.0 cut per the
+  operator's hardware-testing carve-out.
 
 #### KDC2-5.x — UI fold into `mde-peer-card`
 
