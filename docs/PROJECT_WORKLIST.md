@@ -5203,7 +5203,7 @@ fuzzable + reproducible.
   KDE Connect's secondary discovery mechanism (UDP broadcast
   every 30s). Pure encoder/decoder + a thin
   `tokio::net::UdpSocket` runner. 5 unit tests.
-- [ ] **KDC2-2.11: `discovery` — synthetic-announce injection API** —
+- [✓] **KDC2-2.11: `discovery` — synthetic-announce injection API** —
   Critical seam for KDC2-4.x mesh-shunt. `inject_synthetic(
   peer_id, source: SyntheticSource)` lets a higher-layer
   (the host crate) push a mesh-relayed phone announce into

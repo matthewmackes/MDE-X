@@ -90,8 +90,132 @@ impl SyntheticAnnounce {
     /// cadence.
     #[must_use]
     pub fn is_fresh(&self, now_ms: i64) -> bool {
-        const STALE_WINDOW_MS: i64 = 90_000;
         now_ms.saturating_sub(self.relayed_at_ms) <= STALE_WINDOW_MS
+    }
+}
+
+/// Staleness window (ms). Announce records older than this are
+/// dropped from the registry on every `prune_stale` call.
+/// Matches upstream KDE Connect's broadcast cadence — phones
+/// re-announce every ~60 s, so a 90 s window covers the
+/// expected jitter without holding ghosts.
+pub const STALE_WINDOW_MS: i64 = 90_000;
+
+/// KDC2-2.11 — in-memory registry the host's discovery layer
+/// polls for unified real + synthetic announces.
+///
+/// The host's UDP/mDNS listener (KDC2-2.9/2.10) feeds real
+/// announces via [`DiscoveryRegistry::inject_real`]; the mesh-
+/// shunt worker (KDC2-4.3) feeds synthetic announces (relayed
+/// from neighbors' `phones.json`) via [`inject_synthetic`].
+/// Downstream consumers (`KdcHost::open` for outbound pairing
+/// + the `mde-workbench` peer list) drain via
+/// [`take_fresh`] on each tick.
+///
+/// Receivers can't distinguish real from synthetic — both
+/// surface as `Announce` records — and shouldn't care: the
+/// trust model (cert fingerprint pinning) is the same either
+/// way.
+#[derive(Debug, Default)]
+pub struct DiscoveryRegistry {
+    /// (relayer_id, relayed_at_ms, announce) — relayer_id is
+    /// `"self"` for real broadcasts; mesh-shunt records carry
+    /// the actual neighbor peer-id. Tuple instead of struct so
+    /// the Vec stays cheap to drain.
+    entries: Vec<RegistryEntry>,
+}
+
+/// Internal entry shape — kept small + non-public.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RegistryEntry {
+    announce: Announce,
+    relayer_id: String,
+    received_at_ms: i64,
+}
+
+impl DiscoveryRegistry {
+    /// Empty registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    /// How many announce records the registry is currently
+    /// holding (including stale ones until the next prune).
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// True when no announces are queued.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Inject a real UDP/mDNS announce. `received_at_ms` is the
+    /// wall-clock timestamp the listener observed the packet.
+    pub fn inject_real(&mut self, announce: Announce, received_at_ms: i64) {
+        self.upsert("self", announce, received_at_ms);
+    }
+
+    /// Inject a synthetic (mesh-shunted) announce. The mesh-
+    /// shunt worker (KDC2-4.3) calls this for each phone in a
+    /// neighbor's `phones.json`. `relayer_id` is the neighbor
+    /// peer-id (so downstream can show "via peer-A" in the UI
+    /// + audit log).
+    pub fn inject_synthetic(&mut self, synthetic: SyntheticAnnounce) {
+        self.upsert(
+            &synthetic.relayed_by,
+            synthetic.announce,
+            synthetic.relayed_at_ms,
+        );
+    }
+
+    fn upsert(&mut self, relayer_id: &str, announce: Announce, received_at_ms: i64) {
+        // Replace any existing entry with the same device_id —
+        // keeps the registry at one entry per device.
+        self.entries.retain(|e| e.announce.device_id != announce.device_id);
+        self.entries.push(RegistryEntry {
+            announce,
+            relayer_id: relayer_id.to_string(),
+            received_at_ms,
+        });
+    }
+
+    /// Drop entries older than `STALE_WINDOW_MS`. Returns how
+    /// many were dropped. Cheap to call on every tick.
+    pub fn prune_stale(&mut self, now_ms: i64) -> usize {
+        let before = self.entries.len();
+        self.entries
+            .retain(|e| now_ms.saturating_sub(e.received_at_ms) <= STALE_WINDOW_MS);
+        before - self.entries.len()
+    }
+
+    /// Return every fresh (non-stale) announce. Does NOT mutate
+    /// the registry — the host calls `prune_stale` separately
+    /// when it's safe to drop entries.
+    #[must_use]
+    pub fn take_fresh(&self, now_ms: i64) -> Vec<Announce> {
+        self.entries
+            .iter()
+            .filter(|e| now_ms.saturating_sub(e.received_at_ms) <= STALE_WINDOW_MS)
+            .map(|e| e.announce.clone())
+            .collect()
+    }
+
+    /// Look up the relayer for a given device-id. `Some("self")`
+    /// for real broadcasts; `Some(<neighbor-peer-id>)` for
+    /// synthetic. `None` when the device-id isn't in the
+    /// registry.
+    #[must_use]
+    pub fn relayer_for(&self, device_id: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|e| e.announce.device_id == device_id)
+            .map(|e| e.relayer_id.as_str())
     }
 }
 
@@ -176,5 +300,107 @@ mod tests {
         let raw = serde_json::to_string(&s).unwrap();
         let back: SyntheticAnnounce = serde_json::from_str(&raw).unwrap();
         assert_eq!(back, s);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // KDC2-2.11 — DiscoveryRegistry
+    // ─────────────────────────────────────────────────────────
+
+    fn sample_announce(device_id: &str) -> Announce {
+        Announce {
+            device_id: device_id.to_string(),
+            device_name: device_id.to_string(),
+            device_type: DeviceType::Phone,
+            protocol_version: 7,
+            incoming_capabilities: vec![],
+            outgoing_capabilities: vec![],
+        }
+    }
+
+    #[test]
+    fn registry_starts_empty() {
+        let r = DiscoveryRegistry::new();
+        assert!(r.is_empty());
+        assert_eq!(r.len(), 0);
+    }
+
+    #[test]
+    fn inject_real_marks_relayer_as_self() {
+        let mut r = DiscoveryRegistry::new();
+        r.inject_real(sample_announce("phone-A"), 1000);
+        assert_eq!(r.relayer_for("phone-A"), Some("self"));
+        assert_eq!(r.len(), 1);
+    }
+
+    #[test]
+    fn inject_synthetic_records_neighbor_relayer() {
+        let mut r = DiscoveryRegistry::new();
+        let synth = SyntheticAnnounce {
+            announce: sample_announce("phone-X"),
+            relayed_by: "peer-A".to_string(),
+            relayed_at_ms: 1000,
+        };
+        r.inject_synthetic(synth);
+        assert_eq!(r.relayer_for("phone-X"), Some("peer-A"));
+    }
+
+    #[test]
+    fn inject_replaces_existing_entry_for_same_device() {
+        // Re-announce of the same device updates rather than
+        // duplicates — keeps the registry at one entry per
+        // device.
+        let mut r = DiscoveryRegistry::new();
+        r.inject_real(sample_announce("phone-A"), 1000);
+        r.inject_real(sample_announce("phone-A"), 2000);
+        assert_eq!(r.len(), 1, "second inject must replace, not duplicate");
+    }
+
+    #[test]
+    fn take_fresh_filters_stale_entries() {
+        let mut r = DiscoveryRegistry::new();
+        // Fresh entry at t=1000.
+        r.inject_real(sample_announce("phone-A"), 1000);
+        // Stale entry at t=10 (now is 1000 + STALE_WINDOW_MS + 1).
+        r.inject_real(sample_announce("phone-B"), 10);
+        let now = 10 + STALE_WINDOW_MS + 1;
+        let fresh = r.take_fresh(now);
+        // phone-B's received_at (10) is older than the window
+        // → filtered. phone-A's received_at (1000) is at the
+        // edge of the window (now - 1000 = STALE + 1 - 990 =
+        // STALE - 989, fresh).
+        let ids: Vec<&str> = fresh.iter().map(|a| a.device_id.as_str()).collect();
+        assert!(ids.contains(&"phone-A"));
+        assert!(!ids.contains(&"phone-B"));
+    }
+
+    #[test]
+    fn prune_stale_drops_old_entries() {
+        let mut r = DiscoveryRegistry::new();
+        r.inject_real(sample_announce("phone-A"), 1000);
+        r.inject_real(sample_announce("phone-B"), 10);
+        let now = 10 + STALE_WINDOW_MS + 1;
+        let dropped = r.prune_stale(now);
+        assert_eq!(dropped, 1);
+        // phone-B is gone; phone-A remains.
+        assert_eq!(r.len(), 1);
+        assert_eq!(r.relayer_for("phone-A"), Some("self"));
+        assert!(r.relayer_for("phone-B").is_none());
+    }
+
+    #[test]
+    fn synthetic_replaces_prior_real_announce_for_same_device() {
+        // Edge case: phone goes off-LAN; the mesh-shunt now
+        // relays it from a neighbor. The registry must reflect
+        // the new relayer (neighbor instead of "self").
+        let mut r = DiscoveryRegistry::new();
+        r.inject_real(sample_announce("phone-A"), 1000);
+        assert_eq!(r.relayer_for("phone-A"), Some("self"));
+        r.inject_synthetic(SyntheticAnnounce {
+            announce: sample_announce("phone-A"),
+            relayed_by: "peer-B".to_string(),
+            relayed_at_ms: 2000,
+        });
+        assert_eq!(r.relayer_for("phone-A"), Some("peer-B"));
+        assert_eq!(r.len(), 1);
     }
 }
