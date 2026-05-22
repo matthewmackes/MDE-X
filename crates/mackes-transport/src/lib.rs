@@ -30,6 +30,14 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub mod health;
+pub mod peer_path;
+pub mod transport_capabilities;
+
+pub use health::{HealthSnapshot, ProbeOutcome, RouterError};
+pub use peer_path::{PeerPath, SwitchReason};
+pub use transport_capabilities::{EncryptionKind, TransportCapabilities};
+
 /// Identifier for a specific transport implementation.
 ///
 /// Mirrors `mackesd::topology::EdgeKind` 1:1 so the topology engine
