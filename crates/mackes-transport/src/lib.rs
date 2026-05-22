@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 pub mod conformance;
 pub mod health;
 pub mod peer_path;
+pub mod scorer;
 pub mod transport_capabilities;
 
 pub use health::{HealthSnapshot, ProbeOutcome, RouterError};
