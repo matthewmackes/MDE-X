@@ -4839,7 +4839,7 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Depends: UX-1. Effort: Medium.
   Outputs: `crates/mde-theme/src/typography.rs`; updated panel views.
 
-- [ ] **UX-3: Color palette + theme coherence — v2.1 scope** — Choose
+- [✓] **UX-3: Color palette + theme coherence — v2.1 scope (landed 2026-05-21, merged to main 0d2d0e8 + 2fe5cee)** — Choose
   a restrained, branded dark-mode palette for the MDE default theme:
   deep navy/charcoal surface (`#0f1117` / `#1a1d27`), accent blue-violet
   (`#5b6af5`), muted text (`#8b90a7`), destructive red (`#e5534b`),
@@ -4853,7 +4853,7 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: updated `data/css/` preset CSS files; `crates/mde-theme/` palette
   constants.
 
-- [>] **UX-4: Window chrome + header bar — v2.1 scope (in progress 2026-05-21 on `ux/UX-4-window-chrome`)** — Polish the
+- [✓] **UX-4: Window chrome + header bar — v2.1 scope (landed 2026-05-21, merged to main e52fc5c)** — Polish the
   top-level Workbench window: (a) custom `mde-header` CSS class with
   controlled height (48 px), background matching the surface token, and a
   1 px bottom border using the divider token; (b) product wordmark
@@ -4868,7 +4868,7 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `data/css/mde-chrome.css`; `mackes/workbench/shell/sidebar_window.py`
   (GTK path, already partially Carbon); Iced workbench title widget.
 
-- [>] **UX-5: Sidebar navigation — v2.1 scope (in progress 2026-05-21 on `ux/UX-5-sidebar`)** — Upgrade the
+- [✓] **UX-5: Sidebar navigation — v2.1 scope (landed 2026-05-21, merged to main fe28ff9)** — Upgrade the
   Workbench sidebar: (a) 240 px fixed width with `SPACE_16` padding;
   (b) nav item height 40 px, icon 20 px, label 14 sp; (c) selected
   state: full-width highlight bar in accent at 10% opacity + accent
@@ -4882,7 +4882,7 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `mackes/workbench/shell/sidebar_window.py` (GTK);
   Iced workbench nav component.
 
-- [>] **UX-6: Panel surface + spacing — v2.1 scope (Phase 1+2 landed 2026-05-21 on `ux/UX-6-panel-surface`; Phase 3 chained as UX-6.a)** — Audit every
+- [✓] **UX-6: Panel surface + spacing — v2.1 scope (Phase 1+2 landed 2026-05-21, merged to main c63347f; Phase 3 = UX-6.a chained below; group DoD waits for UX-6.a complete)** — Audit every
   Iced panel (Fleet, Devices, System, Files, Mesh) for consistent
   padding, alignment, and visual rhythm. Rules: outer panel padding
   `SPACE_24`; section header bottom gap `SPACE_16`; row height 44 px
@@ -4937,7 +4937,7 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `crates/mde-theme/src/components/{button,input,toggle,
   spinner,skeleton}.rs`; updated Iced view calls.
 
-- [ ] **UX-8: Icons + visual language — v2.1 scope** — Audit all icon
+- [✓] **UX-8: Icons + visual language — v2.1 scope (v1 landed 2026-05-21 on `main`; UX-8.a chains the SVG bundle)** — Audit all icon
   usage. **Locked icon system: Carbon** (per Q24, Q37–Q39). (a)
   enforce the Carbon icon set across the entire workspace — pivot
   away from the Round 2 Lucide/Phosphor proposal; the project already
@@ -4957,6 +4957,21 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Depends: UX-1. Effort: Medium.
   Outputs: `crates/mde-theme/src/icons.rs`; updated panel icon call
   sites.
+
+- [ ] **UX-8.a: Carbon SVG bundle + per-panel nav icon swap — v2.1+
+  scope (chain on UX-8 v1)** — Replace the Unicode fallback glyphs
+  in [[icons.rs]] with real Carbon SVG bytes under
+  `assets/icons/carbon/<carbon_name>.svg`, wired via
+  `include_bytes!`. Add `ResolvedIcon::svg_bytes() -> Option<&'static [u8]>`
+  and a `Renderer::render_icon(resolved)` helper that prefers SVG
+  over the Unicode fallback when the bytes are available. Sweep
+  call sites: every sidebar nav row gets its panel-specific icon
+  (via a new `Icon::for_panel(group, slug)` mapper), every section
+  label gets its group icon, and the peer-card hero strip gets the
+  `icon_for_device_type` glyph. Acceptance: no `fallback_glyph`
+  path renders in normal operation; grep across the workspace
+  finds zero remaining Unicode-emoji glyph literals in widget
+  files. Effort: Medium.
 
 - [ ] **UX-9: Motion + dialog polish — v2.1 scope** — (a) Sidebar
   panel transitions: 180 ms ease-out opacity + translate-Y(4px→0)

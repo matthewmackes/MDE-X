@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 
 use iced::widget::{button, column, row, scrollable, text, text_input};
 use iced::{Element, Length, Padding, Task};
-use mde_theme::{Density, EmptyState, Palette};
+use mde_theme::{Density, EmptyState, Icon, Palette};
 
 use crate::panel_chrome::{card, empty_state, panel_container};
 
@@ -197,7 +197,8 @@ impl SnapshotsPanel {
                 "Capture the current ~/.config/mde/ tree so you can roll back \
                  after experiments. Give the snapshot a name and click Create.",
                 "Create snapshot",
-            );
+            )
+            .with_icon(Icon::Snapshot);
             return panel_container(
                 empty_state(state, Palette::dark(), || {
                     crate::Message::Snapshots(Message::CreateClicked)

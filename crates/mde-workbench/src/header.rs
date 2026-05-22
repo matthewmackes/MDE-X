@@ -24,7 +24,9 @@ use iced::widget::button::{self, Status as ButtonStatus};
 use iced::widget::{container, row, text, Space};
 use iced::{alignment, Background, Border, Color, Element, Length, Shadow, Vector};
 
-use mde_theme::{FontSize, FontWeight, Palette, Shadow as MdeShadow, TypeRole};
+use mde_theme::{
+    mde_icon, FontSize, FontWeight, Icon, IconSize, Palette, Shadow as MdeShadow, TypeRole,
+};
 
 /// Header bar height — locked to the worklist UX-4 (a) spec.
 pub const HEADER_HEIGHT: f32 = 48.0;
@@ -39,12 +41,11 @@ const CONTROL_WIDTH: f32 = 40.0;
 /// keeps the short logotype for visual density.
 pub const WORDMARK: &str = "MDE";
 
-/// Carbon icons land in UX-8 — these placeholders match the
-/// v8.7 panel `mackes-panel::status_cluster` fallback glyphs so
-/// the swap is one-line per call site when UX-8 ships.
-const GLYPH_MIN: &str = "\u{2212}"; // U+2212 MINUS SIGN
-const GLYPH_MAX: &str = "\u{25A1}"; // U+25A1 WHITE SQUARE
-const GLYPH_CLOSE: &str = "\u{00D7}"; // U+00D7 MULTIPLICATION SIGN
+// UX-8 landed — window-control glyphs now route through the
+// semantic Icon enum. The actual character rendered is still the
+// Unicode fallback (`−`/`□`/`×`); the UX-8.a SVG swap will be a
+// single change in `mde_theme::icons::Icon::fallback_glyph` →
+// SVG without touching this file.
 
 /// What a header-control click should do. The reducer maps each
 /// variant to an `iced::window::*` Task in `app.rs`.
@@ -80,10 +81,13 @@ pub fn view<'a, Message: Clone + 'a>(
     let max_action = on_action(HeaderAction::ToggleMaximize);
     let min_action = on_action(HeaderAction::Minimize);
 
+    let min_glyph = mde_icon(Icon::WindowMinimize, IconSize::Inline).fallback_glyph;
+    let max_glyph = mde_icon(Icon::WindowMaximize, IconSize::Inline).fallback_glyph;
+    let close_glyph = mde_icon(Icon::WindowClose, IconSize::Inline).fallback_glyph;
     let controls = row![
-        control_button(GLYPH_MIN, min_action, palette, false),
-        control_button(GLYPH_MAX, max_action, palette, false),
-        control_button(GLYPH_CLOSE, close_action, palette, true),
+        control_button(min_glyph, min_action, palette, false),
+        control_button(max_glyph, max_action, palette, false),
+        control_button(close_glyph, close_action, palette, true),
     ]
     .spacing(0);
 

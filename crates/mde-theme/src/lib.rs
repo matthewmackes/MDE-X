@@ -41,6 +41,7 @@ pub mod brand;
 pub mod color;
 pub mod components;
 pub mod density;
+pub mod icons;
 pub mod palette;
 pub mod prefs;
 pub mod radii;
@@ -54,6 +55,9 @@ pub use brand::{Brand, BrandAsset, BrandFormat, BrandSlot, BrandSource};
 pub use color::Rgba;
 pub use components::EmptyState;
 pub use density::Density;
+pub use icons::{
+    icon_for_device_type, mde_icon, Icon, IconSize, ResolvedIcon, CARBON_LINE_WEIGHT_PX,
+};
 pub use palette::Palette;
 pub use prefs::Preferences;
 pub use radii::Radii;

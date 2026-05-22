@@ -10,7 +10,7 @@
 
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Element, Length, Padding, Task};
-use mde_theme::{Density, EmptyState, Palette};
+use mde_theme::{Density, EmptyState, Icon, Palette};
 use tokio::process::Command;
 
 use crate::panel_chrome::{empty_state, panel_container, status_badge, BadgeSeverity};
@@ -140,7 +140,8 @@ impl InventoryPanel {
                 "Enroll a peer with `mded enroll --passcode <16-char>` on the \
                  joining node, then refresh to see it appear here.",
                 "Refresh",
-            );
+            )
+            .with_icon(Icon::Fleet);
             return panel_container(
                 empty_state(state, Palette::dark(), || {
                     crate::Message::Inventory(Message::RefreshClicked)

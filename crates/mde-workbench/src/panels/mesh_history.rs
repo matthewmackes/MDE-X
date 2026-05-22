@@ -10,7 +10,7 @@
 
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Element, Length, Padding, Task};
-use mde_theme::{Density, EmptyState, Palette};
+use mde_theme::{Density, EmptyState, Icon, Palette};
 use tokio::process::Command;
 
 use crate::panel_chrome::{empty_state, panel_container};
@@ -123,7 +123,8 @@ impl MeshHistoryPanel {
                 "mded hasn't recorded any events yet. Enroll a peer or apply a \
                  desired-config revision to populate the log, then refresh.",
                 "Refresh",
-            );
+            )
+            .with_icon(Icon::History);
             return panel_container(
                 empty_state(state, Palette::dark(), || {
                     crate::Message::MeshHistory(Message::RefreshClicked)

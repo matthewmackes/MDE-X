@@ -16,12 +16,16 @@
 //! dep (iced) doesn't leak into `mde-theme`.
 
 use crate::color::Rgba;
+use crate::icons::Icon;
 
 /// Describes the contents of a panel's zero-data view. Carries
 /// the strings + the optional CTA label; the renderer supplies
 /// the actual visuals.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmptyState {
+    /// Optional hero icon (UX-8). When `None`, the renderer
+    /// reserves the icon slot as empty space.
+    pub icon: Option<Icon>,
     /// One-line heading. Conveys what's missing (e.g.,
     /// "No snapshots yet").
     pub heading: String,
@@ -42,6 +46,7 @@ impl EmptyState {
     #[must_use]
     pub fn info(heading: impl Into<String>, body: impl Into<String>) -> Self {
         Self {
+            icon: None,
             heading: heading.into(),
             body: body.into(),
             cta_label: None,
@@ -59,11 +64,21 @@ impl EmptyState {
         cta_label: impl Into<String>,
     ) -> Self {
         Self {
+            icon: None,
             heading: heading.into(),
             body: body.into(),
             cta_label: Some(cta_label.into()),
             body_color_override: None,
         }
+    }
+
+    /// Builder: attach a hero icon (UX-8). Use in conjunction
+    /// with `info` / `with_cta`:
+    /// `EmptyState::with_cta(...).with_icon(Icon::Fleet)`.
+    #[must_use]
+    pub fn with_icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
+        self
     }
 }
 
@@ -112,5 +127,11 @@ mod tests {
     fn body_color_override_starts_none() {
         let e = EmptyState::info("h", "b");
         assert_eq!(e.body_color_override, None);
+    }
+
+    #[test]
+    fn with_icon_builder_attaches_icon() {
+        let e = EmptyState::info("h", "b").with_icon(Icon::Fleet);
+        assert_eq!(e.icon, Some(Icon::Fleet));
     }
 }

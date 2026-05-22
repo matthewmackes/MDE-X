@@ -25,8 +25,8 @@ use iced::{alignment, Background, Border, Color, Element, Length, Padding, Shado
 
 use mde_theme::{
     components::empty_state::{BODY_CTA_GAP, EMPTY_ICON_SIZE, HEADING_BODY_GAP, VERTICAL_PADDING},
-    Density, EmptyState, FontSize, Palette, Radii, Shadow as MdeShadow, Space as MdeSpace,
-    TypeRole,
+    mde_icon, Density, EmptyState, FontSize, IconSize, Palette, Radii, Shadow as MdeShadow,
+    Space as MdeSpace, TypeRole,
 };
 
 /// UX-6 — minimum data-row height. Component dimension, not
@@ -235,7 +235,19 @@ pub fn empty_state<'a, Message: Clone + 'a>(
         .unwrap_or(palette.text_muted)
         .into_iced_color();
 
-    let icon_slot = Space::with_height(Length::Fixed(EMPTY_ICON_SIZE));
+    // UX-8 — render the hero icon when set; otherwise reserve
+    // the slot as empty space so the body block centers
+    // consistently across panels that opt out of the icon.
+    let icon_slot: Element<'a, Message> = if let Some(icon) = state.icon {
+        let resolved = mde_icon(icon, IconSize::EmptyState);
+        text(resolved.fallback_glyph)
+            .size(resolved.size_px())
+            .color(palette.text_muted.into_iced_color())
+            .align_x(alignment::Horizontal::Center)
+            .into()
+    } else {
+        Space::with_height(Length::Fixed(EMPTY_ICON_SIZE)).into()
+    };
     let heading = text(state.heading)
         .size(TypeRole::Heading.size_in(sizes))
         .color(palette.text.into_iced_color())
