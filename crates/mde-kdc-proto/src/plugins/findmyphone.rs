@@ -20,6 +20,8 @@ pub fn find_my_phone_packet(id_ms: i64) -> Packet {
         kind: "kdeconnect.findmyphone.request".to_string(),
         body: serde_json::json!({}),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 

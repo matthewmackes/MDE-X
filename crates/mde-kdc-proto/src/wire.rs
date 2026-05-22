@@ -69,7 +69,7 @@ impl CapabilitiesHeader {
 
 /// Top-level wire packet. Serializes to the KDE Connect newline-
 /// delimited JSON shape: `{"id": …, "type": "…", "body": {…},
-/// "mdeCaps": {…}}`.
+/// "mdeCaps": {…}, "payloadSize": …, "payloadTransferInfo": {…}}`.
 ///
 /// `id` is a millisecond Unix timestamp — KDC uses it for de-
 /// duplication on the receiver side (two packets with the same
@@ -81,6 +81,11 @@ impl CapabilitiesHeader {
 /// [`crate::plugins`] and would create a circular dep if `wire`
 /// owned every variant. KDC2-2.5 wires per-plugin downcast
 /// helpers.
+///
+/// `payload_size` + `payload_transfer_info` ride alongside the
+/// body when a plugin needs a secondary TLS channel for binary
+/// data (file share, large clipboard). Both `None` for the
+/// common case (plain JSON-only packets).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Packet {
     /// Millisecond Unix timestamp. Used as a deduplication key
@@ -100,6 +105,57 @@ pub struct Packet {
     /// stock KDC clients; `Some` when both peers are MDE.
     #[serde(rename = "mdeCaps", default, skip_serializing_if = "Option::is_none")]
     pub mde_caps: Option<CapabilitiesHeader>,
+    /// KDC2-2.4 — total size of the secondary-channel payload
+    /// in bytes. `None` for plain JSON packets. Stock KDC
+    /// clients omit this field on plain packets, so
+    /// `skip_serializing_if = "Option::is_none"` keeps the
+    /// wire byte-identical.
+    #[serde(
+        rename = "payloadSize",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub payload_size: Option<u64>,
+    /// KDC2-2.4 — info the receiver needs to open the
+    /// secondary-channel TLS connection.
+    #[serde(
+        rename = "payloadTransferInfo",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub payload_transfer_info: Option<PayloadTransferInfo>,
+}
+
+impl Default for Packet {
+    /// Default packet — empty body, kind == empty string. Useful
+    /// for tests + builders that want `..Default::default()` to
+    /// fill in the optional fields (mde_caps / payload_size /
+    /// payload_transfer_info).
+    fn default() -> Self {
+        Self {
+            id: 0,
+            kind: String::new(),
+            body: serde_json::Value::Null,
+            mde_caps: None,
+            payload_size: None,
+            payload_transfer_info: None,
+        }
+    }
+}
+
+/// Secondary-channel coordinate the sender announces in the
+/// primary-channel packet. Receiver opens a fresh TLS connection
+/// to `sender_addr:port` + reads `payload_size` bytes.
+///
+/// Wire-compatible with upstream KDE Connect's
+/// `payloadTransferInfo.port` field. The TCP port is selected
+/// by the sender (typically ephemeral, 1714+).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PayloadTransferInfo {
+    /// TCP port the sender's secondary TLS server is listening
+    /// on. Receiver connects to `sender_ip:port` and reads
+    /// `payload_size` bytes from the resulting stream.
+    pub port: u16,
 }
 
 impl Packet {
@@ -143,6 +199,7 @@ mod tests {
             kind: "kdeconnect.identity".to_string(),
             body: serde_json::json!({"deviceName": "lab-01"}),
             mde_caps: None,
+            ..Default::default()
         };
         let s = serde_json::to_string(&p).unwrap();
         assert!(s.contains(r#""type":"kdeconnect.identity""#));
@@ -159,6 +216,8 @@ mod tests {
             kind: "kdeconnect.identity".to_string(),
             body: serde_json::Value::Null,
             mde_caps: Some(CapabilitiesHeader::v2_1_lock()),
+        payload_size: None,
+        payload_transfer_info: None,
         };
         let s = serde_json::to_string(&p).unwrap();
         // Field name lands as `mdeCaps` (camelCase) per KDE Connect's
@@ -173,6 +232,7 @@ mod tests {
             kind: "kdeconnect.clipboard".to_string(),
             body: serde_json::json!({"content": "hello"}),
             mde_caps: Some(CapabilitiesHeader::v2_1_lock()),
+            ..Default::default()
         };
         let s = serde_json::to_string(&p).unwrap();
         let back: Packet = serde_json::from_str(&s).unwrap();
@@ -186,15 +246,73 @@ mod tests {
             kind: "kdeconnect.identity".to_string(),
             body: serde_json::Value::Null,
             mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
         };
         let mde = Packet {
             id: 1,
             kind: "kdeconnect.identity".to_string(),
             body: serde_json::Value::Null,
             mde_caps: Some(CapabilitiesHeader::default()),
+        payload_size: None,
+        payload_transfer_info: None,
         };
         assert!(!stock.from_mde_peer());
         assert!(mde.from_mde_peer());
+    }
+
+    #[test]
+    fn payload_transfer_info_round_trips_with_camel_case_keys() {
+        // KDC2-2.4 wire-shape lock: `payloadSize` + `payloadTransferInfo
+        // .port` ride alongside the body. Stock KDC clients ship these
+        // for file-share packets; our serde must match.
+        let p = Packet {
+            id: 1,
+            kind: "kdeconnect.share.request".to_string(),
+            body: serde_json::json!({"filename": "doc.pdf"}),
+            payload_size: Some(4096),
+            payload_transfer_info: Some(PayloadTransferInfo { port: 1739 }),
+            ..Default::default()
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains(r#""payloadSize":4096"#));
+        assert!(s.contains(r#""payloadTransferInfo":{"port":1739}"#));
+        // Round-trip.
+        let back: Packet = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.payload_size, Some(4096));
+        assert_eq!(back.payload_transfer_info.unwrap().port, 1739);
+    }
+
+    #[test]
+    fn plain_packet_omits_payload_fields_from_wire() {
+        // Stock-client interop lock: a plain JSON-only packet must NOT
+        // serialize `payloadSize: null` / `payloadTransferInfo: null`.
+        // Some upstream Android client builds barf on the explicit
+        // null. `skip_serializing_if = "Option::is_none"` keeps the
+        // wire byte-identical to the v2.0.x format.
+        let p = Packet {
+            id: 1,
+            kind: "kdeconnect.ping".to_string(),
+            body: serde_json::Value::Null,
+            ..Default::default()
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(!s.contains("payloadSize"), "plain packet leaks payloadSize: {s}");
+        assert!(
+            !s.contains("payloadTransferInfo"),
+            "plain packet leaks payloadTransferInfo: {s}",
+        );
+        assert!(!s.contains("mdeCaps"), "plain packet leaks mdeCaps: {s}");
+    }
+
+    #[test]
+    fn packet_default_initializes_all_optional_fields_none() {
+        let p = Packet::default();
+        assert_eq!(p.id, 0);
+        assert!(p.kind.is_empty());
+        assert!(p.mde_caps.is_none());
+        assert!(p.payload_size.is_none());
+        assert!(p.payload_transfer_info.is_none());
     }
 
     #[test]

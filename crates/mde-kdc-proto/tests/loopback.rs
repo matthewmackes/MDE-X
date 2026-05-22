@@ -87,6 +87,8 @@ impl LoopbackPeer {
             kind: "kdeconnect.identity".to_string(),
             body: serde_json::to_value(announce).expect("Announce serializes"),
             mde_caps: Some(CapabilitiesHeader::v2_1_lock()),
+        payload_size: None,
+        payload_transfer_info: None,
         };
         encode_frame(&p).expect("identity frame encodes").into_bytes()
     }
@@ -106,6 +108,8 @@ impl LoopbackPeer {
             kind: "kdeconnect.identity".to_string(),
             body: serde_json::to_value(announce).expect("Announce serializes"),
             mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
         };
         encode_frame(&p).expect("identity frame encodes").into_bytes()
     }

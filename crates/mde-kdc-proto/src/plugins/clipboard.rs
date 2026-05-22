@@ -58,6 +58,8 @@ pub fn clipboard_packet(id_ms: i64, content: String) -> Packet {
         kind: "kdeconnect.clipboard".to_string(),
         body: serde_json::json!({"content": content}),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 
@@ -104,6 +106,8 @@ mod tests {
             kind: "kdeconnect.clipboard".to_string(),
             body: serde_json::json!({"wrong_field": 42}),
             mde_caps: None,
+            payload_size: None,
+            payload_transfer_info: None,
         };
         let result: Result<ClipboardBody, _> = from_packet_body(&p);
         assert!(result.is_err());
@@ -162,6 +166,8 @@ mod tests {
             kind: "kdeconnect.clipboard".to_string(),
             body: serde_json::json!({"not_content": 42}),
             mde_caps: None,
+            payload_size: None,
+            payload_transfer_info: None,
         };
         plugin.process(&bad, &ctx);
         assert_eq!(plugin.pending_count(), 0);

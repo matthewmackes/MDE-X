@@ -50,6 +50,8 @@ pub fn battery_packet(id_ms: i64, body: BatteryBody) -> Packet {
         kind: "kdeconnect.battery".to_string(),
         body: serde_json::to_value(body).expect("BatteryBody is always JSON-serializable"),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 

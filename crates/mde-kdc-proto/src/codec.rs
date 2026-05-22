@@ -180,6 +180,8 @@ mod tests {
             kind: "kdeconnect.identity".to_string(),
             body: serde_json::Value::Null,
             mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
         };
         let s = encode_frame(&p).unwrap();
         assert!(s.ends_with('\n'));
@@ -195,6 +197,7 @@ mod tests {
             kind: "kdeconnect.clipboard".to_string(),
             body: serde_json::json!({"content": "hello"}),
             mde_caps: Some(CapabilitiesHeader::v2_1_lock()),
+            ..Default::default()
         };
         let encoded = encode_frame(&p).unwrap();
         let decoded = decode_frame(encoded.as_bytes()).unwrap();
@@ -227,6 +230,8 @@ mod tests {
             kind: "kdeconnect.ping".to_string(),
             body: serde_json::Value::Null,
             mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
         };
         encode_frame(&p).unwrap().into_bytes()
     }
@@ -283,6 +288,8 @@ mod tests {
             kind: "kdeconnect.ping".to_string(),
             body: serde_json::Value::Null,
             mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
         };
         let mut bytes = serde_json::to_string(&p).unwrap().into_bytes();
         bytes.extend_from_slice(b"\r\n");

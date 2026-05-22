@@ -419,6 +419,8 @@ mod tests {
             kind: "kdeconnect.ping".to_string(),
             body: serde_json::Value::Null,
             mde_caps: None,
+            payload_size: None,
+            payload_transfer_info: None,
         }
     }
 

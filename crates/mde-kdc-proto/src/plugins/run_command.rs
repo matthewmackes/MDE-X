@@ -58,6 +58,8 @@ pub fn run_command_packet(
         body: serde_json::to_value(RunCommandBody { key, name, command })
             .expect("RunCommandBody is always JSON-serializable"),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 

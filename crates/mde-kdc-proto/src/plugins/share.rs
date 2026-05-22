@@ -91,6 +91,8 @@ pub fn url_share_packet(id_ms: i64, url: String, open: bool) -> Packet {
         body: serde_json::to_value(ShareBody { url, open, ..Default::default() })
             .expect("ShareBody is always JSON-serializable"),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 
@@ -115,6 +117,8 @@ pub fn file_share_packet(
         })
         .expect("ShareBody is always JSON-serializable"),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 

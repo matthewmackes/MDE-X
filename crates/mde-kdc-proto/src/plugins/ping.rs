@@ -33,6 +33,8 @@ pub fn ping_packet(id_ms: i64, message: String) -> Packet {
         body: serde_json::to_value(PingBody { message })
             .expect("PingBody is always JSON-serializable"),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 

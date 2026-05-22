@@ -82,6 +82,8 @@ pub fn sms_messages_packet(id_ms: i64, messages: Vec<SmsMessage>) -> Packet {
         body: serde_json::to_value(SmsMessagesBody { messages })
             .expect("SmsMessagesBody is always JSON-serializable"),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 

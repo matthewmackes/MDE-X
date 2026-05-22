@@ -58,6 +58,8 @@ pub fn notification_packet(id_ms: i64, body: NotificationBody) -> Packet {
         body: serde_json::to_value(body)
             .expect("NotificationBody is always JSON-serializable"),
         mde_caps: None,
+        payload_size: None,
+        payload_transfer_info: None,
     }
 }
 
@@ -239,6 +241,8 @@ mod tests {
             kind: "kdeconnect.notification".to_string(),
             body: serde_json::json!({"wrong_field": 42}),
             mde_caps: None,
+            payload_size: None,
+            payload_transfer_info: None,
         };
         let response = plugin.process(&bad, &ctx);
         assert!(response.is_empty());
