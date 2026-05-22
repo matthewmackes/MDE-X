@@ -80,6 +80,15 @@ Requires:       wireplumber
 Requires:       grim
 Requires:       slurp
 
+# v2.0.3 — Wayland-native notifications. dunst is X11-only and
+# crash-loops on every Wayland login (operator-verification on
+# the bench 2026-05-22 surfaced this). mako owns
+# org.freedesktop.Notifications instead. Conflicts: dunst makes
+# the swap automatic on upgrades from the Fedora-default that
+# pulled dunst in transitively.
+Requires:       mako
+Conflicts:      dunst
+
 # Phase 13.1.1 — KDE Connect Option A integration. Workbench
 # Connect talks org.kde.kdeconnect.* DBus + a mesh-mDNS bridge.
 # The upstream kdeconnectd daemon stays user-session-autostarted.
@@ -409,6 +418,10 @@ install -D -m 0755 bin/mde-migrate-from-1x \
     %{buildroot}%{_bindir}/mde-migrate-from-1x
 install -D -m 0755 bin/mde-shell-migrate-v2 \
     %{buildroot}%{_bindir}/mde-shell-migrate-v2
+# v2.0.3 — per-output default scale picker; sway `exec_always`s this
+# at session start to give 4K outputs a readable scale by default.
+install -D -m 0755 bin/mde-output-autoscale \
+    %{buildroot}%{_bindir}/mde-output-autoscale
 # v2.0.0 Phase 0.3 — mde-* binary wrappers alongside the legacy
 # mackes-* binaries during the one-release backward-compat window.
 install -D -m 0755 bin/mde                  %{buildroot}%{_bindir}/mde
@@ -752,6 +765,8 @@ fi
 %{_bindir}/mde-enforce-session
 %{_bindir}/mde-migrate-from-1x
 %{_bindir}/mde-shell-migrate-v2
+# v2.0.3 — per-output default scale picker.
+%{_bindir}/mde-output-autoscale
 # v2.0.0 Phase 0.3 — man pages.
 %{_mandir}/man1/mde.1*
 %{_mandir}/man1/mde-migrate-from-1x.1*

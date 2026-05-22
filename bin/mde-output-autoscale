@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""mde-output-autoscale — apply sane default scale per output on session start.
+
+v2.0.3 hotfix (operator-verification 2026-05-22) — the bench machine ran
+sway with eDP-1 1366×768 and DP-2 3840×2160 both at `scale = 1.0`. UI
+elements on the 4K TV were unreadable across a living-room viewing
+distance.
+
+This script reads `swaymsg -t get_outputs`, picks a scale per output
+using a width-based heuristic, and applies the result via
+`swaymsg output <name> scale <value>` — *only* if the operator has not
+overridden the scale themselves (current `scale != 1.0` is treated as
+intentional and left alone).
+
+Wired into the session via a `exec_always` line in `data/sway/config`:
+
+    exec_always /usr/bin/mde-output-autoscale
+
+Idempotent: re-running is a no-op (the override-respecting check above
+prevents fights with manual `swaymsg output … scale …` invocations).
+
+Heuristic:
+
+  * width ≥ 3840 → scale 2.0  (4K and wider)
+  * width ≥ 2560 → scale 1.5  (1440p / 2K)
+  * width ≥ 1920 → scale 1.0  (1080p)
+  * width  < 1920 → scale 1.0  (don't shrink already-small displays)
+
+Future work (separate worklist task): EDID-aware physical-size
+adjustment so a 27" 4K monitor uses scale 1.5 (high DPI but viewer
+~60 cm away) while a 40"+ 4K TV uses scale 2.0 (sofa distance).
+
+Exit codes:
+  0  every scale call succeeded (or no changes were needed)
+  1  swaymsg invocation failed
+  2  malformed swaymsg JSON
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+from typing import Iterable
+
+
+def pick_scale(width: int) -> float:
+    """Return the heuristic scale for an output of the given pixel width.
+
+    Branches sorted by typical bench-rig coverage: 4K TVs first, then
+    2K monitors, then everything 1080p and below.
+    """
+    if width >= 3840:
+        return 2.0
+    if width >= 2560:
+        return 1.5
+    return 1.0
+
+
+def get_outputs() -> list[dict]:
+    """Invoke `swaymsg -t get_outputs` and return the parsed JSON list.
+
+    Raises SystemExit on swaymsg invocation / parse failure so callers
+    don't have to defensively wrap every call.
+    """
+    if shutil.which("swaymsg") is None:
+        print("mde-output-autoscale: swaymsg not on $PATH — not in a sway session?", file=sys.stderr)
+        raise SystemExit(1)
+    try:
+        result = subprocess.run(
+            ["swaymsg", "-t", "get_outputs"],
+            check=True, capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        print(f"mde-output-autoscale: swaymsg failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    try:
+        outputs = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        print(f"mde-output-autoscale: swaymsg JSON parse error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    if not isinstance(outputs, list):
+        print("mde-output-autoscale: swaymsg returned non-list", file=sys.stderr)
+        raise SystemExit(2)
+    return outputs
+
+
+def plan_scales(outputs: Iterable[dict]) -> list[tuple[str, float]]:
+    """Walk the output list and emit (name, desired_scale) tuples for
+    every output whose current scale is exactly 1.0 (the sway default).
+
+    Operator-set scales (current != 1.0) are treated as intentional and
+    skipped so this helper never fights a manual tweak.
+    """
+    plan: list[tuple[str, float]] = []
+    for out in outputs:
+        name = out.get("name") or ""
+        if not name:
+            continue
+        if not out.get("active", False):
+            continue
+        mode = out.get("current_mode") or {}
+        width = mode.get("width")
+        if not isinstance(width, int) or width <= 0:
+            continue
+        current_scale = out.get("scale")
+        if not isinstance(current_scale, (int, float)):
+            continue
+        # Operator override — leave it alone.
+        if abs(float(current_scale) - 1.0) > 1e-6:
+            continue
+        desired = pick_scale(width)
+        if abs(desired - 1.0) <= 1e-6:
+            # Heuristic says "leave at 1.0" — nothing to do.
+            continue
+        plan.append((name, desired))
+    return plan
+
+
+def apply_scale(name: str, scale: float) -> bool:
+    """Run `swaymsg output <name> scale <scale>` and return success."""
+    try:
+        subprocess.run(
+            ["swaymsg", "output", name, "scale", f"{scale}"],
+            check=True, timeout=5,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        )
+        return True
+    except subprocess.CalledProcessError as exc:
+        print(f"mde-output-autoscale: swaymsg output {name} scale {scale} failed: {exc.stderr.strip()}", file=sys.stderr)
+        return False
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        print(f"mde-output-autoscale: swaymsg output {name} scale {scale} errored: {exc}", file=sys.stderr)
+        return False
+
+
+def main(argv: list[str] | None = None) -> int:
+    _ = argv  # CLI flags are reserved for future use (`--dry-run`, `--force`).
+    outputs = get_outputs()
+    plan = plan_scales(outputs)
+    if not plan:
+        return 0
+    failures = 0
+    for name, scale in plan:
+        if not apply_scale(name, scale):
+            failures += 1
+        else:
+            print(f"mde-output-autoscale: {name} scale {scale}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

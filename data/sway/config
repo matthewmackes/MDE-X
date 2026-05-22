@@ -136,6 +136,11 @@ for_window [window_type="dialog"]      floating enable
 # ---------------------------------------------------------------------------
 # Autostart — MDE compositor services
 # ---------------------------------------------------------------------------
+# `exec_always` so per-display scale picks are re-applied after every
+# sway reload (display hotplug + manual `swaymsg reload` both go
+# through this path). The helper is operator-override-safe: it skips
+# any output whose current scale isn't exactly 1.0.
+exec_always mde-output-autoscale
 exec mde-panel
 
 # ---------------------------------------------------------------------------

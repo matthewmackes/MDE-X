@@ -141,14 +141,17 @@ dock. The fixes below are scoped for v2.0.3 cut.
   `dnf install`s mako (+ Wayland debug tools), masks
   dunst.service, and enables mako.service so it owns
   org.freedesktop.Notifications on next login.
-  Phase 2 (pending): (a) add `Requires: mako` and
-  `Conflicts: dunst` to `packaging/fedora/mackes-
-  shell.spec` so fresh installs auto-converge, (b) drop
-  a `mde-applet-notifications` integration test that
-  confirms toast delivery via mako, (c) retire the
-  bench-bootstrap mako step once Phase 2 RPMs land.
-  Acceptance: fresh install of mde shows no failed
-  `dunst.service`; a `notify-send` call reaches
+  Phase 2 (shipped 2026-05-22): added
+  `Requires: mako` + `Conflicts: dunst` to
+  `packaging/fedora/mackes-shell.spec` so fresh installs
+  + dnf-managed upgrades auto-converge without the
+  helper. The bench-bootstrap mako step stays around
+  for v1.x → v2.0.3 in-place upgrades that skip the
+  full Requires refresh.
+  Phase 3 (pending): drop a `mde-applet-notifications`
+  integration test that confirms toast delivery via
+  mako. Acceptance: fresh install of mde shows no
+  failed `dunst.service`; a `notify-send` call reaches
   `mde-applet-notifications`.
 - [ ] **v2.0.3: dual-monitor default scaling config** —
   Bench rig is laptop eDP-1 1366×768 + 4K-TV DP-2
