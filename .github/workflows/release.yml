@@ -1,4 +1,5 @@
-# Mackes XFCE Workstation — tag-triggered RPM build + GitHub Release.
+# Mackes Desktop Environment — tag-triggered RPM build + GitHub Release.
+# (v2.0.0 rebrand lock: project renamed from "Mackes XFCE Workstation".)
 #
 # Pushing a tag matching v* (e.g. `git push origin v1.0.0` or
 # `v1.0.0-rc1`) fires this workflow. Inside a Fedora 44 container we
@@ -133,7 +134,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name:  ${{ steps.version.outputs.tag }}
-          name:      "Mackes XFCE Workstation ${{ steps.version.outputs.ver }}"
+          # v2.0.4: name follows the v2.0.0 rebrand lock ("Mackes
+          # Desktop Environment"). The legacy "Mackes XFCE
+          # Workstation" string here was left over from v1.x and
+          # surfaced in the v2.0.3 release as a visible regression
+          # on the GitHub release page.
+          name:      "Mackes Desktop Environment ${{ steps.version.outputs.ver }}"
           body_path: release-notes.md
           draft:     false
           prerelease: ${{ steps.version.outputs.prerelease }}

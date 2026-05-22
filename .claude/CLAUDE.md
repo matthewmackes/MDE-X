@@ -96,9 +96,15 @@ seven without asking for confirmation between steps unless a step fails:
 6. **Push + tag:**
    ```bash
    git push origin main && \
-       git tag -a vX.Y.Z -m "Mackes Shell X.Y.Z — …" && \
+       git tag -a vX.Y.Z -m "Mackes Desktop Environment X.Y.Z — …" && \
        git push origin vX.Y.Z
    ```
+   (Tag annotation uses the v2.0.0 rebrand-locked name "Mackes
+   Desktop Environment", not the legacy "Mackes Shell" / "Mackes
+   XFCE Workstation" strings. Operator-verification 2026-05-22
+   on the v2.0.3 cut surfaced the legacy string still in
+   `release.yml`'s release-name field; both the cut-release
+   shorthand and the workflow are now aligned.)
 7. **Watch the workflow:** `gh run watch <id> --exit-status`, then
    confirm with `gh release view vX.Y.Z`.
 
