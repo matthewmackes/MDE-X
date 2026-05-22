@@ -5255,14 +5255,18 @@ fuzzable + reproducible.
   `tokio::net::UdpSocket` runner (bind, broadcast every 30 s,
   recv loop) folds into a KDC2-2.10.a follow-up under the
   `async-services` feature.
-- [ ] **KDC2-2.10.a: `mde-kdc::discovery::udp_broadcast` host runner** —
-  `tokio::net::UdpSocket` bound to `0.0.0.0:1716` (and a
-  per-interface broadcast emitter on a 30 s cadence). Drains
-  decoded announces into the host's `DiscoveryRegistry`.
-  Behind the `async-services` feature gate; tests use the
-  loopback interface so they're safe in CI. Acceptance: a
-  loopback peer broadcast on UDP/1716 lands in the registry
-  within one broadcast interval.
+- [✓] **KDC2-2.10.a: `mde-kdc::discovery::udp_broadcast` host runner** —
+  Shipped 2026-05-22. `UdpBroadcastRunner::bind(port, self_announce,
+  registry)` binds `0.0.0.0:port` (1716 in prod, 0 = ephemeral in
+  tests), flips the broadcast flag, and exposes
+  `broadcast_once(ts_ms)`, `recv_one()`, `ingest_one(announce,
+  now_ms)`, plus a `run(shutdown_rx)` async loop that combines
+  the 30 s tick with a `recv_one` future under
+  `tokio::select!`. Wrong-kind datagrams (peer spamming
+  clipboard on UDP/1716 by mistake) return `Ok(None)` silently
+  so the log stays clean. mDNS counterpart (KDC2-2.9.a) lives
+  in its own follow-up. 4 tests, including a real loopback
+  round-trip + the wrong-kind-silence lock.
 - [✓] **KDC2-2.11: `discovery` — synthetic-announce injection API** —
   Critical seam for KDC2-4.x mesh-shunt. `inject_synthetic(
   peer_id, source: SyntheticSource)` lets a higher-layer

@@ -31,6 +31,7 @@
 #![warn(missing_docs)]
 
 pub mod dbus;
+pub mod discovery;
 pub mod dispatch;
 pub mod keygen;
 pub mod outbound;
