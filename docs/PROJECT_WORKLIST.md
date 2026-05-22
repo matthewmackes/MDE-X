@@ -5151,23 +5151,22 @@ fuzzable + reproducible.
   PKI types — all pure-library, no I/O). Module declarations:
   `codec`, `crypto`, `discovery`, `plugins`, `wire`. Workspace
   registered.
-- [ ] **KDC2-2.2: `codec::Packet` enum + ~25 packet-type variants** —
-  Tagged enum for `kdeconnect.identity`, `kdeconnect.pair`,
-  `kdeconnect.ping`, `kdeconnect.notification`,
-  `kdeconnect.notification.reply`, `kdeconnect.clipboard`,
-  `kdeconnect.clipboard.connect`, `kdeconnect.share.request`,
-  `kdeconnect.sms.request`, `kdeconnect.sms.messages`,
-  `kdeconnect.telephony`, `kdeconnect.battery`,
-  `kdeconnect.battery.request`, `kdeconnect.mpris`,
-  `kdeconnect.mpris.request`, `kdeconnect.runcommand`,
-  `kdeconnect.findmyphone.request`, plus all 8 secondary
-  payload types. Serde tag `"type"`.
-- [ ] **KDC2-2.3: `codec` — JSON framing + length prefixing** —
-  Wire format: newline-terminated JSON objects per the KDE
-  Connect spec. `encode(&Packet) -> Vec<u8>`, `decode(buf) ->
-  Result<(Packet, usize_consumed), CodecError>`. 12 unit tests
-  cover partial buffers, malformed JSON, oversized packets,
-  unknown types (silently routed to `Packet::Unknown`).
+- [✓] **KDC2-2.2: Packet type model + plugin body types** — Shipped
+  as `wire::Packet { id, type, body, mdeCaps, payloadSize,
+  payloadTransferInfo }` + per-plugin body types in
+  `plugins::{notification,clipboard,share,sms,battery,
+  mpris,ping,findmyphone,telephony,run_command}`.
+  Diverged from the "tagged enum" sketch in the original
+  plan: the body is `serde_json::Value` so unknown packet
+  kinds round-trip without a Packet::Unknown variant — fits
+  the actual upstream wire shape better. Per-plugin downcast
+  helpers do the typed access.
+- [✓] **KDC2-2.3: JSON framing — stream-aware FrameDecoder** —
+  Shipped as `mde_kdc_proto::codec::FrameDecoder` (KDC2-2.2
+  in the actual ship log). Newline-terminated, partial-buffer
+  tolerant, oversized-frame defense via `MAX_FRAME_BYTES =
+  1 MiB`. `encode(&Packet) -> Vec<u8>` + decode tests + the
+  libFuzzer corpus seed shipped with it.
 - [✓] **KDC2-2.4: `codec` — payload-channel handshake** — KDE
   Connect's secondary TLS channel for binary payloads (file
   share, large clipboard). Encode/decode the `payloadSize`,
@@ -5177,12 +5176,14 @@ fuzzable + reproducible.
 - [✓] **KDC2-2.5: `codec` — round-trip tests for every Packet variant** —
   One test per variant: construct, encode, decode, assert
   equality. Catches schema drift on enum changes. ~25 tests.
-- [ ] **KDC2-2.6: `crypto::KeyStore` trait + Ed25519 in-memory impl** —
-  Trait abstracts identity material so post-quantum migration
-  is a swap. Methods: `identity_pubkey()`, `sign(&[u8]) ->
-  Signature`, `verify(...) -> bool`. In-memory impl uses
-  ed25519-dalek directly. 6 unit tests cover key generation,
-  sign/verify, serde round-trip.
+- [✓] **KDC2-2.6: `crypto::KeyStore` trait + impl** — Shipped as
+  `KDC2-2.4a RingKeyStore`. Trait + impl live in
+  `mde-kdc-proto::crypto`. Diverged from the original
+  Ed25519 plan: KDC wire-compat forced RSA-2048
+  (PKCS1v15/SHA-256) per the v2.1 KDC2 lock — Ed25519 would
+  have broken stock-client interop. Trait surface stayed the
+  same (`identity_pubkey()`, `sign`, `verify`). Newer-wins-
+  silently per `.claude/CLAUDE.md` §1.
 - [✓] **KDC2-2.7: `crypto` — X.509 self-signed cert generation** — KDE
   Connect uses TLS with self-signed Ed25519 certs; fingerprint
   is the device identity. Use `rcgen` to issue the cert with
