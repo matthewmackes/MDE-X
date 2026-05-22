@@ -48,6 +48,14 @@ pkcs8 = { version = "0.10", features = ["pem"] }
 # bound to the same RSA-2048 keypair the handshake signs with.
 rcgen = "0.13"
 
+# KDC2-2.8 — TLS layer. rustls 0.23 with the ring crypto
+# provider (matches mde-kdc-proto's ring dep so the audit
+# closure stays single-source). Cert pinning via custom
+# `ServerCertVerifier` impl that matches against a SHA-256
+# fingerprint the host's pairing store records at first-pair.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+sha2 = "0.10"
+
 # Serde for the pairing store's on-disk format.
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -33,6 +33,7 @@
 pub mod dispatch;
 pub mod keygen;
 pub mod pairing;
+pub mod tls;
 pub mod transport;
 
 // Re-export the most commonly-used types from the protocol crate
