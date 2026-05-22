@@ -362,6 +362,32 @@ cp docs/help/*.md %{buildroot}%{_datadir}/%{name}/help/
 #     Consumed by mackes/about.py via /usr/share/mackes-shell/ABOUT.txt.
 install -D -m 0644 data/ABOUT.txt %{buildroot}%{_datadir}/%{name}/ABOUT.txt
 
+# 3d. Build-identity files (v2.0.3) — written here so both panel
+#     watermarks (legacy mackes-panel + Iced mde-panel) report the
+#     same build hash + date without compile-time env var
+#     coordination. Both panels read /usr/share/mde/build-{hash,date}.
+#     Falls back to "unknown" if SOURCE_DATE_EPOCH isn't set
+#     (manual builds) and the git short isn't probeable.
+mkdir -p %{buildroot}%{_datadir}/mde
+{
+  if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    date -u -d "@${SOURCE_DATE_EPOCH}" +%%Y-%%m-%%d
+  else
+    date -u +%%Y-%%m-%%d
+  fi
+} > %{buildroot}%{_datadir}/mde/build-date
+chmod 0644 %{buildroot}%{_datadir}/mde/build-date
+{
+  if [ -f .git_short ]; then
+    cat .git_short
+  elif command -v git >/dev/null 2>&1 && git rev-parse --short HEAD >/dev/null 2>&1; then
+    git rev-parse --short HEAD
+  else
+    echo "%{version}"
+  fi
+} > %{buildroot}%{_datadir}/mde/build-hash
+chmod 0644 %{buildroot}%{_datadir}/mde/build-hash
+
 # 4. Install helper scripts (called from %%post / %%preun, plus the
 #    capture/apply pair admins use to manage XFCE baselines, plus the
 #    theme/icon bootstrap, lightdm config, and mackes-user creation)
@@ -767,6 +793,8 @@ fi
 %{_bindir}/mde-shell-migrate-v2
 # v2.0.3 — per-output default scale picker.
 %{_bindir}/mde-output-autoscale
+# v2.0.3 build-identity files (%{_datadir}/mde/build-{hash,date})
+# are covered by the %{_datadir}/%{name}/ catch-all below.
 # v2.0.0 Phase 0.3 — man pages.
 %{_mandir}/man1/mde.1*
 %{_mandir}/man1/mde-migrate-from-1x.1*

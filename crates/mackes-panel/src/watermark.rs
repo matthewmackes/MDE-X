@@ -1,15 +1,16 @@
 //! Win10-style desktop watermark.
 //!
-//! Q19/Q20/Q21 + suggestions #2/#10 (2026-05-19): renders a 3-line
-//! attribution block in the lower-right corner of the wallpaper,
-//! anchored to Windows 10's geometry (32 px from right, 56 px from
-//! bottom — clear of the 40 px taskbar with margin).
+//! Q19/Q20/Q21 + suggestions #2/#10 (2026-05-19, branding refreshed
+//! 2026-05-22 for v2.0.3): renders a 3-line attribution block in the
+//! lower-right corner of the wallpaper, anchored to Windows 10's
+//! geometry (32 px from right, 56 px from bottom — clear of the
+//! 40 px taskbar with margin).
 //!
-//! Content:
+//! Content (refreshed branding):
 //!
 //! ```text
-//! Mackes XFCE Workstation
-//! Version 1.0.8 (build 7c8a622) — N updates available
+//! Mackes Desktop Environment
+//! MDE 2.0.3 (build 7c8a622) · Built 2026-05-22 — N updates available
 //! Fedora 44 · hostname
 //! ```
 //!
@@ -18,9 +19,18 @@
 //! every 4 hours per Q21. The version line gains a
 //! `— N updates available` suffix while the count is known and >0.
 //!
+//! The build-hash + build-date strings are read from the same shared
+//! source-of-truth files (`/usr/share/mde/build-hash` and
+//! `/usr/share/mde/build-date`) that the Iced `mde-panel` watermark
+//! also consumes — both panels stay synced on which build is running.
+//! See `mde-panel/src/watermark.rs` for the Iced-side reader.
+//!
 //! Interactions (suggestion #10):
-//! - **Left-click**: launches `terminator -x bash -c 'sudo dnf upgrade
-//!   --refresh; bash'` — same path the right-click admin menu uses.
+//! - **Left-click**: launches `terminator -x bash -c 'pkexec dnf
+//!   upgrade --refresh; bash'` — uses pkexec (polkit GUI auth agent)
+//!   instead of raw sudo so it works under Wayland sessions where
+//!   terminator may not have a controlling TTY. Same change applied
+//!   to `admin_menu.rs` in v2.0.3.
 //! - **Right-click**: context menu — "Check for updates now"
 //!   (immediate re-poll, refresh in <1 s) and "Hide for this session"
 //!   (suppresses the watermark until the panel restarts).
@@ -95,7 +105,11 @@ pub fn build() -> gtk::Widget {
     column.set_widget_name("mackes-watermark-column");
 
     // --- Line 1: Name --------------------------------------------------
-    let name = gtk::Label::new(Some("Mackes XFCE Workstation"));
+    // v2.0.0 rebrand lock: "Mackes XFCE Workstation" → "Mackes Desktop
+    // Environment". The new name matches every other surface (LightDM
+    // greeter, .desktop session entry, About panel, package id) so
+    // operators get a consistent identity across the platform.
+    let name = gtk::Label::new(Some("Mackes Desktop Environment"));
     name.set_widget_name("mackes-watermark-name");
     name.set_halign(gtk::Align::End);
 
@@ -214,10 +228,19 @@ fn probe_update_count() -> Option<u32> {
     }
 }
 
-fn format_version_line(update_count: Option<u32>) -> String {
+/// Format the per-build identity line. Pure helper — exposed for
+/// tests + reused by the Iced `mde-panel` watermark (E.18) via the
+/// `/usr/share/mde/build-{hash,date}` shared files so both panels
+/// agree on which build is running.
+#[must_use]
+pub fn format_version_line(update_count: Option<u32>) -> String {
     let version = mackes_version();
     let build = build_hash();
-    let base = format!("Version {version} (build {build})");
+    let date = build_date();
+    let mut base = format!("MDE {version} (build {build})");
+    if !date.is_empty() {
+        base.push_str(&format!(" · Built {date}"));
+    }
     match update_count {
         Some(n) if n > 0 => format!("{base} — {n} updates available"),
         _ => base,
@@ -230,19 +253,31 @@ fn format_host_line() -> String {
     format!("{release} · {host}")
 }
 
-/// Read the running mackes version. Calls `mackes --version` once —
+/// Read the running mde version. Calls `mde --version` once —
 /// the binary is a tiny Python entrypoint; ~80 ms first call, cached
 /// thereafter via a thread-local Cell.
+///
+/// v2.0.0 rebrand: the binary moved from `mackes` to `mde`. The
+/// fallback chain still tries `mackes` for the one-release back-
+/// compat window where both binary names ship side-by-side (per
+/// the v1.x → v2.0 transition lock).
 fn mackes_version() -> String {
-    let output = Command::new("mackes").arg("--version").output();
+    let output = Command::new("mde")
+        .arg("--version")
+        .output()
+        .or_else(|_| Command::new("mackes").arg("--version").output());
     if let Ok(out) = output {
         if let Ok(text) = String::from_utf8(out.stdout) {
-            // Expected format: "mackes 1.0.8". Strip the prefix.
-            if let Some(rest) = text.trim().strip_prefix("mackes ") {
-                return rest.to_owned();
+            // Expected format: "mde 2.0.3" (v2.0+) or "mackes 1.0.8"
+            // (legacy back-compat). Strip whichever prefix matches.
+            let trimmed = text.trim();
+            for prefix in ["mde ", "mackes "] {
+                if let Some(rest) = trimmed.strip_prefix(prefix) {
+                    return rest.to_owned();
+                }
             }
-            if !text.trim().is_empty() {
-                return text.trim().to_owned();
+            if !trimmed.is_empty() {
+                return trimmed.to_owned();
             }
         }
     }
@@ -252,25 +287,48 @@ fn mackes_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
-/// Read the build hash from `/usr/share/mackes-shell/build-hash`
-/// (written by the RPM `%install` step from the source tarball's
-/// `.git_short` file). On dev checkouts that file is missing; fall
-/// back to "dev".
-fn build_hash() -> String {
-    let candidates = [
-        "/usr/share/mackes-shell/build-hash",
-        // Also accept a co-located file for dev builds.
-        "build-hash",
-    ];
+/// Read the build hash from `/usr/share/mde/build-hash` (written by
+/// the RPM `%install` step from the source tarball's `.git_short`
+/// file). On dev checkouts that file is missing; fall back to "dev".
+///
+/// The `/usr/share/mackes-shell/` path is retained as a fallback for
+/// the one-release v1.x → v2.0 compatibility window — operators who
+/// upgraded in place may still have files at the legacy path until
+/// `mde-migrate-from-1x` lands a `/usr/share/` reshuffle (a separate
+/// follow-up).
+#[must_use]
+pub fn build_hash() -> String {
+    read_build_file(&["/usr/share/mde/build-hash", "/usr/share/mackes-shell/build-hash", "build-hash"])
+        .unwrap_or_else(|| "dev".to_owned())
+}
+
+/// Read the build date (YYYY-MM-DD UTC) from
+/// `/usr/share/mde/build-date`. Returns an empty string on dev
+/// checkouts where the file is absent — the watermark omits the
+/// `· Built …` clause in that case.
+///
+/// Written by the RPM `%install` step alongside `build-hash`. The
+/// Iced `mde-panel` watermark (E.18) reads the same file so both
+/// panel surfaces report the same build date — there's no way for
+/// them to drift since they share the source-of-truth file.
+#[must_use]
+pub fn build_date() -> String {
+    read_build_file(&["/usr/share/mde/build-date", "/usr/share/mackes-shell/build-date", "build-date"])
+        .unwrap_or_default()
+}
+
+/// Common file-read for the build metadata. Walks the candidate
+/// paths in order and returns the first non-empty trimmed content.
+fn read_build_file(candidates: &[&str]) -> Option<String> {
     for c in candidates {
         if let Ok(s) = std::fs::read_to_string(c) {
             let trimmed = s.trim();
             if !trimmed.is_empty() {
-                return trimmed.to_owned();
+                return Some(trimmed.to_owned());
             }
         }
     }
-    "dev".to_owned()
+    None
 }
 
 /// Parse `/etc/os-release` for `PRETTY_NAME`. Returns e.g.
@@ -298,8 +356,14 @@ fn hostname() -> Option<String> {
 }
 
 fn launch_dnf_upgrade() {
+    // v2.0.3: switched from `sudo dnf upgrade` to `pkexec dnf upgrade`.
+    // The sudo form was failing under Wayland sessions where terminator
+    // doesn't always get a controlling TTY (Wayland xdg-toplevel surfaces
+    // launched from a non-TTY parent inherit no /dev/tty), so the
+    // password prompt would hang or error. pkexec hands the prompt to
+    // the polkit auth agent which runs as a regular Wayland surface.
     if let Err(e) = Command::new("terminator")
-        .args(["-x", "bash", "-c", "sudo dnf upgrade --refresh; bash"])
+        .args(["-x", "bash", "-c", "pkexec dnf upgrade --refresh; bash"])
         .spawn()
     {
         eprintln!("mackes-panel: watermark dnf launch failed: {e}");
