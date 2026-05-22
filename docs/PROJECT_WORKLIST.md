@@ -50,9 +50,12 @@ locked work appears under **Active** with `[ ] Open`.
 >   - **Network admin panels** (CB-1.8 follow-up bundle) —
 >     10 Iced ports of admin surfaces that v2.0.0 ships via
 >     `mded` CLI.
->   - **E.2 layer-shell integration** — `iced_layershell 0.18`
->     forces a workspace-wide Iced 0.13 → 0.14 bump; deferred
->     to the v2.1 Iced upgrade window.
+>   - ~~**E.2 layer-shell integration**~~ — Shipped 2026-05-22
+>     via `iced_layershell 0.13.7` (the iced 0.13.x-compatible
+>     stream; the 0.18 series required iced 0.14 and was the
+>     reason for the prior deferral). Panel now anchors to the
+>     bottom edge with a 40 px exclusive zone — see v3.0.2
+>     hotfix bundle.
 > * **Future deliverables (post 2.0.0)** section near the bottom
 >   carries items that are explicitly post-v2.0.0 (12.18
 >   HTTPS-tunnel, 2.1 bin shims, 2.1 D-Bus aliases, ci pytest
@@ -241,6 +244,151 @@ dock. The fixes below are scoped for v2.0.3 cut.
   (880×495 mm → 2.0) at the same `swaymsg -t
   get_outputs` invocation: different scales picked
   without operator intervention.
+
+### v3.0.2 hotfix bundle — Iced panel hosting (operator-verification 2026-05-22)
+
+Bench install of `mde-3.0.0-1.fc44` on the dual-monitor rig
+(DP-2 3840×2160 + eDP-1 1366×768) surfaced two release-quality
+defects in `mde-panel`: the panel rendered as a centered grey
+strip in the middle of the screen instead of anchoring to the
+bottom edge, and every zone showed unicode placeholder glyphs
+(`⌂ ★ ★ ★`, `◉ ◉ ◉`, etc.) rather than live status from the
+shipped `mde-applet-*` binaries. Both root causes were items
+that had been explicitly deferred during Phase E.1: the
+wlr-layer-shell-v1 anchor (Phase E.2) and the per-zone
+applet-host wiring (Phases E.4-E.29 "panel-host consumption").
+The v3.0 cut shipped without smoke-testing a live session, so
+neither defect was caught at release time.
+
+- [✓] **v3.0.2: Phase E.2 wlr-layer-shell anchor — `iced_layershell
+  0.13.7` integration (shipped 2026-05-22)** — Retires the
+  Phase E.2 deferral marker on the Active section's status
+  header (line 53). Added `iced_layershell = "0.13.7"`
+  (the iced 0.13.x-compatible stream; the workspace stays on
+  iced 0.13.1, no 0.14 bump required). Rewrote
+  `crates/mde-panel/src/lib.rs::App::run` to use
+  `iced_layershell::Application::run(Settings { layer_settings:
+  LayerShellSettings { size: Some((0, 40)), exclusive_zone: 40,
+  anchor: Anchor::Bottom | Anchor::Left | Anchor::Right,
+  layer: Layer::Top, keyboard_interactivity:
+  KeyboardInteractivity::OnDemand, .. }, .. })` instead of
+  the plain `iced::application` functional builder. The
+  `Message` enum got `#[to_layer_message]` for the
+  `TryInto<LayershellCustomActions>` impl the trait requires.
+  `crates/mde-panel/src/main.rs::main` now returns
+  `iced_layershell::Result`. Operator-verification on the
+  bench: `swaymsg -t get_workspaces` reports
+  `ws 1 on DP-2: rect height=1040` against a 1080 px output —
+  the 40 px delta is the panel's exclusive zone, exactly the
+  Phase E.2 lock value. Panel no longer appears in the regular
+  sway tree (layer-shell surfaces don't); the `for_window
+  [app_id="^shell\.mackes\.Panel$"]` rule is now cosmetic but
+  retained as defense-in-depth in case a future Iced upgrade
+  drops layer-shell.
+- [✓] **v3.0.2: Phase E.4-E.29 panel-host applet wiring (shipped
+  2026-05-22)** — Retires "panel-host consumption gated on
+  Phase E.1" deferral markers on the following pre-existing
+  applet entries: E.4.1 (sway-cluster), E.4.3 (app-switcher),
+  E.7.1 (notification-bell tray), E.7.2 (notifications
+  center), E.10 (dock), E1.2.1 (clock), E1.2.2 (audio),
+  E1.2.3 (network), E1.2.4 (mesh-status), E1.2.8 (status-
+  cluster), E1.2.9 (start-menu), E1.3 (panel-host
+  discovery). New module
+  `crates/mde-panel/src/applet_host.rs` (208 LOC + 4 unit
+  tests): spawns one OS thread per applet (`AppletKind::ALL`,
+  8 kinds), each blocking on `std::process::Command::new(bin).
+  arg("--now").output()` at a per-applet cadence (Clock 15 s,
+  Audio/SwayCluster 2 s, all others 5 s) and pushing the
+  trimmed stdout into an Iced `Subscription` via
+  `iced::futures::channel::mpsc::Sender::try_send`. OS threads
+  rather than `tokio::spawn` because `iced_layershell` polls
+  subscription streams outside the tokio runtime's `enter`
+  guard — any future depending on the tokio reactor (process
+  I/O, time::sleep) parks and never wakes. `try_send` is
+  runtime-agnostic. The 64-slot buffer means a temporarily
+  stalled view drops the oldest pending update rather than
+  blocking the driver thread. New `Message::AppletText(kind,
+  text)` reducer routes per-kind text into the new
+  `TopBarState::set_applet_text(...)` setter. Per-zone
+  rendering in `crates/mde-panel/src/top_bar.rs::view`
+  consumes the live text directly (no placeholder unicode).
+  Operator-verification: every zone updates within < 2 s of
+  state change (volume toggle, workspace switch); the clock
+  ticks to current minute on every 15 s pulse; mesh status,
+  network state, battery %, and notification count all flow
+  end-to-end from applet binary → panel render. The
+  `Message::StartClicked` + `Message::TrayClicked(kind)`
+  reducers spawn the matching popover/applet binary detached.
+- [✓] **v3.0.2: cargo dep additions — `iced_layershell 0.13.7`
+  + tokio io-util/time features** — `crates/mde-panel/
+  Cargo.toml` now lists `iced_layershell = "0.13.7"` and the
+  tokio feature set widened from
+  `["rt-multi-thread","macros","process"]` to
+  `["rt-multi-thread","macros","process","io-util","time"]`.
+  `iced_layershell` brought in 67 transitive dep crates
+  (waycrate_xkbkeycode, layershellev, calloop-wayland-source,
+  etc.); workspace `cargo check -p mde-panel` finishes in
+  ~18 s post-warm-cache.
+- [✓] **v3.0.2: 181 mde-panel tests green** — added 4 new
+  `applet_host` tests (`every_kind_has_a_binary_and_a_ping_
+  cadence`, `kind_order_is_stable`, `clock_pings_at_15s_not_
+  per_second`, `responsive_applets_ping_under_3s`) + 1 new
+  `top_bar` test (`set_applet_text_routes_to_correct_field`)
+  + retained the existing `Application`-trait surface tests
+  by importing `iced_layershell::Application as _` into the
+  test module. `cargo test -p mde-panel --lib`: 181/0/0.
+- [ ] **v3.0.2: cut the release tag (operator-triggered)** —
+  Run `cut release 3.0.2` per `.claude/CLAUDE.md` §0.6
+  shorthand. Will bump `mackes/__init__.py`,
+  `pyproject.toml`, `setup.py`,
+  `packaging/fedora/mackes-shell.spec` to 3.0.2, write
+  the CHANGELOG entry, build the RPM via `make rpm`,
+  commit, tag `v3.0.2`, push, watch the workflow. Gated
+  on operator authorization (§0.5 push + §0.6 cut).
+
+#### v3.0.x panel follow-ups (open for v3.1+)
+
+- [ ] **v3.1: rich click-routing for tray applets — popover
+  windows instead of detached re-spawn** — Today, clicking a
+  tray applet (Audio, Network, etc.) calls `spawn_detached(
+  kind.binary())` which re-runs the applet binary in
+  default mode. For most applets that's a no-op (they're
+  fire-once stdio producers). The real UX wants a popover:
+  click Audio → opens the volume slider; click Network →
+  opens the NM connection list; click Bell → opens the
+  notifications center. Acceptance: each tray applet binary
+  gains a `--popover` flag that spawns an
+  `iced_layershell` overlay surface anchored to the panel
+  edge above the click point, and `Message::TrayClicked`
+  spawns `<binary> --popover`.
+- [ ] **v3.1: dock applet — full inline rendering with icons,
+  drag-to-pin, drag-to-reorder** — The current
+  `mde-applet-dock --now` emits a text summary
+  (`[▶ foot] [· firefox]`). For a real dock, the panel
+  needs to render `.desktop` icons per running window with
+  drag-and-drop. Two paths: (a) re-port the
+  `crates/mackes-panel/src/dock.rs` GTK widget tree into
+  Iced widgets inside the host (bypasses the applet
+  subprocess for the dock specifically), or (b) keep the
+  applet subprocess and expose a richer wire format
+  (JSON-line per app with icon path, state, urgency). Pick
+  in a 3-Q lock when v3.1 work starts.
+- [ ] **v3.1: start-menu — Iced popover binary (not a tray
+  applet)** — Currently `Message::StartClicked` spawns
+  `mde-applet-start-menu` which prints a debug summary +
+  exits. Need a real `mde-applet-start-menu --popover` that
+  opens a layer-shell overlay with the pinned/all-apps/
+  search grid. Acceptance: clicking the M button drops a
+  600×500 layer-shell surface anchored bottom-left of the
+  panel; Esc / outside-click dismiss; mouse-over hover
+  preview; Enter launches the selected app.
+- [ ] **v3.1: applet host backpressure — drop oldest, not
+  newest** — Current `try_send` drops the new update when
+  the 64-slot buffer is full. For a stalled panel, the
+  user would rather see the latest state than the oldest
+  pending one. Switch to a single-slot "latest wins" store
+  per `AppletKind` (no queue) before sending into the
+  subscription stream.
 
 ### Notification Center (new — Rust Desktop handoff bundle, 2026-05-19)
 

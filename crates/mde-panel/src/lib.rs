@@ -13,10 +13,9 @@
 //!   stays optional — it lands at Phase E.1.3 if the
 //!   cosmic-theme adapter justifies it; today the `mackes-theme`
 //!   crate (E3.1) handles token parsing without cosmic-theme.
-//! - **Wayland-first.** Phase E.2 wires
-//!   `smithay-client-toolkit`'s wlr-layer-shell-v1 anchor. The
-//!   skeleton renders as a standard Iced window in the meantime so
-//!   the binary compiles + runs in dev.
+//! - **Wayland-first.** Phase E.2 wires `iced_layershell`'s
+//!   wlr-layer-shell-v1 anchor (bottom edge, 40 px exclusive zone,
+//!   Left|Right stretch so the compositor fills the full output width).
 //!
 //! Source-file modules (`pub mod`) are added per-port in
 //! Phase E.4 → E.29. The skeleton itself ships only the app
@@ -24,7 +23,10 @@
 
 #![forbid(unsafe_code)]
 
-use iced::{window, Element, Size, Task, Theme};
+use iced::{Element, Task, Theme};
+use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
+use iced_layershell::settings::{LayerShellSettings, Settings};
+use iced_layershell::to_layer_message;
 
 /// xdg-shell `app_id` advertised to the Wayland compositor. Sway's
 /// `for_window [app_id="shell.mackes.Panel"]` rule in
@@ -36,6 +38,7 @@ use iced::{window, Element, Size, Task, Theme};
 pub const APP_ID: &str = "shell.mackes.Panel";
 
 pub mod admin_menu;
+pub mod applet_host;
 pub mod clipboard;
 pub mod dock_dnd;
 pub mod expose;
@@ -113,6 +116,12 @@ impl Pane {
 ///
 /// Phase E.1.2 ships the no-op variant set; per-port submessages
 /// are added as their tasks land.
+///
+/// `#[to_layer_message]` (Phase E.2) generates the `TryInto<LayershellCustomActions>`
+/// impl required by `iced_layershell::Application::run`. Layer-shell action variants
+/// (e.g. `AnchorSizeChange`, `SetSizeChange`) are appended by the macro; the
+/// user-level `update` function ignores them with `_ => {}`.
+#[to_layer_message]
 #[derive(Debug, Clone)]
 pub enum Message {
     /// No-op placeholder — keeps the variant set non-empty so Iced's
@@ -121,6 +130,14 @@ pub enum Message {
     /// 1-second tick used by clock + battery + watermark refresh.
     /// Subscription wiring lands at E.17.
     Tick,
+    /// Phase E.4-E.29 host wiring — a stdout line from one of the
+    /// `mde-applet-*` subprocesses driven by [`applet_host`].
+    AppletText(applet_host::AppletKind, String),
+    /// Start-button left-click — launches the start-menu popover.
+    StartClicked,
+    /// Tray-applet click — launches the popover/quick-action bound to
+    /// the given applet kind.
+    TrayClicked(applet_host::AppletKind),
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -154,39 +171,32 @@ impl App {
     }
 }
 
-impl App {
-    /// Launch the panel via the Iced runtime.
-    ///
-    /// Phase E.2 wraps this with a layer-shell anchor (bottom edge,
-    /// 40 px height, exclusive zone). Until then, the panel renders
-    /// as a regular xdg_shell window whose `app_id` is set via
-    /// `window::settings::PlatformSpecific::application_id` — sway's
-    /// `for_window [app_id="shell.mackes.Panel"]` rule picks that up
-    /// and floats the window with no border.
-    pub fn run() -> iced::Result {
-        iced::application(Self::title, Self::update, Self::view)
-            .theme(Self::theme)
-            .window(window::Settings {
-                size: Size::new(1920.0, 40.0),
-                platform_specific: window::settings::PlatformSpecific {
-                    application_id: APP_ID.to_string(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .run()
+// ──────────────────────────────────────────────────────────────
+// Phase E.2 — wlr-layer-shell-v1 anchor via iced_layershell
+// ──────────────────────────────────────────────────────────────
+
+impl iced_layershell::Application for App {
+    type Executor = iced::executor::Default;
+    type Message = Message;
+    type Theme = Theme;
+    type Flags = ();
+
+    fn new(_flags: ()) -> (Self, Task<Message>) {
+        // Start with the loading placeholder strings — the first
+        // applet emit happens within ~1s of spawn, so the user only
+        // sees these for a beat.
+        (
+            Self {
+                ticks: 0,
+                top_bar: top_bar::TopBarState::loading(),
+            },
+            Task::none(),
+        )
     }
 
-    fn title(&self) -> String {
-        "mde-panel".to_string()
-    }
-
-    #[allow(clippy::unused_self)]
-    fn theme(&self) -> Theme {
-        // Phase E.1.3 — load tokens.css if available, fall back to
-        // Iced::Theme::Dark when not (dev builds w/o the install
-        // tree).
-        theme::load_theme()
+    /// Layer-shell namespace — sway surfaces this as the surface role name.
+    fn namespace(&self) -> String {
+        APP_ID.to_string()
     }
 
     fn update(&mut self, msg: Message) -> Task<Message> {
@@ -195,15 +205,86 @@ impl App {
             Message::Tick => {
                 self.ticks = self.ticks.saturating_add(1);
             }
+            Message::AppletText(kind, text) => {
+                tracing::debug!(
+                    applet = ?kind,
+                    text = %text,
+                    "applet text received"
+                );
+                self.top_bar.set_applet_text(kind, text);
+            }
+            Message::StartClicked => {
+                spawn_detached("mde-applet-start-menu");
+            }
+            Message::TrayClicked(kind) => {
+                // For now, clicking a tray applet re-spawns its binary
+                // detached — the applet itself decides whether to open
+                // a popover. Once the popover binaries land (Phase
+                // E.7.2/E.8/E.11/E.12), this routes to those specific
+                // overlay binaries instead.
+                spawn_detached(kind.binary());
+            }
+            // Layer-shell action variants injected by #[to_layer_message] —
+            // the runtime intercepts them before they reach user code but
+            // the exhaustiveness check requires this arm.
+            _ => {}
         }
         Task::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
-        // Phase E.17 — full top-bar chrome. Pre-port stages use the
-        // demo state; per-port wiring (E.4.1 cluster, E.10 dock, etc.)
-        // replaces individual fields as their state-writers land.
+        // Phase E.17 + Phase E.4-E.29 host wiring — render the live
+        // applet text per zone. The state is mutated by `update`
+        // through `AppletText` messages emitted by `applet_host`.
         top_bar::view(&self.top_bar)
+    }
+
+    fn subscription(&self) -> iced::Subscription<Message> {
+        applet_host::subscription(|t| Message::AppletText(t.kind, t.text))
+    }
+
+    fn theme(&self) -> Theme {
+        // Phase E.1.3 — load tokens.css if available, fall back to
+        // Theme::Dark for dev builds.
+        theme::load_theme()
+    }
+}
+
+/// Spawn a binary detached (stdio devnull, fully owned by the OS
+/// once it exits). Used by `update` to launch popover/overlay
+/// applets in response to clicks; the panel doesn't supervise the
+/// child — it's expected to manage its own lifetime.
+fn spawn_detached(binary: &str) {
+    use std::process::{Command, Stdio};
+    let _ = Command::new(binary)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+}
+
+impl App {
+    /// Launch the panel anchored to the bottom edge via wlr-layer-shell-v1.
+    ///
+    /// Phase E.2: `iced_layershell` replaces the plain `iced::application`
+    /// functional builder. The compositor (sway) receives:
+    ///   - `anchor = Bottom | Left | Right` → stretches full output width
+    ///   - `exclusive_zone = 40` → reserves 40 px; tiled windows won't overlap
+    ///   - `layer = Top` → above normal windows, below overlays
+    ///   - `keyboard_interactivity = OnDemand` → popovers can grab keys
+    pub fn run() -> iced_layershell::Result {
+        <App as iced_layershell::Application>::run(Settings {
+            id: Some(APP_ID.to_string()),
+            layer_settings: LayerShellSettings {
+                size: Some((0, u32::from(top_bar::TOP_BAR_HEIGHT_PX))),
+                exclusive_zone: i32::from(top_bar::TOP_BAR_HEIGHT_PX),
+                anchor: Anchor::Bottom | Anchor::Left | Anchor::Right,
+                layer: Layer::Top,
+                keyboard_interactivity: KeyboardInteractivity::OnDemand,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
     }
 }
 
@@ -214,6 +295,10 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Phase E.2 — `update` / `view` / `theme` are now trait methods on
+    // `iced_layershell::Application`. Bring the trait into scope so the
+    // existing tests can keep calling them as inherent-style methods.
+    use iced_layershell::Application as _;
 
     #[test]
     fn pane_ordering_has_six_distinct_zones() {

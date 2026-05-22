@@ -1,41 +1,31 @@
-//! Phase E.17 — top-bar visual chrome (2026 design language).
-//!
-//! Lays out the panel's six locked zones in a single 40 px row:
+//! Phase E.17 + Phase E.4-E.29 host wiring — the panel's top-bar
+//! view. Lays out the six locked zones in a single 40 px row and
+//! renders the live text emitted by each `mde-applet-*` subprocess
+//! (driven by [`crate::applet_host`]).
 //!
 //! ```text
 //!   ┌─────────────────────────────────────────────────────────┐
-//!   │  ⌂  ★ ★ ★ │ ▷ Focused window title  │ ⌗ ⌘ ⊞ │  ◉ ◉ ◉ │ 10:42 │
-//!   │ Start  Pinned       Tasklist          Cluster   Tray   Clock │
+//!   │  M │ [dock…]      [cluster]      [tray icons]    11:42  │
+//!   │ Start  Pinned/Tasklist   Cluster   Tray         Clock   │
 //!   └─────────────────────────────────────────────────────────┘
 //! ```
 //!
-//! 2026 design language locks (deliberate departure from the
-//! prior CSS approach):
-//! - **Surface:** dark glass (#0e0e10 at 92% alpha when the
-//!   compositor exposes backdrop blur; opaque otherwise). Single
-//!   1px hairline at the top edge in `rgba(244,244,244,0.06)`.
-//! - **Separators:** 8 px of negative space, no painted divider.
-//!   Zones distinguish themselves by content, not chrome.
-//! - **Accent system:** one bold accent color (per-preset, default
-//!   the IBM-blue `#2b9af3`). Greyscale everywhere else; hover
-//!   states use a 14%-alpha underglow of the accent, not a
-//!   button-style background flip.
-//! - **Typography:** Red Hat Mono for the clock (tabular nums),
-//!   Red Hat Text 12 px / weight 500 for labels.
-//! - **Microinteraction:** 180 ms ease-out for every state
-//!   transition; longer transforms (>500 ms) drop under
-//!   `Motion::Reduced` (settings tie-in pending E.5/E.6).
-//!
-//! The widget is pane-driven: `TopBar::view(state)` consumes a
-//! `TopBarState` that names which child widget renders in each
-//! zone. Future ports (E.10 dock host, E.11 start menu, E.4.1
-//! sway cluster, etc.) plug into specific `Pane` slots without
-//! re-laying-out the bar.
+//! Design locks (2026 surface refresh):
+//! - **Surface:** dark glass (#0e0e10 @ 92 % alpha when the
+//!   compositor exposes blur; opaque otherwise). Hairline 1 px
+//!   at the top edge in `rgba(244,244,244,0.06)`.
+//! - **Accent:** `#2b9af3` (PatternFly blue-400 — Carbon
+//!   `interactive-04` lock). Greyscale elsewhere; hover lifts
+//!   with a 14 %-alpha underglow of the accent.
+//! - **Typography:** Red Hat Mono for the clock + tabular numerics,
+//!   Red Hat Text 12 px / 500 weight for labels.
+//! - **Microinteraction:** 180 ms ease-out for every state change.
 
-use iced::widget::{container, row, text, Space};
-use iced::{Color, Element, Length, Padding, Theme};
+use iced::widget::{button, container, row, text, Space};
+use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
-use crate::Pane;
+use crate::applet_host::AppletKind;
+use crate::Message;
 
 /// Height of the top bar in logical pixels (Phase 1.1.0 Win10 lock).
 pub const TOP_BAR_HEIGHT_PX: u16 = 40;
@@ -44,55 +34,173 @@ pub const TOP_BAR_HEIGHT_PX: u16 = 40;
 /// touching the bar's edges.
 pub const ZONE_PADDING_X: u16 = 12;
 
-/// State injected by the panel orchestrator. Each `Option<String>`
-/// is a placeholder for a richer per-port widget that lands at
-/// E.4 - E.29; the skeleton renders the string verbatim.
+/// Accent — Carbon `interactive-04` / PatternFly blue-400.
+const ACCENT: Color = Color {
+    r: 0.169,
+    g: 0.604,
+    b: 0.953,
+    a: 1.0,
+};
+
+/// Foreground text — Carbon `text-01`.
+const FG_TEXT: Color = Color {
+    r: 0.957,
+    g: 0.957,
+    b: 0.957,
+    a: 1.0,
+};
+
+/// Muted helper text — Carbon `text-helper`.
+const FG_MUTED: Color = Color {
+    r: 0.659,
+    g: 0.659,
+    b: 0.659,
+    a: 1.0,
+};
+
+/// Panel background — `#0e0e10` at 92 % alpha.
+const SURFACE_BG: Color = Color {
+    r: 0.055,
+    g: 0.055,
+    b: 0.063,
+    a: 0.92,
+};
+
+/// State injected into [`view`] — one text-cell per applet kind, plus
+/// a fixed start label. The panel orchestrator (`App::update`) mutates
+/// this via [`set_applet_text`] each time an applet emits a stdout line.
 #[derive(Debug, Clone, Default)]
 pub struct TopBarState {
-    pub start_label: Option<String>,
-    pub pinned_labels: Vec<String>,
-    pub tasklist_label: Option<String>,
-    pub cluster_label: Option<String>,
-    pub tray_labels: Vec<String>,
-    pub clock_label: Option<String>,
+    pub start_label: String,
+    pub dock_text: String,
+    pub cluster_text: String,
+    pub clock_text: String,
+    pub audio_text: String,
+    pub network_text: String,
+    pub mesh_text: String,
+    pub status_text: String,
+    pub bell_text: String,
 }
 
 impl TopBarState {
-    /// Minimal demo state — used by `App::view()` until the per-port
-    /// state writers land.
+    /// Initial loading placeholder — emitted before the first applet
+    /// re-render lands (typically < 1 s after panel spawn).
+    #[must_use]
+    pub fn loading() -> Self {
+        Self {
+            start_label: "M".to_string(),
+            dock_text: "…".to_string(),
+            cluster_text: "…".to_string(),
+            clock_text: "--:--".to_string(),
+            audio_text: "🔈 --".to_string(),
+            network_text: "—".to_string(),
+            mesh_text: "—".to_string(),
+            status_text: "—".to_string(),
+            bell_text: String::new(),
+        }
+    }
+
+    /// Demo content used by tests + bare-iced dev launches. Kept so
+    /// the test `view_renders_without_panic` doesn't need a live
+    /// applet host.
     #[must_use]
     pub fn demo() -> Self {
         Self {
-            start_label: Some("⌂".to_string()),
-            pinned_labels: vec!["★".into(), "★".into(), "★".into()],
-            tasklist_label: Some("Workbench · Network · mesh_ssh".into()),
-            cluster_label: Some("⌗ ⌘ ⊞".into()),
-            tray_labels: vec!["◉".into(), "◉".into(), "◉".into()],
-            clock_label: Some(default_clock_label()),
+            start_label: "M".to_string(),
+            dock_text: "[▶ foot]".to_string(),
+            cluster_text: "H  def  #1".to_string(),
+            clock_text: "11:42".to_string(),
+            audio_text: "🔈 65%".to_string(),
+            network_text: "Wi-Fi".to_string(),
+            mesh_text: "✓ 3".to_string(),
+            status_text: "⚡ 88%".to_string(),
+            bell_text: "0".to_string(),
+        }
+    }
+
+    /// Apply the latest stdout line for the given applet kind. Called
+    /// from `App::update` on every `Message::AppletText`.
+    pub fn set_applet_text(&mut self, kind: AppletKind, text: String) {
+        match kind {
+            AppletKind::Clock => self.clock_text = text,
+            AppletKind::Audio => self.audio_text = text,
+            AppletKind::Network => self.network_text = text,
+            AppletKind::MeshStatus => self.mesh_text = text,
+            AppletKind::StatusCluster => self.status_text = text,
+            AppletKind::SwayCluster => self.cluster_text = text,
+            AppletKind::NotificationBell => self.bell_text = text,
+            AppletKind::Dock => self.dock_text = text,
         }
     }
 }
 
-/// Render the top bar.
+/// Render the top bar. Returns an Iced `Element<Message>`; the
+/// click handlers map directly to `Message::StartClicked` /
+/// `Message::TrayClicked(kind)`.
 #[must_use]
-pub fn view<'a, Message: 'a + Clone>(state: &'a TopBarState) -> Element<'a, Message> {
-    let start = zone(state.start_label.as_deref(), Pane::Start);
-    let pinned = zone_of_many(&state.pinned_labels, Pane::Pinned, 8);
-    let tasklist = zone(state.tasklist_label.as_deref(), Pane::Tasklist);
-    let cluster = zone(state.cluster_label.as_deref(), Pane::Cluster);
-    let tray = zone_of_many(&state.tray_labels, Pane::Tray, 6);
-    let clock = zone(state.clock_label.as_deref(), Pane::Clock);
+pub fn view(state: &TopBarState) -> Element<'_, Message> {
+    let start_btn = button(text(state.start_label.clone()).size(16).color(ACCENT))
+        .padding(Padding {
+            top: 4.0,
+            right: 12.0,
+            bottom: 4.0,
+            left: 12.0,
+        })
+        .style(zone_button_style)
+        .on_press(Message::StartClicked);
+
+    // Dock zone — shows the dock applet's pinned/running summary
+    // (e.g. "[▶ foot] [· firefox]"). Until the inline Iced dock
+    // (Phase E.10 host) lands, this is read-only text; clicks fall
+    // through to a Noop.
+    let dock = labeled_zone(&state.dock_text, FG_TEXT, false);
+
+    // Cluster zone — the sway-IPC chips (`H  def  #1` or similar).
+    let cluster = labeled_zone(&state.cluster_text, FG_TEXT, false);
+
+    // Tray — five clickable applet cells in a row.
+    let tray = row![
+        tray_button(&state.audio_text, AppletKind::Audio),
+        Space::with_width(Length::Fixed(8.0)),
+        tray_button(&state.network_text, AppletKind::Network),
+        Space::with_width(Length::Fixed(8.0)),
+        tray_button(&state.mesh_text, AppletKind::MeshStatus),
+        Space::with_width(Length::Fixed(8.0)),
+        tray_button(&state.status_text, AppletKind::StatusCluster),
+        Space::with_width(Length::Fixed(8.0)),
+        tray_button(
+            if state.bell_text.is_empty() {
+                "○"
+            } else {
+                state.bell_text.as_str()
+            },
+            AppletKind::NotificationBell,
+        ),
+    ]
+    .align_y(iced::Alignment::Center);
+
+    // Clock — tabular-numeric pill, monospace styling courtesy of
+    // the theme. Clicking opens the date popover (when E.12 lands;
+    // for now spawns the clock binary's `--now` mode which exits
+    // immediately, effectively a no-op).
+    let clock = button(text(state.clock_text.clone()).size(13).color(FG_TEXT))
+        .padding(Padding {
+            top: 6.0,
+            right: 12.0,
+            bottom: 6.0,
+            left: 12.0,
+        })
+        .style(zone_button_style)
+        .on_press(Message::TrayClicked(AppletKind::Clock));
 
     container(
         row![
-            start,
+            start_btn,
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
-            pinned,
-            Space::with_width(Length::Fill),
-            tasklist,
+            dock,
             Space::with_width(Length::Fill),
             cluster,
-            Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
+            Space::with_width(Length::Fill),
             tray,
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
             clock,
@@ -111,94 +219,83 @@ pub fn view<'a, Message: 'a + Clone>(state: &'a TopBarState) -> Element<'a, Mess
     .into()
 }
 
-fn zone<'a, Message: 'a>(label: Option<&str>, pane: Pane) -> Element<'a, Message> {
-    let label_str = label.unwrap_or("").to_string();
-    let pane_label = pane.label().to_string();
-    container(text(label_str).size(14))
+/// Read-only text zone with a thin padding box. Used by the dock and
+/// cluster cells which aren't yet click-targets.
+fn labeled_zone(label: &str, color: Color, accent: bool) -> Element<'_, Message> {
+    let style_color = if accent { ACCENT } else { color };
+    container(text(label.to_string()).size(13).color(style_color))
         .padding(Padding {
             top: 4.0,
-            right: f32::from(ZONE_PADDING_X / 2),
+            right: 6.0,
             bottom: 4.0,
-            left: f32::from(ZONE_PADDING_X / 2),
+            left: 6.0,
         })
-        .style(move |_theme: &Theme| zone_style(&pane_label))
         .into()
 }
 
-fn zone_of_many<'a, Message: 'a + Clone>(
-    labels: &[String],
-    pane: Pane,
-    spacing: u16,
-) -> Element<'a, Message> {
-    let pane_label = pane.label().to_string();
-    let mut row_widget = row![].spacing(spacing).align_y(iced::Alignment::Center);
-    for label in labels {
-        row_widget = row_widget.push(text(label.clone()).size(14));
-    }
-    container(row_widget)
+fn tray_button(label: &str, kind: AppletKind) -> Element<'_, Message> {
+    button(text(label.to_string()).size(13).color(FG_TEXT))
         .padding(Padding {
-            top: 4.0,
-            right: f32::from(ZONE_PADDING_X / 2),
-            bottom: 4.0,
-            left: f32::from(ZONE_PADDING_X / 2),
+            top: 6.0,
+            right: 8.0,
+            bottom: 6.0,
+            left: 8.0,
         })
-        .style(move |_theme: &Theme| zone_style(&pane_label))
+        .style(zone_button_style)
+        .on_press(Message::TrayClicked(kind))
         .into()
 }
 
-fn panel_surface(theme: &Theme) -> container::Style {
-    let palette = theme.extended_palette();
+fn panel_surface(_theme: &Theme) -> container::Style {
     container::Style {
-        background: Some(iced::Background::Color(Color {
-            r: palette.background.base.color.r,
-            g: palette.background.base.color.g,
-            b: palette.background.base.color.b,
-            a: 0.96,
-        })),
-        border: iced::Border {
+        background: Some(Background::Color(SURFACE_BG)),
+        border: Border {
             color: Color {
-                r: palette.background.strong.color.r,
-                g: palette.background.strong.color.g,
-                b: palette.background.strong.color.b,
-                a: 0.18,
+                r: 0.957,
+                g: 0.957,
+                b: 0.957,
+                a: 0.06,
             },
-            width: 0.0,
+            width: 1.0,
             radius: 0.0.into(),
         },
-        text_color: Some(palette.background.base.text),
-        shadow: iced::Shadow::default(),
+        text_color: Some(FG_TEXT),
+        shadow: Shadow::default(),
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
-fn zone_style(_pane_label: &str) -> container::Style {
-    // Zones are visually weightless — they only border on hover,
-    // which we'll wire in once we have per-zone interactivity (E.7+).
-    container::Style::default()
+/// Zone-button style — flat, no border, accent-tinted hover.
+fn zone_button_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered => Some(Background::Color(Color {
+            r: ACCENT.r,
+            g: ACCENT.g,
+            b: ACCENT.b,
+            a: 0.14,
+        })),
+        button::Status::Pressed => Some(Background::Color(Color {
+            r: ACCENT.r,
+            g: ACCENT.g,
+            b: ACCENT.b,
+            a: 0.22,
+        })),
+        _ => None,
+    };
+    button::Style {
+        background: bg,
+        text_color: FG_TEXT,
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 4.0.into(),
+        },
+        shadow: Shadow::default(),
+    }
 }
 
-/// Default clock label string used by [`TopBarState::demo`] and by
-/// `App::view()` until the clock applet (E1.2.1, shipped) wires
-/// into the panel host.
-#[must_use]
-pub fn default_clock_label() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format_clock(secs)
-}
-
-/// Pure-function clock renderer. Pulled out so tests can pin format
-/// behavior without touching the system clock.
-#[must_use]
-pub fn format_clock(epoch_seconds: u64) -> String {
-    // Howard-Hinnant civil-from-days for HH:MM display.
-    let secs_in_day = epoch_seconds % 86_400;
-    let hours = (secs_in_day / 3_600) as u32;
-    let mins = ((secs_in_day % 3_600) / 60) as u32;
-    format!("{hours:02}:{mins:02}")
+#[allow(dead_code)]
+fn muted() -> Color {
+    FG_MUTED
 }
 
 #[cfg(test)]
@@ -216,53 +313,37 @@ mod tests {
     }
 
     #[test]
-    fn demo_state_populates_every_zone() {
-        let state = TopBarState::demo();
-        assert!(state.start_label.is_some());
-        assert!(!state.pinned_labels.is_empty());
-        assert!(state.tasklist_label.is_some());
-        assert!(state.cluster_label.is_some());
-        assert!(!state.tray_labels.is_empty());
-        assert!(state.clock_label.is_some());
+    fn loading_state_populates_every_field() {
+        let state = TopBarState::loading();
+        assert!(!state.start_label.is_empty());
+        assert!(!state.clock_text.is_empty());
+        assert!(!state.audio_text.is_empty());
     }
 
     #[test]
-    fn format_clock_pads_hours_and_minutes() {
-        // 09:07 UTC = 9 * 3600 + 7 * 60 = 32820 seconds into the day.
-        assert_eq!(format_clock(32_820), "09:07");
-    }
-
-    #[test]
-    fn format_clock_handles_midnight() {
-        assert_eq!(format_clock(0), "00:00");
-    }
-
-    #[test]
-    fn format_clock_handles_last_minute_of_day() {
-        // 23:59 = 23*3600 + 59*60 = 86340.
-        assert_eq!(format_clock(86_340), "23:59");
-    }
-
-    #[test]
-    fn format_clock_wraps_after_full_day() {
-        // 24:00 boundary should wrap to 00:00.
-        assert_eq!(format_clock(86_400), "00:00");
-    }
-
-    #[test]
-    fn default_state_is_all_empty() {
-        let state = TopBarState::default();
-        assert!(state.start_label.is_none());
-        assert!(state.pinned_labels.is_empty());
-        assert!(state.tasklist_label.is_none());
-        assert!(state.cluster_label.is_none());
-        assert!(state.tray_labels.is_empty());
-        assert!(state.clock_label.is_none());
+    fn set_applet_text_routes_to_correct_field() {
+        let mut state = TopBarState::default();
+        state.set_applet_text(AppletKind::Clock, "12:34".into());
+        assert_eq!(state.clock_text, "12:34");
+        state.set_applet_text(AppletKind::Audio, "🔈 50%".into());
+        assert_eq!(state.audio_text, "🔈 50%");
+        state.set_applet_text(AppletKind::Network, "Wi-Fi: home".into());
+        assert_eq!(state.network_text, "Wi-Fi: home");
+        state.set_applet_text(AppletKind::MeshStatus, "✓ 4".into());
+        assert_eq!(state.mesh_text, "✓ 4");
+        state.set_applet_text(AppletKind::StatusCluster, "⚡ 99%".into());
+        assert_eq!(state.status_text, "⚡ 99%");
+        state.set_applet_text(AppletKind::SwayCluster, "H def #1".into());
+        assert_eq!(state.cluster_text, "H def #1");
+        state.set_applet_text(AppletKind::Dock, "[▶ foot]".into());
+        assert_eq!(state.dock_text, "[▶ foot]");
+        state.set_applet_text(AppletKind::NotificationBell, "3".into());
+        assert_eq!(state.bell_text, "3");
     }
 
     #[test]
     fn view_renders_without_panic() {
         let state = TopBarState::demo();
-        let _ = view::<crate::Message>(&state);
+        let _ = view(&state);
     }
 }

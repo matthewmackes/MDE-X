@@ -52,7 +52,7 @@ struct Cli {
     focus: Option<String>,
 }
 
-fn main() -> iced::Result {
+fn main() -> iced_layershell::Result {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("MDE_PANEL_LOG")

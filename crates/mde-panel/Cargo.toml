@@ -32,8 +32,11 @@ iced       = { version = "0.13", default-features = false, features = ["wgpu", "
 # v2.0.0 zbus surface — for dev.mackes.MDE.* method calls.
 zbus       = { version = "5", default-features = false, features = ["tokio"] }
 
-# Async runtime — shared with Iced + zbus.
-tokio      = { version = "1", features = ["rt-multi-thread", "macros", "process"] }
+# Async runtime — shared with Iced + zbus. `io-util` adds the
+# AsyncBufReadExt / AsyncWriteExt traits the applet-host needs to
+# pipe stdio with each `mde-applet-*` child. `time` powers the
+# per-applet ping interval.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time"] }
 
 # v2.0.0 Phase 0.2 — MDE config (panel.toml schema).
 mde-config = { path = "../mde-config" }
@@ -61,6 +64,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # CLI parsing for --apple-menu / --expose / --drawer / --recover /
 # --root-menu / --focus dispatch.
 clap = { version = "4.5", features = ["derive"] }
+iced_layershell = "0.13.7"
 
 [dev-dependencies]
 tempfile = "3"
