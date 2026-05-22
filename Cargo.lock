@@ -2985,6 +2985,7 @@ dependencies = [
  "mackes-kdc",
  "mackes-mesh-types",
  "mackes-transport",
+ "mde-kdc",
  "mdns-sd",
  "rand 0.8.6",
  "rusqlite",

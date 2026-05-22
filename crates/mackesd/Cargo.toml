@@ -48,6 +48,12 @@ mackes-kdc = { path = "../mackes-kdc" }
 # mackes-https-tunnel, mackesd::transport::direct_udp).
 mackes-transport = { path = "../mackes-transport" }
 
+# KDC2-3.10 — host integration crate consumed by the kdc_host
+# worker under async-services. Pulls in mde-kdc-proto + rsa +
+# pkcs8 transitively, so it's behind the same feature gate that
+# already gates tokio + zbus.
+mde-kdc = { path = "../mde-kdc", optional = true }
+
 # Storage: SQLite via rusqlite (sync, no async runtime needed for the
 # reconcile loop's cadence). WAL mode + 5 s busy timeout per 12.A.2.
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -173,7 +179,7 @@ x11 = []
 # modules compile only with this feature; downstream library
 # consumers that just want the existing sync read-API can leave it
 # off. Locked 2026-05-19.
-async-services = ["dep:tokio", "dep:task-supervisor", "dep:zbus", "dep:async-trait", "dep:mdns-sd"]
+async-services = ["dep:tokio", "dep:task-supervisor", "dep:zbus", "dep:async-trait", "dep:mdns-sd", "dep:mde-kdc"]
 
 [package.metadata.docs.rs]
 # Skip the docker-tests feature on docs.rs — it pulls a network

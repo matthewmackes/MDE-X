@@ -85,6 +85,7 @@ pub mod derp;
 pub mod fs_sync;
 pub mod heartbeat;
 pub mod kdc_bridge;
+pub mod kdc_host;
 pub mod lan_discovery;
 pub mod mdns;
 pub mod media_sync;
