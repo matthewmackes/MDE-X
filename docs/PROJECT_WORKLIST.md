@@ -4118,8 +4118,8 @@ under `LICENSES/`.
   262 tests still pass / 94 skip / 0 fail. Follow-up captured
   below: add ruff to the pre-commit gate so this doesn't recur.
 
-- [ ] **ci pytest job has been red since pre-1.1.0 — v2.1+ scope (post-v2.0.0 cleanup)
-  to v2.0.0 cut (lock 2026-05-20)** — every ci.yml run for the
+- [✓] **ci pytest job has been red since pre-1.1.0 — v2.1+ scope (post-v2.0.0 cleanup)
+  to v2.0.0 cut — landed green 2026-05-21** — every ci.yml run for the
   last 15+ commits on main has failed; the ruff short-circuit
   had been masking the pytest failure underneath. Root cause:
   `ImportError: Typelib file for namespace 'xlib', version '2.0'

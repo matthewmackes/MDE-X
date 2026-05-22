@@ -93,11 +93,20 @@ def test_mde_settings_bridge_accessible_via_facade():
 def test_facade_does_not_double_import_workbench():
     """The facade must NOT register a separate mde.workbench
     sub-module hierarchy — every entry points to the same
-    underlying object."""
-    import mackes.workbench
-    import mde
-    import mde.workbench
-    assert mde.workbench is mackes.workbench
+    underlying object.
+
+    Uses `sys.modules` directly because earlier tests in the
+    suite can run `importlib.reload(mackes.<sub>)` (see
+    `tests/test_mesh_*.py`) which can transiently strip the
+    `workbench` attribute off the `mackes` module. The
+    contract under test is "same module object" — `sys.modules`
+    is the canonical place to check that, attribute access is
+    just a convenience that's order-sensitive.
+    """
+    import mackes.workbench  # noqa: F401 — populates sys.modules
+    import mde  # noqa: F401 — runs the facade installer
+    import mde.workbench  # noqa: F401 — populates sys.modules
+    assert sys.modules["mde.workbench"] is sys.modules["mackes.workbench"]
 
 
 def test_facade_skips_missing_optional_modules_silently():

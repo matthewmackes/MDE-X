@@ -140,7 +140,6 @@ class MeshHistoryPanel(Gtk.Box):
                     "Applied desired-config revisions show up here. "
                     "Push a configuration through the Fleet panel "
                     "(or via `mackesd apply`) to create the first one.",
-                    None, None,
                 ),
                 False, False, 0,
             )

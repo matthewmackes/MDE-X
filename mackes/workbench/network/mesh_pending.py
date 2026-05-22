@@ -125,7 +125,6 @@ class MeshPendingPanel(Gtk.Box):
                     "No pending changes",
                     "All configuration revisions are applied. New "
                     "drafts will appear here for approval.",
-                    None, None,
                 ),
                 False, False, 0,
             )

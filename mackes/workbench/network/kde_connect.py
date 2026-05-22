@@ -167,7 +167,6 @@ class KdeConnectDevicesPanel(Gtk.Box):
                 "No paired devices",
                 "Pair a phone or tablet from its KDE Connect app — it "
                 "will appear here.",
-                None, None,
             ))
             self._list.show_all()
             return
@@ -216,7 +215,7 @@ class _ListWithEmptyPanel(Gtk.Box):
         for c in self._list_box.get_children():
             self._list_box.remove(c)
         self._list_box.pack_start(empty_state(
-            self._empty_title, self._empty_body, None, None,
+            self._empty_title, self._empty_body,
         ), False, False, 0)
         self._list_box.show_all()
 
@@ -319,7 +318,6 @@ class KdeConnectDetailPanel(Gtk.Box):
                 "No device selected",
                 "Pick a device from the Devices tab to see battery, "
                 "clipboard, file history, and per-feature pairing.",
-                None, None,
             ), False, False, 0)
         else:
             records = [r for r in paired_device_records() if r["id"] == device_id]
