@@ -67,10 +67,17 @@ pub fn parse_battery(dir: &Path) -> BatteryState {
 
 /// Glyph for a battery state. The host paints the actual
 /// icon; the text is for fallback + accessibility.
+///
+/// Uses Geometric Shapes (U+25xx — filled squares for capacity
+/// tiers + a hollow circle for AC/charging) because every basic
+/// sans-serif font (Liberation, Cantarell, DejaVu, Red Hat Text)
+/// covers them. U+26A1 (⚡) renders as a tofu box in the default
+/// Iced font; U+21AF (↯) was a worse choice — only Adwaita Mono /
+/// Noto Sans Math have it.
 #[must_use]
 pub fn battery_glyph(state: &BatteryState) -> &'static str {
     if state.status == "Charging" || state.status == "Full" {
-        "\u{26A1}" // lightning bolt
+        "\u{25C9}" // ◉ fisheye — AC plug
     } else if state.capacity == 0 {
         "?"
     } else if state.capacity < 20 {
@@ -125,21 +132,21 @@ mod tests {
     }
 
     #[test]
-    fn battery_glyph_lightning_when_charging() {
+    fn battery_glyph_fisheye_when_charging() {
         let s = BatteryState {
             capacity: 50,
             status: "Charging".into(),
         };
-        assert_eq!(battery_glyph(&s), "\u{26A1}");
+        assert_eq!(battery_glyph(&s), "\u{25C9}");
     }
 
     #[test]
-    fn battery_glyph_lightning_when_full() {
+    fn battery_glyph_fisheye_when_full() {
         let s = BatteryState {
             capacity: 100,
             status: "Full".into(),
         };
-        assert_eq!(battery_glyph(&s), "\u{26A1}");
+        assert_eq!(battery_glyph(&s), "\u{25C9}");
     }
 
     #[test]

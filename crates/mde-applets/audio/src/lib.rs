@@ -75,16 +75,24 @@ pub fn parse_mute(raw: &str) -> bool {
 }
 
 /// Pick the right glyph for the current state.
+///
+/// Uses basic-plane Unicode (musical note `♪` U+266A, multiplication
+/// sign `×` U+00D7) instead of the U+1F507..U+1F50A speaker emoji
+/// because Iced 0.13 + cosmic-text's default font fallback doesn't
+/// reach the Miscellaneous Symbols and Pictographs block — the
+/// speaker glyphs render as tofu boxes in the panel. The basic-plane
+/// glyphs render in every system sans-serif (DejaVu, Adwaita Sans,
+/// Cantarell, Red Hat Text, etc.) without a font load.
 #[must_use]
 pub fn audio_glyph(state: AudioState) -> &'static str {
     if state.muted {
-        "\u{1F507}"
+        "\u{00D7}" // × — multiplication sign (mute)
     } else if state.volume_pct == 0 {
-        "\u{1F508}"
+        "\u{266A}" // ♪ — eighth note (zero volume)
     } else if state.volume_pct < 50 {
-        "\u{1F509}"
+        "\u{266A}" // ♪ — quiet
     } else {
-        "\u{1F50A}"
+        "\u{266B}" // ♫ — beamed eighth notes (loud)
     }
 }
 
@@ -148,7 +156,7 @@ mod tests {
             volume_pct: 80,
             muted: true,
         };
-        assert_eq!(audio_glyph(s), "\u{1F507}");
+        assert_eq!(audio_glyph(s), "\u{00D7}");
     }
 
     #[test]
@@ -165,9 +173,9 @@ mod tests {
             volume_pct: 80,
             muted: false,
         };
-        assert_eq!(audio_glyph(zero), "\u{1F508}");
-        assert_eq!(audio_glyph(low), "\u{1F509}");
-        assert_eq!(audio_glyph(high), "\u{1F50A}");
+        assert_eq!(audio_glyph(zero), "\u{266A}");
+        assert_eq!(audio_glyph(low), "\u{266A}");
+        assert_eq!(audio_glyph(high), "\u{266B}");
     }
 
     #[test]

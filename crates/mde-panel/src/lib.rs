@@ -263,6 +263,37 @@ fn spawn_detached(binary: &str) {
         .spawn();
 }
 
+/// Load system fallback fonts so the audio / status / mesh glyphs
+/// render instead of tofu boxes. Iced 0.13 + cosmic-text uses these
+/// for glyph-fallback when the default font lacks a code point.
+///
+/// Order matters: the first font that contains a glyph wins. We try
+/// Noto Emoji (monochrome, ~880 KB, matches the panel's dark
+/// aesthetic) first, then Symbola (~2.4 MB, broader Unicode
+/// coverage) as a last resort. Missing fonts are silently skipped —
+/// the panel still renders, just with question-mark boxes for
+/// uncovered code points.
+fn load_fallback_fonts() -> Vec<std::borrow::Cow<'static, [u8]>> {
+    const CANDIDATES: &[&str] = &[
+        "/usr/share/fonts/google-noto-emoji-fonts/NotoEmoji-Regular.ttf",
+        "/usr/share/fonts/gdouros-symbola/Symbola.ttf",
+        "/usr/share/fonts/google-noto/NotoSansSymbols2-Regular.ttf",
+    ];
+    let mut out = Vec::new();
+    for path in CANDIDATES {
+        if let Ok(bytes) = std::fs::read(path) {
+            tracing::info!(font = path, bytes = bytes.len(), "loaded fallback font");
+            out.push(std::borrow::Cow::Owned(bytes));
+        }
+    }
+    if out.is_empty() {
+        tracing::warn!(
+            "no fallback fonts found — emoji / symbol glyphs will render as tofu boxes"
+        );
+    }
+    out
+}
+
 impl App {
     /// Launch the panel anchored to the bottom edge via wlr-layer-shell-v1.
     ///
@@ -272,9 +303,15 @@ impl App {
     ///   - `exclusive_zone = 40` → reserves 40 px; tiled windows won't overlap
     ///   - `layer = Top` → above normal windows, below overlays
     ///   - `keyboard_interactivity = OnDemand` → popovers can grab keys
+    ///
+    /// Also registers a glyph-coverage fallback font (Noto Emoji or
+    /// Symbola — whichever the system has) so the audio-applet
+    /// speaker glyphs (🔇/🔈/🔉/🔊), the status-cluster lightning bolt
+    /// (⚡), and the mesh-status chevrons render instead of tofu boxes.
     pub fn run() -> iced_layershell::Result {
         <App as iced_layershell::Application>::run(Settings {
             id: Some(APP_ID.to_string()),
+            fonts: load_fallback_fonts(),
             layer_settings: LayerShellSettings {
                 size: Some((0, u32::from(top_bar::TOP_BAR_HEIGHT_PX))),
                 exclusive_zone: i32::from(top_bar::TOP_BAR_HEIGHT_PX),
