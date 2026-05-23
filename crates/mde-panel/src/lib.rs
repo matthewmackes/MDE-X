@@ -170,6 +170,12 @@ pub enum Message {
     /// Tray-applet click — launches the popover/quick-action bound to
     /// the given applet kind.
     TrayClicked(applet_host::AppletKind),
+    /// v4.0.1 BUG-7 — static clipboard-icon click. Toggles the
+    /// clipboard-history popover (same surface as Super+V). Lives
+    /// outside the AppletKind enum because there's no underlying
+    /// `mde-applet-clipboard` subprocess — the panel just spawns
+    /// `mde-popover clipboard` on press.
+    ClipboardClicked,
     /// v3.0.3 Phase E.3 wiring — one event from the sway-IPC
     /// toplevels subscription. Drives the panel's hero widget,
     /// window-management buttons, and any future tasklist render.
@@ -348,6 +354,13 @@ impl iced_layershell::Application for App {
                     "applet text received"
                 );
                 self.top_bar.set_applet_text(kind, text);
+            }
+            Message::ClipboardClicked => {
+                // v4.0.1 BUG-7 — operator reported no clipboard
+                // surface on the panel. Super+V already wires
+                // mde-popover clipboard via sway config; this
+                // duplicates the path via a visible tray icon.
+                self.toggle_or_spawn_popover("clipboard");
             }
             Message::StartClicked => {
                 // v3.0.3 — toggle the start-menu popover. Second

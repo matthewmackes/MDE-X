@@ -186,7 +186,13 @@ pub fn view<'a>(
     // Cluster zone — the sway-IPC chips (`H  def  #1` or similar).
     let cluster = labeled_zone(&state.cluster_text, FG_TEXT, false);
 
-    // Tray — five clickable applet cells in a row.
+    // Tray — six clickable cells in a row.
+    // v4.0.1 BUG-7: clipboard tray icon added between status_cluster
+    // and notification-bell. Click fires Message::ClipboardClicked,
+    // routed to `mde-popover clipboard` (same surface as Super+V).
+    // It's a static icon (no applet text stream); the glyph is the
+    // Unicode clipboard codepoint U+1F4CB until the BUG-13 Carbon
+    // SVG wiring lands.
     let tray = row![
         tray_button(&state.audio_text, AppletKind::Audio),
         Space::with_width(Length::Fixed(8.0)),
@@ -195,6 +201,8 @@ pub fn view<'a>(
         tray_button(&state.mesh_text, AppletKind::MeshStatus),
         Space::with_width(Length::Fixed(8.0)),
         tray_button(&state.status_text, AppletKind::StatusCluster),
+        Space::with_width(Length::Fixed(8.0)),
+        clipboard_button(),
         Space::with_width(Length::Fixed(8.0)),
         tray_button(
             if state.bell_text.is_empty() {
@@ -369,6 +377,24 @@ fn tray_button(label: &str, kind: AppletKind) -> Element<'_, Message> {
         })
         .style(zone_button_style)
         .on_press(Message::TrayClicked(kind))
+        .into()
+}
+
+/// v4.0.1 BUG-7 — static clipboard-history tray icon. Spawns
+/// `mde-popover clipboard` on press (same path as Super+V). Lives
+/// outside the AppletKind enum because there's no applet
+/// subprocess feeding text into it — the glyph is the static
+/// Unicode clipboard codepoint until BUG-13's Carbon SVG wiring.
+fn clipboard_button<'a>() -> Element<'a, Message> {
+    button(text("\u{1F4CB}".to_string()).size(13).color(FG_TEXT))
+        .padding(Padding {
+            top: 6.0,
+            right: 8.0,
+            bottom: 6.0,
+            left: 8.0,
+        })
+        .style(zone_button_style)
+        .on_press(Message::ClipboardClicked)
         .into()
 }
 

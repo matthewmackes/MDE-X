@@ -1019,16 +1019,17 @@ no new RPM cut.
   styling (FG_MUTED) may still need a contrast bump for desk
   visibility — capture if BUG-6 reappears as "controls invisible
   when no window is focused".
-- [ ] **v4.0.1: BUG-7 Clipboard surface missing from the panel
-  (Tier 1 operator-visible)** — `crates/mde-popover/src/
-  clipboard.rs` ships a popover but the panel never exposes
-  an entry point to it. Either (a) add a clipboard tray-zone
-  applet (mirror of the audio/network/clock pattern) that
-  invokes `mde-popover clipboard` on click, or (b) bind a
-  global keyboard shortcut (Super+V is the common idiom) in
-  the sway config that spawns the same popover. Acceptance:
-  the operator can reach clipboard history without typing a
-  command — either by clicking a panel surface or by Super+V.
+- [✓] **v4.0.1: BUG-7 clipboard tray icon (shipped 2026-05-23)** —
+  Super+V was already wired to `mde-popover clipboard` in
+  `data/sway/config:103`; the operator just had no visible
+  discoverability path. Added a clipboard-icon button to the
+  tray row in `crates/mde-panel/src/top_bar.rs` (between the
+  status-cluster and notification-bell cells), routed via a
+  new `Message::ClipboardClicked` variant that fires
+  `toggle_or_spawn_popover("clipboard")` — same popover surface
+  Super+V already opens. Glyph is the Unicode clipboard
+  codepoint U+1F4CB until the BUG-13 Carbon SVG wiring swaps it
+  for a proper icon.
 - [ ] **v4.0.1: BUG-8 Notifications panel seems incomplete
   (Tier 1 operator-visible)** — `crates/mde-popover/src/
   notifications.rs` opens via the bell tray icon but the
