@@ -826,18 +826,40 @@ above; integration tasks below in dependency order.
   rendering with metadata) is a v4.0.1 follow-up — the math + the
   Iced widget composition are separate workstreams, and the math
   was the dead-code item.
-- [!] **v3.0.3: 2.3 close DBusBackend (BLOCKED on Phase G model::{Peer,SelfNode,FileRow} migration off `&'static str`) deferral by lifting model
-  fields from `&'static str` (Tier 2 mde-files::dbus_backend +
-  Phase G model migration)** — the deferral note explicitly
-  blames `model::{Peer,SelfNode,FileRow}` for using `&'static str`
-  fields that the parsers can't populate from runtime data.
-  Migrate the model to `String` (or `Cow<'static, str>` if static
-  data still benefits) and drop the `impl Backend for DBusBackend`
-  block in via the parsers + connect path that already ship.
-  Acceptance: running mde-files against a live `dev.mackes.MDE.
-  Fleet.Files` bus surfaces the real peer list (not the
-  DemoBackend); send-to + history operations round-trip through
-  D-Bus.
+- [!] **v3.0.3: 2.3 close DBusBackend (BLOCKED on Phase G + mackesd
+  Files DBus server) — sharpened 2026-05-23 after operator observed
+  "most of the artifact manager is mockup"** — confirmed at v4.0.0:
+  everything except window chrome reads from `demo_data` constants
+  (sidebar peers, peer folders, Inbox, Downloads file list,
+  recent transfers, "you are anvil" header, audit log). Send-To
+  also goes to a synthetic `DemoBackend` that just appends to an
+  in-memory `Vec<AuditEntry>`.
+  Two blockers stack on closing this:
+  (a) **Phase G — Cow<'static, str> migration** of
+      `crates/mde-files/src/model.rs`. 27 `&'static str` fields
+      across 5 structs (`Peer`/`SelfNode`/`FileRow`/`LocalPin`/
+      `Transfer`); all 5 derive `Copy` which Cow breaks (Cow
+      isn't Copy). Migration: convert fields to
+      `Cow<'static, str>`, drop the `Copy` derive on all 5
+      structs, fix 3+ `.iter().copied()` callsites
+      (search.rs:57, views.rs:608, views.rs:821) to `.cloned()`,
+      wrap demo_data.rs constants in `Cow::Borrowed(...)`
+      (const-fn-valid since Rust 1.78). Touches 11 files in
+      `crates/mde-files/src/`. Estimated 1 day.
+  (b) **mackesd `dev.mackes.MDE.Fleet.Files` server surface.**
+      `crates/mackesd/src/ipc/shell.rs::healthz` returns
+      `"wired in Phase B alongside the worker pool"`. The Fleet
+      interface needs ListPeers / ListFiles / SendTo /
+      ListAuditLog / Rollback methods that the DBusBackend
+      parsers already know how to consume; mackesd has to
+      implement them server-side first. Roughly chains on
+      Phase B + a per-feature mackesd `Files` worker that
+      indexes `~/QNM-Shared/` content.
+  Acceptance unchanged: running mde-files against a live
+  `dev.mackes.MDE.Fleet.Files` bus surfaces the real peer list
+  (not DemoBackend); send-to + history operations round-trip
+  through D-Bus. Both Phase G and the mackesd Files surface
+  need to land before this entry can flip to [✓].
 - [✓] **v3.0.3: 5.3 route every icon-only mde-files button
   through a11y_labels (Tier 2 mde-files::a11y_labels) — shipped
   2026-05-22 (toolbar layout toggles wired; rest pending v4.0.1)** —
