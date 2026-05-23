@@ -21,7 +21,7 @@
 //!   Red Hat Text 12 px / 500 weight for labels.
 //! - **Microinteraction:** 180 ms ease-out for every state change.
 
-use iced::widget::{button, container, mouse_area, row, text, Space};
+use iced::widget::{button, column, container, mouse_area, row, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
 use crate::applet_host::AppletKind;
@@ -213,18 +213,39 @@ pub fn view<'a>(
     // `Message::WindowMaximize` for the swaymsg argv.
     let window_buttons = window_button_cluster(focused.is_some());
 
-    // Clock — tabular-numeric pill, monospace styling courtesy of
-    // the theme. Clicking opens the date popover.
-    let clock = button(text(state.clock_text.clone()).size(13).color(FG_TEXT))
+    // Clock — Win10 two-line stack. v4.0.1 BUG-14: the applet emits
+    // "H:MM AM/PM\nM/D/YYYY"; render the time on top with a slightly
+    // larger size, the date below in the muted foreground. Falls back
+    // to single-line rendering for the loading-state ("--:--").
+    let clock_lines: Vec<&str> = state.clock_text.split('\n').collect();
+    let clock_body: Element<'_, Message> = if clock_lines.len() >= 2 {
+        column![
+            text(clock_lines[0].to_string()).size(13).color(FG_TEXT),
+            text(clock_lines[1].to_string()).size(10).color(FG_MUTED),
+        ]
+        .spacing(0)
+        .align_x(iced::alignment::Horizontal::Right)
+        .into()
+    } else {
+        text(state.clock_text.clone()).size(13).color(FG_TEXT).into()
+    };
+    let clock = button(clock_body)
         .padding(Padding {
-            top: 6.0,
+            top: 2.0,
             right: 12.0,
-            bottom: 6.0,
+            bottom: 2.0,
             left: 12.0,
         })
         .style(zone_button_style)
         .on_press(Message::TrayClicked(AppletKind::Clock));
 
+    // v4.0.1 BUG-6: operator asked for the min/max/close cluster
+    // centered on the panel (was far-right per the v8.7 lock).
+    // Newer-wins-silently — window_buttons now occupies the center
+    // slot between two flex spaces; cluster (sway-IPC chips) moves
+    // adjacent to the clock on the right, where it's a less-prominent
+    // status surface rather than the "title area" the operator was
+    // mistaking it for (BUG-3).
     container(
         row![
             start_btn,
@@ -233,11 +254,11 @@ pub fn view<'a>(
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
             hero_zone,
             Space::with_width(Length::Fill),
-            cluster,
+            window_buttons,
             Space::with_width(Length::Fill),
             tray,
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
-            window_buttons,
+            cluster,
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
             clock,
         ]

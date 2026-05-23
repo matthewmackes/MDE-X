@@ -898,35 +898,34 @@ no new RPM cut.
   `iced_layershell` 0.13.7 known issues. Acceptance: scroll
   wheel over the start-menu list paginates through entries
   without freezing the popover.
-- [ ] **v4.0.1: BUG-3 Panel title area renders "? def #13"
-  instead of the focused-window hero title (Tier 1
-  operator-visible)** — "? def #13" matches exactly the
-  sway-cluster format (`"{split}  {layout}  {window}"` per
-  `crates/mde-applets/sway-cluster/src/lib.rs:37`). `?` is the
-  split-glyph fallback for leaf cons whose layout is `"none"`
-  (or any unknown sway layout). Two possible layout bugs:
-  (a) the cluster widget is occupying the hero slot in
-  `crates/mde-panel/src/top_bar.rs::view_top_bar` instead of
-  sitting in its cluster zone; (b) the hero is rendering as
-  empty so only the cluster reads, and the operator is calling
-  the cluster "the title area". Resolve by inspecting the
-  panel layout at runtime (screenshot or `swaymsg -t get_tree`
-  + the live `mde-panel` log) and either re-slotting the
-  widgets or repointing the focused-window subscription.
-  Acceptance: panel title area shows the focused window's title
-  string (e.g. "Firefox — Wikipedia") with sway-cluster chips
-  in their own zone.
-- [ ] **v4.0.1: BUG-14 Clock applet: switch to Win10 two-line
-  layout (Tier 2 operator-visible)** — `crates/mde-applets/
-  clock/` currently emits a single-line time string. Switch
-  to the Win10 stack: top line is the time (12-hour with
-  AM/PM per Win10 default), bottom line is the date
-  (`M/D/YYYY` per the same lock), right-aligned, ~11 px font.
-  Implementation: format `"{12h}\n{m/d/yyyy}"` in the applet
-  output, then update `top_bar.rs` clock zone to render two
-  text lines stacked vs the current single text widget.
-  Acceptance: clock zone shows two stacked lines matching
-  Win10 system-tray time/date arrangement.
+- [>] **v4.0.1: BUG-3 "? def #13" no longer in title area —
+  cluster demoted to next-to-clock (partial, 2026-05-23)** —
+  the cluster widget was occupying the visual center slot
+  between two flex spaces, so the operator perceived its
+  sway-IPC chip string ("? def #13" = split=`?`, layout=`def`,
+  window-id=`#13`) as the "title area". v4.0.1 BUG-6 fix
+  re-slotted: window_buttons centered, cluster moved adjacent
+  to the clock. The cluster string itself still reads "? def
+  #13" when sway reports an unknown layout for leaf cons —
+  cosmetically the `?` fallback in `split_glyph()` could be
+  improved (e.g., treat `"none"` as "—" rather than "?"), and
+  separately the hero (focused-app title) should be the
+  prominent center identity. Follow-up: (a) tighten
+  `split_glyph` to render `"none"` cleanly, (b) verify the
+  hero subscription actually fires under the operator's
+  workspace so a non-empty title renders next to the dock.
+- [✓] **v4.0.1: BUG-14 clock → Win10 two-line layout (shipped
+  2026-05-23)** — `crates/mde-applets/clock/src/lib.rs::
+  format_clock` now emits `"H:MM AM/PM\nM/D/YYYY"` (12-hour
+  with AM/PM on top, M/D/YYYY on bottom) instead of the
+  single-line `YYYY-MM-DD HH:MM`. `crates/mde-panel/src/
+  top_bar.rs` splits on `\n` and renders two stacked text
+  widgets (size 13 + 10, right-aligned column). New `to_12h`
+  helper handles the 24-h → 12-h + AM/PM conversion. Tests:
+  `format_clock_renders_known_timestamps` updated for the new
+  string; new `to_12h_midnight_noon_anchors` covers the
+  edge cases (0 → 12 AM, 12 → 12 PM, 13 → 1 PM). 6/6 clock
+  lib tests pass.
 - [ ] **v4.0.1: BUG-13 Carbon icons missing across most of the
   interface (Tier 0 — root cause for multiple lower bugs)** —
   operator reports Carbon icon glyphs are absent across the
@@ -1005,24 +1004,21 @@ no new RPM cut.
   with NM connected to Wi-Fi, the chip shows the SSID + an
   appropriate signal-strength glyph; toggling NM offline
   flips to "Offline" with the offline glyph within one poll.
-- [ ] **v4.0.1: BUG-6 Panel is missing the window-management
-  controls (Tier 1 operator-visible)** — `crates/mde-panel/src/
-  top_bar.rs` is supposed to render i3-mode min/max/close
-  glyph-buttons per the v8.7 lock
-  (`project_v8_7_window_buttons` memory: "i3-only min/max/close
-  buttons at far-right corner, Carbon glyphs"). The operator
-  reports they're entirely absent + asks for them in a
-  centered position rather than far-right. Investigate (a)
-  whether the buttons render at all today (the v3.0.3
-  integration audit may have shipped them in source but never
-  wired into `view_top_bar`'s layout), then (b) decide between
-  honoring the v8.7 far-right lock vs. the 2026-05-23 operator
-  ask for centered placement (newer-wins-silently → centered
-  is the live policy). Acceptance: panel renders Min / Max
-  (= floating-fill, not fullscreen) / Close buttons centered
-  in the top-bar's window-controls zone; greyed-out when no
-  focused window exists; sway-IPC `kill` / `fullscreen` /
-  `move scratchpad` (or equivalent for min) fire on press.
+- [✓] **v4.0.1: BUG-6 window-management controls re-slotted to
+  center (shipped 2026-05-23)** — `crates/mde-panel/src/top_bar.rs`
+  was already rendering the min/max/close cluster (line 240, between
+  tray and clock — the v8.7 lock's "far-right corner") but the
+  operator reported them as missing. Most likely they were greyed
+  out (color = FG_MUTED when `focused.is_none()`) and visually
+  invisible at desk distance. Per the 2026-05-23 operator ask
+  (newer-wins-silently), `window_buttons` now occupies the center
+  slot between two flex spaces. Cluster (sway-IPC chips, BUG-3)
+  moves adjacent to the clock — same render path, less-prominent
+  position. Acceptance: panel center now shows `− □ ×` cluster
+  with cluster/clock on the right. Follow-up: the disabled-state
+  styling (FG_MUTED) may still need a contrast bump for desk
+  visibility — capture if BUG-6 reappears as "controls invisible
+  when no window is focused".
 - [ ] **v4.0.1: BUG-7 Clipboard surface missing from the panel
   (Tier 1 operator-visible)** — `crates/mde-popover/src/
   clipboard.rs` ships a popover but the panel never exposes

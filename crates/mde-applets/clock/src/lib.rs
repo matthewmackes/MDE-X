@@ -1,10 +1,10 @@
 //! Clock + date pill applet — top-bar-center slot.
 //!
 //! Phase E1.2.1: smallest of the Phase E1 applets.
-//! Renders the current local-time string at a fixed
-//! `YYYY-MM-DD HH:MM` format. The applet binary loops on
-//! a 30 s wakeup tick (no need for second-resolution on
-//! the panel surface).
+//! v4.0.1 BUG-14: switched from a single-line `YYYY-MM-DD HH:MM`
+//! string to the Win10 two-line stack — `H:MM AM/PM` on top,
+//! `M/D/YYYY` on bottom, joined by `\n`. The panel renders these as
+//! a two-line column in the clock zone.
 
 #![forbid(unsafe_code)]
 
@@ -23,10 +23,15 @@ pub fn manifest() -> mde_applet_api::AppletManifest {
     }
 }
 
-/// Format a Unix-epoch-seconds timestamp as
-/// `YYYY-MM-DD HH:MM` (UTC). Returns `"--:--"` for
-/// non-positive timestamps — used by the applet's loading
-/// state.
+/// Format a Unix-epoch-seconds timestamp as a Win10-style two-line
+/// stack — `"H:MM AM/PM\nM/D/YYYY"` (local-time-as-UTC, no TZ
+/// adjustment in this pure helper — the host process applies any TZ
+/// shift before calling). Returns `"--:--"` for non-positive
+/// timestamps; used by the applet's loading state.
+///
+/// v4.0.1 BUG-14: replaces the prior single-line
+/// `YYYY-MM-DD HH:MM` format. Panel renderers split on `\n` to draw
+/// the two stacked text lines.
 #[must_use]
 pub fn format_clock(secs: i64) -> String {
     if secs <= 0 {
@@ -34,10 +39,24 @@ pub fn format_clock(secs: i64) -> String {
     }
     let days = secs / 86_400;
     let rem = secs % 86_400;
-    let h = rem / 3600;
+    let h24 = rem / 3600;
     let m = (rem % 3600) / 60;
     let (y, mo, d) = days_to_ymd(days);
-    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}")
+    let (h12, ampm) = to_12h(h24);
+    format!("{h12}:{m:02} {ampm}\n{mo}/{d}/{y:04}")
+}
+
+/// Convert a 24-hour hour (`0..=23`) to (12-hour-hour, "AM"/"PM").
+/// Midnight (0) → (12, AM); noon (12) → (12, PM); 13 → (1, PM); etc.
+#[must_use]
+pub fn to_12h(h24: i64) -> (i64, &'static str) {
+    let h = h24.rem_euclid(24);
+    let ampm = if h < 12 { "AM" } else { "PM" };
+    let h12 = match h % 12 {
+        0 => 12,
+        n => n,
+    };
+    (h12, ampm)
 }
 
 /// Howard Hinnant civil-from-days. Shared with the run-
@@ -83,15 +102,25 @@ mod tests {
     #[test]
     fn format_clock_renders_known_timestamps() {
         // 1_715_000_000 secs since epoch -> 2024-05-06 12:53 UTC.
+        // v4.0.1 BUG-14 — Win10 two-line layout: time on top,
+        // date M/D/YYYY on bottom.
         let s = format_clock(1_715_000_000);
-        assert!(s.starts_with("2024-05-06"), "got: {s}");
-        assert_eq!(s, "2024-05-06 12:53");
+        assert_eq!(s, "12:53 PM\n5/6/2024", "got: {s}");
     }
 
     #[test]
     fn format_clock_dashes_non_positive_timestamps() {
         assert_eq!(format_clock(0), "--:--");
         assert_eq!(format_clock(-1), "--:--");
+    }
+
+    #[test]
+    fn to_12h_midnight_noon_anchors() {
+        assert_eq!(to_12h(0), (12, "AM"));
+        assert_eq!(to_12h(11), (11, "AM"));
+        assert_eq!(to_12h(12), (12, "PM"));
+        assert_eq!(to_12h(13), (1, "PM"));
+        assert_eq!(to_12h(23), (11, "PM"));
     }
 
     #[test]
