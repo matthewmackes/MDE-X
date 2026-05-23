@@ -1132,6 +1132,86 @@ Layouts; the rest of the muscle-memory surface follows here.
 Each story below stands alone; pick the highest-impact next
 move per the iteration loop's step 2.
 
+- [✓] **v4.0.1: BUG-18 retire sway-IPC cluster widget from
+  the panel tray (operator-reported "error in the tool
+  tray", shipped 2026-05-23)**
+
+  **As** an operator,
+  **I want** the panel tray to NOT show debug-y sway-IPC
+  chip strings like "H def #16" alongside the
+  network/audio/mesh/clock chips,
+  **so that** I don't keep mistaking the panel's normal
+  state for an error.
+
+  **Acceptance** (bench-observable):
+  - [x] No "H def #N" / "V tab #N" / etc. text appears in
+        the panel tray any more — even with multiple
+        windows tiled in different layouts.
+  - [x] The mde-applet-sway-cluster binary still ships +
+        emits its stdout (no behavior change for any
+        external power-user tool that taps the data).
+
+  **Implementation:** `crates/mde-panel/src/top_bar.rs`
+  replaced the `let cluster = labeled_zone(&state.cluster_text,
+  ...);` line with an empty `Space::with_width(0.0)` so the
+  row layout's structure stays intact + future commits can
+  drop the slot entirely. `state.cluster_text` is still
+  populated by the applet stream (the `set_applet_text`
+  handler stays wired) so any future re-introduction of a
+  cluster surface — possibly behind a "show advanced sway
+  chips" preference — doesn't need to re-wire the data
+  layer. Phase 0.8 design-criteria justification: cluster
+  was Ableton-style content surface tone (parameter
+  readout) in a chrome zone (panel tray), which mismatched
+  the influence locks; removing it resolves the hybrid
+  forbidden by Phase 0.8.
+
+- [>] **v4.0.1: BUG-17 toast popover renders a permanent grey
+  box when idle (Tier 1 chrome) — autostart disabled
+  2026-05-23 as defense-in-depth, transparent-empty fix
+  pending**
+
+  **As** an operator,
+  **I want** the toast notification surface to be invisible
+  (zero compositor pixels showing through) when no toasts
+  are queued, and visible only when at least one toast is
+  mid-fade,
+  **so that** I don't see a small grey rectangle floating
+  above the panel when nothing is actually being notified.
+
+  **Acceptance** (bench-observable):
+  - [ ] With zero queued toasts, no grey/dark rectangle is
+        visible above the panel (the wallpaper shows through
+        where the toast surface lives).
+  - [ ] When a toast fires (via the existing emit path —
+        `~/.cache/mde/toasts.jsonl` tail), the pill renders
+        with its accent + body text inside the 360×200 box.
+  - [ ] When the toast expires + the stack empties, the
+        surface returns to invisible without the process
+        exiting.
+
+  **Implementation notes:**
+  - **Root cause:** the BUG-16-era fix capped the layer-shell
+    `size: Some((360, 200))` to prevent the wlr-layer-shell
+    `Anchor::Bottom`-stretches-full-width fallback. That
+    bound the surface to a permanent 360×200 box that the
+    iced theme paints dark even when the inner widget is the
+    1×1 empty fallback.
+  - **Fix:** in `crates/mde-popover/src/toasts.rs::view`,
+    when `snapshot.is_empty()`, return a container whose
+    style sets `background: Some(Background::Color(
+    Color::TRANSPARENT))` (instead of the default theme
+    dark-slate fill). The surface stays 360×200 but its
+    pixels are transparent so the wallpaper shows through —
+    matches Win11's toast surface "zero compositor real
+    estate when idle" idiom.
+  - **Icon source:** N/A.
+  - **Influence:** chrome surface; "invisible until needed"
+    pattern matches Win11 notification toasts.
+  - **Test:** `cargo test -p mde-popover` adds an assertion
+    that the empty-stack render path renders a transparent
+    container.
+
 - [✓] **v4.0.1: WB-1 wire Connected Devices panel into Workbench
   nav (Phase 0.7 rescue — operator-reported missing modal)
   (Tier 1 chrome) — shipped 2026-05-23**

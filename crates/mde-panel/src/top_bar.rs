@@ -190,6 +190,14 @@ pub fn view<'a>(
     // (Phase E.10 host) lands, this is read-only text; clicks fall
     // through to a Noop.
     let dock = labeled_zone(&state.dock_text, FG_TEXT, false);
+    // v4.0.1 BUG-18: cluster widget retired. sway-IPC chips
+    // ("H def #16" style — split-glyph / workspace-layout /
+    // focused-window-con-id) are debug-y by nature; operators
+    // read them as cryptic error strings. The data layer in
+    // `mde-applet-sway-cluster` keeps shipping for power-user
+    // tooling that taps `swaymsg`, but the panel no longer
+    // surfaces it.
+    let _ = &state.cluster_text;
 
     // v3.0.3 Phase E.4.2 wiring — focused-window hero. Shows the
     // ellipsized title (max 64 chars) or empty when no window is
@@ -197,8 +205,12 @@ pub fn view<'a>(
     // gets generous horizontal space without crowding the tray.
     let hero_zone = hero_view(hero);
 
-    // Cluster zone — the sway-IPC chips (`H  def  #1` or similar).
-    let cluster = labeled_zone(&state.cluster_text, FG_TEXT, false);
+    // Cluster zone — retired per BUG-18 (see comment above the
+    // `let _ = &state.cluster_text` line). The variable is kept as
+    // an empty Space so the layout's row! literal further down
+    // doesn't need to change shape; future commits can drop it
+    // entirely when no other reader depends on the slot.
+    let cluster: Element<'_, Message> = Space::with_width(Length::Fixed(0.0)).into();
 
     // Tray — six clickable cells in a row.
     // v4.0.1 BUG-7: clipboard tray icon added between status_cluster

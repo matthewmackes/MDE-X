@@ -180,7 +180,13 @@ exec mde-popover watermark
 # ~/.cache/mde/toasts.jsonl). Emit sites in the popover crate
 # (clipboard popover today; more land per-feature) append events
 # to that file.
-exec mde-popover toast
+# v4.0.1 BUG-17 (2026-05-23): autostart disabled until BUG-17
+# fixes the empty-stack render path. The 360x200 layer-shell
+# surface paints its theme background dark even when the stack
+# is empty (1x1 dummy widget inside), leaving a small grey box
+# floating above the panel. Re-enable once BUG-17 lands the
+# transparent-empty-state fix.
+# exec mde-popover toast
 
 # ---------------------------------------------------------------------------
 # Mackes-managed includes
