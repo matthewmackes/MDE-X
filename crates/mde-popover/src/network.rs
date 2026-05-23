@@ -86,10 +86,24 @@ pub struct DeviceRow {
     pub connection: String,
 }
 
+/// One row in the Wi-Fi scan list. AF-NET-1.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AccessPoint {
+    /// SSID (network name).
+    pub ssid: String,
+    /// Signal strength 0..100.
+    pub signal: u8,
+    /// `WPA2` / `WPA3` / `--` (open), etc.
+    pub security: String,
+    /// True when we're currently connected to this AP.
+    pub in_use: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct App {
     pub active: Vec<ActiveConnection>,
     pub devices: Vec<DeviceRow>,
+    pub aps: Vec<AccessPoint>,
 }
 
 impl iced_layershell::Application for App {
@@ -102,6 +116,7 @@ impl iced_layershell::Application for App {
         let app = Self {
             active: scan_active_connections(),
             devices: scan_devices(),
+            aps: scan_access_points(),
         };
         (app, Task::none())
     }
@@ -115,6 +130,7 @@ impl iced_layershell::Application for App {
             Message::Refresh => {
                 self.active = scan_active_connections();
                 self.devices = scan_devices();
+                self.aps = scan_access_points();
                 Task::none()
             }
             Message::OpenNmApplet => {
@@ -183,20 +199,52 @@ impl iced_layershell::Application for App {
             }
         }
 
+        // AF-NET-1: Wi-Fi access-point scan list. Only renders
+        // when nmcli returned at least one entry — operators
+        // on wired-only hosts don't see an empty Wi-Fi section.
+        let wifi_col: Option<Element<'_, Message>> = if self.aps.is_empty() {
+            None
+        } else {
+            let mut col = column![
+                text(format!("Wi-Fi networks ({})", self.aps.len()))
+                    .size(11)
+                    .color(FG_MUTED),
+            ]
+            .spacing(4);
+            for ap in &self.aps {
+                col = col.push(ap_card(ap));
+            }
+            Some(col.into())
+        };
+
         let manage_btn = button(text("Open NetworkManager").size(11).color(Color::WHITE))
             .padding(Padding::from([5u16, 12u16]))
             .style(|_, status| accent_btn_style(status))
             .on_press(Message::OpenNmApplet);
 
-        let body = scrollable(
-            column![
-                active_col,
-                Space::with_height(Length::Fixed(12.0)),
-                device_col,
-            ]
-            .spacing(6),
-        )
-        .height(Length::Fill);
+        let body = if let Some(wifi) = wifi_col {
+            scrollable(
+                column![
+                    active_col,
+                    Space::with_height(Length::Fixed(12.0)),
+                    device_col,
+                    Space::with_height(Length::Fixed(12.0)),
+                    wifi,
+                ]
+                .spacing(6),
+            )
+            .height(Length::Fill)
+        } else {
+            scrollable(
+                column![
+                    active_col,
+                    Space::with_height(Length::Fixed(12.0)),
+                    device_col,
+                ]
+                .spacing(6),
+            )
+            .height(Length::Fill)
+        };
 
         container(
             column![
@@ -300,6 +348,66 @@ fn device_card<'a>(d: &'a DeviceRow) -> Element<'a, Message> {
             text_color: Some(FG_TEXT),
         })
         .into()
+}
+
+fn ap_card<'a>(ap: &'a AccessPoint) -> Element<'a, Message> {
+    let title = text(ap.ssid.clone()).size(12).color(FG_TEXT);
+    let security = text(if ap.security.is_empty() {
+        "open".to_string()
+    } else {
+        ap.security.clone()
+    })
+    .size(10)
+    .color(FG_MUTED);
+    let bars = signal_bars(ap.signal);
+    let bars_text = text(bars).size(10).color(if ap.in_use {
+        ACCENT
+    } else {
+        FG_MUTED
+    });
+    let signal_label = text(format!("{}%", ap.signal)).size(10).color(FG_FAINT);
+
+    container(
+        row![
+            column![title, security].spacing(2),
+            Space::with_width(Length::Fill),
+            bars_text,
+            Space::with_width(Length::Fixed(4.0)),
+            signal_label,
+        ]
+        .align_y(iced::alignment::Vertical::Center),
+    )
+    .padding(Padding::from([6u16, 12u16]))
+    .width(Length::Fill)
+    .style(move |_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: if ap.in_use {
+                ACCENT
+            } else {
+                Color {
+                    a: 0.04,
+                    ..Color::WHITE
+                }
+            },
+            width: if ap.in_use { 1.5 } else { 1.0 },
+            radius: 4.0.into(),
+        },
+        shadow: Shadow::default(),
+        text_color: Some(FG_TEXT),
+    })
+    .into()
+}
+
+/// Render signal strength as the iconic 4-bar chevron.
+#[must_use]
+fn signal_bars(pct: u8) -> &'static str {
+    match pct {
+        0..=24 => "▂",
+        25..=49 => "▂▄",
+        50..=74 => "▂▄▆",
+        _ => "▂▄▆█",
+    }
 }
 
 fn empty_card<'a>(msg: &'a str) -> Element<'a, Message> {
@@ -477,6 +585,66 @@ fn scan_devices() -> Vec<DeviceRow> {
     }
 }
 
+/// AF-NET-1: scan visible Wi-Fi access points via nmcli. Empty
+/// Vec when nmcli isn't installed, when no Wi-Fi adapter is
+/// present, or when the scan returns no APs.
+fn scan_access_points() -> Vec<AccessPoint> {
+    let out = Command::new("nmcli")
+        .args([
+            "-t",
+            "-f",
+            "IN-USE,SSID,SIGNAL,SECURITY",
+            "device",
+            "wifi",
+            "list",
+        ])
+        .output()
+        .ok();
+    match out {
+        Some(o) if o.status.success() => parse_access_points(&String::from_utf8_lossy(&o.stdout)),
+        _ => Vec::new(),
+    }
+}
+
+/// Pure parser for `nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY
+/// device wifi list` terse output. `IN-USE` is `*` for the
+/// currently-connected AP, blank otherwise. Empty-SSID rows
+/// (hidden networks) are filtered out.
+#[must_use]
+pub fn parse_access_points(raw: &str) -> Vec<AccessPoint> {
+    let mut out = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let fields = nmcli_split(line);
+        if fields.len() < 4 {
+            continue;
+        }
+        let ssid = fields[1].trim().to_string();
+        if ssid.is_empty() {
+            continue;
+        }
+        let signal: u8 = fields[2].trim().parse().unwrap_or(0);
+        out.push(AccessPoint {
+            in_use: fields[0].trim() == "*",
+            ssid,
+            signal: signal.min(100),
+            security: fields[3].trim().to_string(),
+        });
+    }
+    // Stable sort: connected first, then signal desc, then
+    // SSID asc.
+    out.sort_by(|a, b| {
+        b.in_use
+            .cmp(&a.in_use)
+            .then_with(|| b.signal.cmp(&a.signal))
+            .then_with(|| a.ssid.cmp(&b.ssid))
+    });
+    out
+}
+
 pub fn run() -> iced_layershell::Result {
     <App as iced_layershell::Application>::run(Settings {
         id: Some("mde-popover-network".into()),
@@ -553,6 +721,52 @@ mod tests {
         let devs = parse_devices(raw);
         assert_eq!(devs.len(), 1);
         assert_eq!(devs[0].interface, "wlp2s0");
+    }
+
+    #[test]
+    fn parse_access_points_decodes_typical_row() {
+        let raw = "*:home-network:78:WPA2\n:guest:42:--\n";
+        let aps = parse_access_points(raw);
+        assert_eq!(aps.len(), 2);
+        // Connected one sorts first.
+        assert_eq!(aps[0].ssid, "home-network");
+        assert!(aps[0].in_use);
+        assert_eq!(aps[0].signal, 78);
+        assert_eq!(aps[0].security, "WPA2");
+        assert_eq!(aps[1].ssid, "guest");
+        assert!(!aps[1].in_use);
+        assert_eq!(aps[1].security, "--");
+    }
+
+    #[test]
+    fn parse_access_points_filters_empty_ssids() {
+        // Hidden networks have empty SSIDs.
+        let raw = ":home:78:WPA2\n::55:--\n";
+        let aps = parse_access_points(raw);
+        assert_eq!(aps.len(), 1);
+        assert_eq!(aps[0].ssid, "home");
+    }
+
+    #[test]
+    fn parse_access_points_sorts_by_signal_desc() {
+        let raw = ":weak:30:--\n:strong:90:--\n:medium:60:--\n";
+        let aps = parse_access_points(raw);
+        assert_eq!(aps.len(), 3);
+        assert_eq!(aps[0].ssid, "strong");
+        assert_eq!(aps[1].ssid, "medium");
+        assert_eq!(aps[2].ssid, "weak");
+    }
+
+    #[test]
+    fn signal_bars_buckets() {
+        assert_eq!(signal_bars(0), "▂");
+        assert_eq!(signal_bars(24), "▂");
+        assert_eq!(signal_bars(25), "▂▄");
+        assert_eq!(signal_bars(49), "▂▄");
+        assert_eq!(signal_bars(50), "▂▄▆");
+        assert_eq!(signal_bars(74), "▂▄▆");
+        assert_eq!(signal_bars(75), "▂▄▆█");
+        assert_eq!(signal_bars(100), "▂▄▆█");
     }
 
     #[test]

@@ -418,15 +418,33 @@ neither defect was caught at release time.
   per-AP Connect via `StateChanged` subscriptions) is
   **AF-NET-1** below.
 
-- [ ] **AF-NET-1: NM D-Bus network popover refinement (v3.1+)** —
-  the minimal nmcli-shellout in the closed v3.1 task above
-  covers active-connection + device listing. The richer
-  flow — Wi-Fi AP scan via `ListAccessPoints`, signal
-  strength + security indicator per row, click-to-connect
-  via NM D-Bus method invocation, live state via
-  `StateChanged` signal subscription — is a follow-up.
-  Open until an operator wants the inline-connect UX vs
-  shelling to nm-connection-editor.
+- [✓] **AF-NET-1: Wi-Fi scan list in the network popover (shipped
+  2026-05-23) — covers the AP-list + signal + security half
+  of the spec via nmcli; click-to-connect + StateChanged
+  signal subscription stay as AF-NET-1.a follow-up.**
+
+  `crates/mde-popover/src/network.rs` extended:
+  * New `AccessPoint { ssid, signal, security, in_use }` row
+    type + `parse_access_points()` pure parser over
+    `nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list`.
+  * Wi-Fi section renders below Devices when ≥1 AP is
+    visible; hidden when nmcli isn't installed / no Wi-Fi
+    adapter present / empty scan. Connected AP gets the
+    accent border + accent-tinted signal bars.
+  * `signal_bars(pct)` renders ▂/▂▄/▂▄▆/▂▄▆█ at 25%/50%/75%
+    thresholds.
+  * Stable sort: connected first, then signal desc, then SSID asc.
+  4 unit tests cover decoder typical-row + empty-SSID
+  filter + signal-desc sort + signal_bars threshold lock.
+  106 mde-popover tests pass (was 102; +4).
+
+- [ ] **AF-NET-1.a: NM D-Bus click-to-connect** — adds per-AP
+  Connect button that invokes
+  `org.freedesktop.NetworkManager.ActivateConnection` (with
+  password prompt for secured nets), plus a `StateChanged`
+  subscription so the popover refreshes live without
+  manual click. Sits inside the existing network popover.
+  Open until operator wants the inline-connect UX.
 - [ ] **v3.1: dock applet — full inline rendering with icons,
   drag-to-pin, drag-to-reorder** — The current
   `mde-applet-dock --now` emits a text summary
