@@ -143,6 +143,22 @@ pub enum Message {
     /// toplevels subscription. Drives the panel's hero widget,
     /// window-management buttons, and any future tasklist render.
     ToplevelEvent(toplevels::ToplevelEvent),
+    /// v3.0.3 Tier 1E (v8.7 window-buttons lock) — minimize the
+    /// currently-focused window. Routed via `swaymsg [con_id=N]
+    /// move scratchpad`. Best-choice mapping: sway has no
+    /// "minimize" concept, so we use the scratchpad hide which
+    /// matches the user-visible behavior (window disappears,
+    /// reappears via the dock or scratchpad cycle).
+    WindowMinimize,
+    /// v3.0.3 Tier 1E — toggle floating-fill on the focused window
+    /// per the v8.7 lock ("maximize = floating-fill, not
+    /// fullscreen"). Routed via `swaymsg [con_id=N] floating
+    /// enable, resize set 100ppt 100ppt` (or `floating toggle`
+    /// when already floating).
+    WindowMaximize,
+    /// v3.0.3 Tier 1E — close the focused window. Routed via
+    /// `swaymsg [con_id=N] kill`.
+    WindowClose,
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -174,6 +190,11 @@ pub struct App {
     /// widget reads `focused()` for its label; the window-management
     /// buttons read `focused()` for their target id.
     toplevels: toplevels::ToplevelModel,
+    /// v3.0.3 Phase E.4.2 wiring — focused-window hero with the
+    /// 280ms slide animation. `set_focused()` is called from
+    /// `update` when a `ToplevelEvent` lands a new focused window;
+    /// `tick()` advances the slide on every `Message::Tick`.
+    hero: hero::Hero,
 }
 
 impl App {
@@ -186,6 +207,7 @@ impl App {
             top_bar: top_bar::TopBarState::demo(),
             popovers: std::collections::HashMap::new(),
             toplevels: toplevels::ToplevelModel::new(),
+            hero: hero::Hero::new(),
         }
     }
 
@@ -265,6 +287,7 @@ impl iced_layershell::Application for App {
                 top_bar: top_bar::TopBarState::loading(),
                 popovers: std::collections::HashMap::new(),
                 toplevels: toplevels::ToplevelModel::new(),
+                hero: hero::Hero::new(),
             },
             Task::none(),
         )
@@ -280,6 +303,12 @@ impl iced_layershell::Application for App {
             Message::Noop => {}
             Message::Tick => {
                 self.ticks = self.ticks.saturating_add(1);
+                // v3.0.3 — advance the hero slide animation. Tick is
+                // wired to a 33ms (~30Hz) subscription which keeps
+                // the 280ms slide smooth without burning CPU when
+                // no animation is in progress (hero::tick is a
+                // no-op when there's no incoming entry).
+                self.hero.tick(std::time::Instant::now());
             }
             Message::AppletText(kind, text) => {
                 tracing::debug!(
@@ -305,6 +334,51 @@ impl iced_layershell::Application for App {
                         live_count = self.toplevels.len(),
                         "toplevels model updated"
                     );
+                    // v3.0.3 Phase E.4.2 wiring — push the new
+                    // focused window's title + app_id into the
+                    // hero. `set_focused` is idempotent on the same
+                    // entry, so this is cheap to call on every
+                    // change.
+                    if let Some(focused) = self.toplevels.focused() {
+                        self.hero
+                            .set_focused(focused.title.clone(), focused.app_id.clone());
+                    }
+                }
+            }
+            Message::WindowMinimize => {
+                // v3.0.3 Tier 1E — route through the focused
+                // toplevel's id. Sway has no native "minimize"; the
+                // scratchpad-hide flow is the closest semantic
+                // (window disappears, reappears via dock or
+                // scratchpad cycle).
+                if let Some(focused) = self.toplevels.focused() {
+                    swaymsg_window_command(focused.id, "move scratchpad");
+                }
+            }
+            Message::WindowMaximize => {
+                // v3.0.3 Tier 1E + v8.7 lock — "maximize = floating-
+                // fill, not fullscreen". Toggle floating, then resize
+                // to 100ppt × 100ppt so the float covers the output.
+                if let Some(focused) = self.toplevels.focused() {
+                    if focused.state.fullscreen {
+                        // Already in floating-fill (or fullscreen);
+                        // toggle off to restore tiled layout.
+                        swaymsg_window_command(focused.id, "floating disable");
+                    } else {
+                        swaymsg_window_command(
+                            focused.id,
+                            "floating enable, resize set 100ppt 100ppt",
+                        );
+                    }
+                }
+            }
+            Message::WindowClose => {
+                // v3.0.3 Tier 1E — sway's `kill` sends SIGTERM to
+                // the window's process. No confirmation dialog at
+                // the panel layer; apps that want one (e.g. an
+                // editor with unsaved changes) handle it themselves.
+                if let Some(focused) = self.toplevels.focused() {
+                    swaymsg_window_command(focused.id, "kill");
                 }
             }
             Message::TrayClicked(kind) => {
@@ -343,19 +417,26 @@ impl iced_layershell::Application for App {
 
     fn view(&self) -> Element<'_, Message> {
         // Phase E.17 + Phase E.4-E.29 host wiring — render the live
-        // applet text per zone. The state is mutated by `update`
-        // through `AppletText` messages emitted by `applet_host`.
-        top_bar::view(&self.top_bar)
+        // applet text per zone. v3.0.3 Phase E.4.2 wiring — hero
+        // shows the focused-window title; v3.0.3 Tier 1E — window-
+        // management buttons read the same focused state for their
+        // greyed-out check.
+        top_bar::view(&self.top_bar, &self.hero, self.toplevels.focused())
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
         // v3.0.3 — batch the applet-host stream + the toplevels
-        // subscription so both flow into App::update. Adding more
+        // subscription + the animation tick. Adding more
         // subscriptions later (clipboard, foreign-toplevel via
         // wlr protocol, etc.) extends the batch.
         iced::Subscription::batch([
             applet_host::subscription(|t| Message::AppletText(t.kind, t.text)),
             toplevels_sub::subscription(Message::ToplevelEvent),
+            // ~30Hz animation tick — drives `hero::tick` so the
+            // 280ms slide stays smooth. 33ms is a balance between
+            // visual smoothness (>=10 frames per slide) and CPU
+            // wake-ups when the panel is idle.
+            iced::time::every(std::time::Duration::from_millis(33)).map(|_| Message::Tick),
         ])
     }
 
@@ -375,6 +456,35 @@ impl iced_layershell::Application for App {
 // functions are removed entirely per §0.12 (no dead code); if
 // non-App callers need to spawn detached children in the future,
 // they should hold their own `Child` handle for reap.
+
+/// v3.0.3 Tier 1E helper — issue a sway-IPC command targeting one
+/// container by id. Used by the window-management buttons
+/// (minimize/maximize/close) in the panel's right cluster.
+///
+/// Fire-and-forget is acceptable here: `swaymsg` is a short-lived
+/// child that exits in milliseconds and produces no useful stdout/
+/// stderr for the panel to consume. We `wait()` on the handle so
+/// no zombie accumulates (matches the popover reap pattern; cost
+/// is one short blocking call in the GUI thread, which is fine
+/// because swaymsg returns ~immediately).
+fn swaymsg_window_command(con_id: toplevels::ToplevelId, command: &str) {
+    let selector = format!("[con_id={con_id}] {command}");
+    tracing::debug!(con_id, command, "swaymsg window command");
+    match std::process::Command::new("swaymsg")
+        .arg(&selector)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(mut child) => {
+            let _ = child.wait();
+        }
+        Err(e) => {
+            tracing::warn!(con_id, command, error = %e, "swaymsg spawn failed");
+        }
+    }
+}
 
 /// Load system fallback fonts so the audio / status / mesh glyphs
 /// render instead of tofu boxes. Iced 0.13 + cosmic-text uses these

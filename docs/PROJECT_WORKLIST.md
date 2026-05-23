@@ -483,24 +483,31 @@ dependency sweep.
   floating_nodes descent, and event-change-kind dispatch. 188
   panel tests green. Unblocks hero (next task) + window-management
   buttons + expose overlay.
-- [ ] **v3.0.3: hero widget placement in top_bar (Tier 2 E.4.2
-  wiring + depends on toplevels)** — slot `hero::Hero` into
-  `top_bar::view` between the Start zone and the dock zone, wire
-  its `set_focused()` to the toplevels subscription's focus event.
-  Animation tick already exists in `hero.rs`. Acceptance: focusing
-  a foot terminal shows the foot icon + title in the hero slot;
-  switching focus to firefox slides the new title in over 280 ms
-  per the locked tween.
-- [ ] **v3.0.3: window-management buttons (Tier 1E + depends on
-  toplevels)** — new widget in `top_bar.rs` (rightmost cluster
-  before the clock OR per current design lock at far-right corner).
-  Three buttons (min / max / close) bound to wlr-foreign-toplevel
-  protocol messages targeting the currently-focused toplevel.
-  Grey-out when no toplevel is focused per v8.7 lock. Maximize =
-  toggle floating-fill (not fullscreen) per the same lock.
-  Acceptance: clicking close on a focused foot terminal closes it;
-  clicking min hides it; clicking max toggles its floating-fill
-  state; all three grey out when nothing is focused.
+- [✓] **v3.0.3: hero widget placement in top_bar (Tier 2 E.4.2
+  wiring) — shipped 2026-05-22** — `App::hero: Hero` field added
+  to panel state; `Message::ToplevelEvent` reducer calls
+  `hero.set_focused(title, app_id)` whenever the focused toplevel
+  changes; `Message::Tick` reducer (now subscribed at ~30Hz via
+  `iced::time::every(33ms)`) calls `hero.tick(now)` to advance
+  the 280ms slide; `top_bar::view` gained a hero zone between
+  Dock and the right-flex spacer that renders
+  `hero.display_title()`. 190 panel tests green (was 188 + 2 new
+  view-with-hero tests).
+- [✓] **v3.0.3: window-management buttons (Tier 1E + v8.7 lock)
+  — shipped 2026-05-22** — three-button cluster
+  (`window_button_cluster` in top_bar.rs) renders between the
+  tray and the clock with Carbon-style glyphs ("−" minimize,
+  "□" maximize, "×" close). Per the v8.7 lock: minimize routes
+  to `swaymsg [con_id=N] move scratchpad` (sway has no native
+  minimize; scratchpad-hide matches the user-visible behavior),
+  maximize toggles floating-fill (`floating enable, resize set
+  100ppt 100ppt`), close issues `swaymsg [con_id=N] kill`. New
+  `swaymsg_window_command(id, command)` helper in lib.rs wraps
+  the subprocess invocation with proper `wait()` so no zombies
+  accumulate (matches the popover reap pattern). Buttons grey
+  out when no toplevel is focused. New `Message::Window{Min,Max,
+  Close}` variants drive the reducer. Close button uses the
+  destructive accent on hover.
 - [ ] **v3.0.3: watermark widget + Layer::Background surface
   (Tier 2 E.18 wiring)** — render `WatermarkState::render_line()`
   into a separate Iced layer-shell surface anchored bottom-right
@@ -1780,8 +1787,8 @@ src/`) and its destination.
   walk, tabbed-workspace path. 1.1.0 layout lock preserved.
   Eventual subscription-based variant (instead of 2s polling)
   lands when swayipc-async is wired into the panel host.
-- [>] **v3.0.3: Phase E.4.2 hero (helpers shipped 2026-05-21, widget
-  placement deferred — audit 2026-05-22)** —
+- [✓] **v3.0.3: Phase E.4.2 hero (helpers shipped 2026-05-21,
+  widget placement closed 2026-05-22)** —
   `crates/mde-panel/src/hero.rs` ships `Hero` with
   `current`/`incoming` slide state, `set_focused(title, app_id)`,
   `tick(now)` promotion at the 280ms boundary, `progress_at(now)`

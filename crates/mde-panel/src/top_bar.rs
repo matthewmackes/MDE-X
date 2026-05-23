@@ -25,6 +25,8 @@ use iced::widget::{button, container, row, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
 use crate::applet_host::AppletKind;
+use crate::hero::Hero;
+use crate::toplevels::Toplevel;
 use crate::Message;
 
 /// Height of the top bar in logical pixels (Phase 1.1.0 Win10 lock).
@@ -136,9 +138,18 @@ impl TopBarState {
 
 /// Render the top bar. Returns an Iced `Element<Message>`; the
 /// click handlers map directly to `Message::StartClicked` /
-/// `Message::TrayClicked(kind)`.
+/// `Message::TrayClicked(kind)` / `Message::WindowMinimize` etc.
+///
+/// v3.0.3 — signature gained `hero` (focused-window display, from
+/// the Phase E.4.2 widget) and `focused` (current focused
+/// toplevel, used by the window-management buttons to grey out
+/// when no window is focused).
 #[must_use]
-pub fn view(state: &TopBarState) -> Element<'_, Message> {
+pub fn view<'a>(
+    state: &'a TopBarState,
+    hero: &'a Hero,
+    focused: Option<&'a Toplevel>,
+) -> Element<'a, Message> {
     let start_btn = button(text(state.start_label.clone()).size(16).color(ACCENT))
         .padding(Padding {
             top: 4.0,
@@ -154,6 +165,12 @@ pub fn view(state: &TopBarState) -> Element<'_, Message> {
     // (Phase E.10 host) lands, this is read-only text; clicks fall
     // through to a Noop.
     let dock = labeled_zone(&state.dock_text, FG_TEXT, false);
+
+    // v3.0.3 Phase E.4.2 wiring — focused-window hero. Shows the
+    // ellipsized title (max 64 chars) or empty when no window is
+    // focused. Sits between Dock and the right-flex spacer so it
+    // gets generous horizontal space without crowding the tray.
+    let hero_zone = hero_view(hero);
 
     // Cluster zone — the sway-IPC chips (`H  def  #1` or similar).
     let cluster = labeled_zone(&state.cluster_text, FG_TEXT, false);
@@ -179,10 +196,14 @@ pub fn view(state: &TopBarState) -> Element<'_, Message> {
     ]
     .align_y(iced::Alignment::Center);
 
+    // v3.0.3 Tier 1E (v8.7 lock) — min/max/close cluster. Reads
+    // `focused` for its enabled/disabled state. Per the lock,
+    // "maximize = floating-fill, not fullscreen" — see
+    // `Message::WindowMaximize` for the swaymsg argv.
+    let window_buttons = window_button_cluster(focused.is_some());
+
     // Clock — tabular-numeric pill, monospace styling courtesy of
-    // the theme. Clicking opens the date popover (when E.12 lands;
-    // for now spawns the clock binary's `--now` mode which exits
-    // immediately, effectively a no-op).
+    // the theme. Clicking opens the date popover.
     let clock = button(text(state.clock_text.clone()).size(13).color(FG_TEXT))
         .padding(Padding {
             top: 6.0,
@@ -198,10 +219,14 @@ pub fn view(state: &TopBarState) -> Element<'_, Message> {
             start_btn,
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
             dock,
+            Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
+            hero_zone,
             Space::with_width(Length::Fill),
             cluster,
             Space::with_width(Length::Fill),
             tray,
+            Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
+            window_buttons,
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
             clock,
         ]
@@ -217,6 +242,75 @@ pub fn view(state: &TopBarState) -> Element<'_, Message> {
     .height(Length::Fixed(f32::from(TOP_BAR_HEIGHT_PX)))
     .style(panel_surface)
     .into()
+}
+
+/// v3.0.3 Phase E.4.2 wiring — render the focused-window hero.
+/// Shows the ellipsized title (or "" when no window is focused).
+/// Sliding animation is driven by `hero::Hero::tick` from the
+/// panel's `Message::Tick` reducer; this function just reads the
+/// post-tick state.
+fn hero_view<'a>(hero: &'a Hero) -> Element<'a, Message> {
+    let label = hero
+        .display_title()
+        .unwrap_or_else(|| String::new());
+    container(text(label).size(13).color(FG_TEXT))
+        .padding(Padding {
+            top: 4.0,
+            right: 8.0,
+            bottom: 4.0,
+            left: 8.0,
+        })
+        .into()
+}
+
+/// v3.0.3 Tier 1E — three-button cluster (min/max/close) per the
+/// v8.7 design lock. Greys out (no on_press handler attached) when
+/// `enabled` is false, i.e. no toplevel is focused.
+///
+/// Glyphs are the Carbon-style "−" (minimize), "□" (maximize/
+/// restore), "×" (close). Close gains a destructive hover tint
+/// to match the popover close button (`crate::dismiss::close_button`
+/// shape — color shared across the panel + popover surfaces).
+fn window_button_cluster<'a>(enabled: bool) -> Element<'a, Message> {
+    row![
+        window_btn("−", enabled.then_some(Message::WindowMinimize), false),
+        Space::with_width(Length::Fixed(4.0)),
+        window_btn("□", enabled.then_some(Message::WindowMaximize), false),
+        Space::with_width(Length::Fixed(4.0)),
+        window_btn("×", enabled.then_some(Message::WindowClose), true),
+    ]
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+/// One window-management button. `on_press` is `None` to grey-out;
+/// `destructive` flips the hover tint to the destructive accent.
+fn window_btn<'a>(
+    glyph: &str,
+    on_press: Option<Message>,
+    destructive: bool,
+) -> Element<'a, Message> {
+    let color = if on_press.is_some() {
+        FG_TEXT
+    } else {
+        FG_MUTED
+    };
+    let mut btn = button(text(glyph.to_string()).size(14).color(color))
+        .padding(Padding {
+            top: 4.0,
+            right: 8.0,
+            bottom: 4.0,
+            left: 8.0,
+        })
+        .style(if destructive {
+            destructive_button_style
+        } else {
+            zone_button_style
+        });
+    if let Some(msg) = on_press {
+        btn = btn.on_press(msg);
+    }
+    btn.into()
 }
 
 /// Read-only text zone with a thin padding box. Used by the dock and
@@ -298,6 +392,38 @@ fn muted() -> Color {
     FG_MUTED
 }
 
+/// v3.0.3 Tier 1E — destructive variant of the zone button style.
+/// Used by the window-close button so its hover state reads as
+/// "this closes." Shares the destructive color with
+/// `crate::dismiss::close_button` in the popover crate.
+fn destructive_button_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered => Some(Background::Color(Color {
+            r: 0.98,
+            g: 0.31,
+            b: 0.34,
+            a: 0.20,
+        })),
+        button::Status::Pressed => Some(Background::Color(Color {
+            r: 0.98,
+            g: 0.31,
+            b: 0.34,
+            a: 0.35,
+        })),
+        _ => None,
+    };
+    button::Style {
+        background: bg,
+        text_color: FG_TEXT,
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 4.0.into(),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,6 +470,36 @@ mod tests {
     #[test]
     fn view_renders_without_panic() {
         let state = TopBarState::demo();
-        let _ = view(&state);
+        let hero = crate::hero::Hero::new();
+        let _ = view(&state, &hero, None);
+    }
+
+    /// v3.0.3 — view renders with a focused toplevel + populated
+    /// hero so the new hero zone + window buttons exercise their
+    /// happy-path branches too.
+    #[test]
+    fn view_renders_with_hero_and_focused() {
+        let state = TopBarState::demo();
+        let mut hero = crate::hero::Hero::new();
+        hero.set_focused("Terminal".into(), "foot".into());
+        let focused = crate::toplevels::Toplevel {
+            id: 7,
+            title: "Terminal".into(),
+            app_id: "foot".into(),
+            state: crate::toplevels::ToplevelState {
+                focused: true,
+                ..Default::default()
+            },
+        };
+        let _ = view(&state, &hero, Some(&focused));
+    }
+
+    /// Window-button cluster: greys out (no on_press) when no
+    /// toplevel is focused, takes message bindings when one is.
+    /// Both render-paths exit cleanly.
+    #[test]
+    fn window_button_cluster_renders_both_states() {
+        let _enabled: Element<'_, Message> = window_button_cluster(true);
+        let _disabled: Element<'_, Message> = window_button_cluster(false);
     }
 }
