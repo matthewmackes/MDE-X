@@ -30,12 +30,23 @@ USERCFG="${HOME}/.config/sway/config"
 # will write the right file.
 [ -f "$USERCFG" ] || exit 0
 
-# Required exec lines, in the order they should appear if appended.
-# Adding a new entry here makes it stick on the next login of every
-# existing operator without forcing them through the wizard again.
+# Required exec / bindsym lines, in the order they should appear if
+# appended. Adding a new entry here makes it stick on the next login
+# of every existing operator without forcing them through the wizard
+# again.
+#
+# v4.0.1 (2026-05-23): watermark stays here even though the visible
+# widget retired — `mde-popover watermark` is now the headless dnf-
+# poll daemon that maintains ~/.cache/mde/dnf-updates.count for the
+# start-menu footer chip.
+# v4.0.1 BUG-15: Super+Shift+M binding lets the operator recover
+# minimized windows from sway's scratchpad — the panel's centered
+# minimize button (BUG-6) has no native sway equivalent so the
+# `move scratchpad` + `scratchpad show` pair is the closest UX.
 REQUIRED_LINES=(
     "exec mde-popover watermark"
     "exec mde-popover toast"
+    "bindsym \$mod+Shift+m exec swaymsg scratchpad show"
 )
 
 append_if_missing() {

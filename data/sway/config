@@ -102,6 +102,14 @@ bindsym F3 exec mde-popover expose
 # entry to copy it back via wl-copy).
 bindsym $mod+v exec mde-popover clipboard
 
+# v4.0.1 BUG-15 — recover minimized windows. The panel's centered
+# minimize button (BUG-6) routes through `swaymsg [con_id=N] move
+# scratchpad` because sway has no native minimize; this binding
+# cycles the scratchpad stack back into the focused workspace one
+# window at a time. Super+Shift+M reads as the natural inverse of
+# the click on the centered minus glyph.
+bindsym $mod+Shift+m exec swaymsg scratchpad show
+
 # Resize mode — Super+r enters resize mode, escape leaves.
 mode "resize" {
     bindsym h resize shrink width  10 px

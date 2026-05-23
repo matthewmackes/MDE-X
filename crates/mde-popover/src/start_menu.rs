@@ -14,6 +14,10 @@ use std::process::Command;
 use iced::widget::{button, column, container, row, scrollable, svg, text, text_input, Space};
 use iced::{Alignment, Background, Border, Color, Element, Length, Padding, Shadow, Task, Theme};
 
+use crate::watermark::{
+    current_pending_count, spawn_pkexec_dnf_upgrade, WatermarkState,
+};
+
 /// v4.0.1 BUG-13 — Carbon glyph bytes for the pinned tiles. Baked
 /// here rather than depending on `mde-panel`'s `panel_icons` module
 /// so the popover crate stays free of upstream-binary deps.
@@ -21,6 +25,15 @@ const FILES_SVG: &[u8] =
     include_bytes!("../../../assets/icons/carbon/files.svg");
 const WORKBENCH_SVG: &[u8] =
     include_bytes!("../../../assets/icons/carbon/workbench.svg");
+
+/// v4.0.1 — accent for the "N updates pending" chip in the footer
+/// system-identity strip. Matches the operator-locked indigo (Q2).
+const UPDATE_CHIP_ACCENT: Color = Color {
+    r: 0.357,
+    g: 0.416,
+    b: 0.961,
+    a: 1.0,
+};
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings};
 use iced_layershell::to_layer_message;
@@ -66,11 +79,22 @@ pub enum Message {
     SearchChanged(String),
     Launch(String),
     Exit,
+    /// v4.0.1 — operator clicked the "N updates pending" chip in
+    /// the system-identity footer. Routes to `spawn_pkexec_dnf_upgrade`
+    /// (was the watermark popover's click handler before the v4.0.1
+    /// watermark-into-start-menu move).
+    DnfUpgradeClicked,
 }
 
 pub struct App {
     all: Vec<AppEntry>,
     query: String,
+    /// v4.0.1 — system-identity snapshot loaded once at popover
+    /// spawn. The pending-update count is re-read from the cache
+    /// file on every view() so a `dnf upgrade` that completes
+    /// during the popover's lifetime reflects on the next render
+    /// (cheap — a 3-byte file read).
+    system: WatermarkState,
 }
 
 impl iced_layershell::Application for App {
@@ -92,10 +116,12 @@ impl iced_layershell::Application for App {
         let mut all = load_all_entries();
         all.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         tracing::info!(count = all.len(), "loaded .desktop entries");
+        let system = WatermarkState::load();
         (
             Self {
                 all,
                 query: String::new(),
+                system,
             },
             text_input::focus("start-menu-search"),
         )
@@ -117,6 +143,11 @@ impl iced_layershell::Application for App {
             }
             Message::Exit => {
                 std::process::exit(0);
+            }
+            Message::DnfUpgradeClicked => {
+                tracing::info!("start-menu footer click → pkexec dnf upgrade");
+                spawn_pkexec_dnf_upgrade();
+                Task::none()
             }
             _ => Task::none(),
         }
@@ -249,6 +280,48 @@ impl iced_layershell::Application for App {
             left: 12.0,
         });
 
+        // v4.0.1 — Win10-style system-identity strip. Replaces the
+        // retired watermark popover. Left side shows the always-on
+        // "MDE X.Y.Z · Fedora N · host" line (per
+        // `WatermarkState::identity_line`); right side shows a
+        // clickable "N updates pending" chip when the cached dnf
+        // count is > 0 (chip fires `Message::DnfUpgradeClicked` →
+        // `spawn_pkexec_dnf_upgrade`, same action the old watermark
+        // had). Count is re-read from the cache on every view so an
+        // upgrade that completed during the popover lifetime
+        // reflects immediately.
+        let pending = current_pending_count();
+        let identity = text(self.system.identity_line()).size(10).color(FG_MUTED);
+        let identity_row: Element<'_, Message> = if pending == 0 {
+            row![identity, Space::with_width(Length::Fill)]
+                .align_y(Alignment::Center)
+                .into()
+        } else {
+            let chip = button(
+                text(format!("{pending} updates pending"))
+                    .size(10)
+                    .color(Color::WHITE),
+            )
+            .padding(Padding {
+                top: 3.0,
+                right: 8.0,
+                bottom: 3.0,
+                left: 8.0,
+            })
+            .style(update_chip_style)
+            .on_press(Message::DnfUpgradeClicked);
+            row![identity, Space::with_width(Length::Fill), chip]
+                .align_y(Alignment::Center)
+                .spacing(8)
+                .into()
+        };
+        let identity_strip = container(identity_row).padding(Padding {
+            top: 6.0,
+            right: 12.0,
+            bottom: 0.0,
+            left: 12.0,
+        });
+
         let footer = container(
             text("Esc closes · click outside the M to re-toggle").size(10).color(FG_MUTED),
         )
@@ -265,6 +338,7 @@ impl iced_layershell::Application for App {
             pinned_row,
             header,
             scroll,
+            identity_strip,
             footer,
         ]
         .padding(Padding {
@@ -443,6 +517,37 @@ fn row_button_style(_theme: &Theme, status: button::Status) -> button::Style {
     button::Style {
         background: bg,
         text_color: FG_TEXT,
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 4.0.into(),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+/// v4.0.1 — "N updates pending" chip in the start-menu footer.
+/// Indigo Q2 accent with a subtle darken on press; full opacity at
+/// rest so the count reads as an actionable affordance.
+fn update_chip_style(_theme: &Theme, status: button::Status) -> button::Style {
+    let bg = match status {
+        button::Status::Hovered => Background::Color(Color {
+            r: UPDATE_CHIP_ACCENT.r * 1.08,
+            g: UPDATE_CHIP_ACCENT.g * 1.08,
+            b: UPDATE_CHIP_ACCENT.b * 1.08,
+            a: 1.0,
+        }),
+        button::Status::Pressed => Background::Color(Color {
+            r: UPDATE_CHIP_ACCENT.r * 0.85,
+            g: UPDATE_CHIP_ACCENT.g * 0.85,
+            b: UPDATE_CHIP_ACCENT.b * 0.85,
+            a: 1.0,
+        }),
+        _ => Background::Color(UPDATE_CHIP_ACCENT),
+    };
+    button::Style {
+        background: Some(bg),
+        text_color: Color::WHITE,
         border: Border {
             color: Color::TRANSPARENT,
             width: 0.0,

@@ -1045,6 +1045,41 @@ no new RPM cut.
   palette's focused/unfocused color contrast becomes visibly
   distinct. Operator can request 6 px (or back to 2) if 4 ends
   up too heavy at desk distance.
+- [✓] **v4.0.1: BUG-15 minimize button sends windows into the
+  scratchpad with no recovery path (captured 2026-05-23)** —
+  operator reports clicking the minimize button on the panel's
+  centered window-controls cluster makes the focused window
+  disappear with no obvious way to bring it back.
+  `Message::WindowMinimize` runs `swaymsg [con_id=N] move
+  scratchpad` (v8.7 lock — sway has no native minimize, the
+  scratchpad-hide is the closest user-visible equivalent), but
+  the scratchpad cycle isn't bound by default. Fix:
+  (a) add `bindsym $mod+Shift+m exec swaymsg scratchpad show` to
+  `data/sway/config` — cycles minimized windows back into the
+  focused workspace one at a time.
+  (b) Stretch (BUG-5 fan-out closes this fully): the dock's
+  inline window list shows minimized windows + a click restores
+  any one of them directly.
+  Acceptance for (a): after a minimize, pressing Super+Shift+M
+  brings the window back into view. (b) is tracked under BUG-5.
+- [✓] **v4.0.1: watermark → start-menu footer move (shipped
+  2026-05-23)** — operator retired the standalone Win10 watermark
+  popover. The Win10 system-identity strip ("MDE X.Y.Z · Fedora
+  N · host" + clickable "N updates pending" chip) moved to the
+  bottom of the start-menu popover, above the existing
+  "Esc closes…" hint line. `crates/mde-popover/src/watermark.rs`
+  was refactored from a 650-line iced layer-shell surface to a
+  ~250-line headless dnf-poll daemon: it spawns the 4-hour
+  poll thread, writes `~/.cache/mde/dnf-updates.count`, and
+  parks the main thread forever — no visible chrome.
+  `WatermarkState`, `current_pending_count`, and
+  `spawn_pkexec_dnf_upgrade` are now consumed by
+  `start_menu.rs::view` which reads the cache on every popover
+  open and renders the identity strip + update-count chip. New
+  `update_chip_style` for the indigo Q2 accent chip. The chip's
+  click handler fires `pkexec dnf upgrade` (same action the
+  watermark widget had pre-retirement). 9 watermark lib tests
+  + `identity_line_excludes_count` regression pass.
 - [✓] **v4.0.1: BUG-11 watermark popover never spawned because
   user's sway config was stale (shipped 2026-05-23)** —
   root-cause diagnosis: `data/sway/config:160-165` has
