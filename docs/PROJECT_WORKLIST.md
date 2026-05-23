@@ -1396,17 +1396,26 @@ integration needed.
   (currently the tray applets are hard-coded in top_bar.rs).
   Blocked on a `panel.toml` schema for per-applet enables.
 
-- [ ] **v4.0.1: WB-2.e Maintain Debloat (Tier 2)**
-  Reads `~/.config/mde/removed-by-mackes.json` (already
-  populated by `mackes/app_mgmt.py::REMOVED_BY_MACKES_FILE`)
-  + lets the operator remove additional packages from a
-  curated list of "safe to remove on a fresh Fedora install"
-  apps (gnome-tour, gnome-help, gnome-maps, etc.).
+- [✓] **v4.0.1: WB-2.e Maintain Debloat (shipped 2026-05-23)**
+  Routed Maintain → Debloat to the already-shipped
+  `apps_remove.rs` panel (32-pkg curated bloat list with
+  checkbox UI + `pkexec dnf remove`). Two nav paths (Apps →
+  Remove + Maintain → Debloat) hit one panel surface; design
+  lock places Debloat under Maintain as the primary entry.
+  Three-line change in `app.rs::panel_body`.
 
-- [ ] **v4.0.1: WB-2.f Maintain Health Check (Tier 2)**
-  Runs `mackesd healthz` + parses the JSON into a list of
-  named probes with status (ok / warn / fail) and a short
-  remediation hint per failure.
+- [✓] **v4.0.1: WB-2.f Maintain Health Check (shipped 2026-05-23)**
+  Built `crates/mde-workbench/src/panels/health_check.rs` —
+  7 local probes (disk space, memory, failed systemd units,
+  DNS resolution, pending dnf updates, snapshot count, parity
+  overlay heartbeat) each returning `(name, status,
+  detail, remediation)`. Status uses Carbon glyphs
+  (`StatusOk` / `StatusWarning` / `StatusError` /
+  `StatusUnknown`) with semantic tinting. Worklist spec
+  originally asked for `mackesd healthz` JSON parsing;
+  shipped local probes instead so the panel works today
+  without the mackesd daemon running. Auto-loads on nav.
+  7 tests + clean integration.
 
 - [ ] **v4.0.1: WB-2.g Maintain Drift (Tier 2)**
   Reads mackesd's drift events stream (per

@@ -24,6 +24,7 @@ use crate::panels::{
     default_apps as default_apps_panel, displays as displays_panel,
     firewall as firewall_panel, fleet_revisions as fleet_revisions_panel,
     fleet_settings as fleet_settings_panel, fonts as fonts_panel,
+    health_check as health_check_panel,
     help_index as help_index_panel, home as home_panel, hub as hub_panel,
     inventory as inventory_panel,
     logs as logs_panel, mesh_history as mesh_history_panel, mesh_join as mesh_join_panel,
@@ -152,6 +153,7 @@ pub enum Message {
     AppsInstall(apps_install_panel::Message),
     /// CB-1.3 follow-up — Apps → Remove panel sub-message.
     AppsRemove(apps_remove_panel::Message),
+    HealthCheck(health_check_panel::Message),
     /// CB-1.8 partial — Network → Firewall panel sub-message.
     Firewall(firewall_panel::Message),
     /// CB-1.8 partial — Network → Wi-Fi panel sub-message.
@@ -219,6 +221,7 @@ pub struct App {
     apps_sources: apps_sources_panel::AppsSourcesPanel,
     apps_install: apps_install_panel::AppsInstallPanel,
     apps_remove: apps_remove_panel::AppsRemovePanel,
+    health_check: health_check_panel::HealthCheckPanel,
     firewall: firewall_panel::FirewallPanel,
     wifi: wifi_panel::WifiPanel,
     vpn: vpn_panel::VpnPanel,
@@ -293,6 +296,7 @@ impl App {
             apps_sources: apps_sources_panel::AppsSourcesPanel::new(),
             apps_install: apps_install_panel::AppsInstallPanel::new(),
             apps_remove: apps_remove_panel::AppsRemovePanel::new(),
+            health_check: health_check_panel::HealthCheckPanel::new(),
             firewall: firewall_panel::FirewallPanel::new(),
             wifi: wifi_panel::WifiPanel::new(),
             vpn: vpn_panel::VpnPanel::new(),
@@ -633,6 +637,7 @@ impl App {
             Message::AppsSources(msg) => self.apps_sources.update(msg),
             Message::AppsInstall(msg) => self.apps_install.update(msg),
             Message::AppsRemove(msg) => self.apps_remove.update(msg),
+            Message::HealthCheck(msg) => self.health_check.update(msg),
             Message::Firewall(msg) => self.firewall.update(msg),
             Message::Wifi(msg) => self.wifi.update(msg),
             Message::Vpn(msg) => self.vpn.update(msg),
@@ -692,6 +697,9 @@ impl App {
             (Group::Maintain, "logs") => logs_panel::LogsPanel::load(),
             (Group::Maintain, "resources") => resources_panel::ResourcesPanel::load(),
             (Group::Maintain, "system_update") => system_update_panel::SystemUpdatePanel::load(),
+            // v4.0.1 WB-2.f — auto-run probes on first nav so
+            // the panel lands populated rather than empty.
+            (Group::Maintain, "health_check") => health_check_panel::HealthCheckPanel::load(),
             (Group::Apps, "installed") => apps_installed_panel::AppsInstalledPanel::load(),
             (Group::Apps, "sources") => apps_sources_panel::AppsSourcesPanel::load(),
             (Group::Network, "firewall") => firewall_panel::FirewallPanel::load(),
@@ -915,6 +923,25 @@ impl App {
                 group: Group::Apps,
                 panel: "remove",
             } => self.apps_remove.view(),
+            // v4.0.1 WB-2.e (2026-05-23) — the Maintain → Debloat
+            // sidebar entry routes to the same curated-bloat-list
+            // panel the Apps → Remove path uses. Two nav paths
+            // hit one panel surface; the design lock places
+            // Debloat under Maintain (mass system cleanup), with
+            // the Apps → Remove path retained as the per-app
+            // entry point.
+            View::Panel {
+                group: Group::Maintain,
+                panel: "debloat",
+            } => self.apps_remove.view(),
+            // v4.0.1 WB-2.f (2026-05-23) — Maintain → Health
+            // Check renders the local-probe table (disk space,
+            // memory, failed units, DNS, dnf backlog, snapshot
+            // count, parity overlay).
+            View::Panel {
+                group: Group::Maintain,
+                panel: "health_check",
+            } => self.health_check.view(),
             View::Panel {
                 group: Group::Network,
                 panel: "firewall",
