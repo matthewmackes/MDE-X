@@ -1,4 +1,15 @@
-"""Phase 13.4 — drawer KDE Connect notification merge tests."""
+"""Phase 13.4 — drawer KDE Connect notification merge tests.
+
+v4.0.1 retirement (TEST-2): three tests that exercised the
+`kdeconnect-notifications.json` merge (`merges_phone_origin`,
+`concatenates_when_both_exist`, `skips_non_dict_phone_entries`) were
+deleted on 2026-05-23. They covered behavior the drawer deliberately
+retired in KDC2-5.10 — phone notifications now flow directly into
+mako/the Iced notifications applet via the
+`dev.mackes.MDE.Connect` DBus signal surface, not by file merging.
+The remaining three tests still guard live drawer behavior:
+missing-cache no-op, legacy-file ingest, corrupt-JSON tolerance.
+"""
 from __future__ import annotations
 
 import json
@@ -48,60 +59,14 @@ def test_drawer_load_notifications_reads_legacy_file():
     _with_isolated_cache(body)
 
 
-def test_drawer_load_notifications_merges_phone_origin():
-    """KDE Connect mirrored notifications get `origin: "phone"`
-    auto-applied so the drawer renders the phone badge."""
-    def body(cache):
-        notes_dir = cache / "mackes"
-        notes_dir.mkdir()
-        (notes_dir / "kdeconnect-notifications.json").write_text(json.dumps([
-            {"device": "Pixel-9", "title": "Hey", "text": "How are you?"},
-        ]))
-        from mackes.drawer import _load_pending_notifications
-        out = _load_pending_notifications()
-        assert len(out) == 1
-        assert out[0]["origin"] == "phone"
-        assert out[0]["app"] == "Pixel-9"  # device falls through as app
-        assert out[0]["title"] == "Hey"
-        assert out[0]["body"] == "How are you?"
-    _with_isolated_cache(body)
-
-
-def test_drawer_load_notifications_concatenates_when_both_exist():
-    def body(cache):
-        notes_dir = cache / "mackes"
-        notes_dir.mkdir()
-        (notes_dir / "notifications.json").write_text(json.dumps([
-            {"app": "mackes", "title": "Mesh joined"},
-        ]))
-        (notes_dir / "kdeconnect-notifications.json").write_text(json.dumps([
-            {"device": "Phone", "title": "MMS arrived"},
-        ]))
-        from mackes.drawer import _load_pending_notifications
-        out = _load_pending_notifications()
-        assert len(out) == 2
-        # Legacy notification first, phone notification appended.
-        assert out[0].get("origin") != "phone"
-        assert out[1]["origin"] == "phone"
-    _with_isolated_cache(body)
-
-
-def test_drawer_load_notifications_skips_non_dict_phone_entries():
-    """Garbled phone payloads don't crash the merge — non-dict
-    entries are skipped, valid ones still surface."""
-    def body(cache):
-        notes_dir = cache / "mackes"
-        notes_dir.mkdir()
-        (notes_dir / "kdeconnect-notifications.json").write_text(json.dumps([
-            "not-a-dict",
-            {"device": "Phone", "title": "valid"},
-            42,
-        ]))
-        from mackes.drawer import _load_pending_notifications
-        out = _load_pending_notifications()
-        assert len(out) == 1
-        assert out[0]["title"] == "valid"
-    _with_isolated_cache(body)
+# --- Retired 2026-05-23 (TEST-2) ---
+# `test_drawer_load_notifications_merges_phone_origin`,
+# `test_drawer_load_notifications_concatenates_when_both_exist`, and
+# `test_drawer_load_notifications_skips_non_dict_phone_entries` were
+# removed here. They asserted the legacy kdeconnect-notifications.json
+# file-merge that the drawer deliberately retired in KDC2-5.10 — phone
+# notifications now flow through mako + the Iced notifications applet
+# via the dev.mackes.MDE.Connect DBus signal surface.
 
 
 def test_drawer_load_notifications_handles_corrupt_phone_json():

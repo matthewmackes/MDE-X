@@ -1,0 +1,8 @@
+# Phase 0.4 — legacy v1.x service-name alias. Kept for one release of
+# backward-compat so D-Bus consumers that still spell the name
+# `org.mackes.Shell` resolve to the same mded process as the canonical
+# dev.mackes.MDE.Shell name. Retires at v2.1.
+[D-BUS Service]
+Name=org.mackes.Shell
+Exec=/usr/bin/mded serve
+SystemdService=mded.service

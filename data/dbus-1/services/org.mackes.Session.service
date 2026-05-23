@@ -1,0 +1,8 @@
+# Phase 0.4 — legacy v1.x service-name alias. Kept for one release of
+# backward-compat so D-Bus consumers that still spell the name
+# `org.mackes.Session` resolve to the same mde-session process as the
+# canonical dev.mackes.MDE.Session name. Retires at v2.1.
+[D-BUS Service]
+Name=org.mackes.Session
+Exec=/usr/bin/mde-session
+SystemdService=mde-session.service

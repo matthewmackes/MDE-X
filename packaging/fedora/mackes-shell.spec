@@ -871,10 +871,13 @@ fi
 %{_mandir}/man1/mde-migrate-from-1x.1*
 %{_mandir}/man1/mde-shell-migrate-v2.1*
 %{_mandir}/man8/mded.8*
-# v2.0.0 Phase 0.4 — D-Bus service files. v3.0 cut dropped the
-# `org.mackes.*` aliases (one-release back-compat window
-# expired); only the `dev.mackes.MDE.*` names ship now.
+# v2.0.0 Phase 0.4 — D-Bus service files. v4.0.1 TEST-1 restored
+# the `org.mackes.*` aliases — the planning lock for "one release
+# back-compat" was still in flight against the v1.x consumers
+# (tests/test_dbus_service_files.py guards their presence). Both
+# the dev.mackes.MDE.* and org.mackes.* names ship in v4.0.1.
 %{_datadir}/dbus-1/services/dev.mackes.MDE.*.service
+%{_datadir}/dbus-1/services/org.mackes.*.service
 # v2.0.0 Phase D.5 — sway config now covered by the
 # %{_datadir}/%{name}/ catch-all below (Name: mde, so
 # %{_datadir}/%{name}/ == /usr/share/mde/).

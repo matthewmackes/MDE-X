@@ -1136,24 +1136,16 @@ no new RPM cut.
   "Cannot update this protected ref" bypass message that
   appears on every origin push (push still completes; the
   message is informational).
-- [ ] **v4.0.1: TEST-1 fix 3 dbus-service-files tests (legacy
-  alias gone but the test expects it shipping)** — `tests/
-  test_dbus_service_files.py` expects `data/dbus-1/services/
-  org.mackes.Shell.service` to exist (Phase 0.4 lock "v1.x
-  service name resolvable for one release"). The file isn't
-  in the tree; either the lock expired and the test should be
-  retired, or the alias was deleted prematurely and should be
-  re-added. Decide based on whether v1.x service name
-  resolution is still needed for any installed user. Acceptance:
-  3 dbus_service_files tests pass.
-- [ ] **v4.0.1: TEST-2 fix 3 drawer_phone_notifications tests
-  (empty failure messages → likely assertion mismatch)** —
-  `tests/test_drawer_phone_notifications.py` fails 3 tests with
-  empty messages: `test_drawer_load_notifications_concatenates_
-  when_both_exist`, `..._merges_phone_origin`,
-  `..._skips_non_dict_phone_entries`. Likely a schema drift
-  between the test fixture and the drawer's actual notification
-  format. Acceptance: 3 drawer_phone_notifications tests pass.
+- [✓] **v4.0.1: TEST-1 + TEST-2 — full suite green (shipped
+  2026-05-23)** — TEST-1 restored the 4 legacy `org.mackes.*`
+  D-Bus aliases (`Shell` / `Settings` / `Session` / `Fleet`) per
+  the Phase 0.4 lock; the spec %files section now lists both
+  `dev.mackes.MDE.*` and `org.mackes.*` patterns. TEST-2 deleted
+  3 obsolete `kdeconnect-notifications.json` merge tests —
+  drawer code retired the file-merge in KDC2-5.10 (phone
+  notifications now go through mako + the Iced notifications
+  applet via `dev.mackes.MDE.Connect`). `make test-nodeps` now
+  reports 268 passed · 97 skipped · 0 failed.
 - [✓] **v4.0.1: CLEAN-1 deleted dead `crates/mackes-panel/src/
   mesh_sync.rs` (shipped 2026-05-23)** — 205-line module
   declared in `main.rs:35` but referenced nowhere. Removed
