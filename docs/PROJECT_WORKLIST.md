@@ -898,22 +898,22 @@ no new RPM cut.
   `iced_layershell` 0.13.7 known issues. Acceptance: scroll
   wheel over the start-menu list paginates through entries
   without freezing the popover.
-- [>] **v4.0.1: BUG-3 "? def #13" no longer in title area —
-  cluster demoted to next-to-clock (partial, 2026-05-23)** —
-  the cluster widget was occupying the visual center slot
-  between two flex spaces, so the operator perceived its
-  sway-IPC chip string ("? def #13" = split=`?`, layout=`def`,
-  window-id=`#13`) as the "title area". v4.0.1 BUG-6 fix
-  re-slotted: window_buttons centered, cluster moved adjacent
-  to the clock. The cluster string itself still reads "? def
-  #13" when sway reports an unknown layout for leaf cons —
-  cosmetically the `?` fallback in `split_glyph()` could be
-  improved (e.g., treat `"none"` as "—" rather than "?"), and
-  separately the hero (focused-app title) should be the
-  prominent center identity. Follow-up: (a) tighten
-  `split_glyph` to render `"none"` cleanly, (b) verify the
-  hero subscription actually fires under the operator's
-  workspace so a non-empty title renders next to the dock.
+- [✓] **v4.0.1: BUG-3 cluster no longer renders "? def #N" —
+  fully closed (shipped 2026-05-23)** — three-part close:
+  (1) cluster widget moved off-center next to the clock
+  (BUG-6 commit) so even when it has content the operator
+  doesn't read it as the "title area";
+  (2) `crates/mde-applets/sway-cluster/src/lib.rs::split_glyph`
+  now collapses `"none"` (sway's value for leaf cons that
+  aren't themselves a split container — the common single-
+  focused-window case) to the em-dash placeholder, matching
+  the empty-string branch. Was rendering `?` which read like
+  a broken state. New regression test
+  `split_glyph_renders_none_as_em_dash`;
+  (3) the hero (focused-app title) is the intended center
+  identity — wiring its subscription is a separate task if it
+  turns out the hero is empty under the operator's workspace.
+  11/11 sway-cluster lib tests pass.
 - [✓] **v4.0.1: BUG-14 clock → Win10 two-line layout (shipped
   2026-05-23)** — `crates/mde-applets/clock/src/lib.rs::
   format_clock` now emits `"H:MM AM/PM\nM/D/YYYY"` (12-hour

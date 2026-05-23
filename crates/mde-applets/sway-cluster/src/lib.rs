@@ -121,6 +121,14 @@ fn walk<'a>(node: &'a Node, path: &mut Vec<&'a Node>) -> bool {
 
 /// Pure helper — sway's `splith` / `splitv` / `tabbed` /
 /// `stacked` → one-glyph chip.
+///
+/// v4.0.1 BUG-3: sway emits `"none"` for leaf cons that aren't
+/// themselves a split container — that's the common case for a
+/// single focused window. The pre-v4.0.1 implementation fell
+/// through to `"?"` which surfaced as "? def #N" in the panel
+/// cluster and read like a broken render to operators. `"none"`
+/// now collapses to the em-dash placeholder, same as the
+/// empty-string branch.
 #[must_use]
 pub fn split_glyph(layout: &str) -> String {
     match layout {
@@ -128,6 +136,7 @@ pub fn split_glyph(layout: &str) -> String {
         "splitv" => "V".into(),
         "tabbed" => "T".into(),
         "stacked" => "S".into(),
+        "none" => "—".into(),
         other if other.is_empty() => "—".into(),
         _ => "?".into(),
     }
@@ -180,6 +189,15 @@ mod tests {
     fn split_glyph_handles_empty_and_unknown() {
         assert_eq!(split_glyph(""), "—");
         assert_eq!(split_glyph("weird"), "?");
+    }
+
+    #[test]
+    fn split_glyph_renders_none_as_em_dash() {
+        // v4.0.1 BUG-3 regression — sway emits "none" for leaf
+        // cons under non-tabbed/stacked workspaces, which used
+        // to fall through to "?" and surfaced as "? def #N" on
+        // the panel cluster.
+        assert_eq!(split_glyph("none"), "—");
     }
 
     #[test]
