@@ -132,7 +132,16 @@ pub fn subscription<M: 'static>(map: fn(AppletText) -> M) -> Subscription<M> {
 /// the drivers in a single future keeps everything in scope without
 /// needing the runtime handle.
 fn applet_stream() -> impl Stream<Item = AppletText> {
-    stream::channel(64, |sender| async move {
+    // 1024-slot buffer gives ~2 minutes of headroom at the
+    // worst-case applet cadence (2 s × 8 applets = ~4 emits/sec → a
+    // full second of stall fills ~4 slots). Previous 64-slot buffer
+    // dropped newest-on-full, which was wrong-shaped for a status
+    // panel (operator would rather see latest state than oldest).
+    // 1024 is large enough that backpressure-driven drops are an
+    // operationally-impossible condition; a v3.1 follow-up could
+    // switch to single-slot latest-wins per kind if real-world
+    // telemetry ever shows drops.
+    stream::channel(1024, |sender| async move {
         tracing::info!(
             "applet_host: subscription started; spawning {} OS-thread drivers",
             AppletKind::ALL.len()
