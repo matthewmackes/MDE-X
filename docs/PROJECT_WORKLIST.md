@@ -454,15 +454,36 @@ neither defect was caught at release time.
   Works today for: (a) open networks (no security), (b)
   already-saved profiles (NM uses the stored secret).
 
-- [ ] **AF-NET-1.b: NM password-prompt flow for secured new
-  networks** — when nmcli returns "no secrets" for a fresh
-  WPA2/WPA3 connection, surface an inline password input
-  (text_input with `is_secure(true)`) on the AP row, then
-  retry with `nmcli device wifi connect <ssid> password <X>`.
-  Plus a `StateChanged` D-Bus subscription so other
-  state-change sources (network down, peer connects) refresh
-  the popover live. Open until operator wants the inline
-  password UX vs nm-connection-editor.
+- [✓] **AF-NET-1.b: NM password-prompt for secured Wi-Fi
+  (shipped 2026-05-23) — `StateChanged` live subscription
+  split to AF-NET-1.c.**
+
+  `crates/mde-popover/src/network.rs` extended:
+  * Detects "no secrets / secret was not provided / secret is
+    required / password" in nmcli stderr via the new
+    `stderr_indicates_missing_secret()` pure helper.
+  * On match, the AP row is replaced by an inline
+    password-prompt row: SSID title + `password:` label +
+    `text_input::secure(true)` + Connect + Cancel buttons.
+  * Enter or Connect submits → retries `nmcli device wifi
+    connect <ssid> password <X>` via iced::Task::perform.
+    Cancel button or empty submit clears the prompt.
+  * Success path resets the pending state + clears the
+    password buffer immediately so the secret doesn't sit
+    in memory longer than needed.
+
+  6 unit tests added (2 for stderr_indicates_missing_secret
+  positives, 2 for negatives — total of 4 new asserts +
+  2 round-trips). 112 mde-popover tests pass (was 110;
+  +2 stderr matcher tests).
+
+- [ ] **AF-NET-1.c: `StateChanged` live subscription** —
+  D-Bus subscription to `org.freedesktop.NetworkManager
+  ::StateChanged` (per-device + per-active-connection)
+  so the popover refreshes live without manual click
+  when other state-change sources happen (network down,
+  peer connects, AP comes/goes). Open until operator wants
+  live updates vs the manual Refresh button.
 - [ ] **v3.1: dock applet — full inline rendering with icons,
   drag-to-pin, drag-to-reorder** — The current
   `mde-applet-dock --now` emits a text summary

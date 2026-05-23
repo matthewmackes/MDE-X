@@ -73,6 +73,14 @@ pub enum Message {
     ConnectToAp(String),
     /// AF-NET-1.a — result of a ConnectToAp shellout.
     ConnectResult { ssid: String, ok: bool, stderr: String },
+    /// AF-NET-1.b — password text changed while the inline
+    /// prompt row is open.
+    PasswordInputChanged(String),
+    /// AF-NET-1.b — operator submitted the password (Enter
+    /// or click on Connect button in the prompt row).
+    SubmitPassword,
+    /// AF-NET-1.b — cancel the open password prompt.
+    CancelPassword,
     Esc,
 }
 
@@ -113,6 +121,11 @@ pub struct App {
     /// AF-NET-1.a — last connect attempt's outcome banner.
     /// Empty until the user clicks Connect on a row.
     pub status_msg: String,
+    /// AF-NET-1.b — SSID currently asking for a password
+    /// inline. None when no prompt is open.
+    pub pending_password_ssid: Option<String>,
+    /// AF-NET-1.b — buffer for the inline password input.
+    pub password_input: String,
 }
 
 impl iced_layershell::Application for App {
@@ -127,6 +140,8 @@ impl iced_layershell::Application for App {
             devices: scan_devices(),
             aps: scan_access_points(),
             status_msg: String::new(),
+            pending_password_ssid: None,
+            password_input: String::new(),
         };
         (app, Task::none())
     }
@@ -182,18 +197,76 @@ impl iced_layershell::Application for App {
                 )
             }
             Message::ConnectResult { ssid, ok, stderr } => {
-                self.status_msg = if ok {
-                    format!("connected to {ssid}")
+                // AF-NET-1.b — detect "no secrets" / "secret was
+                // not provided" responses from nmcli and pop the
+                // inline password prompt for that SSID instead
+                // of just reporting failure.
+                let needs_password = !ok && stderr_indicates_missing_secret(&stderr);
+                if needs_password {
+                    self.status_msg = format!("password required for {ssid}");
+                    self.pending_password_ssid = Some(ssid);
+                    self.password_input.clear();
                 } else {
-                    let snippet = stderr.lines().next().unwrap_or("").trim();
-                    format!("connect failed: {snippet}")
-                };
+                    self.status_msg = if ok {
+                        self.pending_password_ssid = None;
+                        self.password_input.clear();
+                        format!("connected to {ssid}")
+                    } else {
+                        let snippet = stderr.lines().next().unwrap_or("").trim();
+                        format!("connect failed: {snippet}")
+                    };
+                }
                 // Refresh state so the row reflects the new
                 // connection.
                 self.active = scan_active_connections();
                 self.devices = scan_devices();
                 self.aps = scan_access_points();
                 Task::none()
+            }
+            Message::PasswordInputChanged(s) => {
+                self.password_input = s;
+                Task::none()
+            }
+            Message::CancelPassword => {
+                self.pending_password_ssid = None;
+                self.password_input.clear();
+                self.status_msg.clear();
+                Task::none()
+            }
+            Message::SubmitPassword => {
+                let Some(ssid) = self.pending_password_ssid.clone() else {
+                    return Task::none();
+                };
+                if self.password_input.is_empty() {
+                    self.status_msg = "password is empty".into();
+                    return Task::none();
+                }
+                let password = self.password_input.clone();
+                self.password_input.clear();
+                self.status_msg = format!("connecting to {ssid}…");
+                let ssid_clone = ssid.clone();
+                iced::Task::perform(
+                    async move {
+                        let out = std::process::Command::new("nmcli")
+                            .args([
+                                "device",
+                                "wifi",
+                                "connect",
+                                &ssid_clone,
+                                "password",
+                                &password,
+                            ])
+                            .output();
+                        match out {
+                            Ok(o) => {
+                                let stderr = String::from_utf8_lossy(&o.stderr).into_owned();
+                                (ssid_clone, o.status.success(), stderr)
+                            }
+                            Err(e) => (ssid_clone, false, format!("nmcli spawn: {e}")),
+                        }
+                    },
+                    |(ssid, ok, stderr)| Message::ConnectResult { ssid, ok, stderr },
+                )
             }
             Message::Esc => std::process::exit(0),
             _ => Task::none(),
@@ -268,8 +341,22 @@ impl iced_layershell::Application for App {
                     .color(FG_MUTED),
             ]
             .spacing(4);
+            // AF-NET-1.b — when a password is pending for an
+            // SSID, render the inline prompt row at the top of
+            // the Wi-Fi list instead of the regular ap_card
+            // for that SSID.
+            if let Some(pending) = &self.pending_password_ssid {
+                col = col.push(password_prompt_row(pending, &self.password_input));
+            }
             for ap in &self.aps {
-                col = col.push(ap_card(ap));
+                let is_pending = self
+                    .pending_password_ssid
+                    .as_ref()
+                    .map(|s| s == &ap.ssid)
+                    .unwrap_or(false);
+                if !is_pending {
+                    col = col.push(ap_card(ap));
+                }
             }
             Some(col.into())
         };
@@ -405,6 +492,97 @@ fn device_card<'a>(d: &'a DeviceRow) -> Element<'a, Message> {
             text_color: Some(FG_TEXT),
         })
         .into()
+}
+
+/// AF-NET-1.b — render the inline password-prompt row for a
+/// secured SSID. Press Enter or click Connect to submit;
+/// click Cancel to dismiss.
+fn password_prompt_row<'a>(
+    ssid: &'a str,
+    current: &'a str,
+) -> Element<'a, Message> {
+    let title = text(ssid.to_string()).size(12).color(FG_TEXT);
+    let hint = text("Password:")
+        .size(11)
+        .color(FG_MUTED);
+    let input = iced::widget::text_input("password", current)
+        .secure(true)
+        .padding(Padding::from([4u16, 8u16]))
+        .width(Length::Fill)
+        .on_input(Message::PasswordInputChanged)
+        .on_submit(Message::SubmitPassword);
+
+    let connect_btn = iced::widget::Button::new(text("Connect").size(11).color(Color::WHITE))
+        .padding(Padding::from([4u16, 12u16]))
+        .style(|_t: &Theme, status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => Color {
+                    r: ACCENT.r * 1.10,
+                    g: ACCENT.g * 1.10,
+                    b: ACCENT.b * 1.10,
+                    a: ACCENT.a,
+                },
+                _ => ACCENT,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: Color::WHITE,
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: 4.0.into(),
+                },
+                shadow: Shadow::default(),
+            }
+        })
+        .on_press(Message::SubmitPassword);
+    let cancel_btn = iced::widget::Button::new(text("Cancel").size(11).color(FG_TEXT))
+        .padding(Padding::from([4u16, 12u16]))
+        .style(|_t: &Theme, status| ghost_btn_style(status))
+        .on_press(Message::CancelPassword);
+
+    container(
+        column![
+            row![title].align_y(iced::alignment::Vertical::Center),
+            row![
+                hint,
+                Space::with_width(Length::Fixed(6.0)),
+                input,
+                Space::with_width(Length::Fixed(8.0)),
+                connect_btn,
+                Space::with_width(Length::Fixed(4.0)),
+                cancel_btn,
+            ]
+            .spacing(0)
+            .align_y(iced::alignment::Vertical::Center),
+        ]
+        .spacing(6),
+    )
+    .padding(Padding::from([10u16, 12u16]))
+    .width(Length::Fill)
+    .style(|_| container::Style {
+        background: Some(Background::Color(CARD_BG)),
+        border: Border {
+            color: ACCENT,
+            width: 1.5,
+            radius: 5.0.into(),
+        },
+        shadow: Shadow::default(),
+        text_color: Some(FG_TEXT),
+    })
+    .into()
+}
+
+/// AF-NET-1.b — pure helper: does the given nmcli stderr
+/// indicate that a password is needed for the AP?
+#[must_use]
+pub fn stderr_indicates_missing_secret(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("no secrets")
+        || lower.contains("secret was not provided")
+        || lower.contains("secrets were required")
+        || lower.contains("secret is required")
+        || lower.contains("password")
 }
 
 fn ap_card<'a>(ap: &'a AccessPoint) -> Element<'a, Message> {
@@ -839,6 +1017,32 @@ mod tests {
         assert_eq!(signal_bars(74), "▂▄▆");
         assert_eq!(signal_bars(75), "▂▄▆█");
         assert_eq!(signal_bars(100), "▂▄▆█");
+    }
+
+    #[test]
+    fn stderr_recognises_known_missing_secret_messages() {
+        assert!(stderr_indicates_missing_secret(
+            "Error: Connection activation failed: (7) Secrets were required, but not provided."
+        ));
+        assert!(stderr_indicates_missing_secret(
+            "Error: 802-11-wireless-security.psk: secret is required for connecting"
+        ));
+        assert!(stderr_indicates_missing_secret(
+            "no secrets were provided"
+        ));
+        assert!(stderr_indicates_missing_secret(
+            "Error: password is required"
+        ));
+    }
+
+    #[test]
+    fn stderr_does_not_match_unrelated_errors() {
+        assert!(!stderr_indicates_missing_secret(
+            "Error: No network with SSID 'foo' found."
+        ));
+        assert!(!stderr_indicates_missing_secret(
+            "Error: Device 'wlp2s0' was not found."
+        ));
     }
 
     #[test]
