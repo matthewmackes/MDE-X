@@ -33,6 +33,7 @@ mod fonts;
 mod minimized;
 mod network;
 mod notifications;
+mod snap_assist;
 mod start_menu;
 mod toasts;
 mod watermark;
@@ -95,6 +96,11 @@ enum Kind {
     /// MDE_WINDOW_APP_ID env vars (the dock applet sets both
     /// before spawning).
     WindowActions,
+    /// v4.0.1 WM-4 — Snap Assist overlay. Modal layer-shell
+    /// surface with 8 click-to-snap zones (4 halves + 4
+    /// quadrants); targets the focused sway window. Bound to
+    /// `bindsym $mod+z exec mde-popover snap-assist`.
+    SnapAssist,
 }
 
 fn main() -> iced_layershell::Result {
@@ -123,5 +129,6 @@ fn main() -> iced_layershell::Result {
         Kind::Minimized => minimized::run(),
         Kind::AppSwitcher => app_switcher::run(),
         Kind::WindowActions => window_actions::run(),
+        Kind::SnapAssist => snap_assist::run(),
     }
 }

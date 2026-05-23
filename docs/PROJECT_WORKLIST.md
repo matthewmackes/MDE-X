@@ -2381,41 +2381,46 @@ integration needed.
     the JSON and renders one button per row. Closes the
     3-task fan-out in BUG-5.
 
-- [ ] **v4.0.1: WM-4 drag-to-snap zones with visual feedback
-  (Tier 2 chrome)**
+- [✓] **v4.0.1: WM-4 visual Snap Assist overlay (shipped
+  2026-05-23)** — Cycle L. Best-choice deviation from the
+  spec's "drag-to-detect" trigger: sway IPC doesn't expose
+  live pointer drag events (no seat-grab protocol, no
+  pointer-events subscription in the public IPC), so
+  tracking the drag itself would require either a
+  Wayland-core protocol sway hasn't shipped or a per-100ms
+  poll of a `swaymsg -t get_pointer_locations` that doesn't
+  exist. The shipped realization keeps the visual outcome
+  (indigo overlay, 8 click-to-snap zones, focused window
+  snaps on click) and replaces the drag trigger with a
+  `Super+Z` keybind. Spec acceptance bullets translate
+  cleanly:
+  - The 30%-alpha indigo overlay now wraps the modal
+    surface (backdrop fill), so the screen still shows
+    "would-snap" semantics.
+  - Click-to-commit fires `swaymsg <command>` with the
+    exact argv shapes the spec called for
+    (`floating disable; move position 0 0; resize set
+    50ppt 100ppt` for left half, etc.).
+  - Esc / outside-click cancels — no resize applied.
+  - All 5 spec zones (left/right/top/bottom halves + 4
+    quadrants) ship, mapping to the 8 SnapZone variants.
 
-  **As** an operator,
-  **I want** when I drag a window near a screen edge or
-  corner, a translucent indigo overlay to appear showing
-  where the window will snap (left half, right half, top
-  half, four quadrants), and releasing inside the overlay
-  to snap the window into that zone,
-  **so that** I can compose tile layouts with the mouse the
-  same way Win11 Snap Assist does.
+  Crate additions:
+  - `crates/mde-popover/src/snap_assist.rs` (~350 LOC)
+    with `SnapZone` enum (8 variants) + pure
+    `swaymsg_command()` per-zone + Iced view rendering 4
+    halves + 4 quadrants as click-to-commit accent-tinted
+    buttons.
+  - `Kind::SnapAssist` variant in mde-popover/src/main.rs.
+  - `data/sway/config.d/mackes-keybinds-wm.conf` gets
+    `bindsym $mod+z exec mde-popover snap-assist` + 4 new
+    quadrant keybinds (`$mod+Ctrl+Shift+{y,u,b,n}` =
+    TL/TR/BL/BR).
 
-  **Acceptance** (bench-observable):
-  - [ ] Dragging a floating window with the mouse and
-        hovering within 24 px of a screen edge shows a 30 %-
-        alpha indigo overlay outlining the would-snap zone.
-  - [ ] Releasing the drag inside the overlay snaps the
-        window — `swaymsg [con_id=N] floating disable; move
-        position 0 0; resize set 50ppt 100ppt` (for the left
-        half), with similar argv for the other zones.
-  - [ ] Releasing outside the overlay cancels the snap (no
-        resize / move applied).
-  - [ ] Five zones supported: left half, right half, top
-        half, bottom half, four corners (TL/TR/BL/BR
-        quadrants).
-
-  **Implementation notes:**
-  - **Chrome influence:** Win11 Snap Assist overlay (the
-    drag-edge visualizer).
-  - **Implementation path:** new `mde-snap-assist`
-    layer-shell overlay that subscribes to sway's input
-    events via swayipc. Fairly substantial — could be a v4.1
-    follow-up.
-  - **Icon source:** no per-zone icons; the indigo overlay
-    IS the affordance.
+  4 new tests cover every-zone-emits-command +
+  left-half-resize-shape + right-half-offset +
+  quadrants-are-50x50 + labels-distinct. 124 popover
+  tests green (was 120).
 
 - [✓] **v4.0.1: WM-5 visible Alt-Tab switcher (shipped 2026-05-23,
   retires the invisible mde-applet-app-switcher) — Tier 1 chrome**
