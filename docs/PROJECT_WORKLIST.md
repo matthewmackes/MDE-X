@@ -916,6 +916,61 @@ no new RPM cut.
   Acceptance: panel title area shows the focused window's title
   string (e.g. "Firefox — Wikipedia") with sway-cluster chips
   in their own zone.
+- [ ] **v4.0.1: BUG-9 Network applet shows "Disconnected" while
+  the network is online; no icon either (Tier 1
+  operator-visible)** — `mde-applet-network` reports
+  "Disconnected" though `nmcli` / `ping` confirm connectivity,
+  and the network icon glyph is absent from the chip. Two
+  failure modes likely: (a) the applet polls a state source
+  that doesn't reflect actual NM connectivity (e.g., reading
+  `nmcli -t -f NAME c show --active` but matching the wrong
+  field, or polling a deprecated DBus path); (b) the icon SVG
+  is missing from the applet's font/svg map so the chip falls
+  back to text-only with a stale "Disconnected" string. Read
+  `crates/mde-applets/network/src/main.rs` + lib.rs, verify the
+  NM connectivity probe, and fix the icon lookup. Acceptance:
+  with NM connected to Wi-Fi, the chip shows the SSID + an
+  appropriate signal-strength glyph; toggling NM offline
+  flips to "Offline" with the offline glyph within one poll.
+- [ ] **v4.0.1: BUG-6 Panel is missing the window-management
+  controls (Tier 1 operator-visible)** — `crates/mde-panel/src/
+  top_bar.rs` is supposed to render i3-mode min/max/close
+  glyph-buttons per the v8.7 lock
+  (`project_v8_7_window_buttons` memory: "i3-only min/max/close
+  buttons at far-right corner, Carbon glyphs"). The operator
+  reports they're entirely absent + asks for them in a
+  centered position rather than far-right. Investigate (a)
+  whether the buttons render at all today (the v3.0.3
+  integration audit may have shipped them in source but never
+  wired into `view_top_bar`'s layout), then (b) decide between
+  honoring the v8.7 far-right lock vs. the 2026-05-23 operator
+  ask for centered placement (newer-wins-silently → centered
+  is the live policy). Acceptance: panel renders Min / Max
+  (= floating-fill, not fullscreen) / Close buttons centered
+  in the top-bar's window-controls zone; greyed-out when no
+  focused window exists; sway-IPC `kill` / `fullscreen` /
+  `move scratchpad` (or equivalent for min) fire on press.
+- [ ] **v4.0.1: BUG-7 Clipboard surface missing from the panel
+  (Tier 1 operator-visible)** — `crates/mde-popover/src/
+  clipboard.rs` ships a popover but the panel never exposes
+  an entry point to it. Either (a) add a clipboard tray-zone
+  applet (mirror of the audio/network/clock pattern) that
+  invokes `mde-popover clipboard` on click, or (b) bind a
+  global keyboard shortcut (Super+V is the common idiom) in
+  the sway config that spawns the same popover. Acceptance:
+  the operator can reach clipboard history without typing a
+  command — either by clicking a panel surface or by Super+V.
+- [ ] **v4.0.1: BUG-8 Notifications panel seems incomplete
+  (Tier 1 operator-visible)** — `crates/mde-popover/src/
+  notifications.rs` opens via the bell tray icon but the
+  operator reports the resulting panel is "incomplete". Need
+  clarification: missing toast history? missing per-app
+  filtering? missing dismiss-all button? bell-count not
+  decrementing? Capture screenshot or specific gap from the
+  operator and scope accordingly. Acceptance: TBD pending
+  clarification — initial guess: parity with macOS Notification
+  Center (grouped by app, dismiss-all, clear-on-click, per-app
+  mute toggles).
 - [ ] **v4.0.1: BUG-5 Window Selector applet on the panel is
   non-interactive (Tier 1 operator-visible)** — the app-
   switcher applet (`mde-applet-app-switcher`, E1.2.11) renders
@@ -997,6 +1052,24 @@ no new RPM cut.
   fact that origin/main is protected (bypass message during
   push is expected). Acceptance: §0.2 text matches
   `git remote -v` output.
+- [ ] **v4.0.1: TEST-1 fix 3 dbus-service-files tests (legacy
+  alias gone but the test expects it shipping)** — `tests/
+  test_dbus_service_files.py` expects `data/dbus-1/services/
+  org.mackes.Shell.service` to exist (Phase 0.4 lock "v1.x
+  service name resolvable for one release"). The file isn't
+  in the tree; either the lock expired and the test should be
+  retired, or the alias was deleted prematurely and should be
+  re-added. Decide based on whether v1.x service name
+  resolution is still needed for any installed user. Acceptance:
+  3 dbus_service_files tests pass.
+- [ ] **v4.0.1: TEST-2 fix 3 drawer_phone_notifications tests
+  (empty failure messages → likely assertion mismatch)** —
+  `tests/test_drawer_phone_notifications.py` fails 3 tests with
+  empty messages: `test_drawer_load_notifications_concatenates_
+  when_both_exist`, `..._merges_phone_origin`,
+  `..._skips_non_dict_phone_entries`. Likely a schema drift
+  between the test fixture and the drawer's actual notification
+  format. Acceptance: 3 drawer_phone_notifications tests pass.
 - [ ] **v4.0.1: CLEAN-1 delete dead `crates/mackes-panel/src/
   mesh_sync.rs`** — declared at `crates/mackes-panel/src/
   main.rs:35` (`mod mesh_sync;`) but referenced nowhere in
