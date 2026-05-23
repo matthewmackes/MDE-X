@@ -64,12 +64,18 @@ phase_build() {
     }
     cd "$REPO"
     log "phase=build cargo build --release --workspace"
-    # cargo may produce noisy output; tee to the log AND to caller stdout
-    # so a manual invocation from the operator's shell shows progress.
-    cargo build --release --workspace 2>&1 | tee -a "$LOG" || {
-        log "phase=build FAILED"
+    # cargo output goes to the operator's stdout/stderr only. The log
+    # file is root-owned and writable only by the install phase; if we
+    # tried to tee here from the unprivileged build phase, the failed
+    # tee would mask cargo's actual exit status and the install phase
+    # would never fire. So: rely on cargo's own progress output, and
+    # gate FAILED on cargo's real exit status via PIPESTATUS.
+    cargo build --release --workspace
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        log "phase=build FAILED (cargo exit=$rc)"
         return 1
-    }
+    fi
     log "phase=build done"
 }
 
