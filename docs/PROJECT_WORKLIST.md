@@ -1872,10 +1872,30 @@ integration needed.
   `tailscaled`; the curated set is locked at 4 entries with
   any extension going through worklist (not code-only).
 
-- [ ] **v4.0.1: WB-2.k Network Mesh Topology (Tier 2)**
-  Iced canvas widget rendering the mesh as a graph (peers
-  = nodes, latencies = edge weights). Substantial; chains
-  on a `cairo`/`iced::canvas` decision.
+- [✓] **v4.0.1: WB-2.k Network Mesh Topology — tabular fallback
+  (shipped 2026-05-23)**
+  Built `crates/mde-workbench/src/panels/mesh_topology.rs` —
+  shells out to `mackesd nodes list --json`, parses the
+  `NodeRow` shape (`node_id / name / public_key / role /
+  health / region`), surfaces each as a table row with
+  status-pill (ONLINE / IDLE / OFFLINE / UNKNOWN tinted by
+  semantic colour) + name + addr (= region) + kind (= role).
+  Empty-state distinguishes "no peers enrolled" (info, with
+  birthright-enrollment hint) from "mackesd not reachable"
+  (error, with spawn-error embedded). Footer points at the
+  canvas-graph follow-up below. Auto-loads on nav.
+  7 unit tests on the parser shape lock + status round-trip
+  + view-render smokes.
+
+- [ ] **WB-2.k.a: Mesh Topology canvas-graph (v4.1 polish)** —
+  the v4.0.1 ship above is a tabular peer roster. The original
+  spec asked for iced::canvas with peers-as-nodes + latency-as-
+  edge-weights. Inter-peer latency isn't collected yet
+  (mackesd needs a peer-mesh sniffer — chains on the
+  TransportRegistry concrete-impls work in the KDC2 epic);
+  once it is, the canvas variant can be either a sibling
+  panel or a layout-toggle on this one. Closed when both
+  the data + the canvas widget ship.
 
 - [✓] **v4.0.1: WB-2.l Network Remote Desktop (shipped 2026-05-23)**
   Built `crates/mde-workbench/src/panels/remote_desktop.rs` —
