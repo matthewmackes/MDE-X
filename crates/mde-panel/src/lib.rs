@@ -178,6 +178,10 @@ pub enum Message {
     /// `mde-applet-clipboard` subprocess — the panel just spawns
     /// `mde-popover clipboard` on press.
     ClipboardClicked,
+    /// v4.0.1 WM-2.a — operator clicked the minimized-windows
+    /// tray button. Spawns `mde-popover minimized` so the
+    /// operator can pick which scratchpad window to restore.
+    MinimizedClicked,
     /// v3.0.3 Phase E.3 wiring — one event from the sway-IPC
     /// toplevels subscription. Drives the panel's hero widget,
     /// window-management buttons, and any future tasklist render.
@@ -411,6 +415,24 @@ impl iced_layershell::Application for App {
                         .unwrap_or_default();
                     let parsed = workspaces::parse_workspaces(&raw);
                     self.workspaces = workspaces::fixed_four_slots(&parsed);
+                    // v4.0.1 WM-2.a — refresh scratchpad count on
+                    // the same 2s cadence. Used by the panel's
+                    // minimized-windows tray button to render its
+                    // badge.
+                    let tree_raw = std::process::Command::new("swaymsg")
+                        .args(["-t", "get_tree"])
+                        .output()
+                        .ok()
+                        .and_then(|o| {
+                            if o.status.success() {
+                                String::from_utf8(o.stdout).ok()
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_default();
+                    self.top_bar.scratchpad_count =
+                        crate::top_bar::count_scratchpad(&tree_raw);
                 }
             }
             Message::AppletText(kind, text) => {
@@ -420,6 +442,19 @@ impl iced_layershell::Application for App {
                     "applet text received"
                 );
                 self.top_bar.set_applet_text(kind, text);
+            }
+            Message::MinimizedClicked => {
+                // v4.0.1 WM-2.a — open the minimized-windows
+                // popover. Spawns `mde-popover minimized`
+                // (added in the 3fdf9d2 commit). Detached so
+                // the panel stays responsive while the popover
+                // owns its own surface.
+                let _ = std::process::Command::new("mde-popover")
+                    .arg("minimized")
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
             }
             Message::ClipboardClicked => {
                 // v4.0.1 BUG-7 — operator reported no clipboard

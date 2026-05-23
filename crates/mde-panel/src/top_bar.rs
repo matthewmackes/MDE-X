@@ -67,6 +67,34 @@ pub fn applet_visible(visible: &[String], id: &str) -> bool {
     visible.iter().any(|s| s == id)
 }
 
+/// v4.0.1 WM-2.a — count windows in sway's `__i3_scratch`
+/// workspace. Pure parser over `swaymsg -t get_tree` JSON.
+/// Returns 0 on parse failure (= empty Vec = badge hidden).
+#[must_use]
+pub fn count_scratchpad(raw: &str) -> u32 {
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return 0;
+    };
+    let mut n: u32 = 0;
+    fn walk(node: &serde_json::Value, in_scratch: bool, n: &mut u32) {
+        let name = node.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let entering = in_scratch || name == "__i3_scratch";
+        if entering && node.get("pid").is_some_and(|v| !v.is_null()) {
+            *n = n.saturating_add(1);
+            return;
+        }
+        for key in ["nodes", "floating_nodes"] {
+            if let Some(arr) = node.get(key).and_then(|v| v.as_array()) {
+                for child in arr {
+                    walk(child, entering, n);
+                }
+            }
+        }
+    }
+    walk(&root, false, &mut n);
+    n
+}
+
 /// Per-zone padding (horizontal) — keeps icons + text from
 /// touching the bar's edges.
 pub const ZONE_PADDING_X: u16 = 12;
@@ -123,6 +151,11 @@ pub struct TopBarState {
     /// render (back-compat default). When populated, only
     /// listed applets render in the tray row.
     pub visible_applets: Vec<String>,
+    /// v4.0.1 WM-2.a — current count of windows in sway's
+    /// `__i3_scratch` workspace. Drives the minimized-tray
+    /// badge. Refreshed every ~2s by `lib.rs::Message::Tick`'s
+    /// 60-tick boundary handler.
+    pub scratchpad_count: u32,
 }
 
 impl TopBarState {
@@ -141,6 +174,7 @@ impl TopBarState {
             status_text: "—".to_string(),
             bell_text: String::new(),
             visible_applets: load_visible_applets_from_config(),
+            scratchpad_count: 0,
         }
     }
 
@@ -160,6 +194,7 @@ impl TopBarState {
             status_text: "⚡ 88%".to_string(),
             bell_text: "0".to_string(),
             visible_applets: Vec::new(),
+            scratchpad_count: 0,
         }
     }
 
@@ -323,6 +358,17 @@ pub fn view<'a>(
             },
             AppletKind::NotificationBell,
         ));
+    }
+    // v4.0.1 WM-2.a (2026-05-23) — minimized-windows tray
+    // button + badge. Renders only when ≥1 window is parked in
+    // the scratchpad; click spawns `mde-popover minimized`.
+    if state.scratchpad_count > 0
+        && applet_visible(&state.visible_applets, "minimized")
+    {
+        if !tray_items.is_empty() {
+            tray_items.push(Space::with_width(Length::Fixed(8.0)).into());
+        }
+        tray_items.push(minimized_tray_button(state.scratchpad_count));
     }
     let tray = iced::widget::Row::with_children(tray_items)
         .align_y(iced::Alignment::Center);
@@ -682,6 +728,36 @@ fn clipboard_button<'a>() -> Element<'a, Message> {
         .into()
 }
 
+/// v4.0.1 WM-2.a — minimized-windows tray button + badge.
+/// Renders the Carbon `view--off` glyph + the scratchpad count
+/// as a small chip; click fires `Message::MinimizedClicked`
+/// which spawns `mde-popover minimized`. Only inserted into the
+/// tray when `scratchpad_count > 0` so the surface stays clean
+/// when nothing is hidden.
+fn minimized_tray_button<'a>(count: u32) -> Element<'a, Message> {
+    let icon_widget = svg(PanelIcon::WindowMinimize.handle())
+        .width(Length::Fixed(16.0))
+        .height(Length::Fixed(16.0))
+        .style(|_theme: &Theme, _status: svg::Status| svg::Style {
+            color: Some(FG_TEXT),
+        });
+    let label = text(count.to_string())
+        .size(11)
+        .color(FG_TEXT);
+    let body = iced::widget::row![icon_widget, Space::with_width(Length::Fixed(4.0)), label]
+        .align_y(iced::Alignment::Center);
+    button(body)
+        .padding(Padding {
+            top: 6.0,
+            right: 8.0,
+            bottom: 6.0,
+            left: 8.0,
+        })
+        .style(zone_button_style)
+        .on_press(Message::MinimizedClicked)
+        .into()
+}
+
 fn panel_surface(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(SURFACE_BG)),
@@ -751,6 +827,55 @@ mod tests {
     #[test]
     fn top_bar_height_is_40px_per_1_1_0_lock() {
         assert_eq!(TOP_BAR_HEIGHT_PX, 40);
+    }
+
+    #[test]
+    fn count_scratchpad_returns_zero_for_garbage() {
+        assert_eq!(count_scratchpad(""), 0);
+        assert_eq!(count_scratchpad("not json"), 0);
+    }
+
+    #[test]
+    fn count_scratchpad_counts_floating_nodes() {
+        let raw = r#"{
+            "nodes": [{
+                "name": "__i3_scratch",
+                "nodes": [],
+                "floating_nodes": [
+                    {"pid": 1, "id": 10, "nodes": [], "floating_nodes": []},
+                    {"pid": 2, "id": 11, "nodes": [], "floating_nodes": []}
+                ]
+            }]
+        }"#;
+        assert_eq!(count_scratchpad(raw), 2);
+    }
+
+    #[test]
+    fn count_scratchpad_ignores_other_workspaces() {
+        let raw = r#"{
+            "nodes": [{
+                "name": "workspace 1",
+                "nodes": [
+                    {"pid": 99, "id": 5, "nodes": [], "floating_nodes": []}
+                ],
+                "floating_nodes": []
+            }]
+        }"#;
+        assert_eq!(count_scratchpad(raw), 0);
+    }
+
+    #[test]
+    fn applet_visible_empty_list_renders_all() {
+        assert!(applet_visible(&[], "audio"));
+        assert!(applet_visible(&[], "anything"));
+    }
+
+    #[test]
+    fn applet_visible_populated_list_filters() {
+        let v = vec!["audio".to_string(), "mesh".to_string()];
+        assert!(applet_visible(&v, "audio"));
+        assert!(applet_visible(&v, "mesh"));
+        assert!(!applet_visible(&v, "network"));
     }
 
     #[test]

@@ -2064,13 +2064,20 @@ integration needed.
   scratchpad walk + XWayland class fallback + nested-
   container descent + non-scratch-workspace filtering.
 
-- [ ] **v4.0.1: WM-2.a minimized-windows panel tray button + badge
-  count** — the popover ships; the panel-side tray icon
-  with the count badge (Carbon `view--off` glyph) is a
-  separate piece. Touches `crates/mde-panel/src/top_bar.rs`
-  to add the tray button + the 2s-poll subscription that
-  watches scratchpad count. Closes when the visible badge
-  reflects live scratchpad cardinality.
+- [✓] **v4.0.1: WM-2.a minimized-windows panel tray button + badge
+  (shipped 2026-05-23)** — `crates/mde-panel/src/top_bar.rs`
+  gained `count_scratchpad(raw)` (pure parser over `swaymsg
+  -t get_tree` JSON) + a new tray button rendered when
+  `scratchpad_count > 0`. Button shows the Carbon
+  `WindowMinimize` glyph + the count as a chip; click fires
+  `Message::MinimizedClicked` which spawns `mde-popover
+  minimized` (the WM-2 popover from commit 3fdf9d2). State
+  refreshes every ~2s on the same 60-tick boundary as the
+  workspace switcher. Tray button hides when count = 0 so the
+  surface stays clean when nothing is hidden. Respects the
+  WB-2.d visibility config (operator can disable via Panel
+  Apps with id `minimized`). 123 mde-panel tests pass (+5
+  for count_scratchpad + applet_visible helpers).
 
   **Original WM-2 umbrella spec retained below for context**
   — the split-out 2026-05-23 ships the popover today + tracks
