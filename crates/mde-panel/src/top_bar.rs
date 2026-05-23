@@ -207,19 +207,20 @@ pub fn view<'a>(
     // Unicode clipboard codepoint U+1F4CB until the BUG-13 Carbon
     // SVG wiring lands.
     let tray = row![
-        tray_button(&state.audio_text, AppletKind::Audio),
+        tray_button_with_icon(PanelIcon::Audio, &state.audio_text, AppletKind::Audio),
         Space::with_width(Length::Fixed(8.0)),
-        tray_button(&state.network_text, AppletKind::Network),
+        tray_button_with_icon(PanelIcon::Network, &state.network_text, AppletKind::Network),
         Space::with_width(Length::Fixed(8.0)),
-        tray_button(&state.mesh_text, AppletKind::MeshStatus),
+        tray_button_with_icon(PanelIcon::Mesh, &state.mesh_text, AppletKind::MeshStatus),
         Space::with_width(Length::Fixed(8.0)),
-        tray_button(&state.status_text, AppletKind::StatusCluster),
+        tray_button_with_icon(PanelIcon::Status, &state.status_text, AppletKind::StatusCluster),
         Space::with_width(Length::Fixed(8.0)),
         clipboard_button(),
         Space::with_width(Length::Fixed(8.0)),
-        tray_button(
+        tray_button_with_icon(
+            PanelIcon::Bell,
             if state.bell_text.is_empty() {
-                "○"
+                "0"
             } else {
                 state.bell_text.as_str()
             },
@@ -418,6 +419,44 @@ fn tray_button(label: &str, kind: AppletKind) -> Element<'_, Message> {
         .style(zone_button_style)
         .on_press(Message::TrayClicked(kind))
         .into()
+}
+
+/// v4.0.1 BUG-13.a — tray button that renders a Carbon SVG icon
+/// before the live text payload from the applet. Replaces the
+/// plain text rendering of `tray_button` for the chips whose
+/// applet binaries dropped their leading Unicode glyph (audio /
+/// network / mesh-status / status-cluster). The
+/// `notification-bell` chip stays on the icon-less path because
+/// the bell's payload is already a number-or-"○" placeholder
+/// the panel can render as-is.
+fn tray_button_with_icon<'a>(
+    icon: PanelIcon,
+    label: &str,
+    kind: AppletKind,
+) -> Element<'a, Message> {
+    let icon_widget = svg(icon.handle())
+        .width(Length::Fixed(14.0))
+        .height(Length::Fixed(14.0))
+        .style(|_theme: &Theme, _status: svg::Status| svg::Style {
+            color: Some(FG_TEXT),
+        });
+    button(
+        row![
+            icon_widget,
+            Space::with_width(Length::Fixed(6.0)),
+            text(label.to_string()).size(13).color(FG_TEXT),
+        ]
+        .align_y(iced::Alignment::Center),
+    )
+    .padding(Padding {
+        top: 6.0,
+        right: 8.0,
+        bottom: 6.0,
+        left: 8.0,
+    })
+    .style(zone_button_style)
+    .on_press(Message::TrayClicked(kind))
+    .into()
 }
 
 /// v4.0.1 BUG-7 — static clipboard-history tray icon. Spawns

@@ -70,13 +70,17 @@ pub const fn health_glyph(state: &str) -> &'static str {
     }
 }
 
-/// Format the chip text — `<glyph> <peer_count>`. The
-/// rendered widget paints the glyph in a colour that
-/// matches the state but the text content itself stays
-/// state-agnostic so the chip works with screen-readers.
+/// Format the chip text — `<peer_count>`.
+///
+/// v4.0.1 BUG-13.a: leading Unicode glyph (`health_glyph(state)`,
+/// e.g. `●` / `◐` / `○` / `?`) dropped from the chip text — the
+/// panel composes a Carbon SVG icon (`PanelIcon::Mesh`) before this
+/// text instead. `health_glyph` is kept exported for tooltip /
+/// accessibility-text consumers. State-based color tinting at the
+/// render side now lives on the SVG, not the unicode glyph.
 #[must_use]
 pub fn format_chip(report: &HealthReport) -> String {
-    format!("{} {}", health_glyph(&report.state), report.peer_count)
+    report.peer_count.to_string()
 }
 
 #[must_use]
@@ -127,14 +131,15 @@ mod tests {
     }
 
     #[test]
-    fn format_chip_combines_glyph_and_count() {
+    fn format_chip_renders_count_only() {
+        // v4.0.1 BUG-13.a — leading Unicode glyph dropped.
         let r = HealthReport {
             state: "healthy".into(),
             peer_count: 7,
         };
         let chip = format_chip(&r);
-        assert!(chip.contains("\u{25CF}"));
-        assert!(chip.ends_with(" 7"));
+        assert_eq!(chip, "7");
+        assert!(!chip.contains("\u{25CF}"));
     }
 
     #[test]

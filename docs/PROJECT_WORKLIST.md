@@ -948,14 +948,17 @@ no new RPM cut.
   composes glyph + text; (b) `mde-workbench` and `mde-files`
   still hit `Icon::fallback_glyph` for their semantic icons
   (UX-8.a). Both captured as v4.0.2 follow-ups.
-- [ ] **v4.0.2: BUG-13.a swap remaining tray-chip Unicode
-  glyphs (audio/network/mesh/status/bell) for Carbon SVGs
-  (composed alongside the live text)** — applet binaries
-  drop the leading glyph from their stdout (just emit the
-  numeric / SSID / count payload); the panel renders an SVG
-  icon prefix + the text via a row layout in
-  `tray_button(icon, text, kind)`. Acceptance: every tray
-  chip is `[SVG] <live text>`.
+- [✓] **v4.0.1: BUG-13.a tray-chip glyphs → Carbon SVGs
+  (shipped 2026-05-23)** — every audio/network/mesh-status/
+  status-cluster applet dropped its leading Unicode glyph
+  from `format_chip()` / `format_cluster()`. The panel's new
+  `tray_button_with_icon(icon, text, kind)` helper renders a
+  14 px Carbon SVG + the live payload in a row. Tests updated
+  for each applet (no more `\u{25EF}` / `\u{25CF}` assertions;
+  new `_renders_<x>_only` regressions guard the drop). The
+  notification-bell chip also gets a Bell SVG; "0" replaces
+  the empty-string placeholder so the bell always shows a
+  number badge.
 - [ ] **v4.0.2: BUG-13.b wire Carbon SVG bytes into
   `mde_theme::Icon` (closes UX-8.a)** — `mde_theme`'s
   semantic Icon enum returns the carbon name + a Unicode

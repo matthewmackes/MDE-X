@@ -90,15 +90,17 @@ pub fn battery_glyph(state: &BatteryState) -> &'static str {
 }
 
 /// Render the cluster's display string.
-/// Format: `<battery-glyph> <capacity>% · <profile>`.
+/// Format: `<capacity>% · <profile>`.
 /// Empty profile section if not on a laptop.
+///
+/// v4.0.1 BUG-13.a: leading Unicode battery glyph (`battery_glyph`,
+/// e.g. `◉` / `▢` / `◻` / `◼`) dropped — the panel composes a Carbon
+/// SVG icon (`PanelIcon::Status`) before this text. `battery_glyph`
+/// stays exported for any tooltip / a11y-text consumer.
 #[must_use]
 pub fn format_cluster(battery: Option<&BatteryState>, profile: &str) -> String {
     let mut s = String::new();
     if let Some(b) = battery {
-        let glyph = battery_glyph(b);
-        s.push_str(glyph);
-        s.push(' ');
         s.push_str(&b.capacity.to_string());
         s.push('%');
     }

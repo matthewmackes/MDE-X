@@ -97,13 +97,21 @@ pub fn audio_glyph(state: AudioState) -> &'static str {
 }
 
 /// Compact pill rendering for the top-bar chip.
+///
+/// v4.0.1 BUG-13.a: the leading Unicode glyph (`audio_glyph(state)`,
+/// e.g. `🔈` / `🔉` / `🔊`) is no longer prepended. The panel composes
+/// its own Carbon SVG icon (via `PanelIcon::Audio`) before this text,
+/// so the chip used to render `[SVG] 🔈 50%` (icon + redundant
+/// glyph + percent). Now the chip is just `50%` / `muted` and the
+/// panel slot renders `[SVG] 50%`. `audio_glyph` is kept exported
+/// for any non-panel consumer (test surfaces, future tooltip
+/// text) that still wants the Unicode fallback.
 #[must_use]
 pub fn format_chip(state: AudioState) -> String {
-    let glyph = audio_glyph(state);
     if state.muted {
-        format!("{glyph} muted")
+        "muted".into()
     } else {
-        format!("{glyph} {}%", state.volume_pct)
+        format!("{}%", state.volume_pct)
     }
 }
 

@@ -91,10 +91,15 @@ pub const fn type_glyph(kind: &str) -> &'static str {
 
 /// Render the chip's display string. Disconnected →
 /// "Disconnected".
+///
+/// v4.0.1 BUG-13.a: leading Unicode glyph (`type_glyph(...)`,
+/// e.g. `◯` for Wi-Fi or `≡` for Ethernet) dropped — the panel
+/// now composes a Carbon SVG icon (`PanelIcon::Network`) before
+/// this text. Was `◯ home-wifi`; now `home-wifi`.
 #[must_use]
 pub fn format_chip(conn: Option<&ActiveConnection>) -> String {
     match conn {
-        Some(c) => format!("{} {}", type_glyph(&c.kind), c.name),
+        Some(c) => c.name.clone(),
         None => "Disconnected".to_string(),
     }
 }
@@ -171,14 +176,18 @@ mod tests {
     }
 
     #[test]
-    fn format_chip_combines_glyph_and_name() {
+    fn format_chip_renders_name_only() {
+        // v4.0.1 BUG-13.a — leading Unicode glyph dropped; the
+        // panel composes the Carbon SVG before this text.
         let c = ActiveConnection {
             name: "home-wifi".into(),
             kind: "wifi".into(),
         };
         let chip = format_chip(Some(&c));
-        assert!(chip.contains("home-wifi"));
-        assert!(chip.contains("\u{25EF}"));
+        assert_eq!(chip, "home-wifi");
+        // Unicode wifi glyph U+25EF must NOT appear in the chip
+        // anymore — the panel renders its own SVG icon.
+        assert!(!chip.contains("\u{25EF}"));
     }
 
     #[test]
