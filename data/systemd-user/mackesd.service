@@ -1,0 +1,42 @@
+[Unit]
+Description=Mackes control plane (per-user)
+Documentation=https://github.com/matthewmackes/MAP2-RELEASES
+# Per-user variant of the v2.0.0 system mackesd.service. The
+# AF-* mega (2026-05-23) registers org.mackes.mackesd on the
+# *session* bus to expose Fleet.Files to mde-files's DBusBackend;
+# session-bus claims require the daemon to run as the operator
+# user, which the system unit (User=mackesd) can't do. The two
+# units coexist: the system unit handles host-wide mesh fabric
+# state, the user unit owns the per-user DBus surface.
+
+[Service]
+Type=simple
+# Force the DB + QNM-Shared roots into XDG-user paths so the
+# per-user daemon never touches the system unit's /var/lib state.
+Environment=MDE_HOME=%h/.local/share/mde
+Environment=QNM_SHARED_ROOT=%h/QNM-Shared
+# Migration is idempotent — running it on every start keeps the
+# user-scope DB schema current after upgrades land via parity-
+# overlay reinstalls.
+ExecStartPre=/usr/bin/install -d -m 0750 %h/.local/share/mde
+ExecStartPre=/usr/bin/mackesd migrate
+ExecStart=/usr/bin/mackesd serve
+Restart=on-failure
+RestartSec=5
+# Hardening: the per-user daemon has no privileged operations
+# (no host-wide system writes), so the strict ProtectSystem
+# applied to the system unit doesn't apply — the user daemon
+# WRITES to its own $HOME/.local/share/mde via MDE_HOME. The
+# remaining hardening is the subset that doesn't break that.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=default.target

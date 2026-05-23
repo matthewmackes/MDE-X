@@ -43,6 +43,14 @@ install -D -m 0644 "$REPO/data/systemd-user/mde-parity.path" \
     "$SYSTEMD_USER_DIR/mde-parity.path"
 install -D -m 0644 "$REPO/data/systemd-user/mde-parity.service" \
     "$SYSTEMD_USER_DIR/mde-parity.service"
+# v4.0.1 AF-6 (2026-05-23) — per-user mackesd unit. Owns the
+# session-bus side of the AF-* mega (Fleet.Files DBus surface
+# that mde-files's DBusBackend talks to). The system mackesd
+# unit (data/systemd/mackesd.service, User=mackesd) can't claim
+# session-bus names; this one runs as $DEVUSER + uses an
+# XDG-scoped DB at ~/.local/share/mde/mded.db.
+install -D -m 0644 "$REPO/data/systemd-user/mackesd.service" \
+    "$SYSTEMD_USER_DIR/mackesd.service"
 chown -R "$DEVUSER:$DEVUSER" "$SYSTEMD_USER_DIR"
 
 echo "==> enabling + starting the path watch"
@@ -50,6 +58,21 @@ sudo -u "$DEVUSER" XDG_RUNTIME_DIR="/run/user/$(id -u "$DEVUSER")" \
     systemctl --user daemon-reload
 sudo -u "$DEVUSER" XDG_RUNTIME_DIR="/run/user/$(id -u "$DEVUSER")" \
     systemctl --user enable --now mde-parity.path
+
+echo "==> enabling + starting mackesd (per-user)"
+# Best-effort — if the mackesd binary isn't installed yet
+# (parity overlay hasn't run), enable but don't start. The
+# next overlay tick will install the binary; operator can
+# `systemctl --user start mackesd` then.
+if [ -x /usr/bin/mackesd ]; then
+    sudo -u "$DEVUSER" XDG_RUNTIME_DIR="/run/user/$(id -u "$DEVUSER")" \
+        systemctl --user enable --now mackesd
+else
+    sudo -u "$DEVUSER" XDG_RUNTIME_DIR="/run/user/$(id -u "$DEVUSER")" \
+        systemctl --user enable mackesd
+    echo "    NOTE: /usr/bin/mackesd not installed yet; enabled but not started."
+    echo "    Run 'systemctl --user start mackesd' after the next parity tick."
+fi
 
 echo
 echo "==> parity infra installed. running initial overlay now..."

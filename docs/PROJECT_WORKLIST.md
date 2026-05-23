@@ -936,6 +936,22 @@ above; integration tasks below in dependency order.
   layer) that doesn't exist yet — when it lands,
   FileOperations.send_to dispatches to it.
 
+- [✓] **AF-6: per-user mackesd systemd unit (shipped 2026-05-23)**
+  The AF-* mega registered `org.mackes.mackesd` on the *session*
+  bus to expose Fleet.Files to mde-files's DBusBackend, but
+  session-bus claims require the daemon to run as the operator
+  user — which the system mackesd.service (User=mackesd)
+  can't do. Built `data/systemd-user/mackesd.service` (the
+  per-user variant) + extended `install-helpers/install-parity-
+  infra.sh` to install + enable it alongside the parity overlay.
+  The unit forces `MDE_HOME=%h/.local/share/mde` so the per-user
+  store never touches the system unit's `/var/lib` state, and
+  runs `mackesd migrate` before `mackesd serve` so schema
+  upgrades land idempotently on each start. Coexists with the
+  host-wide system unit (different DB, different responsibilities).
+  Operator re-runs `sudo install-helpers/install-parity-infra.sh`
+  to pick this up; future fresh installs get it automatically.
+
 - [✓] **v3.0.3: 5.3 route every icon-only mde-files button
   through a11y_labels (Tier 2 mde-files::a11y_labels) — shipped
   2026-05-22 (toolbar layout toggles wired; rest pending v4.0.1)** —
