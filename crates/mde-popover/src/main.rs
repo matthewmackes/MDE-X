@@ -29,6 +29,7 @@ mod clock;
 mod dismiss;
 mod expose;
 mod fonts;
+mod network;
 mod notifications;
 mod start_menu;
 mod toasts;
@@ -101,14 +102,6 @@ fn main() -> iced_layershell::Result {
         Kind::Expose => expose::run(),
         Kind::Clipboard => clipboard::run(),
         Kind::Toast => toasts::run(),
-        Kind::Network => {
-            // Network popover is grandfathered v3.1 follow-up
-            // (needs NM D-Bus surface bindings + a connection-list
-            // widget set); stub branch keeps the panel click from
-            // erroring. Tracked as a v3.0.3 worklist task; closes
-            // by replacing this arm with `network::run()`.
-            tracing::info!("network popover not yet implemented; exit 0");
-            Ok(())
-        }
+        Kind::Network => network::run(),
     }
 }

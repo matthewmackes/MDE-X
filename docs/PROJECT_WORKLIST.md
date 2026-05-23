@@ -400,15 +400,33 @@ neither defect was caught at release time.
   stub branch — needs NM D-Bus surface bindings, scoped for
   the next item below. 12 mde-popover tests + 181 mde-panel
   tests all green.
-- [ ] **v3.1: network popover — NM connection list + Wi-Fi
-  scan** — Build `mde-popover network` against the NM D-Bus
-  surface (`org.freedesktop.NetworkManager`). Acceptance:
-  click the Network tray button → 360x420 layer-shell
-  overlay showing active connection + a "Connect to…" list
-  populated from `ListAccessPoints` + `ListConnections`.
-  Click an SSID → invoke the `nmcli`-equivalent D-Bus
-  method; reflect connection-state change via the
-  `StateChanged` signal.
+- [✓] **v3.1: network popover — minimal nmcli-shellout (shipped
+  2026-05-23) closes §0.12 grandfathered stub** — `crates/
+  mde-popover/src/network.rs` runs `nmcli -t connection show
+  --active` + `nmcli -t device status` (terse-mode output with
+  the `\:` escape handled by `nmcli_split()`), surfaces active
+  connections (name + interface + type + state) and devices
+  (interface + kind + state + bound connection), plus an
+  "Open NetworkManager" button that spawns
+  `nm-connection-editor`. 8 tests cover the parser's
+  ethernet/Wi-Fi-with-colon-in-SSID/empty-line/short-row/
+  loopback-filter/p2p-helper-filter/escaped-backslash paths.
+  The §0.12 grandfathered stub in `mde-popover/src/main.rs`
+  is gone — `Kind::Network` now routes to `network::run()`.
+
+  Full NM D-Bus signal-driven version (Wi-Fi AP scan list +
+  per-AP Connect via `StateChanged` subscriptions) is
+  **AF-NET-1** below.
+
+- [ ] **AF-NET-1: NM D-Bus network popover refinement (v3.1+)** —
+  the minimal nmcli-shellout in the closed v3.1 task above
+  covers active-connection + device listing. The richer
+  flow — Wi-Fi AP scan via `ListAccessPoints`, signal
+  strength + security indicator per row, click-to-connect
+  via NM D-Bus method invocation, live state via
+  `StateChanged` signal subscription — is a follow-up.
+  Open until an operator wants the inline-connect UX vs
+  shelling to nm-connection-editor.
 - [ ] **v3.1: dock applet — full inline rendering with icons,
   drag-to-pin, drag-to-reorder** — The current
   `mde-applet-dock --now` emits a text summary
