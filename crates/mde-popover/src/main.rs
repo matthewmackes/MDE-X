@@ -22,6 +22,7 @@
 
 #![forbid(unsafe_code)]
 
+mod admin_menu;
 mod audio;
 mod clock;
 mod dismiss;
@@ -49,6 +50,9 @@ enum Kind {
     Notifications,
     Clock,
     Network,
+    /// v3.0.3 — right-click-on-Start admin menu (9 actions, 5
+    /// sections, foot --hold + pkexec).
+    AdminMenu,
 }
 
 fn main() -> iced_layershell::Result {
@@ -68,6 +72,7 @@ fn main() -> iced_layershell::Result {
         Kind::Audio => audio::run(),
         Kind::Notifications => notifications::run(),
         Kind::Clock => clock::run(),
+        Kind::AdminMenu => admin_menu::run(),
         Kind::Network => {
             // Network popover is grandfathered v3.1 follow-up
             // (needs NM D-Bus surface bindings + a connection-list

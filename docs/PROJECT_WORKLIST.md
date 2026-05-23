@@ -525,17 +525,28 @@ dependency sweep.
   selecting copy in a panel context menu surfaces a 2-second
   toast above the panel; multiple toasts stack with FIFO eviction
   at STACK_LIMIT=3.
-- [ ] **v3.0.3: admin_menu wiring on Start right-click (Tier 1D
-  + Tier 2 E.13 wiring)** — replace the plain Iced `button` in
-  `top_bar.rs::view` with a custom mouse-area widget (or use
-  `iced::mouse::Event::ButtonPressed` subscription) that
-  distinguishes left and right press. Right-press emits a new
-  `Message::StartRightClicked`; `update()` opens an admin-menu
-  popover (new entry in `crates/mde-popover/` OR an inline Iced
-  overlay) that dispatches into `admin_menu::spawn_action`.
-  Acceptance: right-click on M opens the 9-action menu; clicking
-  "Root Terminal" spawns `foot --hold sh -c 'pkexec bash -l'`
-  (per v2.0.3 pkexec lock — sudo path is forbidden).
+- [✓] **v3.0.3: admin_menu wiring on Start right-click (Tier 1D
+  + Tier 2 E.13 wiring) — shipped 2026-05-22** — closed by
+  `git mv crates/mde-panel/src/admin_menu.rs
+  crates/mde-popover/src/admin_menu.rs` (the helper was always
+  popover chrome, not panel chrome — the panel never invoked
+  the SECTIONS const). The moved file gained an Iced
+  layer-shell `App` + `run()`: 360×480 popover anchored bottom-
+  left (same anchor as the start menu since the M button opens
+  both), 5-section grid with header showing
+  "Admin · 9 actions · polkit ready/will prompt" + close button
+  + per-action row buttons that fire `Message::Run(cmd_id)` →
+  `spawn_action()` → `foot --hold pkexec sh -c '<cmd>'`. New
+  `Kind::AdminMenu` in popover dispatcher routes to it. Panel-
+  side wiring: new `Message::StartRightClicked` variant; the
+  Start button is now wrapped in
+  `mouse_area(...).on_right_press(Message::StartRightClicked)`
+  (Iced's built-in `button` is left-click only — this was the
+  exact gap the operator hit). Reducer dispatches to
+  `self.toggle_or_spawn_popover("admin-menu")` so the right-
+  click popover gets the same toggle + zombie-reap path as the
+  other popovers. 24 mde-popover tests green (was 16 + 8 admin-
+  menu tests inherited from the move).
 - [ ] **v3.0.3: icon_mapper popover on dock right-click (Tier 2
   E.19 wiring + depends on dock applet right-click support)** —
   coordinate with v3.1 dock applet work. When a dock entry is
@@ -1969,8 +1980,8 @@ src/`) and its destination.
   + waits on the applet (wired in main.rs). Super+Space sway
   bind invokes `mde-panel --apple-menu` per data/sway/config.d/
   mackes-defaults.conf.
-- [>] **v3.0.3: Phase E.13 admin_menu (helpers shipped 2026-05-21,
-  right-click wiring deferred — audit 2026-05-22)** — Iced port
+- [✓] **v3.0.3: Phase E.13 admin_menu (helpers shipped 2026-05-21,
+  moved to mde-popover + right-click wired 2026-05-22)** — Iced port
   shipped at `crates/mde-panel/src/admin_menu.rs`. Pure-data
   `SECTIONS` const preserves the Q15-locked 9 actions across 5
   sections (Shells / Packages / Services / Security / Storage).

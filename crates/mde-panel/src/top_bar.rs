@@ -21,7 +21,7 @@
 //!   Red Hat Text 12 px / 500 weight for labels.
 //! - **Microinteraction:** 180 ms ease-out for every state change.
 
-use iced::widget::{button, container, row, text, Space};
+use iced::widget::{button, container, mouse_area, row, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Theme};
 
 use crate::applet_host::AppletKind;
@@ -150,15 +150,26 @@ pub fn view<'a>(
     hero: &'a Hero,
     focused: Option<&'a Toplevel>,
 ) -> Element<'a, Message> {
-    let start_btn = button(text(state.start_label.clone()).size(16).color(ACCENT))
-        .padding(Padding {
-            top: 4.0,
-            right: 12.0,
-            bottom: 4.0,
-            left: 12.0,
-        })
-        .style(zone_button_style)
-        .on_press(Message::StartClicked);
+    // v3.0.3 Tier 1D fix — wrap the Start button in `mouse_area`
+    // so right-click is observable. Iced's built-in `button` is
+    // left-click only; the operator-reported "right click on the
+    // start menu does not work" bug stemmed from this gap. The
+    // left-click `Message::StartClicked` keeps coming from the
+    // inner button; the right-click maps to a new
+    // `Message::StartRightClicked` that opens the admin-menu
+    // popover.
+    let start_btn = mouse_area(
+        button(text(state.start_label.clone()).size(16).color(ACCENT))
+            .padding(Padding {
+                top: 4.0,
+                right: 12.0,
+                bottom: 4.0,
+                left: 12.0,
+            })
+            .style(zone_button_style)
+            .on_press(Message::StartClicked),
+    )
+    .on_right_press(Message::StartRightClicked);
 
     // Dock zone — shows the dock applet's pinned/running summary
     // (e.g. "[▶ foot] [· firefox]"). Until the inline Iced dock

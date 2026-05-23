@@ -37,7 +37,10 @@ use iced_layershell::to_layer_message;
 /// `/usr/share/applications/`.
 pub const APP_ID: &str = "shell.mackes.Panel";
 
-pub mod admin_menu;
+// v3.0.3 — admin_menu moved to crates/mde-popover/src/admin_menu.rs
+// (it's a popover, not panel chrome). The mde-panel never invoked the
+// helper at runtime; moving it puts the code in the crate that
+// actually mounts the UI. See git history for the original location.
 pub mod applet_host;
 pub mod clipboard;
 pub mod dock_dnd;
@@ -136,6 +139,12 @@ pub enum Message {
     AppletText(applet_host::AppletKind, String),
     /// Start-button left-click — launches the start-menu popover.
     StartClicked,
+    /// v3.0.3 Tier 1D — Start-button right-click. Launches the
+    /// admin-menu popover (9 actions, 5 sections, foot --hold).
+    /// Iced's built-in `button` is left-click only, so the Start
+    /// zone is wrapped in `mouse_area().on_right_press(...)` to
+    /// emit this variant.
+    StartRightClicked,
     /// Tray-applet click — launches the popover/quick-action bound to
     /// the given applet kind.
     TrayClicked(applet_host::AppletKind),
@@ -323,6 +332,15 @@ impl iced_layershell::Application for App {
                 // click on M closes the existing instance instead
                 // of stacking a second one on top.
                 self.toggle_or_spawn_popover("start-menu");
+            }
+            Message::StartRightClicked => {
+                // v3.0.3 Tier 1D — toggle the admin-menu popover.
+                // Bug fix for "right-click on the start menu does
+                // not work": this variant was never emitted because
+                // the Start button was a plain Iced `button` (left-
+                // click only). v3.0.3 wraps it in `mouse_area` to
+                // get the right-press event.
+                self.toggle_or_spawn_popover("admin-menu");
             }
             Message::ToplevelEvent(ev) => {
                 // v3.0.3 Phase E.3 wiring — apply the event to the
