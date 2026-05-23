@@ -61,7 +61,10 @@ pub mod toasts;
 pub mod top_bar;
 pub mod toplevels;
 pub mod toplevels_sub;
-pub mod watermark;
+// v3.0.3 — watermark.rs moved to crates/mde-popover/src/watermark.rs
+// (it's a long-running layer-shell surface, not panel chrome). The
+// mde-panel never invoked the helpers at runtime; moving puts the
+// data layer in the crate that actually mounts the UI.
 pub mod weather;
 
 // ──────────────────────────────────────────────────────────────

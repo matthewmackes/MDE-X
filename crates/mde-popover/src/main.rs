@@ -29,6 +29,7 @@ mod dismiss;
 mod fonts;
 mod notifications;
 mod start_menu;
+mod watermark;
 
 use clap::Parser;
 
@@ -53,6 +54,11 @@ enum Kind {
     /// v3.0.3 — right-click-on-Start admin menu (9 actions, 5
     /// sections, foot --hold + pkexec).
     AdminMenu,
+    /// v3.0.3 — long-running bottom-right watermark surface.
+    /// Polls dnf every 4 hours; visible only when updates pending;
+    /// click invokes `pkexec dnf upgrade`. Spawned at session
+    /// start via data/sway/config rather than from the panel.
+    Watermark,
 }
 
 fn main() -> iced_layershell::Result {
@@ -73,6 +79,7 @@ fn main() -> iced_layershell::Result {
         Kind::Notifications => notifications::run(),
         Kind::Clock => clock::run(),
         Kind::AdminMenu => admin_menu::run(),
+        Kind::Watermark => watermark::run(),
         Kind::Network => {
             // Network popover is grandfathered v3.1 follow-up
             // (needs NM D-Bus surface bindings + a connection-list

@@ -3609,6 +3609,7 @@ dependencies = [
  "mde-applet-start-menu",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

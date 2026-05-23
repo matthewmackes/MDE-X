@@ -508,14 +508,27 @@ dependency sweep.
   out when no toplevel is focused. New `Message::Window{Min,Max,
   Close}` variants drive the reducer. Close button uses the
   destructive accent on hover.
-- [ ] **v3.0.3: watermark widget + Layer::Background surface
-  (Tier 2 E.18 wiring)** — render `WatermarkState::render_line()`
-  into a separate Iced layer-shell surface anchored bottom-right
-  with `Layer::Background` so it sits below normal windows.
-  Subscription polls `dnf check-update --quiet` every 4 hours per
-  the original spec; visibility tied to pending-update count > 0.
-  Acceptance: with at least one DNF update pending, the watermark
-  text shows in the bottom-right; with none, it's invisible.
+- [✓] **v3.0.3: watermark widget + Layer::Background surface
+  (Tier 2 E.18 wiring) — shipped 2026-05-22** —
+  `git mv crates/mde-panel/src/watermark.rs
+  crates/mde-popover/src/watermark.rs` (the surface is a
+  long-running layer-shell window, not panel chrome); added Iced
+  `App` + `run()` mounting `Layer::Background` anchored bottom-
+  right with 24px inset above the panel's exclusive zone, plus a
+  poll OS-thread that runs `dnf check-update --quiet` every 4
+  hours and writes the count to a shared `Arc<Mutex<
+  WatermarkState>>`. Surface renders an invisible 1×1 container
+  when the count is 0 (the watermark only appears when updates
+  pend). Left-click fires `pkexec dnf upgrade` per the v2.0.3
+  polkit lock — the user can kick off the update from a single
+  click without opening a terminal. Hover lifts the text alpha
+  from 28% (rest) to 100% so the clickable affordance is
+  discoverable. `data/sway/config` updated with
+  `exec mde-popover watermark` so the surface starts at session
+  login. `KeyboardInteractivity::None` — background chrome must
+  never grab keyboard focus. New `Kind::Watermark` in popover
+  dispatcher. 13 watermark tests come along from the move; total
+  199 tests across both crates.
 - [ ] **v3.0.3: toast render layer + emit sites (Tier 2 E.20
   wiring)** — render `ToastStack` items as a stacked column above
   the panel via a layer-shell overlay surface. Tick subscription
@@ -2059,8 +2072,8 @@ src/`) and its destination.
   layer-shell popover surface that would render this never
   shipped. Closes via v3.0.3 weather-popover task. See
   [[V3_RUNTIME_INTEGRATION_AUDIT]].
-- [>] **v3.0.3: Phase E.18 watermark (helpers shipped 2026-05-21,
-  widget surface deferred — audit 2026-05-22)** —
+- [✓] **v3.0.3: Phase E.18 watermark (helpers shipped 2026-05-21,
+  moved to mde-popover + widget surface shipped 2026-05-22)** —
   `crates/mde-panel/src/watermark.rs` ships `WatermarkState`
   (MDE version / Fedora release / build hash / hostname /
   pending-update count) + `render_line()` which formats the

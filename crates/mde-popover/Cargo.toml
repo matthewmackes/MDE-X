@@ -39,6 +39,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # XDG home + cache paths (matches mde-panel + mackesd).
 dirs = "5"
 
+[dev-dependencies]
+# Watermark + admin-menu tests use tempdir for filesystem
+# round-trips (cached count file, build-meta probe).
+tempfile = "3"
+
 [lints.rust]
 unsafe_code     = "forbid"
 unused_must_use = "deny"

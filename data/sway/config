@@ -143,6 +143,10 @@ for_window [window_type="dialog"]      floating enable
 exec_always mde-output-autoscale
 exec mde-applet-bg
 exec mde-panel
+# v3.0.3 — long-running Win10-style watermark surface
+# (Layer::Background, bottom-right, visible only when dnf has
+# updates pending). See crates/mde-popover/src/watermark.rs.
+exec mde-popover watermark
 
 # ---------------------------------------------------------------------------
 # Mackes-managed includes
