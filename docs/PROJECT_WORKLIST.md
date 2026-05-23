@@ -612,16 +612,21 @@ dependency sweep.
   click popover gets the same toggle + zombie-reap path as the
   other popovers. 24 mde-popover tests green (was 16 + 8 admin-
   menu tests inherited from the move).
-- [!] **v3.0.3: icon_mapper popover (BLOCKED on dock-applet right-click refresh) on dock right-click (Tier 2
-  E.19 wiring + depends on dock applet right-click support)** —
-  coordinate with v3.1 dock applet work. When a dock entry is
-  right-clicked, open a small popover listing builtin Carbon
-  glyph candidates for that app's freedesktop Icon= name;
-  selecting one writes `~/.local/share/applications/<name>.
-  desktop` with `X-MDE-Icon=` per the existing `write_override`
-  helper. Acceptance: right-click foot in the dock → glyph
-  picker → select a candidate → foot's dock entry shows the new
-  glyph after a panel re-render.
+- [!] **v3.0.3: icon_mapper popover on dock right-click (Tier 2
+  E.19 wiring) — BLOCKED on v3.1: dock-applet rebuild as a real
+  Iced layer-shell UI (the current `crates/mde-applets/dock` is
+  text-only; right-click handling needs an Iced event surface).**
+
+  Pre-req for unblock: build the Iced dock applet first. Captured
+  as v4.0.1 follow-up DOCK-1 below.
+
+  Original task: when a dock entry is right-clicked, open a small
+  popover listing builtin Carbon glyph candidates for that app's
+  freedesktop Icon= name; selecting one writes
+  `~/.local/share/applications/<name>.desktop` with `X-MDE-Icon=`
+  per the existing `write_override` helper. Acceptance: right-
+  click foot in the dock → glyph picker → select a candidate →
+  foot's dock entry shows the new glyph after a panel re-render.
 - [✓] **v3.0.3: quick-action slider widgets in drawer (Tier 2
   E.6.1+6.2 wiring) — shipped 2026-05-22** — `crates/mde-drawer/
   src/main.rs` gained real Iced sliders bound to
@@ -689,14 +694,19 @@ dependency sweep.
   attribution footer. Shows "Weather loading…" before the
   first fetch lands. 14 weather tests come along from the move;
   51 mde-popover tests total.
-- [!] **v3.0.3: dock_dnd integration (BLOCKED on dock-applet drag-recognition refresh) with dock applet (Tier 2
-  E.9 wiring + depends on dock applet drag recognition)** —
-  coordinate with v3.1 dock applet work. The applet adds Iced
-  drag-source on tasklist entries + drop-target on pinned strip;
-  drop events call `reorder_dock()`, `pin_app()`, `unpin()`.
-  Acceptance: dragging foot from the tasklist onto an empty
-  pinned slot pins it; dragging a pinned entry to a different
-  slot reorders.
+- [!] **v3.0.3: dock_dnd integration with dock applet (Tier 2
+  E.9 wiring) — BLOCKED on v3.1: dock-applet rebuild as a real
+  Iced layer-shell UI (the current `crates/mde-applets/dock` is
+  text-only; drag-and-drop needs an Iced event surface).**
+
+  Pre-req for unblock: build the Iced dock applet first. Captured
+  as v4.0.1 follow-up DOCK-1 below.
+
+  Original task: the applet adds Iced drag-source on tasklist
+  entries + drop-target on pinned strip; drop events call
+  `reorder_dock()`, `pin_app()`, `unpin()`. Acceptance: dragging
+  foot from the tasklist onto an empty pinned slot pins it;
+  dragging a pinned entry to a different slot reorders.
 - [✓] **v3.0.3: retire crates/mde-panel/src/layer_shell.rs
   (Tier 2 E.2 module is moot) — shipped 2026-05-22** — deleted
   the 174-LOC file + the `pub mod layer_shell;` declaration in
@@ -1183,6 +1193,66 @@ system without cutting a new RPM (per "no RPM until directed"
 standing constraint). Standing authorizations active for this
 section: commit, push to origin + mde-x, best-choice decisions,
 no new RPM cut.
+
+- [ ] **v4.0.1: DOCK-1 rebuild dock-applet as real Iced
+  layer-shell UI (Tier 2 chrome) — prereq for unblocking the
+  v3.0.3 icon_mapper + dock_dnd entries (2026-05-23)**
+
+  **As** an operator,
+  **I want** the bottom-bar dock to be a real Iced applet (not
+  the text-renderer that `crates/mde-applets/dock` ships today),
+  **so that** right-click menus, drag-and-drop, focus indicators,
+  pinned-app drag-to-reorder, and the icon_mapper Carbon glyph
+  picker all become possible UX surfaces.
+
+  **Acceptance** (bench-observable):
+  - [ ] `mde-applet-dock` boots an `iced_layershell` anchored to
+        Bottom + spans the screen width.
+  - [ ] One cell per running window with the app's Carbon-mapped
+        icon SVG (via `mde_theme::Icon::carbon_name()` →
+        `ResolvedIcon::svg_bytes()`).
+  - [ ] Focused window cell renders with the indigo accent
+        underline (per UX-2 visual identity); urgent cells
+        render with the orange highlight (per UX-2 status
+        colors).
+  - [ ] Click → focus the window via `swaymsg [con_id=N] focus`.
+        Already covered by the text-renderer; rebuild must
+        preserve.
+  - [ ] Right-click → emits a `Message::RightClick(app_id, x, y)`
+        the icon_mapper E.19 popover consumes.
+  - [ ] Drag a tasklist cell onto an empty pinned slot →
+        emits a `Message::PinDrop(app_id, slot)` the dock_dnd
+        E.9 wiring consumes.
+  - [ ] Pinned-but-not-running apps render at lowered opacity
+        with the same Carbon glyph; clicking launches them via
+        `gtk-launch <desktop_id>`.
+  - [ ] Tick cadence: `swaymsg -t get_tree` every 1 s (matches
+        the existing text-renderer) so a window-focus change is
+        reflected within ~1 s.
+  - [ ] Visual diff against the design lock (UX-2 chrome density,
+        Win11 cell-spacing influence per design-influence locks).
+
+  **Implementation notes:**
+  - Iced 0.13 / `iced_layershell 0.13.7` matches the rest of the
+    workspace (UX-PRE 0.14 bump is deferred per its own [!]
+    entry).
+  - Reuse `parse_windows` + `parse_pinned` + `format_dock`'s
+    pinned-vs-running dedupe logic from the existing text
+    applet — the data layer is correct; only the renderer is
+    text-only.
+  - Right-click handling lands the icon_mapper E.19 popover via
+    `mde-popover icon-mapper <app_id>` (spawning the existing
+    popover binary; matches the start-menu pattern).
+  - DnD handling lands the dock_dnd E.9 helpers via direct calls
+    into `mackes_panel::dock_dnd::{reorder_dock, pin_app,
+    unpin}`.
+  - Icon source: Carbon Icon Set per the iconography lock;
+    fallback `Icon::Application` for unknown app_ids.
+  - Reference: Mac dock + Win11 taskbar (chrome influence per
+    Phase 0.8 audit) — cell padding, hover effects, focus
+    underline placement.
+  - Depends: none. Effort: High (full Iced applet from scratch,
+    ~600-1000 LOC + tests).
 
 - [✓] **v4.0.1: BUG-1 Workbench opens first-run wizard every
   launch (Tier 1 operator-visible)** — `mackes/state.py:18` reads
