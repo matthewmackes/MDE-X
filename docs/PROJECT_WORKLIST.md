@@ -602,11 +602,20 @@ dependency sweep.
   WIDTH×HEIGHT pinned bottom-left (48 px above panel, 4 px
   from left edge); every other pixel routes Esc on click.
 
-- [ ] **v3.0.4: extend backdrop dismiss to audio / clock /
-  clipboard / admin_menu / notifications** — same pattern,
-  per-popover lift ~30 LOC. Open until the operator hits
-  outside-click-dismiss issues with one of these
-  (less-frequently-used popovers).
+- [✓] **v3.0.4: extend backdrop dismiss to audio / clock /
+  clipboard / admin_menu / notifications (shipped 2026-05-23)** —
+  Cycle F closure. Applied the same fullscreen layer-shell +
+  corner-pinned-card + mouse_area dismiss-strip pattern from
+  start_menu/minimized/network to all five remaining popovers.
+  Per-popover lift ~50 LOC: `size: None`, `exclusive_zone: -1`,
+  `anchor: Top | Bottom | Left | Right`, `margin: (0,0,0,0)`,
+  view tree wraps card in column[ dismiss(), row[ dismiss(),
+  container(card).padding(...) ] ] with transparent outer
+  container. Card pinned: audio + notifications bottom-right
+  (48 px above panel, 4 px from edge), clock bottom-center
+  (proportional), clipboard + admin_menu bottom-left. 112
+  popover tests green. Closes v3.0.4 outside-click dismiss
+  parity across every popover in the workspace.
 - [✓] **v3.0.3: toplevels subscription (sway-IPC) (Tier 2 E.3
   wiring) — shipped 2026-05-22** — best-choice deviation from
   the original "wlr-foreign-toplevel-management via SCTK" lock:

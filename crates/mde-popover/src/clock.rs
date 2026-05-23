@@ -6,7 +6,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use iced::widget::{column, container, row, text, Space};
+use iced::widget::{column, container, mouse_area, row, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Task, Theme};
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings};
@@ -220,10 +220,44 @@ impl iced_layershell::Application for App {
             left: 18.0,
         });
 
-        container(body)
+        let card: Element<'_, Message> = container(body)
+            .width(Length::Fixed(WIDTH as f32))
+            .height(Length::Fixed(HEIGHT as f32))
+            .style(popover_surface)
+            .into();
+
+        // v3.0.4 — backdrop dismiss; bottom-right card.
+        let dismiss = || {
+            mouse_area(
+                container(Space::with_width(Length::Fill))
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+            )
+            .on_press(Message::Exit)
+        };
+        let bottom_strip = row![
+            dismiss(),
+            container(card).padding(iced::Padding {
+                top: 0.0,
+                right: 4.0,
+                bottom: 48.0,
+                left: 0.0,
+            }),
+        ]
+        .height(Length::Fixed((HEIGHT + 48) as f32));
+        container(column![dismiss(), bottom_strip])
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(popover_surface)
+            .style(|_| container::Style {
+                background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                border: iced::Border {
+                    color: iced::Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: 0.0.into(),
+                },
+                shadow: iced::Shadow::default(),
+                text_color: None,
+            })
             .into()
     }
 
@@ -248,10 +282,11 @@ pub fn run() -> iced_layershell::Result {
         id: Some("mde-popover-clock".to_string()),
         fonts: crate::fonts::load_fallback_fonts(),
         layer_settings: LayerShellSettings {
-            size: Some((WIDTH, HEIGHT)),
-            exclusive_zone: 0,
-            anchor: Anchor::Bottom | Anchor::Right,
-            margin: (0, 4, 48, 0),
+            // v3.0.4 — fullscreen for backdrop dismiss.
+            size: None,
+            exclusive_zone: -1,
+            anchor: Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right,
+            margin: (0, 0, 0, 0),
             layer: Layer::Overlay,
             keyboard_interactivity: KeyboardInteractivity::OnDemand,
             ..Default::default()
