@@ -32,7 +32,8 @@ use crate::panels::{
     mesh_pending as mesh_pending_panel,
     mesh_services as mesh_services_panel,
     mesh_topology as mesh_topology_panel,
-    notifications as notifications_panel, playbooks as playbooks_panel, power as power_panel,
+    notifications as notifications_panel, panel_apps as panel_apps_panel,
+    playbooks as playbooks_panel, power as power_panel,
     printers as printers_panel, remote_desktop as remote_desktop_panel,
     removable as removable_panel, repair as repair_panel,
     resources as resources_panel, run_history as run_history_panel, session as session_panel,
@@ -164,6 +165,7 @@ pub enum Message {
     MeshPending(mesh_pending_panel::Message),
     MeshServices(mesh_services_panel::Message),
     MeshTopology(mesh_topology_panel::Message),
+    PanelApps(panel_apps_panel::Message),
     RemoteDesktop(remote_desktop_panel::Message),
     /// CB-1.8 partial — Network → Firewall panel sub-message.
     Firewall(firewall_panel::Message),
@@ -238,6 +240,7 @@ pub struct App {
     mesh_pending: mesh_pending_panel::MeshPendingPanel,
     mesh_services: mesh_services_panel::MeshServicesPanel,
     mesh_topology: mesh_topology_panel::MeshTopologyPanel,
+    panel_apps: panel_apps_panel::PanelAppsPanel,
     remote_desktop: remote_desktop_panel::RemoteDesktopPanel,
     firewall: firewall_panel::FirewallPanel,
     wifi: wifi_panel::WifiPanel,
@@ -319,6 +322,7 @@ impl App {
             mesh_pending: mesh_pending_panel::MeshPendingPanel::new(),
             mesh_services: mesh_services_panel::MeshServicesPanel::new(),
             mesh_topology: mesh_topology_panel::MeshTopologyPanel::new(),
+            panel_apps: panel_apps_panel::PanelAppsPanel::new(),
             remote_desktop: remote_desktop_panel::RemoteDesktopPanel::new(),
             firewall: firewall_panel::FirewallPanel::new(),
             wifi: wifi_panel::WifiPanel::new(),
@@ -666,6 +670,7 @@ impl App {
             Message::MeshPending(msg) => self.mesh_pending.update(msg),
             Message::MeshServices(msg) => self.mesh_services.update(msg),
             Message::MeshTopology(msg) => self.mesh_topology.update(msg),
+            Message::PanelApps(msg) => self.panel_apps.update(msg),
             Message::RemoteDesktop(msg) => self.remote_desktop.update(msg),
             Message::Firewall(msg) => self.firewall.update(msg),
             Message::Wifi(msg) => self.wifi.update(msg),
@@ -735,6 +740,8 @@ impl App {
             (Group::Network, "mesh_control") => mesh_control_panel::MeshControlPanel::load(),
             // v4.0.1 WB-2.i — scan probe.json cache for pending peers.
             (Group::Network, "mesh_pending") => mesh_pending_panel::MeshPendingPanel::load(),
+            // v4.0.1 WB-2.d — load applet visibility from panel.toml.
+            (Group::Apps, "panel") => panel_apps_panel::PanelAppsPanel::load(),
             // v4.0.1 WB-2.k — peer roster via `mackesd nodes list --json`.
             (Group::Network, "mesh_topology") => mesh_topology_panel::MeshTopologyPanel::load(),
             // v4.0.1 WB-2.j — same pattern for mesh services.
@@ -965,6 +972,13 @@ impl App {
                 group: Group::Apps,
                 panel: "remove",
             } => self.apps_remove.view(),
+            // v4.0.1 WB-2.d (2026-05-23) — Apps → Panel Apps
+            // visibility editor (per-applet toggles, writes to
+            // ~/.config/mde/panel.toml).
+            View::Panel {
+                group: Group::Apps,
+                panel: "panel",
+            } => self.panel_apps.view(),
             // v4.0.1 WB-2.e (2026-05-23) — the Maintain → Debloat
             // sidebar entry routes to the same curated-bloat-list
             // panel the Apps → Remove path uses. Two nav paths

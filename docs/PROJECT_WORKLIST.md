@@ -1784,18 +1784,43 @@ integration needed.
     only in `start_menu.rs`).
   - Two new header tests guard parity + SVG-resolution.
 
-- [ ] **v4.0.1: WB-2.d Apps Panel Apps grid (Tier 2 chrome)**
+- [✓] **v4.0.1: WB-2.d Apps → Panel Apps editor (shipped 2026-05-23)**
 
-  **As** an operator,
-  **I want** an "Apps → Panel Apps" view that lists which
-  applets are currently in the panel's tray + lets me toggle
-  each one's visibility,
-  **so that** I can hide the clipboard or bell chip without
-  editing a TOML by hand.
+  Built `crates/mde-workbench/src/panels/panel_apps.rs` —
+  the visibility editor with 6 toggle rows (audio / network /
+  mesh / status / clipboard / notifications). Reuses the
+  existing `mackes_config::PanelConfig::top_bar::status_items`
+  schema (locked since v3.0.0 per Q18–Q22) instead of
+  introducing a parallel schema. Reads from
+  `~/.config/mde/panel.toml` (fallback: legacy
+  `~/.config/mackes-panel/panel.toml`); writes always to the
+  MDE-namespaced location via `mde_config::to_toml_string`
+  round-tripping the full PanelConfig so other sections
+  (dock, mesh, peer_card) survive.
 
-  **Acceptance:** TBD until the panel-config schema lands
-  (currently the tray applets are hard-coded in top_bar.rs).
-  Blocked on a `panel.toml` schema for per-applet enables.
+  Wired the consumer side: `crates/mde-panel/src/top_bar.rs`
+  gained `load_visible_applets_from_config()` +
+  `applet_visible(visible, id) -> bool`, plus
+  `TopBarState::loading()` loads the visible list at panel
+  spawn. The tray-row builder switched from a fixed `row![]`
+  macro to a `Vec<Element>` accumulator that pushes only
+  applets passing `applet_visible(...)`. Back-compat default:
+  empty `visible_applets` list = render-all (matches the
+  pre-WB-2.d behaviour for operators who never touch the
+  config).
+
+  Tests: 118 mde-panel + 558 mde-workbench. Schema reuse +
+  config round-trip + view-render smokes covered.
+
+  **Operator flow:**
+    1. Open Workbench → Apps → Panel Apps
+    2. Toggle applets ON/OFF; changes save to
+       `~/.config/mde/panel.toml` immediately
+    3. Run `restart-panel-stack.sh panel` (or wait for the
+       next parity tick) to see the change in the tray
+
+  Chrome influence: Win11 Settings → Personalization →
+  Taskbar → Taskbar items.
 
 - [✓] **v4.0.1: WB-2.e Maintain Debloat (shipped 2026-05-23)**
   Routed Maintain → Debloat to the already-shipped

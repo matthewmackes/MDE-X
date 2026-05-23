@@ -34,6 +34,39 @@ use crate::Message;
 /// Height of the top bar in logical pixels (Phase 1.1.0 Win10 lock).
 pub const TOP_BAR_HEIGHT_PX: u16 = 40;
 
+/// v4.0.1 WB-2.d — read `~/.config/mde/panel.toml`'s
+/// `top_bar.status_items` list to decide which tray applets
+/// render. Returns an empty Vec when no config exists (= "show
+/// all" default for back-compat).
+#[must_use]
+pub fn load_visible_applets_from_config() -> Vec<String> {
+    let candidates = [
+        std::env::var_os("HOME")
+            .map(|h| std::path::PathBuf::from(h).join(".config/mde/panel.toml")),
+        std::env::var_os("HOME")
+            .map(|h| std::path::PathBuf::from(h).join(".config/mackes-panel/panel.toml")),
+    ];
+    for candidate in candidates.iter().flatten() {
+        if let Ok(raw) = std::fs::read_to_string(candidate) {
+            if let Ok(cfg) = mde_config::parse(&raw) {
+                return cfg.top_bar.status_items;
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// True when the given applet id should render in the tray.
+/// Empty `visible_applets` = render-all (back-compat default
+/// before the operator picks any subset in WB-2.d).
+#[must_use]
+pub fn applet_visible(visible: &[String], id: &str) -> bool {
+    if visible.is_empty() {
+        return true;
+    }
+    visible.iter().any(|s| s == id)
+}
+
 /// Per-zone padding (horizontal) — keeps icons + text from
 /// touching the bar's edges.
 pub const ZONE_PADDING_X: u16 = 12;
@@ -84,6 +117,12 @@ pub struct TopBarState {
     pub mesh_text: String,
     pub status_text: String,
     pub bell_text: String,
+    /// v4.0.1 WB-2.d — list of tray applet ids the operator
+    /// has enabled in `~/.config/mde/panel.toml::top_bar
+    /// .status_items`. When empty, all six well-known applets
+    /// render (back-compat default). When populated, only
+    /// listed applets render in the tray row.
+    pub visible_applets: Vec<String>,
 }
 
 impl TopBarState {
@@ -101,6 +140,7 @@ impl TopBarState {
             mesh_text: "—".to_string(),
             status_text: "—".to_string(),
             bell_text: String::new(),
+            visible_applets: load_visible_applets_from_config(),
         }
     }
 
@@ -119,6 +159,7 @@ impl TopBarState {
             mesh_text: "✓ 3".to_string(),
             status_text: "⚡ 88%".to_string(),
             bell_text: "0".to_string(),
+            visible_applets: Vec::new(),
         }
     }
 
@@ -219,18 +260,61 @@ pub fn view<'a>(
     // It's a static icon (no applet text stream); the glyph is the
     // Unicode clipboard codepoint U+1F4CB until the BUG-13 Carbon
     // SVG wiring lands.
-    let tray = row![
-        tray_button_with_icon(PanelIcon::Audio, &state.audio_text, AppletKind::Audio),
-        Space::with_width(Length::Fixed(8.0)),
-        tray_button_with_icon(PanelIcon::Network, &state.network_text, AppletKind::Network),
-        Space::with_width(Length::Fixed(8.0)),
-        tray_button_with_icon(PanelIcon::Mesh, &state.mesh_text, AppletKind::MeshStatus),
-        Space::with_width(Length::Fixed(8.0)),
-        tray_button_with_icon(PanelIcon::Status, &state.status_text, AppletKind::StatusCluster),
-        Space::with_width(Length::Fixed(8.0)),
-        clipboard_button(),
-        Space::with_width(Length::Fixed(8.0)),
-        tray_button_with_icon(
+    // v4.0.1 WB-2.d (2026-05-23) — tray row consults
+    // state.visible_applets to decide which applets render.
+    // Empty list = render-all (back-compat default).
+    let mut tray_items: Vec<iced::Element<'a, Message>> = Vec::new();
+    if applet_visible(&state.visible_applets, "audio") {
+        if !tray_items.is_empty() {
+            tray_items.push(Space::with_width(Length::Fixed(8.0)).into());
+        }
+        tray_items.push(tray_button_with_icon(
+            PanelIcon::Audio,
+            &state.audio_text,
+            AppletKind::Audio,
+        ));
+    }
+    if applet_visible(&state.visible_applets, "network") {
+        if !tray_items.is_empty() {
+            tray_items.push(Space::with_width(Length::Fixed(8.0)).into());
+        }
+        tray_items.push(tray_button_with_icon(
+            PanelIcon::Network,
+            &state.network_text,
+            AppletKind::Network,
+        ));
+    }
+    if applet_visible(&state.visible_applets, "mesh") {
+        if !tray_items.is_empty() {
+            tray_items.push(Space::with_width(Length::Fixed(8.0)).into());
+        }
+        tray_items.push(tray_button_with_icon(
+            PanelIcon::Mesh,
+            &state.mesh_text,
+            AppletKind::MeshStatus,
+        ));
+    }
+    if applet_visible(&state.visible_applets, "status") {
+        if !tray_items.is_empty() {
+            tray_items.push(Space::with_width(Length::Fixed(8.0)).into());
+        }
+        tray_items.push(tray_button_with_icon(
+            PanelIcon::Status,
+            &state.status_text,
+            AppletKind::StatusCluster,
+        ));
+    }
+    if applet_visible(&state.visible_applets, "clipboard") {
+        if !tray_items.is_empty() {
+            tray_items.push(Space::with_width(Length::Fixed(8.0)).into());
+        }
+        tray_items.push(clipboard_button());
+    }
+    if applet_visible(&state.visible_applets, "notifications") {
+        if !tray_items.is_empty() {
+            tray_items.push(Space::with_width(Length::Fixed(8.0)).into());
+        }
+        tray_items.push(tray_button_with_icon(
             PanelIcon::Bell,
             if state.bell_text.is_empty() {
                 "0"
@@ -238,9 +322,10 @@ pub fn view<'a>(
                 state.bell_text.as_str()
             },
             AppletKind::NotificationBell,
-        ),
-    ]
-    .align_y(iced::Alignment::Center);
+        ));
+    }
+    let tray = iced::widget::Row::with_children(tray_items)
+        .align_y(iced::Alignment::Center);
 
     // v4.0.1 BUG-16 — Desktop Layout cluster (replaces the
     // previously-centered window_button_cluster from BUG-6). Five
