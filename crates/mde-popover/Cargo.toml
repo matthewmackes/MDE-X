@@ -19,6 +19,9 @@ path = "src/main.rs"
 # can render Carbon glyphs instead of label-only buttons.
 iced            = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "svg", "tokio", "advanced"] }
 iced_layershell = "0.13.7"
+# v4.0.1 BUG-8.b — notification mute state persisted to
+# `~/.config/mde/notification-mutes.toml`.
+toml            = "0.8"
 
 # Domain logic libs that already ship with the applet binaries.
 mde-applet-start-menu = { path = "../mde-applets/start-menu" }

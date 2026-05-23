@@ -33,6 +33,13 @@ const FG_TEXT: Color = Color {
     b: 0.957,
     a: 1.0,
 };
+const FG_FAINT: Color = Color {
+    r: 0.45,
+    g: 0.45,
+    b: 0.45,
+    a: 1.0,
+};
+
 const FG_MUTED: Color = Color {
     r: 0.659,
     g: 0.659,
@@ -52,10 +59,21 @@ pub enum Message {
     Exit,
     /// BUG-8.a (2026-05-23) — clear the cache file then exit.
     ClearAll,
+    /// BUG-8.b (2026-05-23) — toggle the mute state for a peer
+    /// group. Writes the new state to
+    /// `~/.config/mde/notification-mutes.toml` and refreshes the
+    /// in-memory groups list so muted peers disappear
+    /// immediately.
+    ToggleMute(String),
 }
 
 pub struct App {
     groups: Vec<(String, Vec<NotificationRow>)>,
+    /// BUG-8.b — set of peer names currently muted. Backed by
+    /// `~/.config/mde/notification-mutes.toml`. When a peer is
+    /// in this set, its group is filtered out of `groups`
+    /// before render.
+    muted_peers: std::collections::HashSet<String>,
 }
 
 impl iced_layershell::Application for App {
@@ -65,9 +83,20 @@ impl iced_layershell::Application for App {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Task<Message>) {
-        let groups = load_groups();
-        tracing::info!(group_count = groups.len(), "notifications popover open");
-        (Self { groups }, Task::none())
+        let muted_peers = load_muted_peers();
+        let all_groups = load_groups();
+        let groups: Vec<_> = all_groups
+            .into_iter()
+            .filter(|(peer, _)| !muted_peers.contains(peer))
+            .collect();
+        tracing::info!(group_count = groups.len(), muted = muted_peers.len(), "notifications popover open");
+        (
+            Self {
+                groups,
+                muted_peers,
+            },
+            Task::none(),
+        )
     }
 
     fn namespace(&self) -> String {
@@ -86,6 +115,24 @@ impl iced_layershell::Application for App {
                 let path = notifications_cache_path();
                 let _ = std::fs::write(&path, "");
                 std::process::exit(0);
+            }
+            Message::ToggleMute(peer) => {
+                // BUG-8.b — flip the mute state for `peer`,
+                // persist to ~/.config/mde/notification-mutes.toml,
+                // and refresh the in-memory groups so the peer's
+                // rows disappear (or reappear) immediately.
+                if self.muted_peers.contains(&peer) {
+                    self.muted_peers.remove(&peer);
+                } else {
+                    self.muted_peers.insert(peer);
+                }
+                let _ = save_muted_peers(&self.muted_peers);
+                let all = load_groups();
+                self.groups = all
+                    .into_iter()
+                    .filter(|(p, _)| !self.muted_peers.contains(p))
+                    .collect();
+                Task::none()
             }
             _ => Task::none(),
         }
@@ -111,18 +158,80 @@ impl iced_layershell::Application for App {
             );
         }
         for (group_name, rows) in &self.groups {
-            let group_label = text(if group_name.is_empty() {
+            let label_text = if group_name.is_empty() {
                 "Local".to_string()
             } else {
                 group_name.clone()
+            };
+            let group_label = text(label_text.clone()).size(11).color(FG_MUTED);
+            // BUG-8.b — per-peer Mute button. Stays visible even
+            // when the operator-clicks "Clear all" so they can
+            // pre-mute a peer that's about to start spamming.
+            let peer_for_mute = group_name.clone();
+            let mute_btn: Element<'_, Message> = iced::widget::Button::new(
+                text("Mute").size(10).color(FG_MUTED),
+            )
+            .padding(Padding {
+                top: 2.0,
+                right: 8.0,
+                bottom: 2.0,
+                left: 8.0,
             })
-            .size(11)
-            .color(FG_MUTED);
-            let mut group_column = column![group_label].spacing(4);
+            .style(|_t: &Theme, status: iced::widget::button::Status| {
+                let bg = match status {
+                    iced::widget::button::Status::Hovered => Color {
+                        r: 0.18,
+                        g: 0.18,
+                        b: 0.20,
+                        a: 1.0,
+                    },
+                    _ => Color::TRANSPARENT,
+                };
+                iced::widget::button::Style {
+                    background: Some(Background::Color(bg)),
+                    text_color: FG_MUTED,
+                    border: Border {
+                        color: Color {
+                            a: 0.12,
+                            ..Color::WHITE
+                        },
+                        width: 1.0,
+                        radius: 3.0.into(),
+                    },
+                    shadow: Shadow::default(),
+                }
+            })
+            .on_press(Message::ToggleMute(peer_for_mute))
+            .into();
+
+            let group_header = row![
+                group_label,
+                Space::with_width(Length::Fill),
+                mute_btn,
+            ]
+            .align_y(iced::Alignment::Center);
+
+            let mut group_column = column![group_header].spacing(4);
             for row_data in rows.iter().take(40) {
                 group_column = group_column.push(render_row(row_data));
             }
             list = list.push(group_column);
+        }
+        if !self.muted_peers.is_empty() {
+            let muted_list: Vec<&str> = self.muted_peers.iter().map(|s| s.as_str()).collect();
+            list = list.push(
+                container(
+                    text(format!("Muted: {}", muted_list.join(", ")))
+                        .size(10)
+                        .color(FG_FAINT),
+                )
+                .padding(Padding {
+                    top: 8.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 0.0,
+                }),
+            );
         }
 
         let scroll = scrollable(list).height(Length::Fill);
@@ -276,6 +385,72 @@ fn load_groups() -> Vec<(String, Vec<NotificationRow>)> {
     group_and_sort(visible_rows)
 }
 
+/// BUG-8.b — resolve the mute file path. Returns the canonical
+/// `~/.config/mde/notification-mutes.toml`; falls back to
+/// `$XDG_CONFIG_HOME/mde/...` if HOME isn't set.
+fn mutes_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("mde").join("notification-mutes.toml"))
+}
+
+/// BUG-8.b — pure parser for the mute file. Returns the set of
+/// peer names whose `[muted]."<peer>" = true` row is present.
+#[must_use]
+pub fn parse_mutes(raw: &str) -> std::collections::HashSet<String> {
+    let value: toml::Value = match toml::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return Default::default(),
+    };
+    let mut out = std::collections::HashSet::new();
+    if let Some(tbl) = value.get("muted").and_then(|v| v.as_table()) {
+        for (peer, on) in tbl {
+            if on.as_bool() == Some(true) {
+                out.insert(peer.clone());
+            }
+        }
+    }
+    out
+}
+
+/// BUG-8.b — serialise the muted-peers set to TOML.
+#[must_use]
+pub fn serialize_mutes(muted: &std::collections::HashSet<String>) -> String {
+    let mut peers: Vec<&String> = muted.iter().collect();
+    peers.sort();
+    let mut out = String::from("# mde-popover-notifications mute state — BUG-8.b\n");
+    out.push_str("[muted]\n");
+    for p in peers {
+        let escaped = p.replace('\\', "\\\\").replace('"', "\\\"");
+        out.push_str(&format!("\"{escaped}\" = true\n"));
+    }
+    out
+}
+
+fn load_muted_peers() -> std::collections::HashSet<String> {
+    let Some(path) = mutes_path() else {
+        return Default::default();
+    };
+    let raw = match fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return Default::default(),
+    };
+    parse_mutes(&raw)
+}
+
+fn save_muted_peers(
+    muted: &std::collections::HashSet<String>,
+) -> std::io::Result<()> {
+    let Some(path) = mutes_path() else {
+        return Err(std::io::Error::other("no $HOME"));
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(&path, serialize_mutes(muted))
+}
+
 fn popover_surface(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(SURFACE_BG)),
@@ -333,5 +508,44 @@ mod tests {
         // cache is missing the helper returns an empty Vec rather
         // than panicking.
         let _ = load_groups();
+    }
+
+    #[test]
+    fn parse_mutes_decodes_known_shape() {
+        let raw = r#"
+            [muted]
+            "pine.mesh" = true
+            "birch.mesh" = true
+            "oak.mesh" = false
+        "#;
+        let muted = parse_mutes(raw);
+        assert_eq!(muted.len(), 2);
+        assert!(muted.contains("pine.mesh"));
+        assert!(muted.contains("birch.mesh"));
+        assert!(!muted.contains("oak.mesh"));
+    }
+
+    #[test]
+    fn parse_mutes_returns_empty_for_garbage() {
+        assert!(parse_mutes("not toml").is_empty());
+    }
+
+    #[test]
+    fn serialize_mutes_round_trips_through_parse() {
+        let mut m: std::collections::HashSet<String> = Default::default();
+        m.insert("pine.mesh".into());
+        m.insert("birch.mesh".into());
+        let raw = serialize_mutes(&m);
+        let back = parse_mutes(&raw);
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn serialize_mutes_handles_peers_with_quotes_in_name() {
+        let mut m: std::collections::HashSet<String> = Default::default();
+        m.insert(r#"odd"name"#.to_string());
+        let raw = serialize_mutes(&m);
+        let back = parse_mutes(&raw);
+        assert_eq!(back, m);
     }
 }

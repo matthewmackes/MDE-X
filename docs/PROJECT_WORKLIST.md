@@ -2550,14 +2550,38 @@ integration needed.
   (grouped-by-app / per-app mute / per-app filter) move to
   v4.0.1 BUG-8.b open below.
 
-- [ ] **v4.0.1: BUG-8.b Notification Center parity (per-app
-  grouping + mute)** — split from BUG-8.a on 2026-05-23.
-  Captures the remaining wishlist if the operator wants
-  inline per-app controls: grouped-by-app rendering (rows
-  collapse under app header), per-app mute toggle (writes
-  to ~/.config/mde/notification-mutes.toml + the relay
-  worker respects it), per-app filter pill row. Open until
-  operator names a specific gap.
+- [✓] **v4.0.1: BUG-8.b Per-peer mute toggle (shipped
+  2026-05-23) — closes the operator-facing half of the
+  notification-center parity wishlist.**
+
+  Each peer-group header in the notifications popover now
+  has a "Mute" button. Click toggles the peer in/out of the
+  muted set; muted peers' rows hide immediately; state
+  persists to `~/.config/mde/notification-mutes.toml`
+  (`[muted] "peer.mesh" = true`). A footer chip lists the
+  currently-muted set so the operator can see what they've
+  silenced.
+
+  Pure `parse_mutes(raw) → HashSet<String>` and
+  `serialize_mutes(set) → String` with quote-escape safety
+  + round-trip tests. 110 mde-popover tests pass (+4 mute
+  parse/serialize/round-trip/escape).
+
+  Remaining parity items (grouped-by-app rendering with
+  collapse, per-app filter pill row) chain on adding an
+  `app_id` field to `NotificationRow` which is a schema
+  change beyond this commit's scope. Captured as
+  **v4.0.1: BUG-8.c per-app schema + grouping** below if
+  the operator wants it.
+
+- [ ] **v4.0.1: BUG-8.c per-app schema + collapse-by-app** —
+  needs an `app_id` field added to
+  `mde-applet-notifications::NotificationRow` (writer side:
+  the notification daemon populates it from the DBus
+  source's appname). Then the popover can group by app
+  with a click-to-collapse header. Open until operator
+  asks for inline collapse vs nm-connection-editor-style
+  cards.
 - [✓] **v4.0.1: BUG-5 "Window Selector" — closed 2026-05-23 as
   superseded by DOCK-1 + WM-3 (which together deliver the
   fix this entry's diagnosis spelled out)**
