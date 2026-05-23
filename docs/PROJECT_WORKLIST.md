@@ -916,6 +916,55 @@ no new RPM cut.
   Acceptance: panel title area shows the focused window's title
   string (e.g. "Firefox — Wikipedia") with sway-cluster chips
   in their own zone.
+- [ ] **v4.0.1: BUG-14 Clock applet: switch to Win10 two-line
+  layout (Tier 2 operator-visible)** — `crates/mde-applets/
+  clock/` currently emits a single-line time string. Switch
+  to the Win10 stack: top line is the time (12-hour with
+  AM/PM per Win10 default), bottom line is the date
+  (`M/D/YYYY` per the same lock), right-aligned, ~11 px font.
+  Implementation: format `"{12h}\n{m/d/yyyy}"` in the applet
+  output, then update `top_bar.rs` clock zone to render two
+  text lines stacked vs the current single text widget.
+  Acceptance: clock zone shows two stacked lines matching
+  Win10 system-tray time/date arrangement.
+- [ ] **v4.0.1: BUG-13 Carbon icons missing across most of the
+  interface (Tier 0 — root cause for multiple lower bugs)** —
+  operator reports Carbon icon glyphs are absent across the
+  panel, start menu, applets, and likely workbench. This is
+  almost certainly the upstream cause of BUG-9 ("no icon"
+  in the network applet), the unillustrated start-menu rows,
+  and any other "shows text where an icon should be" symptom.
+  Hypotheses: (a) `data/icons/Mackes-Carbon/` SVGs ship in the
+  RPM but the running binaries reference them via wrong path
+  (e.g. hardcoded `/usr/share/icons/Mackes-Carbon/` vs the
+  actual install location); (b) iced's `svg::Handle::from_path`
+  fails silently on missing files and the widgets render as
+  empty boxes; (c) the icon-set is GTK-icon-theme registered
+  (`gtk-update-icon-cache` ran) but the Iced widgets are
+  hitting the disk path directly and the GTK side is
+  irrelevant; (d) the icon-mapper in `crates/mde-panel/src/
+  icon_mapper.rs` returns the right slug but the loader at
+  the call site doesn't actually pull the SVG bytes. Audit by:
+  (1) `find /usr/share/icons/Mackes-Carbon -name '*.svg' | wc
+  -l` to confirm the assets ship; (2) grep the Rust crates
+  for `include_bytes!`, `svg::Handle::`, `svg(...)` callers
+  + verify each compiles in the icon paths it expects; (3)
+  read mde-panel's icon-loading helper + cross-check that
+  popovers/applets reuse it. Acceptance: every glyph on the
+  panel chips + start-menu rows + applet trays renders with
+  its Carbon SVG; no blank icon slots remain.
+- [ ] **v4.0.1: BUG-12 Pin Files + Workbench at top of start
+  menu (Tier 1 operator-visible feature gap)** — operator
+  requested static, non-scrolling Files (mde-files) and
+  Workbench (mde-workbench) icons at the top of the start
+  menu, above the scrollable .desktop apps list. Add a fixed
+  "Pinned" row to `crates/mde-popover/src/start_menu.rs::view`
+  between the search input + "Applications" header and the
+  `scrollable(list)`. Two pinned tiles (icon + label), each
+  launching the respective binary via `launch_exec()`.
+  Acceptance: opening the start menu shows two large tiles
+  for Files + Workbench above the search results that stay
+  put while the apps list scrolls.
 - [ ] **v4.0.1: BUG-10 Window borders too thin — operator
   wants a thicker border around each window (Tier 1
   operator-visible)** — current sway config inherits the
