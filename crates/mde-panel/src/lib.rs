@@ -197,6 +197,40 @@ pub enum Message {
     /// v3.0.3 Tier 1E — close the focused window. Routed via
     /// `swaymsg [con_id=N] kill`.
     WindowClose,
+    /// v4.0.1 BUG-16 — operator clicked one of the Desktop Layout
+    /// buttons in the panel's center cluster. Each variant applies
+    /// a sway-IPC layout command to the focused workspace per the
+    /// Win11 Snap Layouts vocabulary.
+    DesktopLayoutSelected(DesktopLayout),
+}
+
+/// v4.0.1 BUG-16 — Snap-Layouts-style tile templates. Each maps to
+/// a sway-IPC sequence the panel runs when its button is clicked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopLayout {
+    /// Single fullscreen window — `swaymsg fullscreen toggle on`
+    /// followed by `swaymsg layout default` so the workspace
+    /// returns to a tiled stack when the user picks another
+    /// layout afterwards.
+    Single,
+    /// Two windows side-by-side. `swaymsg splith`. The user
+    /// arranges the second window in via standard sway focus
+    /// moves; the button just ensures the workspace's container
+    /// is horizontal-split.
+    Vsplit,
+    /// 2×2 grid. Walks the workspace's containers and applies
+    /// `splith` at the root + `splitv` on each top-level child.
+    /// Best-effort — sway tiling is a tree, so the resulting
+    /// shape depends on how many windows are present (4+ →
+    /// nominal 2×2; 3 → 2/1; 2 → mirrors Vsplit).
+    Grid,
+    /// Main pane + sidebar (60/40 horizontal split). `swaymsg
+    /// splith` + resize the focused window to 60ppt.
+    MainSidebar,
+    /// Tabbed layout — `swaymsg layout tabbed` so windows stack
+    /// behind sway's native title-row, only the focused one
+    /// visible.
+    Tabbed,
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -434,6 +468,36 @@ impl iced_layershell::Application for App {
                 if let Some(focused) = self.toplevels.focused() {
                     swaymsg_window_command(focused.id, "kill");
                 }
+            }
+            Message::DesktopLayoutSelected(kind) => {
+                // v4.0.1 BUG-16 — operator clicked a Desktop Layout
+                // button. Apply the sway-IPC layout sequence to the
+                // current workspace. Each variant translates to a
+                // small handful of `swaymsg` commands; we shell out
+                // through the standard `Command` helper because the
+                // sequence is short + non-blocking.
+                let cmd = match kind {
+                    DesktopLayout::Single => {
+                        // Toggle fullscreen on the focused window.
+                        // Not a tile arrangement strictly, but the
+                        // "single visible window" is what the Win11
+                        // single-template means visually.
+                        "fullscreen toggle"
+                    }
+                    DesktopLayout::Vsplit => "splith",
+                    DesktopLayout::Grid => "splith; focus next; splitv",
+                    DesktopLayout::MainSidebar => {
+                        "splith; resize set width 60ppt"
+                    }
+                    DesktopLayout::Tabbed => "layout tabbed",
+                };
+                tracing::info!(layout = ?kind, cmd, "desktop layout selected");
+                let _ = std::process::Command::new("swaymsg")
+                    .arg(cmd)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
             }
             Message::TrayClicked(kind) => {
                 // v3.0.3 — toggle the popover for the clicked

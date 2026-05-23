@@ -49,6 +49,16 @@ pub enum PanelIcon {
     Files,
     /// Workbench pinned start-menu tile.
     Workbench,
+    /// Desktop Layout — single (1 fullscreen). v4.0.1 BUG-16.
+    LayoutSingle,
+    /// Desktop Layout — vsplit (2 side-by-side). v4.0.1 BUG-16.
+    LayoutVsplit,
+    /// Desktop Layout — grid (2x2). v4.0.1 BUG-16.
+    LayoutGrid,
+    /// Desktop Layout — main + sidebar (60/40). v4.0.1 BUG-16.
+    LayoutMainSidebar,
+    /// Desktop Layout — tabbed. v4.0.1 BUG-16.
+    LayoutTabbed,
 }
 
 impl PanelIcon {
@@ -95,6 +105,21 @@ impl PanelIcon {
             PanelIcon::Workbench => {
                 include_bytes!("../../../assets/icons/carbon/workbench.svg")
             }
+            PanelIcon::LayoutSingle => {
+                include_bytes!("../../../assets/icons/carbon/layout-single.svg")
+            }
+            PanelIcon::LayoutVsplit => {
+                include_bytes!("../../../assets/icons/carbon/layout-vsplit.svg")
+            }
+            PanelIcon::LayoutGrid => {
+                include_bytes!("../../../assets/icons/carbon/layout-grid.svg")
+            }
+            PanelIcon::LayoutMainSidebar => {
+                include_bytes!("../../../assets/icons/carbon/layout-main-sidebar.svg")
+            }
+            PanelIcon::LayoutTabbed => {
+                include_bytes!("../../../assets/icons/carbon/layout-tabbed.svg")
+            }
         }
     }
 
@@ -129,6 +154,11 @@ mod tests {
             PanelIcon::WindowClose,
             PanelIcon::Files,
             PanelIcon::Workbench,
+            PanelIcon::LayoutSingle,
+            PanelIcon::LayoutVsplit,
+            PanelIcon::LayoutGrid,
+            PanelIcon::LayoutMainSidebar,
+            PanelIcon::LayoutTabbed,
         ] {
             let bytes = icon.bytes();
             assert!(bytes.len() > 32, "{icon:?} bytes too small: {}", bytes.len());

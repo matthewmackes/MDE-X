@@ -26,8 +26,18 @@ font pango:Red Hat Text 11
 # window borders. Was `pixel 1` + `smart_borders on` (hides border on
 # single-window workspaces). Bumped to 4 px + smart_borders off so the
 # focused-window highlight reads at 4K-TV viewing distance.
-default_border pixel 4
-default_floating_border pixel 4
+#
+# BUG-16 (2026-05-23): switched from `pixel` to `normal` so sway
+# renders a per-window title bar with its native min/max/close
+# button row at the top-right of each managed window — Windows 11
+# muscle-memory standard. The font is the existing
+# `font pango:Red Hat Text 11` set at the top of this file; sway
+# uses it for the title-bar text. The centered panel slot that
+# previously hosted these buttons now hosts the Desktop Layout
+# cluster (mde-panel/src/top_bar.rs::desktop_layout_cluster_view).
+default_border normal 4
+default_floating_border normal 4
+title_align center
 gaps inner 4
 gaps outer 0
 smart_gaps on

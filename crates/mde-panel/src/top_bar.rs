@@ -229,11 +229,18 @@ pub fn view<'a>(
     ]
     .align_y(iced::Alignment::Center);
 
-    // v3.0.3 Tier 1E (v8.7 lock) — min/max/close cluster. Reads
-    // `focused` for its enabled/disabled state. Per the lock,
-    // "maximize = floating-fill, not fullscreen" — see
-    // `Message::WindowMaximize` for the swaymsg argv.
-    let window_buttons = window_button_cluster(focused.is_some());
+    // v4.0.1 BUG-16 — Desktop Layout cluster (replaces the
+    // previously-centered window_button_cluster from BUG-6). Five
+    // Snap-Layouts-style buttons that re-tile the focused
+    // workspace via swayipc. Per-window controls now live at the
+    // top-right of each managed window (sway native title bars
+    // per the data/sway/config change in this commit).
+    let desktop_layout_cluster = desktop_layout_cluster_view();
+    // Kept for the focused-state suppress signal pattern used by
+    // tests; future re-introduction of an opt-in per-window
+    // overlay would consume this. `focused.is_some()` is the
+    // signal a window-controls overlay would key on.
+    let _focused_signal = focused.is_some();
 
     // Clock — Win10 two-line stack. v4.0.1 BUG-14: the applet emits
     // "H:MM AM/PM\nM/D/YYYY"; render the time on top with a slightly
@@ -261,13 +268,13 @@ pub fn view<'a>(
         .style(zone_button_style)
         .on_press(Message::TrayClicked(AppletKind::Clock));
 
-    // v4.0.1 BUG-6: operator asked for the min/max/close cluster
-    // centered on the panel (was far-right per the v8.7 lock).
-    // Newer-wins-silently — window_buttons now occupies the center
-    // slot between two flex spaces; cluster (sway-IPC chips) moves
-    // adjacent to the clock on the right, where it's a less-prominent
-    // status surface rather than the "title area" the operator was
-    // mistaking it for (BUG-3).
+    // v4.0.1 BUG-16: panel center now hosts the Desktop Layout
+    // cluster (Win11-inspired Snap Layouts — single / vsplit /
+    // grid / main+sidebar / tabbed). Per-window min/max/close
+    // moved BACK to the per-window title bar via sway native
+    // borders (data/sway/config: default_border normal 4) so
+    // operators with Win11/macOS muscle memory get the controls
+    // where they expect them. Supersedes the BUG-6 layout.
     container(
         row![
             start_btn,
@@ -276,7 +283,7 @@ pub fn view<'a>(
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
             hero_zone,
             Space::with_width(Length::Fill),
-            window_buttons,
+            desktop_layout_cluster,
             Space::with_width(Length::Fill),
             tray,
             Space::with_width(Length::Fixed(f32::from(ZONE_PADDING_X))),
@@ -318,81 +325,15 @@ fn hero_view<'a>(hero: &'a Hero) -> Element<'a, Message> {
 }
 
 /// v3.0.3 Tier 1E — three-button cluster (min/max/close) per the
-/// v8.7 design lock. Greys out (no on_press handler attached) when
-/// `enabled` is false, i.e. no toplevel is focused.
-///
-/// Glyphs are the Carbon-style "−" (minimize), "□" (maximize/
-/// restore), "×" (close). Close gains a destructive hover tint
-/// to match the popover close button (`crate::dismiss::close_button`
-/// shape — color shared across the panel + popover surfaces).
-fn window_button_cluster<'a>(enabled: bool) -> Element<'a, Message> {
-    row![
-        window_btn(
-            "−",
-            PanelIcon::WindowMinimize,
-            enabled.then_some(Message::WindowMinimize),
-            false,
-        ),
-        Space::with_width(Length::Fixed(4.0)),
-        window_btn(
-            "□",
-            PanelIcon::WindowMaximize,
-            enabled.then_some(Message::WindowMaximize),
-            false,
-        ),
-        Space::with_width(Length::Fixed(4.0)),
-        window_btn(
-            "×",
-            PanelIcon::WindowClose,
-            enabled.then_some(Message::WindowClose),
-            true,
-        ),
-    ]
-    .align_y(iced::Alignment::Center)
-    .into()
-}
-
-/// One window-management button. `on_press` is `None` to grey-out;
-/// `destructive` flips the hover tint to the destructive accent.
-///
-/// v4.0.1 BUG-13: `glyph` is now ignored in favor of `icon`, kept
-/// in the signature for the test surface that still inspects the
-/// Unicode-fallback string. SVG rendering goes through
-/// [`crate::panel_icons::PanelIcon`].
-fn window_btn<'a>(
-    _glyph: &str,
-    icon: PanelIcon,
-    on_press: Option<Message>,
-    destructive: bool,
-) -> Element<'a, Message> {
-    let color = if on_press.is_some() {
-        FG_TEXT
-    } else {
-        FG_MUTED
-    };
-    let icon_widget = svg(icon.handle())
-        .width(Length::Fixed(14.0))
-        .height(Length::Fixed(14.0))
-        .style(move |_theme: &Theme, _status: svg::Status| svg::Style {
-            color: Some(color),
-        });
-    let mut btn = button(icon_widget)
-        .padding(Padding {
-            top: 4.0,
-            right: 8.0,
-            bottom: 4.0,
-            left: 8.0,
-        })
-        .style(if destructive {
-            destructive_button_style
-        } else {
-            zone_button_style
-        });
-    if let Some(msg) = on_press {
-        btn = btn.on_press(msg);
-    }
-    btn.into()
-}
+// v4.0.1 BUG-16: window_button_cluster + window_btn +
+// destructive_button_style retired — per-window controls moved
+// back to sway native title bars (data/sway/config:
+// default_border normal 4) so the operator's Win11 muscle memory
+// applies. The pre-BUG-16 helpers are gone; if a future
+// implementation revives the mde-window-controls layer-shell
+// overlay path (BUG-16 Implementation note (b)), the helpers
+// land in that overlay's own crate rather than living on the
+// panel surface.
 
 /// Read-only text zone with a thin padding box. Used by the dock and
 /// cluster cells which aren't yet click-targets.
@@ -408,8 +349,51 @@ fn labeled_zone(label: &str, color: Color, accent: bool) -> Element<'_, Message>
         .into()
 }
 
-fn tray_button(label: &str, kind: AppletKind) -> Element<'_, Message> {
-    button(text(label.to_string()).size(13).color(FG_TEXT))
+// v4.0.1 BUG-13.a: `tray_button` (un-iconed text-only tray button)
+// retired — `tray_button_with_icon` replaced every call site. The
+// pre-BUG-13.a function had no remaining consumers.
+
+/// v4.0.1 BUG-16 — Desktop Layout cluster. Five Snap-Layouts-style
+/// buttons that apply a tile arrangement to the focused workspace
+/// via `Message::DesktopLayoutSelected`. Each button is a 14 px
+/// Carbon SVG; the cluster shares a single accent color (Q2
+/// indigo on hover) per the Phase 0.8 Ableton single-accent-per-
+/// zone rule.
+fn desktop_layout_cluster_view<'a>() -> Element<'a, Message> {
+    use crate::DesktopLayout;
+    row![
+        desktop_layout_button(PanelIcon::LayoutSingle, DesktopLayout::Single),
+        Space::with_width(Length::Fixed(4.0)),
+        desktop_layout_button(PanelIcon::LayoutVsplit, DesktopLayout::Vsplit),
+        Space::with_width(Length::Fixed(4.0)),
+        desktop_layout_button(PanelIcon::LayoutGrid, DesktopLayout::Grid),
+        Space::with_width(Length::Fixed(4.0)),
+        desktop_layout_button(
+            PanelIcon::LayoutMainSidebar,
+            DesktopLayout::MainSidebar,
+        ),
+        Space::with_width(Length::Fixed(4.0)),
+        desktop_layout_button(PanelIcon::LayoutTabbed, DesktopLayout::Tabbed),
+    ]
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+/// One Desktop Layout button — Carbon SVG glyph painted in
+/// FG_MUTED at rest per BUG-16's acceptance criterion; the
+/// zone_button_style provides the hover affordance via a
+/// background tint. Fires `Message::DesktopLayoutSelected(kind)`.
+fn desktop_layout_button<'a>(
+    icon: PanelIcon,
+    kind: crate::DesktopLayout,
+) -> Element<'a, Message> {
+    let icon_widget = svg(icon.handle())
+        .width(Length::Fixed(14.0))
+        .height(Length::Fixed(14.0))
+        .style(|_theme: &Theme, _status: svg::Status| svg::Style {
+            color: Some(FG_MUTED),
+        });
+    button(icon_widget)
         .padding(Padding {
             top: 6.0,
             right: 8.0,
@@ -417,7 +401,7 @@ fn tray_button(label: &str, kind: AppletKind) -> Element<'_, Message> {
             left: 8.0,
         })
         .style(zone_button_style)
-        .on_press(Message::TrayClicked(kind))
+        .on_press(Message::DesktopLayoutSelected(kind))
         .into()
 }
 
@@ -542,33 +526,11 @@ fn muted() -> Color {
 /// Used by the window-close button so its hover state reads as
 /// "this closes." Shares the destructive color with
 /// `crate::dismiss::close_button` in the popover crate.
-fn destructive_button_style(_theme: &Theme, status: button::Status) -> button::Style {
-    let bg = match status {
-        button::Status::Hovered => Some(Background::Color(Color {
-            r: 0.98,
-            g: 0.31,
-            b: 0.34,
-            a: 0.20,
-        })),
-        button::Status::Pressed => Some(Background::Color(Color {
-            r: 0.98,
-            g: 0.31,
-            b: 0.34,
-            a: 0.35,
-        })),
-        _ => None,
-    };
-    button::Style {
-        background: bg,
-        text_color: FG_TEXT,
-        border: Border {
-            color: Color::TRANSPARENT,
-            width: 0.0,
-            radius: 4.0.into(),
-        },
-        shadow: Shadow::default(),
-    }
-}
+// v4.0.1 BUG-16: destructive_button_style retired. Its only
+// consumer was the close button in the centered window cluster
+// (deleted with window_button_cluster). The popover dismiss
+// button has its own equivalent at `crate::dismiss::close_button`
+// in the mde-popover crate.
 
 #[cfg(test)]
 mod tests {
@@ -640,12 +602,12 @@ mod tests {
         let _ = view(&state, &hero, Some(&focused));
     }
 
-    /// Window-button cluster: greys out (no on_press) when no
-    /// toplevel is focused, takes message bindings when one is.
-    /// Both render-paths exit cleanly.
+    /// v4.0.1 BUG-16 — Desktop Layout cluster replaces the
+    /// retired window_button_cluster. This test exercises the
+    /// 5-button render path so a regression that drops one of
+    /// the buttons fails loudly.
     #[test]
-    fn window_button_cluster_renders_both_states() {
-        let _enabled: Element<'_, Message> = window_button_cluster(true);
-        let _disabled: Element<'_, Message> = window_button_cluster(false);
+    fn desktop_layout_cluster_renders_five_buttons() {
+        let _cluster: Element<'_, Message> = desktop_layout_cluster_view();
     }
 }

@@ -1121,9 +1121,9 @@ no new RPM cut.
   palette's focused/unfocused color contrast becomes visibly
   distinct. Operator can request 6 px (or back to 2) if 4 ends
   up too heavy at desk distance.
-- [ ] **v4.0.1: BUG-16 per-window controls → Win11 standard
+- [✓] **v4.0.1: BUG-16 per-window controls → Win11 standard
   location; panel center → Desktop Layout buttons (Tier 1
-  chrome)**
+  chrome) — shipped 2026-05-23**
 
   **As** an operator,
   **I want** the minimize / maximize / close buttons to live at
