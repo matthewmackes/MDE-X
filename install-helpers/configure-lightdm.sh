@@ -25,7 +25,13 @@ ACCENT_HEX="${ACCENT[$PRESET]:-#fa4d56}"
 
 WALLPAPER="/usr/share/mackes-shell/branding/standard-wallpaper.png"
 GTK_THEME="Orchis-Dark"
-ICON_THEME="Black-Sun"
+# v4.0.1 Q36: lock requires Carbon glyphs on the greeter for visual
+# continuity with the desktop. Mackes-Carbon is the icon set the
+# Workbench + panel use; pinning it here means the LightDM
+# indicators (clock / session / language / a11y / power) render in
+# the same Carbon line-weight style. Was Black-Sun (a third-party
+# icon set) before this commit.
+ICON_THEME="Mackes-Carbon"
 FONT="Red Hat Text 11"
 
 CONF_DIR="/etc/lightdm"

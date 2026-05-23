@@ -1217,22 +1217,34 @@ license," "add guard," "add CI gate"); a few are scope
 clarifications ("Phase G migration in or out of v4.x?"). Working
 through them in priority order.
 
-- [ ] **v4.0.1: lightdm-gtk-greeter Mackes theme assets (Q36
-  v3.0.0 lock)** — Q36 in
-  `docs/design/v3.0.0-mackes-xfce-workstation.md` locks "20 px
-  dark stripe, Carbon glyphs, Red Hat fonts for visual
-  continuity" on the login greeter. No theme assets ship today.
-  Generate the GTK CSS theme + add to `packaging/fedora/
-  mackes-shell.spec` install lines. Acceptance: fresh
-  `dnf install mde && reboot` shows the Mackes greeter at the
-  login prompt rather than vanilla LightDM.
-- [ ] **v4.0.1: Plymouth theme rebuild (Q37 v3.0.0 lock)** —
-  Q37 locks "black bg + Mackes logo + 20 px progress line at
-  bottom". Build the Plymouth theme directory
-  (`data/plymouth/mackes/{mackes.plymouth,mackes.script,logo.png}`),
-  add spec install lines, register via
-  `plymouth-set-default-theme mackes`. Acceptance: cold boot
-  shows the Mackes splash with the progress line.
+- [>] **v4.0.1: lightdm-gtk-greeter Carbon glyphs +
+  fonts (partial 2026-05-23, Mackes GTK theme deferred)** —
+  Q36 in `docs/design/v3.0.0-mackes-xfce-workstation.md`
+  locks "20 px dark stripe, Carbon glyphs, Red Hat fonts for
+  visual continuity". Audit:
+  * `install-helpers/configure-lightdm.sh` already configures
+    a dark wallpaper + `font-name=Red Hat Text 11`, so font
+    continuity ✓.
+  * `icon-theme-name` was `Black-Sun` (third-party); flipped
+    to `Mackes-Carbon` in this commit so greeter indicators
+    (clock / session / language / a11y / power) render in
+    the same Carbon line-weight style as the desktop.
+  Remaining (v4.0.2): bundle a proper Mackes-styled GTK
+  theme matching Q36's "20 px dark stripe" panel chrome
+  (currently uses the third-party Orchis-Dark theme — close
+  but not on-brand). Acceptance for full close: fresh `dnf
+  install mde && reboot` shows a greeter with a Carbon-
+  styled panel stripe (not the Orchis-Dark variant).
+- [✓] **v4.0.1: Plymouth theme — already shipped (verified
+  2026-05-23)** — audit found the work was complete: theme
+  directory exists at `data/plymouth/mackes/{mackes.plymouth,
+  mackes.script,logo.png}`; spec installs it to
+  `/usr/share/plymouth/themes/mackes/` (line 393-394) and
+  Requires `plymouth + plymouth-scripts`; activation runs at
+  birthright-apply time via `mackes/birthright.py::apply_plymouth`
+  (line 459) which exec's `plymouth-set-default-theme mackes
+  -R` to regenerate initrd. Worklist entry was stale —
+  reading the planning doc didn't cross-check the tree.
 - [ ] **v4.0.1: panel.toml sync-status surface in Look & Feel
   (Q18-Q22 v3.0.0 lock)** — drift-monitored TOML mesh sync
   ships (mackesd workers active); the user-visible status
