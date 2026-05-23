@@ -1,76 +1,102 @@
-//! Data model for the Artifact Manager — Rust port of the FM_* types in the prototype.
+//! Data model for the Artifact Manager — Rust port of the FM_*
+//! types in the prototype.
+//!
+//! v4.0.1 AF-* mega (2026-05-23) — Phase G migration: every
+//! `&'static str` field becomes `String` so the same struct can
+//! carry dummy (`DemoBackend`) data and live (`DBusBackend`,
+//! `LocalFsBackend`) data without a separate wire-type per
+//! source. `Copy` is dropped from the carrier structs; the
+//! enum-like value types (`PinIcon`, `Mime`, `PeerKind`,
+//! `PeerStatus`, `TxDir`, `LatencyBucket`, `Layout`) stay
+//! `Copy` because they're tiny.
+//!
+//! `View::Peer` carries `String` now (was `&'static str`). The
+//! `View` enum drops `Copy` as a consequence — Iced state
+//! `Clone`s its `View` field on every render, so the runtime
+//! cost is one Arc-free `String::clone` per render. The
+//! ergonomic cost is that callsites doing `let v = self.view;`
+//! become `let v = self.view.clone();`.
 
-/// A mesh peer (the rows in the sidebar's MESH section + the cards in the overview).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A mesh peer (the rows in the sidebar's MESH section + the
+/// cards in the overview).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Peer {
-    pub id: &'static str,
-    pub host: &'static str,
-    pub label: &'static str,
+    pub id: String,
+    pub host: String,
+    pub label: String,
     pub kind: PeerKind,
-    pub addr: &'static str,
+    pub addr: String,
     pub status: PeerStatus,
     /// Milliseconds. `None` when the peer is offline.
     pub latency: Option<u32>,
     pub files: u32,
     pub shared: u32,
-    /// Human-readable "last seen" stamp (e.g. `"now"`, `"3 min"`, `"2 h ago"`).
-    pub last: &'static str,
-    pub derp: &'static str,
+    /// Human-readable "last seen" stamp (e.g. `"now"`, `"3 min"`,
+    /// `"2 h ago"`).
+    pub last: String,
+    pub derp: String,
 }
 
-/// The local node ("this node"). Distinguished from peers because the UI tints it
-/// with the rust accent instead of the success-green online dot.
-#[derive(Debug, Clone, Copy)]
+/// The local node ("this node"). Distinguished from peers because
+/// the UI tints it with the rust accent instead of the
+/// success-green online dot.
+#[derive(Debug, Clone, Default)]
 pub struct SelfNode {
-    pub id: &'static str,
-    pub host: &'static str,
-    pub label: &'static str,
-    pub addr: &'static str,
+    pub id: String,
+    pub host: String,
+    pub label: String,
+    pub addr: String,
     pub files: u32,
     pub shared: u32,
 }
 
-/// One row in a file list. `mesh` and `from` both attribute the file to a peer; the
-/// prototype uses `mesh` for Downloads-style listings and `from` for Inbox-style
-/// listings. The visual pill is the same in both cases.
-#[derive(Debug, Clone, Copy)]
+/// One row in a file list. `mesh` and `from` both attribute the
+/// file to a peer; the prototype uses `mesh` for Downloads-style
+/// listings and `from` for Inbox-style listings. The visual pill
+/// is the same in both cases.
+#[derive(Debug, Clone)]
 pub struct FileRow {
-    pub name: &'static str,
+    pub name: String,
     pub mime: Mime,
-    pub size: &'static str,
-    pub age: &'static str,
-    pub mesh: Option<&'static str>,
-    pub from: Option<&'static str>,
+    pub size: String,
+    pub age: String,
+    pub mesh: Option<String>,
+    pub from: Option<String>,
 }
 
 impl FileRow {
     #[must_use]
-    pub fn local(name: &'static str, mime: Mime, size: &'static str, age: &'static str) -> Self {
+    pub fn local(
+        name: impl Into<String>,
+        mime: Mime,
+        size: impl Into<String>,
+        age: impl Into<String>,
+    ) -> Self {
         Self {
-            name,
+            name: name.into(),
             mime,
-            size,
-            age,
+            size: size.into(),
+            age: age.into(),
             mesh: None,
             from: None,
         }
     }
 
     #[must_use]
-    pub fn with_mesh(mut self, peer_host: &'static str) -> Self {
-        self.mesh = Some(peer_host);
+    pub fn with_mesh(mut self, peer_host: impl Into<String>) -> Self {
+        self.mesh = Some(peer_host.into());
         self
     }
 
     #[must_use]
-    pub fn with_from(mut self, peer_host: &'static str) -> Self {
-        self.from = Some(peer_host);
+    pub fn with_from(mut self, peer_host: impl Into<String>) -> Self {
+        self.from = Some(peer_host.into());
         self
     }
 
     #[must_use]
-    pub fn origin(&self) -> Option<&'static str> {
-        self.mesh.or(self.from)
+    pub fn origin(&self) -> Option<&str> {
+        self.mesh.as_deref().or(self.from.as_deref())
     }
 
     #[must_use]
@@ -79,12 +105,12 @@ impl FileRow {
     }
 }
 
-/// A pin in the local-veil grid (Home / Documents / Pictures / …).
-#[derive(Debug, Clone, Copy)]
+/// A pin in the local-veil grid (Home / Documents / Pictures /…).
+#[derive(Debug, Clone)]
 pub struct LocalPin {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub path: &'static str,
+    pub id: String,
+    pub name: String,
+    pub path: String,
     pub icon: PinIcon,
 }
 
@@ -102,13 +128,13 @@ pub enum PinIcon {
 }
 
 /// A short transfer-log row in the Mesh Overview.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Transfer {
     pub dir: TxDir,
-    pub name: &'static str,
-    pub peer: &'static str,
-    pub size: &'static str,
-    pub age: &'static str,
+    pub name: String,
+    pub peer: String,
+    pub size: String,
+    pub age: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,12 +171,13 @@ pub enum Mime {
 
 /// Current routing target for the main content area.
 ///
-/// Default is `MeshOverview` — the mesh is the home base, not the local filesystem.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Default is `MeshOverview` — the mesh is the home base, not
+/// the local filesystem.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
     MeshOverview,
     Inbox,
-    Peer(&'static str),
+    Peer(String),
     Downloads,
     Local,
 }
@@ -162,9 +189,10 @@ impl Default for View {
 }
 
 impl View {
-    /// True for any view that operates on mesh content (mesh overview, inbox, a peer folder).
+    /// True for any view that operates on mesh content (mesh
+    /// overview, inbox, a peer folder).
     #[must_use]
-    pub fn is_mesh(self) -> bool {
+    pub fn is_mesh(&self) -> bool {
         matches!(self, Self::MeshOverview | Self::Inbox | Self::Peer(_))
     }
 }
@@ -176,7 +204,8 @@ pub enum Layout {
     Grid,
 }
 
-/// Format an `u32` the way the prototype's `fmt()` does: ≥1000 → `4.9k`, ≥10000 → `18k`.
+/// Format an `u32` the way the prototype's `fmt()` does:
+/// ≥1000 → `4.9k`, ≥10000 → `18k`.
 #[must_use]
 pub fn fmt_count(n: u32) -> String {
     if n >= 10_000 {
@@ -189,7 +218,8 @@ pub fn fmt_count(n: u32) -> String {
     }
 }
 
-/// Latency colour bucket for peer-card meta rows. Matches `lat-good` (<50 ms) and `lat-ok` (<150 ms).
+/// Latency colour bucket for peer-card meta rows. Matches
+/// `lat-good` (<50 ms) and `lat-ok` (<150 ms).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LatencyBucket {
     Good,
@@ -235,7 +265,7 @@ mod tests {
     fn view_is_mesh_recognises_peer_variants() {
         assert!(View::MeshOverview.is_mesh());
         assert!(View::Inbox.is_mesh());
-        assert!(View::Peer("pine").is_mesh());
+        assert!(View::Peer("pine".into()).is_mesh());
         assert!(!View::Downloads.is_mesh());
         assert!(!View::Local.is_mesh());
     }

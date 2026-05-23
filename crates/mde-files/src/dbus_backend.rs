@@ -25,11 +25,14 @@
 
 #![cfg(feature = "dbus")]
 
+use std::time::Duration;
+
 use serde::Deserialize;
 use tokio::runtime::Runtime;
 use zbus::{Connection, Proxy};
 
 use crate::backend::{BackendError, ConflictPolicy, Destination, SendMode};
+use crate::model::{FileRow, Mime, Peer, PeerKind, PeerStatus, SelfNode};
 
 /// D-Bus destination — well-known bus name registered by mackesd.
 pub const BUS_NAME: &str = "org.mackes.mackesd";
@@ -106,15 +109,111 @@ impl DBusBackend {
     /// Returns `BackendError::Rejected` if the runtime fails to
     /// build or the connection cannot be opened.
     pub fn connect() -> Result<Self, BackendError> {
+        Self::connect_with_timeout(Duration::from_secs(2))
+    }
+
+    /// Connect to the session bus + verify mackesd is actually
+    /// reachable (NameHasOwner check on the well-known bus name)
+    /// within `timeout`. Returns `BackendError::Rejected` quickly
+    /// when mackesd isn't running so the App can fall back to a
+    /// local-only backend without freezing the UI thread for
+    /// dbus-defaults timeouts.
+    pub fn connect_with_timeout(timeout: Duration) -> Result<Self, BackendError> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
             .build()
             .map_err(|e| BackendError::Rejected(format!("tokio runtime: {e}")))?;
         let connection = rt
-            .block_on(Connection::session())
-            .map_err(|e| BackendError::Rejected(format!("session bus: {e}")))?;
+            .block_on(async {
+                tokio::time::timeout(timeout, Connection::session())
+                    .await
+                    .map_err(|_| BackendError::Rejected("session bus: timeout".into()))?
+                    .map_err(|e| BackendError::Rejected(format!("session bus: {e}")))
+            })?;
+        // Probe: NameHasOwner(BUS_NAME). If false, mackesd isn't
+        // running and we should fall back rather than wait for
+        // the first real call to time out.
+        let alive: bool = rt
+            .block_on(async {
+                let dbus_proxy = Proxy::new(
+                    &connection,
+                    "org.freedesktop.DBus",
+                    "/org/freedesktop/DBus",
+                    "org.freedesktop.DBus",
+                )
+                .await
+                .map_err(|e| BackendError::Rejected(format!("dbus proxy: {e}")))?;
+                let res: zbus::Result<bool> = tokio::time::timeout(timeout, async {
+                    dbus_proxy
+                        .call_method("NameHasOwner", &(BUS_NAME,))
+                        .await?
+                        .body()
+                        .deserialize::<bool>()
+                })
+                .await
+                .map_err(|_| zbus::Error::Failure("NameHasOwner timeout".into()))
+                .and_then(|x| x);
+                res.map_err(|e| BackendError::Rejected(format!("NameHasOwner: {e}")))
+            })?;
+        if !alive {
+            return Err(BackendError::Rejected(format!(
+                "{BUS_NAME} not on the session bus"
+            )));
+        }
         Ok(Self { rt, connection })
+    }
+
+    /// Fetch the JSON-encoded SelfNode from mackesd and decode into
+    /// the UI's [`SelfNode`] model. Returns `BackendError::Rejected`
+    /// if the call fails or the body fails to decode.
+    pub fn self_node(&self) -> Result<SelfNode, BackendError> {
+        let raw =
+            self.call_string_method(FLEET_FILES_OBJECT_PATH, FLEET_FILES_INTERFACE, "SelfNode")?;
+        let w = parse_self_node(&raw)
+            .ok_or_else(|| BackendError::Rejected(format!("self_node decode failed: {raw}")))?;
+        Ok(SelfNode {
+            id: format!("self:{}", w.host),
+            host: w.host,
+            label: "this node".into(),
+            addr: w.region,
+            files: 0,
+            shared: 0,
+        })
+    }
+
+    /// Fetch the JSON-encoded peers array and decode into the UI's
+    /// [`Peer`] model.
+    pub fn peers(&self) -> Result<Vec<Peer>, BackendError> {
+        let raw =
+            self.call_string_method(FLEET_FILES_OBJECT_PATH, FLEET_FILES_INTERFACE, "Peers")?;
+        let wires = parse_peers(&raw)
+            .ok_or_else(|| BackendError::Rejected(format!("peers decode failed: {raw}")))?;
+        Ok(wires.into_iter().map(WirePeer::into_model).collect())
+    }
+
+    /// Fetch the JSON-encoded list of files visible under a peer.
+    pub fn list_peer(&self, peer: &str) -> Result<Vec<FileRow>, BackendError> {
+        let raw = self.rt.block_on(async {
+            let proxy = Proxy::new(
+                &self.connection,
+                BUS_NAME,
+                FLEET_FILES_OBJECT_PATH,
+                FLEET_FILES_INTERFACE,
+            )
+            .await
+            .map_err(|e| BackendError::Rejected(format!("proxy: {e}")))?;
+            proxy
+                .call_method("ListPeer", &(peer,))
+                .await
+                .map_err(|e| BackendError::Rejected(format!("ListPeer({peer}): {e}")))?
+                .body()
+                .deserialize::<String>()
+                .map_err(|e| BackendError::Rejected(format!("decode ListPeer: {e}")))
+        })?;
+        let wires = parse_files(&raw)
+            .ok_or_else(|| BackendError::Rejected(format!("list_peer decode failed: {raw}")))?;
+        Ok(wires.into_iter().map(WireFileRow::into_model).collect())
     }
 
     /// Call a method that returns a JSON string body. Surfaces
@@ -144,6 +243,98 @@ impl DBusBackend {
                 .deserialize::<String>()
                 .map_err(|e| BackendError::Rejected(format!("decode {iface}.{method}: {e}")))
         })
+    }
+}
+
+// ---- wire → UI model bridges -------------------------------------
+
+impl WirePeer {
+    /// Translate the JSON-wire peer into the UI's [`Peer`] type.
+    /// Unknown `kind`/`status` strings fall back to sensible
+    /// defaults so an unrecognised peer still renders rather
+    /// than disappearing from the roster.
+    #[must_use]
+    pub fn into_model(self) -> Peer {
+        let kind = match self.kind.as_str() {
+            "server" | "nas" => PeerKind::Server,
+            "phone" | "mobile" => PeerKind::Phone,
+            "ci" | "runner" => PeerKind::Ci,
+            _ => PeerKind::Desktop,
+        };
+        let status = match self.status.as_str() {
+            "online" | "healthy" => PeerStatus::Online,
+            "idle" | "degraded" => PeerStatus::Idle,
+            _ => PeerStatus::Offline,
+        };
+        Peer {
+            id: self.name.clone(),
+            host: format!("{}.mesh", self.name),
+            label: self.name.clone(),
+            kind,
+            addr: self.addr,
+            status,
+            latency: None,
+            files: 0,
+            shared: 0,
+            last: String::new(),
+            derp: String::new(),
+        }
+    }
+}
+
+impl WireFileRow {
+    /// Translate the JSON-wire file row into the UI's [`FileRow`]
+    /// type. Sizes get formatted via the shared `fmt_bytes`
+    /// helper (mirrors `backend::fmt_bytes`); modified-ms turns
+    /// into a relative-age string ("4 min", "1 h").
+    #[must_use]
+    pub fn into_model(self) -> FileRow {
+        let mime = match self.mime.as_str() {
+            "folder" | "dir" => Mime::Folder,
+            "image" | "img" => Mime::Image,
+            "pdf" => Mime::Pdf,
+            "archive" | "zip" | "tar" => Mime::Archive,
+            "disk" | "iso" | "qcow2" => Mime::Disk,
+            _ => Mime::Doc,
+        };
+        let row = FileRow::local(self.name, mime, fmt_bytes_u64(self.size), fmt_age_ms(self.modified_ms));
+        if self.peer.is_empty() {
+            row
+        } else {
+            row.with_from(self.peer)
+        }
+    }
+}
+
+fn fmt_bytes_u64(n: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    if n >= GB {
+        format!("{:.1} GB", n as f64 / GB as f64)
+    } else if n >= MB {
+        format!("{:.1} MB", n as f64 / MB as f64)
+    } else if n >= KB {
+        format!("{} KB", n / KB)
+    } else {
+        format!("{n} B")
+    }
+}
+
+fn fmt_age_ms(modified_ms: i64) -> String {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let delta = (now_ms - modified_ms).max(0);
+    let secs = delta / 1000;
+    if secs < 60 {
+        format!("{secs} s")
+    } else if secs < 3600 {
+        format!("{} min", secs / 60)
+    } else if secs < 86_400 {
+        format!("{} h", secs / 3600)
+    } else if secs < 30 * 86_400 {
+        format!("{} d", secs / 86_400)
+    } else {
+        "—".into()
     }
 }
 

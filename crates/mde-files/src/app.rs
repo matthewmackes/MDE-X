@@ -3,7 +3,7 @@
 use iced::widget::{column, container, row, scrollable};
 use iced::{Background, Border, Color, Element, Length, Padding, Size, Task, Theme};
 
-use crate::demo_data as data;
+use crate::backend::{Backend, BackendSnapshot, RealBackend};
 use crate::model::{Layout, View};
 use crate::panels::{
     ContextMenu, ContextMenuItem, DetailsPanel, DragSession, DragTarget, OpRow, OperationDrawer,
@@ -24,8 +24,8 @@ pub enum Message {
     TitlebarMinimize,
     TitlebarMaximize,
     TitlebarClose,
-    PeerCardBrowse(&'static str),
-    PeerCardSend(&'static str),
+    PeerCardBrowse(String),
+    PeerCardSend(String),
     PrimaryAction,
     /// v2.0.0 Phase 1.3 — plain click on a file row.
     RowClick(String),
@@ -109,8 +109,21 @@ pub struct Crumb {
     pub mesh: bool,
 }
 
-#[derive(Debug, Default)]
 pub struct MdeFiles {
+    /// v4.0.1 AF-* (2026-05-23) — backend that supplies the
+    /// rendered roster + file lists. Defaults to `RealBackend`
+    /// in production builds (LocalFsBackend + DBusBackend
+    /// composed); tests can swap a `DemoBackend` via
+    /// `MdeFiles::with_backend`.
+    pub backend: Box<dyn Backend>,
+    /// v4.0.1 AF-* — last `BackendSnapshot` captured. Refreshed
+    /// in `update()` so `view()` returns an `Element` tied to
+    /// `&self`'s lifetime (Iced can't borrow from a local).
+    pub snapshot: BackendSnapshot,
+    /// v4.0.1 AF-* — files loaded for the currently-active peer
+    /// view. Refreshed when `View::Peer` is entered so `view()`
+    /// can borrow without re-querying the backend per render.
+    pub peer_files: Vec<crate::model::FileRow>,
     pub view: View,
     pub local_open: bool,
     pub layout: Layout,
@@ -176,10 +189,44 @@ impl KeyboardPane {
     }
 }
 
+impl Default for MdeFiles {
+    fn default() -> Self {
+        let backend: Box<dyn Backend> = Box::new(RealBackend::new());
+        let snapshot = BackendSnapshot::capture(&*backend);
+        Self {
+            backend,
+            snapshot,
+            peer_files: Vec::new(),
+            view: View::default(),
+            local_open: false,
+            layout: Layout::default(),
+            search: String::new(),
+            selection: Selection::default(),
+            details: DetailsPanel::default(),
+            context_menu: ContextMenu::default(),
+            op_drawer: OperationDrawer::default(),
+            drag: DragSession::default(),
+            a11y: Accessibility::default(),
+            keyboard_pane: KeyboardPane::default(),
+            keyboard_active: false,
+        }
+    }
+}
+
 impl MdeFiles {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Build with an injected backend (useful for unit tests +
+    /// dev modes). Production code lands through `Default`.
+    #[must_use]
+    pub fn with_backend(backend: Box<dyn Backend>) -> Self {
+        Self {
+            backend,
+            ..Self::default()
+        }
     }
 
     /// Run the Iced application.
@@ -207,8 +254,9 @@ impl MdeFiles {
     pub fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
             Message::SelectView(v) => {
+                let is_local = matches!(v, View::Local);
                 self.view = v;
-                if !matches!(v, View::Local) {
+                if !is_local {
                     self.local_open = false;
                 }
                 // Phase 1.3 — selection is per-view; clear on
@@ -327,33 +375,52 @@ impl MdeFiles {
             | Message::PeerCardSend(_)
             | Message::PrimaryAction
             | Message::Noop => {
-                // Demo backend has no side effects to run; leave these as routing hooks
-                // for the future `Backend::DBus` impl.
+                // Refresh is the explicit reload signal. The
+                // other variants are no-op routing hooks that
+                // pre-date the live backend; touching them only
+                // re-captures so the snapshot stays current.
             }
         }
+        self.refresh_snapshot();
         Task::none()
+    }
+
+    /// Re-capture the `BackendSnapshot` + (when on a peer view)
+    /// the active peer's file list. Called at the end of every
+    /// `update()` so the next `view()` render sees fresh data.
+    /// O(few backend calls); per-tick cost is acceptable since
+    /// Iced only re-runs `update()` on Message arrival.
+    fn refresh_snapshot(&mut self) {
+        self.snapshot = BackendSnapshot::capture(&*self.backend);
+        self.peer_files = match &self.view {
+            View::Peer(id) => self.backend.list(&format!("peer:{id}")),
+            _ => Vec::new(),
+        };
     }
 
     /// Top-level view tree.
     pub fn view(&self) -> Element<'_, Message> {
-        let crumbs = breadcrumbs_for(self.view);
+        let crumbs = breadcrumbs_for(&self.view);
+        let snap = &self.snapshot;
 
-        let main_body: Element<'_, Message> = match self.view {
-            View::MeshOverview => views::mesh_overview(&data::SELF_NODE),
-            View::Inbox => views::inbox(&data::SELF_NODE),
+        let main_body: Element<'_, Message> = match &self.view {
+            View::MeshOverview => views::mesh_overview(snap),
+            View::Inbox => views::inbox(snap),
             View::Peer(id) => {
-                if let Some(peer) = data::PEERS.iter().find(|p| p.id == id) {
-                    // v3.0.3 — pass the toolbar's search query +
-                    // current layout into the view so search
-                    // filtering + grid-tile metadata happen at
-                    // render time.
-                    views::peer_folder(peer, &data::SELF_NODE, &self.search, self.layout)
+                if let Some(p) = snap.peers.iter().find(|p| &p.id == id) {
+                    views::peer_folder(
+                        p,
+                        &snap.self_node,
+                        self.peer_files.clone(),
+                        &self.search,
+                        self.layout,
+                    )
                 } else {
                     empty_state("no peer").into()
                 }
             }
-            View::Downloads => views::downloads(),
-            View::Local => views::local_veil(&data::SELF_NODE),
+            View::Downloads => views::downloads(snap),
+            View::Local => views::local_veil(snap),
         };
 
         let content = container(scrollable(container(main_body).padding(Padding {
@@ -375,19 +442,23 @@ impl MdeFiles {
         });
 
         let main = column![
-            views::toolbar(self.view, self.layout, &self.search, crumbs),
+            views::toolbar(&self.view, self.layout, &self.search, crumbs),
             content,
         ]
         .spacing(0);
 
         let body = row![
-            views::sidebar(self.view, self.local_open, &data::SELF_NODE),
+            views::sidebar(&self.view, self.local_open, snap),
             container(main).width(Length::Fill).height(Length::Fill),
         ]
         .height(Length::Fill);
 
-        let online = data::online_count();
-        let total = data::PEERS.len();
+        let online = snap
+            .peers
+            .iter()
+            .filter(|p| matches!(p.status, crate::model::PeerStatus::Online))
+            .count();
+        let total = snap.peers.len();
 
         container(column![views::titlebar(online, total), body].spacing(0))
             .width(Length::Fill)
@@ -408,7 +479,7 @@ impl MdeFiles {
     }
 }
 
-fn breadcrumbs_for(view: View) -> Vec<Crumb> {
+fn breadcrumbs_for(view: &View) -> Vec<Crumb> {
     match view {
         View::MeshOverview => vec![
             Crumb {
@@ -431,17 +502,19 @@ fn breadcrumbs_for(view: View) -> Vec<Crumb> {
             },
         ],
         View::Peer(id) => {
-            let host = data::PEERS
-                .iter()
-                .find(|p| p.id == id)
-                .map_or("?", |p| p.host);
+            // The host string is built from the peer id by
+            // convention (id "pine" → host "pine.mesh"). We
+            // don't have the live peer list here; the toolbar
+            // shows the host literal which the runtime can
+            // patch on next render.
+            let host = format!("{id}.mesh");
             vec![
                 Crumb {
                     label: "Mesh".into(),
                     mesh: true,
                 },
                 Crumb {
-                    label: host.to_string(),
+                    label: host,
                     mesh: false,
                 },
             ]
@@ -459,10 +532,6 @@ fn breadcrumbs_for(view: View) -> Vec<Crumb> {
         View::Local => vec![
             Crumb {
                 label: "Local".into(),
-                mesh: false,
-            },
-            Crumb {
-                label: data::SELF_NODE.host.to_string(),
                 mesh: false,
             },
             Crumb {
@@ -536,8 +605,8 @@ mod tests {
     #[test]
     fn peer_card_browse_routes_to_peer_view() {
         let mut s = MdeFiles::default();
-        let _ = s.update(Message::PeerCardBrowse("pine"));
-        assert_eq!(s.view, View::Peer("pine"));
+        let _ = s.update(Message::PeerCardBrowse("pine".into()));
+        assert_eq!(s.view, View::Peer("pine".into()));
     }
 
     #[test]
@@ -608,7 +677,7 @@ mod tests {
     fn peer_card_browse_clears_selection() {
         let mut s = MdeFiles::default();
         let _ = s.update(Message::RowClick("x".into()));
-        let _ = s.update(Message::PeerCardBrowse("pine"));
+        let _ = s.update(Message::PeerCardBrowse("pine".into()));
         assert!(s.selection.is_empty());
     }
 
@@ -782,17 +851,17 @@ mod tests {
 
     #[test]
     fn breadcrumbs_match_view() {
-        let c = breadcrumbs_for(View::MeshOverview);
+        let c = breadcrumbs_for(&View::MeshOverview);
         assert_eq!(c.len(), 2);
         assert!(c[0].mesh);
         assert_eq!(c[0].label, "Mesh");
         assert_eq!(c[1].label, "Overview");
 
-        let c = breadcrumbs_for(View::Peer("birch"));
+        let c = breadcrumbs_for(&View::Peer("birch".into()));
         assert_eq!(c[1].label, "birch.mesh");
 
-        let c = breadcrumbs_for(View::Local);
-        assert_eq!(c.len(), 3);
+        let c = breadcrumbs_for(&View::Local);
+        assert_eq!(c.len(), 2);
         assert!(!c.iter().any(|x| x.mesh));
     }
 }

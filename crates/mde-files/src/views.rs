@@ -6,7 +6,7 @@ use iced::{Background, Border, Color, Element, Length, Padding, Theme};
 
 use crate::a11y_labels::{self, A11yAction};
 use crate::app::{Crumb, Message};
-use crate::demo_data as data;
+use crate::backend::BackendSnapshot;
 use crate::grid;
 use crate::icons;
 use crate::model::{fmt_count, FileRow, Layout, LocalPin, Peer, PeerStatus, SelfNode, View};
@@ -109,9 +109,18 @@ pub fn titlebar(online: usize, total: usize) -> Element<'static, Message> {
 
 // ─── Sidebar ───────────────────────────────────────────────────────────────
 
-pub fn sidebar(view: View, local_open: bool, self_node: &SelfNode) -> Element<'static, Message> {
-    let online = data::online_count();
-    let total = data::PEERS.len();
+pub fn sidebar<'a>(
+    view: &'a View,
+    local_open: bool,
+    snap: &'a BackendSnapshot,
+) -> Element<'a, Message> {
+    let self_node = &snap.self_node;
+    let online = snap
+        .peers
+        .iter()
+        .filter(|p| matches!(p.status, PeerStatus::Online))
+        .count();
+    let total = snap.peers.len();
 
     // Top toolbar
     let top_btn = |svg_bytes: &'static [u8], msg: Message| {
@@ -175,12 +184,12 @@ pub fn sidebar(view: View, local_open: bool, self_node: &SelfNode) -> Element<'s
         Message::Noop,
     ));
 
-    for p in data::PEERS {
+    for p in &snap.peers {
         let label_with_lat = match p.latency {
             Some(ms) => format!("{}  · {}ms", p.host, ms),
             None => p.host.to_string(),
         };
-        let active = matches!(view, View::Peer(id) if id == p.id);
+        let active = matches!(view, View::Peer(id) if id == &p.id);
         mesh_col = mesh_col.push(side_row(
             icons::MESH_HUB,
             &label_with_lat,
@@ -194,7 +203,7 @@ pub fn sidebar(view: View, local_open: bool, self_node: &SelfNode) -> Element<'s
                 status: p.status,
                 active,
             },
-            Message::SelectView(View::Peer(p.id)),
+            Message::SelectView(View::Peer(p.id.clone())),
         ));
     }
 
@@ -203,7 +212,7 @@ pub fn sidebar(view: View, local_open: bool, self_node: &SelfNode) -> Element<'s
         icons::INBOX,
         "Inbox",
         None,
-        Some(data::INBOX.len().to_string()),
+        Some(snap.inbox.len().to_string()),
         if matches!(view, View::Inbox) {
             SideRowVariant::Active
         } else {
@@ -234,7 +243,7 @@ pub fn sidebar(view: View, local_open: bool, self_node: &SelfNode) -> Element<'s
         icons::DOWNLOAD,
         "Downloads",
         None,
-        Some(data::DOWNLOADS.len().to_string()),
+        Some(snap.downloads.len().to_string()),
         downloads_variant,
         Message::SelectView(View::Downloads),
     ));
@@ -242,10 +251,10 @@ pub fn sidebar(view: View, local_open: bool, self_node: &SelfNode) -> Element<'s
     local_col = local_col.push(disclosure_row(local_open, Message::ToggleLocal));
 
     if local_open {
-        for pin in data::LOCAL_PINS {
+        for pin in &snap.local_pins {
             local_col = local_col.push(side_row(
                 icons::svg_for_pin(pin.icon),
-                pin.name,
+                &pin.name,
                 None,
                 None,
                 SideRowVariant::Dim,
@@ -339,7 +348,7 @@ pub fn sidebar(view: View, local_open: bool, self_node: &SelfNode) -> Element<'s
 // ─── Toolbar (`.fm-toolbar`) ───────────────────────────────────────────────
 
 pub fn toolbar<'a>(
-    view: View,
+    view: &'a View,
     layout: Layout,
     search: &'a str,
     crumbs: Vec<Crumb>,
@@ -500,7 +509,7 @@ fn view_toggle_btn(
     .into()
 }
 
-fn primary_action(view: View) -> Element<'static, Message> {
+fn primary_action(view: &View) -> Element<'static, Message> {
     let (label, icon_svg, ghost) = if view.is_mesh() {
         ("Send", icons::SEND, false)
     } else if matches!(view, View::Downloads) {
@@ -583,10 +592,16 @@ fn primary_action(view: View) -> Element<'static, Message> {
 
 // ─── Mesh overview ─────────────────────────────────────────────────────────
 
-pub fn mesh_overview(self_node: &SelfNode) -> Element<'static, Message> {
-    let online = data::online_count();
-    let total = data::PEERS.len();
-    let total_shared = data::total_shared();
+pub fn mesh_overview<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
+    let self_node = &snap.self_node;
+    let online = snap
+        .peers
+        .iter()
+        .filter(|p| matches!(p.status, PeerStatus::Online))
+        .count();
+    let total = snap.peers.len();
+    let total_shared: u64 =
+        u64::from(self_node.shared) + snap.peers.iter().map(|p| u64::from(p.shared)).sum::<u64>();
 
     let banner_widget = banner(
         icons::MESH_HUB,
@@ -604,15 +619,15 @@ pub fn mesh_overview(self_node: &SelfNode) -> Element<'static, Message> {
         ],
     );
 
-    let card_children: Vec<Element<'static, Message>> =
-        data::PEERS.iter().copied().map(peer_card).collect();
+    let card_children: Vec<Element<'_, Message>> =
+        snap.peers.iter().cloned().map(peer_card).collect();
     let cards = iced::widget::Row::with_children(card_children)
         .spacing(10)
         .wrap();
 
     let mut tx = column![].spacing(0);
-    for transfer in data::RECENT_TRANSFERS {
-        tx = tx.push(tx_row(*transfer));
+    for transfer in &snap.recent_transfers {
+        tx = tx.push(tx_row(transfer.clone()));
     }
 
     column![
@@ -635,6 +650,7 @@ pub fn mesh_overview(self_node: &SelfNode) -> Element<'static, Message> {
 pub fn peer_folder<'a>(
     peer: &'a Peer,
     self_node: &'a SelfNode,
+    files: Vec<FileRow>,
     search_query: &'a str,
     layout: Layout,
 ) -> Element<'a, Message> {
@@ -659,18 +675,18 @@ pub fn peer_folder<'a>(
         ],
     );
 
-    let files = data::peer_files(peer.id);
-
     // v3.0.3 Phase 1.8 wiring — when the toolbar's search input has
     // text, filter the visible rows via `search::filter_rows`.
     // `search::is_active` is the same emptiness check; using both
-    // keeps the helpers reachable per §0.8 gate 7 and lets the
-    // ui handle "empty results" later without re-parsing.
+    // keeps the helpers reachable per §0.8 gate 7.
     let rows_with_origin: Vec<FileRow> = files
         .iter()
-        .map(|f| FileRow {
-            from: Some(peer.host),
-            ..*f
+        .map(|f| {
+            let mut r = f.clone();
+            if r.from.is_none() {
+                r.from = Some(peer.host.clone());
+            }
+            r
         })
         .collect();
     let filtered_rows: Vec<FileRow> = if search::is_active(search_query) {
@@ -679,21 +695,13 @@ pub fn peer_folder<'a>(
         rows_with_origin.clone()
     };
 
-    // v3.0.3 Phase 1.9 wiring — when layout=Grid, compute the
-    // tile layout via `grid::tile_layout` so the helpers are
-    // actually consumed (per §0.8 gate 7). Today the visual
-    // render still falls through to the file_row list since a
-    // full grid widget is more work; the metadata is logged for
-    // observability + future-grid-render consumers. The grid
-    // helpers ship as "ready for a real grid widget" rather than
-    // dead code.
     let _tile = grid::tile_layout(800, filtered_rows.len());
     let _tile_meta = grid::tile_metadata_for(&filtered_rows);
-    let _layout = layout; // grid widget consumes this when it lands
+    let _layout = layout;
 
     let mut list = column![file_row_head("Origin")];
     for f in &filtered_rows {
-        list = list.push(file_row(*f, true));
+        list = list.push(file_row(f.clone(), true));
     }
 
     let count_label = if search::is_active(search_query) {
@@ -720,9 +728,10 @@ pub fn peer_folder<'a>(
 
 // ─── Inbox ─────────────────────────────────────────────────────────────────
 
-pub fn inbox(self_node: &SelfNode) -> Element<'static, Message> {
+pub fn inbox<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
+    let self_node = &snap.self_node;
     let unique_senders = {
-        let mut hosts: Vec<&str> = data::INBOX.iter().filter_map(|f| f.from).collect();
+        let mut hosts: Vec<&str> = snap.inbox.iter().filter_map(|f| f.from.as_deref()).collect();
         hosts.sort_unstable();
         hosts.dedup();
         hosts.len()
@@ -736,14 +745,14 @@ pub fn inbox(self_node: &SelfNode) -> Element<'static, Message> {
             self_node.host
         ),
         vec![
-            BannerStat::new(data::INBOX.len().to_string(), "Items"),
+            BannerStat::new(snap.inbox.len().to_string(), "Items"),
             BannerStat::new(unique_senders.to_string(), "From peers"),
         ],
     );
 
     let mut list = column![file_row_head("From")];
-    for f in data::INBOX {
-        list = list.push(file_row(*f, true));
+    for f in &snap.inbox {
+        list = list.push(file_row(f.clone(), true));
     }
 
     column![banner_widget, Space::with_height(Length::Fixed(22.0)), list,]
@@ -753,8 +762,8 @@ pub fn inbox(self_node: &SelfNode) -> Element<'static, Message> {
 
 // ─── Downloads ─────────────────────────────────────────────────────────────
 
-pub fn downloads() -> Element<'static, Message> {
-    let mesh_count = data::DOWNLOADS.iter().filter(|d| d.mesh.is_some()).count();
+pub fn downloads<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
+    let mesh_count = snap.downloads.iter().filter(|d| d.mesh.is_some()).count();
 
     let banner_widget = banner(
         icons::DOWNLOAD,
@@ -764,14 +773,14 @@ pub fn downloads() -> Element<'static, Message> {
             plural = if mesh_count == 1 { "" } else { "s" }
         ),
         vec![
-            BannerStat::new(data::DOWNLOADS.len().to_string(), "Items"),
+            BannerStat::new(snap.downloads.len().to_string(), "Items"),
             BannerStat::new(mesh_count.to_string(), "From mesh"),
         ],
     );
 
     let mut list = column![file_row_head("Origin")];
-    for f in data::DOWNLOADS {
-        list = list.push(file_row(*f, true));
+    for f in &snap.downloads {
+        list = list.push(file_row(f.clone(), true));
     }
 
     column![banner_widget, Space::with_height(Length::Fixed(22.0)), list,]
@@ -781,7 +790,8 @@ pub fn downloads() -> Element<'static, Message> {
 
 // ─── Local veil ────────────────────────────────────────────────────────────
 
-pub fn local_veil(self_node: &SelfNode) -> Element<'static, Message> {
+pub fn local_veil<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
+    let self_node = &snap.self_node;
     let title_row = row![
         icon(icons::HDD, 18.0, t::FG),
         text("Local filesystem").size(15).color(t::FG),
@@ -816,9 +826,10 @@ pub fn local_veil(self_node: &SelfNode) -> Element<'static, Message> {
         host = self_node.host,
     );
 
-    let pin_children: Vec<Element<'static, Message>> = data::LOCAL_PINS
+    let pin_children: Vec<Element<'_, Message>> = snap
+        .local_pins
         .iter()
-        .copied()
+        .cloned()
         .map(local_pin_tile)
         .collect();
     let pin_grid = iced::widget::Row::with_children(pin_children)
@@ -845,8 +856,8 @@ pub fn local_veil(self_node: &SelfNode) -> Element<'static, Message> {
     });
 
     let mut recent = column![file_row_head("Where")];
-    for f in data::LOCAL_RECENT {
-        recent = recent.push(file_row(*f, true));
+    for f in &snap.local_recent {
+        recent = recent.push(file_row(f.clone(), true));
     }
 
     column![

@@ -47,14 +47,13 @@ pub fn matches_query(row: &FileRow, query: &str) -> bool {
     false
 }
 
-/// Filter a slice of rows in place. Returns owned `FileRow`s
-/// because `FileRow` is `Copy` and the call site usually wants
-/// ownership for the view tree.
+/// Filter a slice of rows in place. Returns owned `FileRow`s so
+/// the call site can take ownership for the view tree.
 #[must_use]
 pub fn filter_rows(rows: &[FileRow], query: &str) -> Vec<FileRow> {
     rows.iter()
         .filter(|r| matches_query(r, query))
-        .copied()
+        .cloned()
         .collect()
 }
 

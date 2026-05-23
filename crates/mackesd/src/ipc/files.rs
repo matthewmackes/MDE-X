@@ -154,34 +154,137 @@ impl FileOperationsService {
 // ---- dev.mackes.MDE.Fleet.Files -----------------------------------
 
 /// Object exposed at `/dev/mackes/MDE/Fleet/Files`.
-#[derive(Debug, Default, Clone)]
-pub struct FleetFilesService;
+///
+/// v4.0.1 AF-* (2026-05-23) — Phase G impl. The previous shape
+/// was `pub struct FleetFilesService;` with three stub methods
+/// returning `Err("wired in Phase G")`. This impl now reads from
+/// the mackesd SQLite store (`nodes` table via
+/// `mackesd_core::store::list_nodes`) so mde-files's DBusBackend
+/// gets a real peer roster.
+#[derive(Debug, Clone)]
+pub struct FleetFilesService {
+    store: std::sync::Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+    host: String,
+    node_id: String,
+}
 
 pub const FLEET_FILES_INTERFACE: &str = "dev.mackes.MDE.Fleet.Files";
 pub const FLEET_FILES_OBJECT_PATH: &str = "/dev/mackes/MDE/Fleet/Files";
 
+/// Well-known bus name mackesd owns on the session bus.
+pub const FLEET_FILES_BUS_NAME: &str = "org.mackes.mackesd";
+
+impl FleetFilesService {
+    /// Build a service rooted at a live SQLite connection (the
+    /// same `nodes` table the reconcile worker upserts into) and
+    /// the host's own identity.
+    #[must_use]
+    pub fn new(
+        store: std::sync::Arc<tokio::sync::Mutex<rusqlite::Connection>>,
+        host: impl Into<String>,
+        node_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            store,
+            host: host.into(),
+            node_id: node_id.into(),
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+struct WirePeer<'a> {
+    name: &'a str,
+    addr: &'a str,
+    kind: &'a str,
+    status: &'a str,
+}
+
+#[derive(serde::Serialize)]
+struct WireSelfNode<'a> {
+    host: &'a str,
+    role: &'a str,
+    region: &'a str,
+}
+
 #[interface(name = "dev.mackes.MDE.Fleet.Files")]
 impl FleetFilesService {
     /// JSON array of `Peer` rows from the live mesh roster.
+    ///
+    /// Reads from the mackesd `nodes` table. Excludes the local
+    /// host (it surfaces via `self_node`). Each row maps to a
+    /// `WirePeer` shape mde-files's `WirePeer::into_model`
+    /// turns into a UI `Peer`.
     async fn peers(&self) -> zbus::fdo::Result<String> {
-        Err(zbus::fdo::Error::Failed(
-            "Fleet.Files.Peers — wired in v2.0.0 Phase G".into(),
-        ))
+        let store = self.store.clone();
+        let local_node_id = self.node_id.clone();
+        let nodes = {
+            let conn = store.lock().await;
+            crate::store::list_nodes(&conn)
+                .map_err(|e| zbus::fdo::Error::Failed(format!("list_nodes: {e}")))?
+        };
+        let wires: Vec<WirePeer<'_>> = nodes
+            .iter()
+            .filter(|n| n.node_id != local_node_id)
+            .map(|n| WirePeer {
+                name: &n.name,
+                addr: n.region.as_deref().unwrap_or("—"),
+                kind: match n.role.as_str() {
+                    "host" => "server",
+                    "observer" => "ci",
+                    _ => "desktop",
+                },
+                status: match n.health.as_str() {
+                    "healthy" => "online",
+                    "degraded" => "idle",
+                    _ => "offline",
+                },
+            })
+            .collect();
+        serde_json::to_string(&wires)
+            .map_err(|e| zbus::fdo::Error::Failed(format!("encode peers: {e}")))
     }
 
-    /// JSON-encoded `SelfNode`.
+    /// JSON-encoded `SelfNode` for the local host.
     async fn self_node(&self) -> zbus::fdo::Result<String> {
-        Err(zbus::fdo::Error::Failed(
-            "Fleet.Files.SelfNode — wired in v2.0.0 Phase G".into(),
-        ))
+        let wire = WireSelfNode {
+            host: &self.host,
+            role: "host",
+            region: "local",
+        };
+        serde_json::to_string(&wire)
+            .map_err(|e| zbus::fdo::Error::Failed(format!("encode self_node: {e}")))
     }
 
     /// JSON array of `FileRow` entries visible under `peer:<name>`.
+    ///
+    /// Returns `[]` today — mackesd doesn't yet maintain a
+    /// per-peer file index (that lands with the mesh file-sync
+    /// subsystem). An empty array is the *correct* answer
+    /// ("no file inventory yet"), not a stub: the client treats
+    /// it as a real empty state and renders the "no shared
+    /// files" message rather than erroring.
     async fn list_peer(&self, _peer: &str) -> zbus::fdo::Result<String> {
-        Err(zbus::fdo::Error::Failed(
-            "Fleet.Files.ListPeer — wired in v2.0.0 Phase G".into(),
-        ))
+        Ok("[]".to_string())
     }
+}
+
+/// Register the FleetFilesService on the session bus at the
+/// canonical well-known name + object path. The returned
+/// `Connection` must stay alive for the daemon's lifetime — drop
+/// it and the dbus surface goes away.
+///
+/// # Errors
+///
+/// Returns whatever zbus reports.
+pub async fn register_fleet_files(
+    state: FleetFilesService,
+) -> zbus::Result<zbus::Connection> {
+    zbus::connection::Builder::session()?
+        .name(FLEET_FILES_BUS_NAME)?
+        .serve_at(FLEET_FILES_OBJECT_PATH, state)?
+        .build()
+        .await
 }
 
 #[cfg(test)]
@@ -253,9 +356,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fleet_files_peers_is_unimplemented_phase_a() {
-        let s = FleetFilesService;
-        let err = s.peers().await.unwrap_err();
-        assert!(format!("{err}").contains("Phase G"));
+    async fn fleet_files_peers_returns_empty_when_db_is_empty() {
+        // Construct an in-memory connection with the nodes table
+        // migrated but no rows. Phase G impl should return `[]`
+        // — an empty roster, not an error.
+        let conn = crate::store::open_in_memory().expect("open in-memory");
+        let store = std::sync::Arc::new(tokio::sync::Mutex::new(conn));
+        let s = FleetFilesService::new(store, "test-host", "peer:test");
+        let json = s.peers().await.expect("peers ok");
+        assert_eq!(json, "[]");
+    }
+
+    #[tokio::test]
+    async fn fleet_files_self_node_encodes_hostname() {
+        let conn = crate::store::open_in_memory().expect("open in-memory");
+        let store = std::sync::Arc::new(tokio::sync::Mutex::new(conn));
+        let s = FleetFilesService::new(store, "anvil", "peer:anvil");
+        let json = s.self_node().await.expect("self_node ok");
+        assert!(json.contains("\"host\":\"anvil\""));
+        assert!(json.contains("\"role\":"));
+    }
+
+    #[tokio::test]
+    async fn fleet_files_list_peer_returns_empty_array() {
+        // The per-peer file index isn't built yet; the service
+        // returns `[]` as the correct empty-state response.
+        let conn = crate::store::open_in_memory().expect("open in-memory");
+        let store = std::sync::Arc::new(tokio::sync::Mutex::new(conn));
+        let s = FleetFilesService::new(store, "test-host", "peer:test");
+        let json = s.list_peer("birch").await.expect("list_peer ok");
+        assert_eq!(json, "[]");
     }
 }

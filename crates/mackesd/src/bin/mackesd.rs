@@ -1379,6 +1379,52 @@ fn run_serve(
             }
         }
 
+        // v4.0.1 AF-* (2026-05-23) — register the
+        // dev.mackes.MDE.Fleet.Files surface on the session bus
+        // so mde-files's DBusBackend can read the live mesh
+        // roster + per-peer file lists. Opens a second SQLite
+        // handle for the IPC service (the reconcile worker
+        // holds its own). The connection is leaked so its
+        // tokio background tasks outlive run_serve.
+        let host = std::fs::read_to_string("/etc/hostname")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| node_id.clone());
+        match mackesd_core::store::open(&db_path) {
+            Ok(conn) => {
+                let store = Arc::new(tokio::sync::Mutex::new(conn));
+                let svc = mackesd_core::ipc::files::FleetFilesService::new(
+                    Arc::clone(&store),
+                    host.clone(),
+                    node_id.clone(),
+                );
+                match mackesd_core::ipc::files::register_fleet_files(svc).await {
+                    Ok(conn) => {
+                        Box::leak(Box::new(conn));
+                        tracing::info!(
+                            "Fleet.Files dbus surface registered at {}",
+                            mackesd_core::ipc::files::FLEET_FILES_OBJECT_PATH
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Fleet.Files dbus registration failed; \
+                             mde-files's DBusBackend will fall back to LocalFsBackend"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    db_path = %db_path.display(),
+                    "Fleet.Files dbus: sqlite open failed; service skipped"
+                );
+            }
+        }
+
         // The reconcile worker runs on its own OS thread (kept on
         // std::thread so its sync rusqlite calls don't block the
         // tokio scheduler).

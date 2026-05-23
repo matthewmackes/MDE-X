@@ -28,11 +28,13 @@ zbus       = { version = "5", default-features = false, features = ["tokio"], op
 [features]
 # `wayland` (default): enables smithay-client-toolkit portal calls
 # once that dep lands. `x11`: stubs those calls; plain std::fs reads.
-default = ["wayland"]
+# `dbus` is in default since v4.0.1 AF-* (2026-05-23) so the
+# production binary talks to mackesd's Fleet.Files surface for
+# real mesh content — without dbus the Artifact Manager would
+# only ever show local files + empty peers list.
+default = ["wayland", "dbus"]
 wayland = []
 x11     = []
-# Phase 2.3 — links DBusBackend (zbus + tokio bridge). Default off so
-# the DemoBackend smoke-test build stays minimal.
 dbus    = ["dep:tokio", "dep:zbus"]
 
 [lints.rust]

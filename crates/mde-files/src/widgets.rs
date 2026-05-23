@@ -308,7 +308,7 @@ pub fn peer_card(peer: Peer) -> Element<'static, Message> {
         },
     ];
 
-    let id = peer.id;
+    let id = peer.id.clone();
     let actions = row![
         button(text("Browse →").size(11).color(t::ACCENT_HI))
             .padding(Padding::from([4.0, 8.0]))
@@ -322,7 +322,7 @@ pub fn peer_card(peer: Peer) -> Element<'static, Message> {
                 },
                 ..button::Style::default()
             })
-            .on_press(Message::PeerCardBrowse(id)),
+            .on_press(Message::PeerCardBrowse(id.clone())),
         button(text("Send file").size(11).color(t::FG_DIM))
             .padding(Padding::from([4.0, 8.0]))
             .style(|_, _| ghost_button_style())

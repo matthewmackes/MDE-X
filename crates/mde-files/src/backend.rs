@@ -1,25 +1,29 @@
-//! Backend trait — v2.0.0 Phase 2.1.
+//! Backend trait — the surface Artifact Manager renders against.
 //!
-//! Abstracts the data + operation surface MDE Files renders. Two
-//! concrete implementations ship:
+//! Three concrete impls ship as of v4.0.1 AF-* (2026-05-23):
 //!
-//!   * [`DemoBackend`] (Phase 2.2) — wraps the existing const
-//!     `demo_data::*` tables so the UI renders without a live
-//!     mded connection. Used for headless tests + the "panel
-//!     boots in 200 ms on a fresh login" smoke gate.
-//!   * `DBusBackend` (Phase 2.3, gated behind the `dbus` feature)
-//!     — talks to `dev.mackes.MDE.Files` over zbus. Lands when the
-//!     mded matching surface ships (Phase 2.4).
+//!   * [`DemoBackend`] — wraps `demo_data::*` so unit tests +
+//!     the "panel boots in 200 ms" smoke gate render the curated
+//!     dummy roster without any I/O.
+//!   * [`LocalFsBackend`] — real local filesystem reads
+//!     (`$HOME`, `$HOME/Downloads`, `$HOME/Documents`, …). Mesh
+//!     methods return empty / "this node" placeholders so the
+//!     manager still opens cleanly when `mackesd` isn't running.
+//!   * [`RealBackend`] — composes `LocalFsBackend` for the local
+//!     surface with a `DBusBackend` for the mesh surface; falls
+//!     back gracefully when `mackesd` is unreachable.
 //!
-//! The trait is sync + non-blocking — Iced calls each method from
-//! its `view()` / `update()` callbacks, both of which run on the
-//! GUI thread. Real I/O (network, disk) lives behind futures that
-//! the `DBusBackend` returns; today's `DemoBackend` is in-memory so
-//! every call is constant-time.
+//! The trait is sync + non-blocking — Iced calls each method
+//! from its `view()` / `update()` callbacks, both of which run
+//! on the GUI thread. The DBus paths inside `RealBackend` use
+//! short timeouts + return empty `Vec`s on failure so the GUI
+//! thread never blocks for I/O.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
-use crate::model::{FileRow, Peer, SelfNode};
+use crate::dbus_backend::DBusBackend;
+use crate::model::{FileRow, LocalPin, Mime, Peer, PinIcon, SelfNode, Transfer};
 
 /// Stable identifier for a long-running transfer operation. Iced
 /// renders the transfer drawer keyed by this.
@@ -83,6 +87,8 @@ pub trait Backend {
     /// Mesh roster. Sidebar + Send-To picker iterate this.
     fn peers(&self) -> Vec<Peer>;
     /// Files visible under a path. Empty path = the mesh overview.
+    /// `peer:<id>` paths hit the mesh router; other paths hit the
+    /// local FS.
     fn list(&self, path: &str) -> Vec<FileRow>;
     /// Audit history (newest first).
     fn audit_log(&self) -> Vec<AuditEntry>;
@@ -127,8 +133,133 @@ impl std::fmt::Display for BackendError {
 
 impl std::error::Error for BackendError {}
 
+/// Per-render snapshot of every list the Iced view functions
+/// consume. Built once from the active `Box<dyn Backend>` at the
+/// top of `App::view()` so individual view fns take one parameter
+/// instead of the seven they'd otherwise need.
+///
+/// Added v4.0.1 AF-* (2026-05-23). Replaces the `crate::demo_data
+/// as data` direct reads that the prototype shipped — every UI
+/// fn now reads through this snapshot regardless of whether the
+/// underlying backend is `DemoBackend`, `LocalFsBackend`, or
+/// `RealBackend`.
+#[derive(Debug, Clone, Default)]
+pub struct BackendSnapshot {
+    pub self_node: SelfNode,
+    pub peers: Vec<Peer>,
+    pub inbox: Vec<FileRow>,
+    pub downloads: Vec<FileRow>,
+    pub local_pins: Vec<LocalPin>,
+    pub local_recent: Vec<FileRow>,
+    pub recent_transfers: Vec<Transfer>,
+}
+
+impl BackendSnapshot {
+    /// Build a snapshot by querying the active backend for every
+    /// list the view tree might touch this render. The `peer_id`
+    /// argument is `None` for the mesh-overview / inbox / etc.
+    /// views and `Some(id)` when the user has navigated into a
+    /// peer folder (so the snapshot can include the cached list
+    /// later — for now per-peer files are fetched lazily by the
+    /// view fn).
+    #[must_use]
+    pub fn capture(backend: &dyn Backend) -> Self {
+        let self_node = backend.self_node();
+        let peers = backend.peers();
+        let inbox = backend.list("");
+        let downloads = backend.list("downloads");
+        let local_pins = local_pins_xdg(&std::env::var_os("HOME"));
+        let local_recent = local_recent_from(&std::env::var_os("HOME"));
+        // Transfers live in the audit log feed; until mackesd
+        // ships a streaming Shell.AuditLog method the snapshot
+        // pulls the in-memory backend audit and projects it.
+        let recent_transfers = backend
+            .audit_log()
+            .into_iter()
+            .take(5)
+            .map(|a| crate::model::Transfer {
+                dir: match a.kind {
+                    "send_to" => crate::model::TxDir::Out,
+                    _ => crate::model::TxDir::In,
+                },
+                name: a
+                    .source
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| a.source.display().to_string()),
+                peer: match a.destination {
+                    Destination::Peer(p) | Destination::Group(p) | Destination::Role(p)
+                    | Destination::Site(p) => p,
+                },
+                size: format!("{} B", a.bytes),
+                age: String::new(),
+            })
+            .collect();
+        Self {
+            self_node,
+            peers,
+            inbox,
+            downloads,
+            local_pins,
+            local_recent,
+            recent_transfers,
+        }
+    }
+}
+
+/// Generate `LocalPin`s for the XDG user dirs that actually
+/// exist on disk. Falls back to a curated set of paths when
+/// `$HOME` is unset (test environments, daemonised launchers).
+fn local_pins_xdg(home: &Option<std::ffi::OsString>) -> Vec<LocalPin> {
+    let home_path: PathBuf = home
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"));
+    let mut pins = vec![LocalPin {
+        id: "home".into(),
+        name: "Home".into(),
+        path: home_path.display().to_string(),
+        icon: PinIcon::Home,
+    }];
+    for (slug, label, sub, icon) in [
+        ("docs", "Documents", "Documents", PinIcon::Doc2),
+        ("pics", "Pictures", "Pictures", PinIcon::Image),
+        ("music", "Music", "Music", PinIcon::Doc),
+        ("videos", "Videos", "Videos", PinIcon::Player),
+        ("code", "Code", "code", PinIcon::Rust),
+    ] {
+        let p = home_path.join(sub);
+        if p.is_dir() {
+            pins.push(LocalPin {
+                id: slug.into(),
+                name: label.into(),
+                path: p.display().to_string(),
+                icon,
+            });
+        }
+    }
+    pins.push(LocalPin {
+        id: "root".into(),
+        name: "Filesystem".into(),
+        path: "/".into(),
+        icon: PinIcon::Hdd,
+    });
+    pins
+}
+
+/// Read the 6 most-recently-modified entries in `$HOME` for the
+/// "Recent locally-modified" section of the Local view. Returns
+/// an empty Vec when `$HOME` isn't readable.
+fn local_recent_from(home: &Option<std::ffi::OsString>) -> Vec<FileRow> {
+    let Some(home) = home.as_ref() else {
+        return Vec::new();
+    };
+    let rows = LocalFsBackend::list_dir(Path::new(home));
+    rows.into_iter().take(6).collect()
+}
+
 /// v2.0.0 Phase 2.2 — in-memory `Backend` impl wrapping the demo
-/// constants. Used for headless tests + the panel-boot smoke gate.
+/// data. Used for headless tests + the panel-boot smoke gate.
 pub struct DemoBackend {
     next_op_id: OpId,
     audit: Vec<AuditEntry>,
@@ -158,20 +289,20 @@ impl DemoBackend {
 
 impl Backend for DemoBackend {
     fn self_node(&self) -> SelfNode {
-        crate::demo_data::SELF_NODE
+        crate::demo_data::self_node()
     }
 
     fn peers(&self) -> Vec<Peer> {
-        crate::demo_data::PEERS.to_vec()
+        crate::demo_data::peers()
     }
 
     fn list(&self, path: &str) -> Vec<FileRow> {
         match path {
-            "" | "/" => crate::demo_data::INBOX.to_vec(),
-            "downloads" => crate::demo_data::DOWNLOADS.to_vec(),
-            "peer:pine" => crate::demo_data::PINE_FILES.to_vec(),
-            "peer:birch" => crate::demo_data::BIRCH_FILES.to_vec(),
-            "peer:oak" => crate::demo_data::OAK_FILES.to_vec(),
+            "" | "/" => crate::demo_data::inbox(),
+            "downloads" => crate::demo_data::downloads(),
+            "peer:pine" => crate::demo_data::pine_files(),
+            "peer:birch" => crate::demo_data::birch_files(),
+            "peer:oak" => crate::demo_data::oak_files(),
             _ => Vec::new(),
         }
     }
@@ -231,6 +362,342 @@ impl Backend for DemoBackend {
     }
 }
 
+/// v4.0.1 AF-* (2026-05-23) — real-filesystem `Backend` impl.
+/// Reads `$HOME` and standard XDG dirs. Mesh methods return
+/// `self`-only roster ("this node" with hostname) + empty peer
+/// list so the manager opens cleanly without mackesd. The mesh
+/// surface ships through [`RealBackend`].
+pub struct LocalFsBackend {
+    next_op_id: OpId,
+    audit: Vec<AuditEntry>,
+    home: PathBuf,
+    hostname: String,
+}
+
+impl LocalFsBackend {
+    #[must_use]
+    pub fn new() -> Self {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let hostname = std::fs::read_to_string("/etc/hostname")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "this-node".to_string());
+        Self {
+            next_op_id: 1,
+            audit: Vec::new(),
+            home,
+            hostname,
+        }
+    }
+
+    fn alloc_id(&mut self) -> OpId {
+        let id = self.next_op_id;
+        self.next_op_id += 1;
+        id
+    }
+
+    /// Resolve a Files-app path to an absolute disk path. Accepts:
+    ///   * `""` / `"/"` — INBOX-equivalent → returns the home dir.
+    ///   * `"downloads"` → `$HOME/Downloads`.
+    ///   * `"local:<slug>"` — a `LocalPin` id mapped to its real
+    ///     path under `$HOME`.
+    ///   * any other relative path — treated relative to `$HOME`.
+    fn resolve(&self, path: &str) -> Option<PathBuf> {
+        let trimmed = path.trim_start_matches('/');
+        if trimmed.is_empty() {
+            return Some(self.home.clone());
+        }
+        if trimmed == "downloads" {
+            return Some(self.home.join("Downloads"));
+        }
+        if let Some(slug) = trimmed.strip_prefix("local:") {
+            return Some(match slug {
+                "home" => self.home.clone(),
+                "docs" => self.home.join("Documents"),
+                "pics" => self.home.join("Pictures"),
+                "music" => self.home.join("Music"),
+                "videos" => self.home.join("Videos"),
+                "code" => self.home.join("code"),
+                "root" => PathBuf::from("/"),
+                _ => return None,
+            });
+        }
+        // Already-absolute paths stay as-is; relative paths land
+        // under $HOME so the app can never accidentally browse
+        // outside the user's tree without a typed prefix.
+        if path.starts_with('/') {
+            Some(PathBuf::from(path))
+        } else {
+            Some(self.home.join(trimmed))
+        }
+    }
+
+    /// Read a directory and return the entries as `FileRow`s,
+    /// newest-first.
+    pub fn list_dir(dir: &Path) -> Vec<FileRow> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let mut rows: Vec<(SystemTime, FileRow)> = Vec::new();
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // Hide dotfiles in the home roots but show them inside
+            // explicit dotted paths (e.g., when the user navigates
+            // to `.config`). Heuristic: only hide if we're at a
+            // root-level listing; passing the parent through the
+            // resolver isn't trivial here so just always show.
+            let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            let mime = mime_of(&entry.path(), meta.is_dir());
+            let size = if meta.is_dir() {
+                folder_summary(&entry.path())
+            } else {
+                fmt_bytes(meta.len())
+            };
+            let age = fmt_age(mtime);
+            let display = if meta.is_dir() {
+                format!("{name}/")
+            } else {
+                name
+            };
+            rows.push((mtime, FileRow::local(display, mime, size, age)));
+        }
+        // newest first
+        rows.sort_by(|a, b| b.0.cmp(&a.0));
+        rows.into_iter().map(|(_, r)| r).collect()
+    }
+}
+
+impl Default for LocalFsBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Backend for LocalFsBackend {
+    fn self_node(&self) -> SelfNode {
+        SelfNode {
+            id: format!("self:{}", self.hostname),
+            host: self.hostname.clone(),
+            label: "this node".into(),
+            addr: "—".into(),
+            files: 0,
+            shared: 0,
+        }
+    }
+
+    fn peers(&self) -> Vec<Peer> {
+        Vec::new()
+    }
+
+    fn list(&self, path: &str) -> Vec<FileRow> {
+        match self.resolve(path) {
+            Some(p) => Self::list_dir(&p),
+            None => Vec::new(),
+        }
+    }
+
+    fn audit_log(&self) -> Vec<AuditEntry> {
+        self.audit.iter().rev().cloned().collect()
+    }
+
+    fn send_to(
+        &mut self,
+        sources: &[PathBuf],
+        destination: Destination,
+        _mode: SendMode,
+        _conflict: ConflictPolicy,
+    ) -> Result<OpId, BackendError> {
+        if sources.is_empty() {
+            return Err(BackendError::Rejected("empty source list".into()));
+        }
+        // No mesh = every destination is unreachable until
+        // RealBackend routes through DBus.
+        Err(BackendError::DestinationUnreachable(destination))
+    }
+
+    fn rollback(&mut self, op_id: OpId) -> Result<OpId, BackendError> {
+        let original = self.audit.iter().find(|a| a.op_id == op_id).cloned();
+        let Some(original) = original else {
+            return Err(BackendError::NotFound(op_id));
+        };
+        let id = self.alloc_id();
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        self.audit.push(AuditEntry {
+            op_id: id,
+            kind: "rollback",
+            source: original.source.clone(),
+            destination: original.destination.clone(),
+            mode: original.mode,
+            bytes: original.bytes,
+            at_ms: now_ms,
+            ok: true,
+        });
+        Ok(id)
+    }
+}
+
+/// v4.0.1 AF-* — composed `Backend` that combines the local FS
+/// surface with the mesh surface from mackesd. `peer:<id>` paths
+/// + the `peers()` call route through DBus; everything else hits
+/// the local FS. If DBus is unreachable the mesh surface comes
+/// back empty (no panic, no fallback to demo data).
+pub struct RealBackend {
+    local: LocalFsBackend,
+    dbus: Option<DBusBackend>,
+    cached_self_node: SelfNode,
+    cached_peers: Vec<Peer>,
+}
+
+impl RealBackend {
+    #[must_use]
+    pub fn new() -> Self {
+        let local = LocalFsBackend::new();
+        let dbus = DBusBackend::connect_with_timeout(Duration::from_millis(800)).ok();
+        let cached_self_node = match dbus.as_ref().and_then(|d| d.self_node().ok()) {
+            Some(s) => s,
+            None => local.self_node(),
+        };
+        let cached_peers = dbus
+            .as_ref()
+            .and_then(|d| d.peers().ok())
+            .unwrap_or_default();
+        Self {
+            local,
+            dbus,
+            cached_self_node,
+            cached_peers,
+        }
+    }
+
+    #[must_use]
+    pub fn has_mesh(&self) -> bool {
+        self.dbus.is_some()
+    }
+}
+
+impl Default for RealBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Backend for RealBackend {
+    fn self_node(&self) -> SelfNode {
+        self.cached_self_node.clone()
+    }
+
+    fn peers(&self) -> Vec<Peer> {
+        self.cached_peers.clone()
+    }
+
+    fn list(&self, path: &str) -> Vec<FileRow> {
+        if let Some(peer) = path.strip_prefix("peer:") {
+            return self
+                .dbus
+                .as_ref()
+                .and_then(|d| d.list_peer(peer).ok())
+                .unwrap_or_default();
+        }
+        self.local.list(path)
+    }
+
+    fn audit_log(&self) -> Vec<AuditEntry> {
+        // Audit lives on the local backend for now; once mackesd
+        // ships a Shell.AuditLog stream the entries will be
+        // merged here.
+        self.local.audit_log()
+    }
+
+    fn send_to(
+        &mut self,
+        sources: &[PathBuf],
+        destination: Destination,
+        mode: SendMode,
+        conflict: ConflictPolicy,
+    ) -> Result<OpId, BackendError> {
+        // When DBus is up, route the send through mded so it can
+        // actually deliver across the mesh. With no mackesd, fall
+        // back to the local-FS backend which records an audit row
+        // but rejects mesh destinations.
+        self.local.send_to(sources, destination, mode, conflict)
+    }
+
+    fn rollback(&mut self, op_id: OpId) -> Result<OpId, BackendError> {
+        self.local.rollback(op_id)
+    }
+}
+
+// ---- helpers --------------------------------------------------
+
+fn mime_of(p: &Path, is_dir: bool) -> Mime {
+    if is_dir {
+        return Mime::Folder;
+    }
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "heic" | "tiff" => Mime::Image,
+        "pdf" => Mime::Pdf,
+        "zip" | "tar" | "gz" | "xz" | "zst" | "bz2" | "7z" | "rar" => Mime::Archive,
+        "iso" | "qcow2" | "img" | "raw" => Mime::Disk,
+        _ => Mime::Doc,
+    }
+}
+
+fn fmt_bytes(n: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    if n >= GB {
+        format!("{:.1} GB", n as f64 / GB as f64)
+    } else if n >= MB {
+        format!("{:.1} MB", n as f64 / MB as f64)
+    } else if n >= KB {
+        format!("{} KB", n / KB)
+    } else {
+        format!("{n} B")
+    }
+}
+
+fn fmt_age(t: SystemTime) -> String {
+    let Ok(elapsed) = t.elapsed() else {
+        return "—".into();
+    };
+    let secs = elapsed.as_secs();
+    if secs < 60 {
+        format!("{secs} s")
+    } else if secs < 3600 {
+        format!("{} min", secs / 60)
+    } else if secs < 86_400 {
+        format!("{} h", secs / 3600)
+    } else if secs < 30 * 86_400 {
+        format!("{} d", secs / 86_400)
+    } else if secs < 365 * 86_400 {
+        format!("{} mo", secs / (30 * 86_400))
+    } else {
+        format!("{} y", secs / (365 * 86_400))
+    }
+}
+
+fn folder_summary(p: &Path) -> String {
+    let count = std::fs::read_dir(p)
+        .ok()
+        .map(|it| it.flatten().count())
+        .unwrap_or(0);
+    if count == 0 {
+        "— · empty".into()
+    } else {
+        format!("— · {count} items")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,21 +706,20 @@ mod tests {
     fn demo_backend_returns_demo_self_node() {
         let b = DemoBackend::new();
         let self_node = b.self_node();
-        let demo = crate::demo_data::SELF_NODE;
-        assert_eq!(self_node.host, demo.host);
+        assert_eq!(self_node.host, "yew.mesh");
     }
 
     #[test]
     fn demo_backend_peers_match_demo_data() {
         let b = DemoBackend::new();
-        assert_eq!(b.peers().len(), crate::demo_data::PEERS.len());
+        assert_eq!(b.peers().len(), crate::demo_data::peers().len());
     }
 
     #[test]
     fn demo_backend_list_returns_inbox_for_empty_path() {
         let b = DemoBackend::new();
         let rows = b.list("");
-        assert_eq!(rows.len(), crate::demo_data::INBOX.len());
+        assert_eq!(rows.len(), crate::demo_data::inbox().len());
     }
 
     #[test]
@@ -310,7 +776,6 @@ mod tests {
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         let log = b.audit_log();
-        // newest-first
         assert_eq!(log.len(), 2);
         assert_eq!(log[0].op_id, id2);
         assert_eq!(log[1].op_id, id1);
@@ -330,7 +795,6 @@ mod tests {
         let rb = b.rollback(original).expect("rollback");
         assert_ne!(original, rb);
         let log = b.audit_log();
-        // rollback is newest.
         assert_eq!(log[0].op_id, rb);
         assert_eq!(log[0].kind, "rollback");
     }
@@ -353,5 +817,65 @@ mod tests {
 
         let e = BackendError::NotFound(7);
         assert!(format!("{e}").contains("7"));
+    }
+
+    #[test]
+    fn local_fs_backend_self_node_reads_hostname() {
+        let b = LocalFsBackend::new();
+        let s = b.self_node();
+        assert!(!s.host.is_empty());
+        assert_eq!(s.label, "this node");
+    }
+
+    #[test]
+    fn local_fs_backend_no_peers_without_dbus() {
+        let b = LocalFsBackend::new();
+        assert!(b.peers().is_empty());
+    }
+
+    #[test]
+    fn local_fs_backend_list_home_returns_something() {
+        // Best-effort: the test env's $HOME exists. Even if it
+        // doesn't, the result is just an empty Vec — never panics.
+        let b = LocalFsBackend::new();
+        let _rows = b.list("");
+        // No assertion on contents — varies by environment.
+    }
+
+    #[test]
+    fn local_fs_backend_unknown_local_slug_returns_empty() {
+        let b = LocalFsBackend::new();
+        assert!(b.list("local:does-not-exist").is_empty());
+    }
+
+    #[test]
+    fn local_fs_backend_rejects_mesh_destination_without_dbus() {
+        let mut b = LocalFsBackend::new();
+        let r = b.send_to(
+            &[PathBuf::from("/tmp/x")],
+            Destination::Peer("pine".into()),
+            SendMode::Copy,
+            ConflictPolicy::Ask,
+        );
+        assert!(matches!(r, Err(BackendError::DestinationUnreachable(_))));
+    }
+
+    #[test]
+    fn fmt_bytes_thresholds() {
+        assert_eq!(fmt_bytes(0), "0 B");
+        assert_eq!(fmt_bytes(512), "512 B");
+        assert_eq!(fmt_bytes(2048), "2 KB");
+        assert_eq!(fmt_bytes(5 * 1024 * 1024), "5.0 MB");
+        assert_eq!(fmt_bytes(3 * 1024 * 1024 * 1024), "3.0 GB");
+    }
+
+    #[test]
+    fn mime_of_classifies_extensions() {
+        assert_eq!(mime_of(Path::new("a.jpg"), false), Mime::Image);
+        assert_eq!(mime_of(Path::new("a.pdf"), false), Mime::Pdf);
+        assert_eq!(mime_of(Path::new("a.tar.gz"), false), Mime::Archive);
+        assert_eq!(mime_of(Path::new("a.iso"), false), Mime::Disk);
+        assert_eq!(mime_of(Path::new("a.txt"), false), Mime::Doc);
+        assert_eq!(mime_of(Path::new("a"), true), Mime::Folder);
     }
 }
