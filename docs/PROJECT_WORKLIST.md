@@ -886,18 +886,18 @@ no new RPM cut.
   MackesState; print(MackesState.load().provisioned)"` prints
   `True`; relaunching `mde --gui` opens the Workbench shell, not
   the wizard.
-- [ ] **v4.0.1: BUG-2 Scroll locks the start-menu popover (Tier
-  1 operator-visible)** — `crates/mde-popover/src/start_menu.rs`
-  uses `scrollable(list).height(Length::Fill)` over up to 200
-  `.desktop` entries; the `view()` re-runs `sort_by()` +
-  `filter()` on every redraw. Two suspects: (a)
-  `text_input::focus("start-menu-search")` keeps grabbing
-  focus on layer-shell surfaces and swallowing wheel events,
-  (b) per-redraw list rebuild stalls under inotify-heavy
-  systems. Diagnose under live load + check
-  `iced_layershell` 0.13.7 known issues. Acceptance: scroll
-  wheel over the start-menu list paginates through entries
-  without freezing the popover.
+- [>] **v4.0.1: BUG-2 start-menu scroll lockup — defensive
+  perf fix shipped 2026-05-23, verification pending** —
+  `view()` was running `Vec::sort_by` over ~250 .desktop
+  entries on every redraw. Under scroll-wheel input bursts
+  the per-frame N log N cost accumulated and the popover
+  appeared to freeze. Fix: pre-sort `self.all` once in
+  `new()` at load time; view() is now O(N) filter only.
+  This is the most likely root cause; the alternative
+  hypothesis (text_input::focus eating wheel events on
+  layer-shell) doesn't match the iced_layershell 0.13.7
+  source review. Held in [>] until the operator verifies
+  scroll works post-deploy.
 - [✓] **v4.0.1: BUG-3 cluster no longer renders "? def #N" —
   fully closed (shipped 2026-05-23)** — three-part close:
   (1) cluster widget moved off-center next to the clock

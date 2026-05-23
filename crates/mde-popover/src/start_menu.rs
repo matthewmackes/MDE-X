@@ -80,7 +80,17 @@ impl iced_layershell::Application for App {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Task<Message>) {
-        let all = load_all_entries();
+        // v4.0.1 BUG-2 defensive perf fix: pre-sort `all` once
+        // here, in lowercase-by-name order. The previous render
+        // path called `Vec::sort_by` on every redraw — on systems
+        // with hundreds of .desktop entries (a stock Fedora
+        // workstation has ~250) the per-frame N log N cost
+        // accumulated under scroll wheel input bursts and the
+        // operator reported the popover locking. Sorting once at
+        // load + dropping the per-render `sort_by` keeps the
+        // view function O(N) (filter only).
+        let mut all = load_all_entries();
+        all.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         tracing::info!(count = all.len(), "loaded .desktop entries");
         (
             Self {
@@ -126,7 +136,8 @@ impl iced_layershell::Application for App {
             .size(15)
             .style(search_input_style);
 
-        // Filtered list.
+        // Filtered list. `self.all` is already sorted at load time
+        // (BUG-2 defensive perf fix), so view() is O(N) filter only.
         let q = self.query.trim();
         let entries: Vec<&AppEntry> = if q.is_empty() {
             self.all
@@ -139,11 +150,9 @@ impl iced_layershell::Application for App {
                 .filter(|e| !e.exec.is_empty())
                 .collect()
         };
-        let mut sorted: Vec<&AppEntry> = entries;
-        sorted.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         let mut list = column![].spacing(2);
-        for entry in sorted.iter().take(200) {
+        for entry in entries.iter().take(200) {
             let label = column![
                 text(entry.name.clone()).size(14).color(FG_TEXT),
                 text(if entry.comment.is_empty() {
