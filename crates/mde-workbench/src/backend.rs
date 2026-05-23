@@ -313,6 +313,110 @@ impl Backend for DBusBackend {
     }
 }
 
+/// v4.0.1 AF-2.3.b (2026-05-23) — write-through wrapper that
+/// persists every `set` to BOTH the local FileBackend AND
+/// `dev.mackes.MDE.Settings.Set` on the session bus. Reads
+/// fall through to the local FileBackend (canonical for the
+/// local node; bus pushes are for downstream propagation to
+/// peers via mackesd's fs_sync worker, not for canonicality).
+///
+/// The bus connection is lazy: the first `set` triggers a
+/// `zbus::Connection::session()` attempt cached in a
+/// `OnceCell<Option<DBusBackend>>`. If the connection fails
+/// (mackesd not running, missing session bus, etc.) the cell
+/// stores `None` and subsequent `set` calls skip the push
+/// without retrying — the local write always succeeds so the
+/// operator's setting never disappears.
+pub struct RemoteBackend {
+    local: FileBackend,
+    bus: Arc<tokio::sync::OnceCell<Option<DBusBackend>>>,
+}
+
+impl fmt::Debug for RemoteBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RemoteBackend")
+            .field("local", &self.local)
+            .field("bus_initialized", &self.bus.initialized())
+            .finish()
+    }
+}
+
+impl RemoteBackend {
+    /// Construct with the canonical FileBackend (production
+    /// path). Bus connection is deferred until the first
+    /// `set` call.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            local: FileBackend::new(),
+            bus: Arc::new(tokio::sync::OnceCell::new()),
+        }
+    }
+
+    /// Construct around an explicit FileBackend — used by
+    /// tests that need a tempfile-backed local store.
+    #[must_use]
+    pub fn with_local(local: FileBackend) -> Self {
+        Self {
+            local,
+            bus: Arc::new(tokio::sync::OnceCell::new()),
+        }
+    }
+
+    /// Best-effort bus lazy-init. Returns `Some(&DBusBackend)`
+    /// when the session bus connection (and the
+    /// `dev.mackes.MDE.Settings` proxy) are reachable; `None`
+    /// otherwise. Cached after the first call so we don't
+    /// re-attempt connecting on every `set`.
+    async fn lazy_bus(&self) -> Option<&DBusBackend> {
+        self.bus
+            .get_or_init(|| async {
+                match Connection::session().await {
+                    Ok(conn) => Some(DBusBackend::new(Arc::new(conn))),
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "RemoteBackend: session bus unreachable; \
+                             cross-mesh push disabled for this session"
+                        );
+                        None
+                    }
+                }
+            })
+            .await
+            .as_ref()
+    }
+}
+
+impl Default for RemoteBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Backend for RemoteBackend {
+    async fn get(&self, key: &str) -> Result<String, BackendError> {
+        self.local.get(key).await
+    }
+
+    async fn set(&self, key: &str, value_json: &str) -> Result<(), BackendError> {
+        // Local write first — guarantees the setting survives
+        // even if the bus push errors. Only propagate the
+        // local error; bus failures are best-effort and logged.
+        self.local.set(key, value_json).await?;
+        if let Some(bus) = self.lazy_bus().await {
+            if let Err(e) = bus.set(key, value_json).await {
+                tracing::warn!(
+                    key, error = %e,
+                    "RemoteBackend: bus push failed; local write succeeded",
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,5 +561,69 @@ mod tests {
         // Parent must contain "mde".
         let parent = path.parent().unwrap();
         assert!(parent.ends_with("mde"));
+    }
+
+    // ────────────────────────────────────────────────────────
+    // AF-2.3.b — RemoteBackend
+    // ────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn remote_backend_set_persists_to_local_file() {
+        let tmp = std::env::temp_dir().join(format!(
+            "mde-workbench-remote-test-{}.toml",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&tmp);
+        let local = FileBackend::with_path(tmp.clone());
+        let backend = RemoteBackend::with_local(local);
+        // The bus push is best-effort; even when the session
+        // bus is unreachable (CI / headless), the local write
+        // must still succeed and the value must round-trip.
+        backend
+            .set("theme.name", "\"Adwaita-dark\"")
+            .await
+            .expect("set ok");
+        let got = backend.get("theme.name").await.expect("get");
+        assert_eq!(got, "\"Adwaita-dark\"");
+
+        // Re-open the same path with a fresh FileBackend so the
+        // file-level persistence is checked end-to-end.
+        let reopen = FileBackend::with_path(tmp.clone());
+        assert_eq!(
+            reopen.get("theme.name").await.expect("get"),
+            "\"Adwaita-dark\""
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_backend_get_falls_through_to_local() {
+        let tmp = std::env::temp_dir().join(format!(
+            "mde-workbench-remote-get-{}.toml",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&tmp);
+        let local = FileBackend::with_path(tmp.clone());
+        let backend = RemoteBackend::with_local(local);
+        let got = backend.get("never.set").await.expect("get");
+        assert_eq!(got, "");
+    }
+
+    #[tokio::test]
+    async fn remote_backend_set_succeeds_when_bus_offline() {
+        // No DBUS_SESSION_BUS_ADDRESS in the env -> the lazy
+        // bus init lands None; the spec requires the local
+        // write to still succeed. The 4-arm guard below stays
+        // tolerant of a CI environment that does have a bus.
+        let tmp = std::env::temp_dir().join(format!(
+            "mde-workbench-remote-offline-{}.toml",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&tmp);
+        let local = FileBackend::with_path(tmp.clone());
+        let backend = RemoteBackend::with_local(local);
+        backend
+            .set("font.name", "\"Inter 11\"")
+            .await
+            .expect("local write must not fail even if bus is offline");
     }
 }

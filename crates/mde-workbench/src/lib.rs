@@ -28,7 +28,7 @@ pub mod sidebar;
 pub mod single_instance;
 
 pub use app::{App, Message};
-pub use backend::{Backend, BackendError, DBusBackend, DemoBackend};
+pub use backend::{Backend, BackendError, DBusBackend, DemoBackend, FileBackend, RemoteBackend};
 pub use dbus::{PendingFocus, WorkbenchService, INTERFACE_NAME, METHOD_FOCUS};
 pub use model::{nav_model, Group, NavEntry, Panel, View};
 pub use single_instance::{decide_primary_status, PrimaryStatus, BUS_NAME, OBJECT_PATH};

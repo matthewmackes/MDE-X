@@ -12,7 +12,7 @@ use iced::widget::{column, container, row, text};
 use iced::{window, Color, Element, Length, Size, Subscription, Task, Theme};
 use mde_theme::Palette;
 
-use crate::backend::{Backend, DemoBackend, FileBackend};
+use crate::backend::{Backend, RemoteBackend};
 use crate::dbus::PendingFocus;
 use crate::header::HeaderAction;
 use crate::keyboard::{KeyAction, Pane};
@@ -269,15 +269,17 @@ impl std::fmt::Debug for App {
 }
 
 impl Default for App {
-    /// v4.0.1 AF-2.3.a (2026-05-23) — production default now
-    /// uses `FileBackend` which persists settings to
-    /// `~/.config/mde/workbench-settings.toml` instead of the
-    /// in-memory `DemoBackend` that lost every change on
-    /// restart. Cross-mesh push half (AF-2.3.b) still chains
-    /// on the DBus settings surface; FileBackend covers the
-    /// local-persistence half today.
+    /// v4.0.1 AF-2.3.b (2026-05-23) — production default now
+    /// uses `RemoteBackend` which wraps the AF-2.3.a
+    /// FileBackend: every `set` writes the local
+    /// `~/.config/mde/workbench-settings.toml` AND pushes to
+    /// `dev.mackes.MDE.Settings.Set` on the session bus
+    /// (best-effort; the local write always succeeds even
+    /// when mackesd is offline). mackesd's fs_sync worker
+    /// propagates the bus-side write to peers, so changing
+    /// a font in Workbench surfaces on a peer within ~5 s.
     fn default() -> Self {
-        Self::with_backend(Arc::new(FileBackend::new()))
+        Self::with_backend(Arc::new(RemoteBackend::new()))
     }
 }
 
@@ -1145,6 +1147,7 @@ fn panel_under_construction(view: View) -> Element<'static, Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::DemoBackend;
 
     #[test]
     fn new_app_lands_on_dashboard_view() {

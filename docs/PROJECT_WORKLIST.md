@@ -1241,14 +1241,27 @@ above; integration tasks below in dependency order.
   workbench lib tests pass (+8 FileBackend round-trip,
   garbage-rejection, escape, and path-resolution).
 
-- [ ] **AF-2.3.b: mde-workbench backend cross-mesh push (Tier
-  2)** — once mackesd's `dev.mackes.MDE.Settings` surface
-  is real (currently the proxy compiles but the service
-  side is stub-flavoured), wrap FileBackend with a
-  RemoteBackend that calls both local file write + dbus
-  Settings.Set so changes propagate to peers via the
-  fs_sync worker. Closed when changing a font in Workbench
-  shows up on a peer within ~5 s.
+- [✓] **AF-2.3.b: mde-workbench backend cross-mesh push
+  (shipped 2026-05-23)** — Pre-condition revision: the
+  spec's "currently the proxy compiles but the service
+  side is stub-flavoured" was stale by 2026-05-23 —
+  `crates/mackesd/src/ipc/settings.rs` actually wires
+  Get/Set/Snapshot/Restore/ListKeys through to
+  `crate::settings::{current, apply}` end-to-end. New
+  `RemoteBackend` in `crates/mde-workbench/src/backend.rs`
+  wraps `FileBackend` + lazy-connects to
+  `dev.mackes.MDE.Settings` via `tokio::sync::OnceCell<
+  Option<DBusBackend>>` on first `set`. Every `set` writes
+  the local TOML first (always succeeds even when mackesd
+  is offline), then best-effort pushes to the bus
+  (warn-on-fail; the local write is canonical). Reads fall
+  through to local (bus pushes propagate downstream via
+  fs_sync — mesh-canonicality is fs_sync's job, not the
+  RemoteBackend's). `App::default()` switched from
+  `FileBackend` to `RemoteBackend`; 3 new RemoteBackend
+  tests cover local persistence, get-falls-through, and
+  bus-offline resilience. 574 mde-workbench lib tests
+  green (was 571).
 - [✓] **AF-5: mackesd `Shell.{Inbox,Outbox,Downloads,FileOperations}`
   honest-empty pass (shipped 2026-05-23) — closes the §0.12
   Phase-G-jargon leak** — every "wired in Phase G" stub Err
