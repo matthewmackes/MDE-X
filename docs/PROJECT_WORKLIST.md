@@ -759,7 +759,11 @@ above; integration tasks below in dependency order.
   Acceptance: on a symmetric-NAT bench peer, `mackesd serve` logs
   one STUN binding response per probe; the resulting
   server-reflexive candidate appears in `peer_path.rs::candidates`
-  before any DERP fallback.
+  before any DERP fallback. **v4.0.1 amendment:** add latency bar
+  per v12-connectivity-scope.md Q8 — STUN handshake p99 ≤ 1.5 s
+  on the symmetric-NAT bench peer. Implementation must include
+  a hard timeout that surfaces a fallback decision rather than
+  blocking indefinitely.
 - [!] **v3.0.3: 12.18 wire HTTPS (BLOCKED on TransportRegistry having concrete Transport impls)-tunneled fallback activation
   (Tier 3 mackesd::https_fallback)** — `mackesd/src/https_fallback.rs`
   ships the policy layer (3-failed-cycle activation rule, etc.)
@@ -770,6 +774,14 @@ above; integration tasks below in dependency order.
   UDP fully blocked, after 3 consecutive direct+DERP failures the
   fallback activates and a `tcpdump -i any port 443` shows
   outbound HTTPS to the configured fallback host within 1s.
+  **v4.0.1 amendment:** add per v12-connectivity-scope.md Q10 — the
+  fallback uses (a) a real TLS handshake (not a synthetic UDP-in-
+  TCP), (b) realistic SNI matching the fallback host, (c) a
+  Let's Encrypt-signed cert chain that validates against the
+  system trust store. Acceptance: bench-test against a
+  packet-inspecting bench firewall (DPI-style); fallback
+  succeeds without the firewall recognizing the traffic as
+  tunneled.
 - [✓] **v3.0.3: 1.8 wire search-results view into mde-files
   (Tier 2 mde-files::search) — shipped 2026-05-22** — `peer_folder`
   view function now takes `search_query: &str` + `layout: Layout`
@@ -919,31 +931,50 @@ through them in priority order.
   paths are portable across compositors. Acceptance: on sway,
   the user's locked global hotkeys (Super+M, etc.) fire via
   the portal; on XFCE/X11 they keep firing via XGrabKey.
-- [ ] **v4.0.1: 12.17 STUN ≤1.5s acceptance criterion**
-  (v12-connectivity-scope.md Q8) — Phase 12.17 already
-  `[!] Blocked` on TransportRegistry concrete impls; the
-  acceptance bar should explicitly include "STUN handshake
-  completes in ≤1.5s on symmetric-NAT peers" so the impl
-  can't ship with unbounded blocking. Acceptance: bench-test
-  STUN against a symmetric-NAT bench peer; p99 ≤1.5s.
-- [ ] **v4.0.1: 12.18 HTTPS-fallback TLS + DPI acceptance**
-  (v12-connectivity-scope.md Q10) — Phase 12.18 already
-  `[!] Blocked` on TransportRegistry; the acceptance bar
-  should include "real TLS handshake + realistic SNI + valid
-  Let's Encrypt cert" + "survives deep-packet inspection on
-  restrictive firewalls." Acceptance: bench-test the
-  fallback against a packet-inspecting bench firewall; the
-  fallback succeeds.
-- [ ] **v4.0.1: Geologica font license + RPM bundle audit
-  (visual-identity.md)** — visual-identity.md locks Geologica
-  as the display + body font. Verify (a) the license is
-  redistributable (it's OFL per the upstream repo), (b) the
-  variable font TTF lives somewhere under `data/fonts/`
-  OR a dependency on `google-noto-fonts-geologica` is declared
-  in the spec, (c) Iced + GTK both find it at runtime via
-  fontconfig. Acceptance: fresh install of mde renders the
-  Workbench in Geologica without a fallback warning in the
-  fonts-debug log.
+- [✓] **v4.0.1: 12.17 STUN ≤1.5s acceptance criterion
+  (v12-connectivity-scope.md Q8) — shipped 2026-05-23** —
+  amended the `[!] Blocked` v3.0.3 12.17 entry above with a
+  new "v4.0.1 amendment" paragraph requiring STUN p99 ≤ 1.5 s
+  on the symmetric-NAT bench peer + a hard timeout so the
+  impl can't ship with unbounded blocking. The future v4.1+
+  unblocking commit will satisfy this gate before flipping
+  the entry to `[✓]`.
+- [✓] **v4.0.1: 12.18 HTTPS-fallback TLS + DPI acceptance
+  (v12-connectivity-scope.md Q10) — shipped 2026-05-23** —
+  amended the `[!] Blocked` v3.0.3 12.18 entry above with a
+  new "v4.0.1 amendment" paragraph requiring real TLS
+  handshake + realistic SNI + Let's Encrypt-signed cert chain
+  validated against system trust store + survival against
+  DPI on a packet-inspecting bench firewall. The future v4.1+
+  unblocking commit will satisfy this gate before flipping.
+- [>] **v4.0.1: Geologica font license + RPM bundle audit
+  (visual-identity.md) — partial 2026-05-23** — audit
+  findings: (a) Geologica is **NOT bundled** under
+  `data/fonts/` anywhere, (b) **NOT declared** as Requires /
+  Recommends in `packaging/fedora/mackes-shell.spec` (the
+  spec only Recommends redhat-display/text/mono-fonts), (c)
+  **NOT available** as a Fedora package (`dnf search
+  geologica` returns no matches), (d) **NOT installed** on
+  the dev system (`fc-list | grep -i geologica` empty), so
+  the visual-identity Q11/Q12 lock is currently violated at
+  runtime — Iced falls through to the system default. License
+  verified: Geologica ships under OFL 1.1 per its Google Fonts
+  page, so bundling is redistributable. **v4.0.2 task** below
+  ships the actual bundle (the binary asset needs network
+  access to download from fonts.google.com; deferred from
+  this iteration's offline session).
+- [ ] **v4.0.2: bundle Geologica + IBM Plex Mono fonts**
+  (visual-identity.md Q11/Q12/Q13) — concrete implementation
+  of the v4.0.1 audit's findings. Download the variable
+  Geologica font from
+  `https://fonts.google.com/download?family=Geologica` (OFL
+  1.1) + IBM Plex Mono (same source), drop both .ttf files
+  into `data/fonts/`, add spec install lines to
+  `/usr/share/fonts/mde/`, add a `fc-cache -fv` invocation in
+  the spec's `%post` scriptlet. Acceptance:
+  `dnf install mde && fc-list | grep -iE 'geologica|plex.*mono'`
+  reports both fonts; opening Workbench renders in Geologica
+  per design lock.
 - [✓] **v4.0.1: voice-and-tone verb CI gate
   (voice-and-tone.md) — shipped 2026-05-23** —
   `install-helpers/lint-voice.sh` (~120 LOC) scans for
@@ -992,31 +1023,51 @@ through them in priority order.
     legitimate wizard-step phrasing; annotate.
   Acceptance: `install-helpers/lint-voice.sh` exits 0 on
   the current tree; CI workflow flips to hard gate.
-- [ ] **v4.0.1: scope-clarification — Phase G model migration
-  in or out of v4.x?** — multiple v3.0.3 items
-  (`mde-files::dbus_backend Backend impl`, the panel-host
-  consumption for several modules) are `[!] Blocked` on Phase
-  G migrating `model::{Peer,SelfNode,FileRow}` off
-  `&'static str` fields. Decide: ship Phase G in v4.1 (so
-  these can land in v4.1+) OR defer to v5.0 (so the
-  `[!] Blocked` entries stay blocked through v4.x).
-  Decision-doc-style task; outcome flips block status on the
-  6+ dependent worklist entries.
-- [ ] **v4.0.1: scope-clarification — async birthright DAG in
-  scope for v4.x?** — EPIC-production-ready-mackes Track 1
-  locks the "foreground vs background classification +
-  systemd `mackes-firstboot.service` + Conky HUD status
-  surface" first-boot wizard parallelization. v2.0.x shipped
-  the synchronous version. Decide if v4.x scope includes the
-  async refactor.
-- [ ] **v4.0.1: docs/design/v1.1.0-carbon-refresh handoff —
-  closeout or retire?** — design handoff bundle exists at
-  `docs/design/v1.1.0-carbon-refresh/`; the implementation is
-  arguably shipped (the v3.x panel + popovers are the
-  carbon-refresh outcome). Either explicitly close out the
-  handoff with a pointer to the implementation commits OR
-  retire the bundle since it's superseded by v3.0.x +
-  v4.0.0. Decision-doc-style task.
+- [✓] **v4.0.1: scope-clarification — Phase G model migration
+  in v4.1 (decided 2026-05-23)** — Decision: Phase G ships in
+  **v4.1.0** (not v5.0). Rationale: the model migration is
+  bounded (rewrite `model::{Peer,SelfNode,FileRow}` from
+  `&'static str` to `String` + `Cow<'static, str>` where
+  static data still benefits + update the demo_data fixtures).
+  Each dependent `[!] Blocked` v3.0.3 entry takes ~30-60 min
+  to wire once the model migrates. Holding the dependents in
+  `[!]` across an entire major (v4.x) lifecycle would let
+  more code accumulate on top of the stale `&'static`
+  assumption, which means more migration surface later.
+  v4.1.0 cut targets the migration + its 6+ dependent
+  wirings; v4.0.x patches handle hot-fix-class work only.
+  Outcome: dependent `[!]` blockers stay as-is until v4.1.0
+  ships; then they all land in a single coordinated commit
+  cycle.
+- [✓] **v4.0.1: scope-clarification — async birthright DAG
+  deferred to v5.x (decided 2026-05-23)** — Decision: defer
+  to v5.x. Rationale: (a) the current synchronous birthright
+  works on every supported install path (fresh install +
+  upgrade), (b) the Conky HUD status surface adds a new
+  runtime dep + visual surface that conflicts with the v4.0.0
+  "no dead chrome" direction, (c) Track 1's parallelization
+  payoff is "first-boot wizard runs 4-6 min faster" which
+  matters less now that the wizard's setup steps are
+  background-friendly (Ansible-pull is async, dnf updates are
+  async). Risk of waiting: v5.x might decide to redesign
+  birthright entirely, making the Track 1 implementation
+  speculative. Wait for the v5.x scope lock before
+  reimplementing. Track 1 stays in the
+  `EPIC-production-ready-mackes.md` document as a future
+  consideration, not an active worklist item.
+- [✓] **v4.0.1: docs/design/v1.1.0-carbon-refresh handoff
+  retired (decided 2026-05-23)** — Decision: retire the
+  bundle as superseded. The v1.1.0 carbon-refresh handoff
+  (sidebar shell, Cairo mesh topology, Tweaks panel,
+  birthright steps for themes/fonts/apps/panel-layout) was
+  ALL shipped — first via the GTK panel (v1.1.0) and then
+  re-shipped in the Iced port (v3.0.0 cut + v4.0.0 integration
+  sweep). The design handoff docs at
+  `docs/design/v1.1.0-carbon-refresh/` are historical record;
+  no further implementation derives from them. Per the
+  worklist hygiene rule ("newer-wins-silently"), the bundle
+  doesn't need to be "retired" in worklist status — it's a
+  doc, not a task. Marked here as decided + no further work.
 
 
 
