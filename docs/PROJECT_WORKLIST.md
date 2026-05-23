@@ -1112,15 +1112,14 @@ no new RPM cut.
   Rust binaries differ from the original v4.0.0 RPM mtime.
   Acceptance: `journalctl --user -u mde-parity.service` shows
   one successful run.
-- [ ] **v4.0.1: PARITY-5 update `.claude/CLAUDE.md` §0.2 to
-  document mde-x remote + dual-push** — §0.2 currently
-  declares "mackes-shell has one remote: origin →
-  MAP2-RELEASES.git" but the repo has two remotes (origin
-  + mde-x). Update to describe both, the dual-push protocol
-  (`git push origin main && git push mde-x main`), and the
-  fact that origin/main is protected (bypass message during
-  push is expected). Acceptance: §0.2 text matches
-  `git remote -v` output.
+- [✓] **v4.0.1: PARITY-5 CLAUDE.md §0.2 rewritten for dual
+  remote (shipped 2026-05-23)** — §0.2 now documents both
+  `origin` (releases, protected `main`) and `mde-x`
+  (development mirror), the dual-push command
+  `git push origin main && git push mde-x main`, and the
+  "Cannot update this protected ref" bypass message that
+  appears on every origin push (push still completes; the
+  message is informational).
 - [ ] **v4.0.1: TEST-1 fix 3 dbus-service-files tests (legacy
   alias gone but the test expects it shipping)** — `tests/
   test_dbus_service_files.py` expects `data/dbus-1/services/
@@ -1139,17 +1138,13 @@ no new RPM cut.
   `..._skips_non_dict_phone_entries`. Likely a schema drift
   between the test fixture and the drawer's actual notification
   format. Acceptance: 3 drawer_phone_notifications tests pass.
-- [ ] **v4.0.1: CLEAN-1 delete dead `crates/mackes-panel/src/
-  mesh_sync.rs`** — declared at `crates/mackes-panel/src/
-  main.rs:35` (`mod mesh_sync;`) but referenced nowhere in
-  the workspace. Superseded by `mde-applet-mesh-status` per
-  Phase E.21 (line 2444). The orphaned file shouldn't be
-  blocking anything but is a worklist-hygiene defect under
-  §0.12 ("never commit a `pub mod foo;` declaration unless at
-  least one other file references it"). Delete the file +
-  the `mod` line. Acceptance: `cargo check -p mackes-panel`
-  passes; the dead-module rescue grep returns 0 lines for
-  `mackes-panel`.
+- [✓] **v4.0.1: CLEAN-1 deleted dead `crates/mackes-panel/src/
+  mesh_sync.rs` (shipped 2026-05-23)** — 205-line module
+  declared in `main.rs:35` but referenced nowhere. Removed
+  the file + the `mod mesh_sync;` line; replaced with a
+  retirement comment citing Phase E.21's
+  `mde-applet-mesh-status` supersession. `cargo check -p
+  mackes-panel` passes clean.
 
 ### v4.0.1 planning-doc gap pass (audit 2026-05-23)
 

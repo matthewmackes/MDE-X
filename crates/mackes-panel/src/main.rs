@@ -32,7 +32,11 @@ mod i3_cluster;
 mod icon_mapper;
 mod icons;
 mod mesh_module;
-mod mesh_sync;
+// v4.0.1 CLEAN-1 — mesh_sync.rs retired. Superseded by
+// `mde-applet-mesh-status` (Phase E.21, shipped 2026-05-20). The
+// legacy GTK mackes-panel never referenced `mesh_sync::` from any
+// other file; the orphaned module is removed under §0.12's
+// reachability rule.
 mod network_manager;
 mod notification_bell;
 mod notification_center;

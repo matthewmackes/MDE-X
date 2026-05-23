@@ -23,12 +23,30 @@ They override any conflicting default behavior.
   hook skipping — unless the user explicitly requests it. Always prefer a
   new commit over amending.
 
-### 0.2 Single-remote push (mackes-shell-specific)
+### 0.2 Dual-remote push (mackes-shell-specific, updated 2026-05-23)
 
-Unlike MAP2's dual-remote setup, mackes-shell has one remote:
-`origin → github.com:matthewmackes/MAP2-RELEASES.git`. Every push is just
-`git push origin main`. If a second remote is ever added, update this
-section before adopting the dual-push pattern.
+mackes-shell has **two** remotes:
+
+  * `origin  → github.com:matthewmackes/MAP2-RELEASES.git`
+    (releases mirror; protected `main` ref; the bypass message
+    `remote: - Cannot update this protected ref.` is expected on
+    every push and does not indicate failure — the push still
+    completes, see the `<sha>..<sha>` line below it).
+  * `mde-x   → github.com:matthewmackes/MDE-X.git`
+    (development mirror; unprotected).
+
+The canonical push is **dual** — every push to `main` lands on both:
+
+```bash
+git push origin main && git push mde-x main
+```
+
+Treat both as required: a push that only lands on one of them leaves
+the other mirror behind. If a future cut splits release vs dev
+artifacts unevenly, document the divergence here before changing the
+pattern. The previous "single remote → origin only" wording (pre
+2026-05-23) was stale — the `mde-x` remote was added some time after
+the v3.x cuts and the rulebook only caught up here.
 
 ### 0.3 Staging hygiene
 
