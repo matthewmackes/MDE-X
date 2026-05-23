@@ -1490,10 +1490,16 @@ integration needed.
   = nodes, latencies = edge weights). Substantial; chains
   on a `cairo`/`iced::canvas` decision.
 
-- [ ] **v4.0.1: WB-2.l Network Remote Desktop (Tier 2)**
-  Per-peer RDP/VNC launch surface; reads paired peers from
-  `~/.config/mde/peer-macs.json` + shells out to Remmina
-  or wlroot's VNC client.
+- [✓] **v4.0.1: WB-2.l Network Remote Desktop (shipped 2026-05-23)**
+  Built `crates/mde-workbench/src/panels/remote_desktop.rs` —
+  reads `~/.config/mde/peer-macs.json` (with fallback to the
+  legacy `~/.config/mackes-shell/peer-macs.json`), surfaces
+  each cached IP/MAC pair as a row with per-row [RDP] [VNC]
+  buttons, plus a manual hostname/IP text field at the top
+  with its own Connect RDP / Connect VNC buttons. Click
+  launches `remmina -c <proto>://<host>:<port>` (3389 for
+  RDP, 5900 for VNC). Auto-loads on nav. 8 tests including
+  parser round-trip + empty-state render.
 
 - [✓] **v4.0.1: WB-1 wire Connected Devices panel into Workbench
   nav (Phase 0.7 rescue — operator-reported missing modal)

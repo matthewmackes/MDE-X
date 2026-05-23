@@ -30,6 +30,7 @@ pub mod notifications;
 pub mod playbooks;
 pub mod power;
 pub mod printers;
+pub mod remote_desktop;
 pub mod removable;
 pub mod repair;
 pub mod resources;

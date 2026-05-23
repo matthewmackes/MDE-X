@@ -30,7 +30,8 @@ use crate::panels::{
     logs as logs_panel, mesh_history as mesh_history_panel, mesh_join as mesh_join_panel,
     mesh_services as mesh_services_panel,
     notifications as notifications_panel, playbooks as playbooks_panel, power as power_panel,
-    printers as printers_panel, removable as removable_panel, repair as repair_panel,
+    printers as printers_panel, remote_desktop as remote_desktop_panel,
+    removable as removable_panel, repair as repair_panel,
     resources as resources_panel, run_history as run_history_panel, session as session_panel,
     snapshots as snapshots_panel, sound as sound_panel, system_update as system_update_panel,
     themes as themes_panel, vpn as vpn_panel, wallpaper as wallpaper_panel, wifi as wifi_panel,
@@ -156,6 +157,7 @@ pub enum Message {
     AppsRemove(apps_remove_panel::Message),
     HealthCheck(health_check_panel::Message),
     MeshServices(mesh_services_panel::Message),
+    RemoteDesktop(remote_desktop_panel::Message),
     /// CB-1.8 partial — Network → Firewall panel sub-message.
     Firewall(firewall_panel::Message),
     /// CB-1.8 partial — Network → Wi-Fi panel sub-message.
@@ -225,6 +227,7 @@ pub struct App {
     apps_remove: apps_remove_panel::AppsRemovePanel,
     health_check: health_check_panel::HealthCheckPanel,
     mesh_services: mesh_services_panel::MeshServicesPanel,
+    remote_desktop: remote_desktop_panel::RemoteDesktopPanel,
     firewall: firewall_panel::FirewallPanel,
     wifi: wifi_panel::WifiPanel,
     vpn: vpn_panel::VpnPanel,
@@ -301,6 +304,7 @@ impl App {
             apps_remove: apps_remove_panel::AppsRemovePanel::new(),
             health_check: health_check_panel::HealthCheckPanel::new(),
             mesh_services: mesh_services_panel::MeshServicesPanel::new(),
+            remote_desktop: remote_desktop_panel::RemoteDesktopPanel::new(),
             firewall: firewall_panel::FirewallPanel::new(),
             wifi: wifi_panel::WifiPanel::new(),
             vpn: vpn_panel::VpnPanel::new(),
@@ -643,6 +647,7 @@ impl App {
             Message::AppsRemove(msg) => self.apps_remove.update(msg),
             Message::HealthCheck(msg) => self.health_check.update(msg),
             Message::MeshServices(msg) => self.mesh_services.update(msg),
+            Message::RemoteDesktop(msg) => self.remote_desktop.update(msg),
             Message::Firewall(msg) => self.firewall.update(msg),
             Message::Wifi(msg) => self.wifi.update(msg),
             Message::Vpn(msg) => self.vpn.update(msg),
@@ -707,6 +712,9 @@ impl App {
             (Group::Maintain, "health_check") => health_check_panel::HealthCheckPanel::load(),
             // v4.0.1 WB-2.j — same pattern for mesh services.
             (Group::Network, "mesh_services") => mesh_services_panel::MeshServicesPanel::load(),
+            // v4.0.1 WB-2.l — load cached peer-macs.json on
+            // first nav so the known-hosts table is populated.
+            (Group::Network, "remote_desktop") => remote_desktop_panel::RemoteDesktopPanel::load(),
             (Group::Apps, "installed") => apps_installed_panel::AppsInstalledPanel::load(),
             (Group::Apps, "sources") => apps_sources_panel::AppsSourcesPanel::load(),
             (Group::Network, "firewall") => firewall_panel::FirewallPanel::load(),
@@ -957,6 +965,14 @@ impl App {
                 group: Group::Network,
                 panel: "mesh_services",
             } => self.mesh_services.view(),
+            // v4.0.1 WB-2.l (2026-05-23) — Network → Remote
+            // Desktop renders cached peer-macs.json hosts +
+            // per-host RDP/VNC launch buttons + a manual-entry
+            // text field.
+            View::Panel {
+                group: Group::Network,
+                panel: "remote_desktop",
+            } => self.remote_desktop.view(),
             View::Panel {
                 group: Group::Network,
                 panel: "firewall",
