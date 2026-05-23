@@ -12,6 +12,7 @@
 //! worker supervisor).
 
 pub mod audit;
+pub mod https443;
 pub mod mesh_shunt;
 pub mod phones_manifest;
 pub mod policy;

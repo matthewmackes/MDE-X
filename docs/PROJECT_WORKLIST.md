@@ -907,53 +907,107 @@ above; integration tasks below in dependency order.
   `mackesd healthz` showing the per-peer
   `https_state`/`consecutive_udp_failures` values.
 
-- [ ] **v4.0.1: 12.18 D.2 Https443 Transport impl (Tier 3
-  mackesd::transport::https443) — follow-up to D.1**
+- [✓] **v4.0.1: 12.18 D.2 Https443 Transport impl (Tier 3
+  mackesd::transport::https443) — shipped 2026-05-23** —
+  `Https443Transport` ships as a new module under
+  `mackesd::transport::https443` (gated under the existing
+  `async-services` feature alongside the rest of the worker
+  pool). Registered in the `MeshRouterWorker`'s
+  `TransportRegistry` at daemon startup.
+
+  Shipped:
+  - `FallbackHostConfig::from_env()` reads
+    `MDE_HTTPS_FALLBACK_HOST` (`host` or `host:port`, defaults
+    to port 443).
+  - `build_system_client_config()` loads the system root CA
+    store via `rustls-native-certs 0.8`; cached once on the
+    transport for the daemon's lifetime so per-open allocations
+    don't reload `/etc/ssl/certs`.
+  - `Https443Transport::open(peer_id)` performs the **real**
+    `tokio_rustls::TlsConnector::connect` handshake with SNI =
+    the configured host. Returns
+    `Https443Connection { id: "https443:{peer_id}", stream:
+    AsyncMutex<TlsStream<TcpStream>> }`. Error mapping:
+    - no env var set → `Misconfigured { code:
+      "no_fallback_host" }`
+    - system trust store empty → `Misconfigured { code:
+      "no_trust_store" }`
+    - hostname unparseable as SNI → `Misconfigured { code:
+      "bad_fallback_host" }`
+    - TCP refused / DNS failure → `Unreachable { code:
+      "tcp_refused" }`
+    - TLS handshake failure (cert chain invalid, SNI mismatch,
+      etc.) → `HandshakeFailed { code: "tls_failed" }`
+  - `probe()` returns `Healthy` when both env var + trust store
+    loaded, `Down` otherwise — so the router never picks
+    Https443 as primary until the fallback host is configured.
+  - 12 unit tests cover the parser, capability shape, the
+    Misconfigured branches, and a real loopback TLS handshake
+    against an rcgen-issued self-signed cert (custom-rooted
+    ClientConfig + SNI-mismatch failure path).
+
+  Acceptance covered by tests + code-side gate:
+  - **Real TLS handshake to a configured host with SNI + valid
+    cert chain:** loopback test exercises the full
+    `TlsConnector::connect` path with rustls 0.23 + ring crypto
+    provider. Production uses the same path with system roots.
+  - **Misconfigured fallback host paths:** all three (`no_*`)
+    misconfig codes are bench-asserted.
+  - **TransportRegistry registration at startup:**
+    `mackesd::run_serve` builds
+    `Arc::new(vec![Arc::new(Https443Transport::new())])` as the
+    initial registry — the mesh-router sees Https443 as a
+    candidate from the first tick.
+
+  Remaining bench acceptance (pending HW-2):
+  - Real DPI-firewall test (mitmproxy transparent) confirming
+    the traffic is indistinguishable from browser HTTPS.
+  - Real corporate-wifi peer with UDP fully blocked +
+    `tcpdump -i any port 443` showing outbound HTTPS within 1 s
+    of `Activating`.
+  - Drain wiring (D.3 follow-up below): the mesh-router's
+    `Activating` transition must call `Https443Transport::open`
+    + feed `observe_handshake_outcome` back per peer. Today
+    the transport is registered + reachable; the router still
+    needs to drive `open()` from the tick loop when the per-
+    peer state enters `Activating`.
+
+- [ ] **v4.0.1: 12.18 D.3 wire MeshRouterWorker::tick_once to
+  drive Https443 opens on Activating (Tier 3) — follow-up to
+  D.1 + D.2 (2026-05-23)**
 
   **As** the mesh-router worker,
-  **I want** a concrete `Transport` impl for the HTTPS-tunneled
-  fallback so that when `PeerPath::https_state` enters
-  `Activating`, packets actually flow through TLS/TCP/443 to a
-  configured fallback host,
-  **so that** corporate-firewall / hotel-wifi peers can reach
-  the mesh when both direct UDP + DERP UDP are blocked.
+  **I want** my tick loop to actually call
+  `Https443Transport::open(peer_id)` for each peer in the
+  `Activating` state + feed the result back through
+  `observe_handshake_outcome`,
+  **so that** the per-peer `HttpsFallbackState` actually advances
+  from `Activating` to `Active` (or `Failing`) under live load.
 
   **Acceptance** (bench-observable):
-  - [ ] `mde::transport::https443::Https443Transport` ships as a
-        new mackesd-side crate or module, implements
-        `mackes_transport::Transport`, registers in the
-        `TransportRegistry` at daemon startup.
-  - [ ] `open(peer_id)` performs a **real** TLS handshake
-        (`tokio_rustls`) to the configured fallback host on
-        TCP/443. SNI matches the host's domain; the cert chain
-        is validated against the system trust store (no
-        custom verifier — the fallback host MUST present a
-        valid LE-signed cert per Q10).
-  - [ ] On handshake success, `mesh_router::
-        observe_handshake_outcome(peer_id, true)` flips the
-        peer to `Active`.
-  - [ ] On a bench peer with UDP fully blocked, after 3
-        BothUdpFailed observations, `tcpdump -i any port 443`
-        shows outbound HTTPS within 1 s.
-  - [ ] DPI-style middlebox bench (e.g., `mitmproxy --transparent`)
-        does not classify the traffic as tunneled — looks
-        indistinguishable from a normal browser fetch (real
-        TLS, real SNI, real cert chain).
+  - [ ] On the next tick after a peer enters `Activating`,
+        the router walks the `TransportRegistry` looking for a
+        `TransportKind::Https443` impl + calls `open(peer_id)`
+        on it.
+  - [ ] On `Ok`: emit
+        `observe_handshake_outcome(peer_id, true)` → peer
+        transitions to `Active`.
+  - [ ] On `Err`: emit
+        `observe_handshake_outcome(peer_id, false)` → peer
+        transitions to `Failing`. Error code in the audit log.
+  - [ ] Re-attempt cadence: per the existing tick interval
+        (default 10 s); the failure window backoff lives in the
+        state machine, not the tick.
 
   **Implementation notes:**
-  - Fallback host configurable via `/etc/mde/connect/policy.toml`
-    or env var `MDE_HTTPS_FALLBACK_HOST` (default unset →
-    transport returns `Misconfigured { code:
-    "no_fallback_host" }`).
-  - Reuse the rustls infrastructure from `mde_kdc::tls::
-    connect_pinned_tls` — but with `WebPkiServerVerifier::new`
-    (system trust store) instead of `PinnedFingerprintVerifier`.
-  - On handshake failure, surface `TransportError::
-    HandshakeFailed { code: "tls_failed" }` so
-    `observe_handshake_outcome(peer_id, false)` runs from the
-    router and the peer transitions to `Failing`.
-  - Icon: Carbon `cloud--service-management` for the panel
-    surface that renders the fallback state.
+  - `tick_once` today is mostly a scaffold (debug log + the
+    metrics histogram update); the scorer integration is
+    KDC2-1.9. D.3 lands the Https443 activation slice
+    independent of the scorer.
+  - Reference: the existing
+    `MeshRouterWorker::observe_handshake_outcome` + the new
+    `transport::https443::Https443Transport::open` are the two
+    pieces; D.3 just connects them inside `tick_once`.
 - [✓] **v3.0.3: 1.8 wire search-results view into mde-files
   (Tier 2 mde-files::search) — shipped 2026-05-22** — `peer_folder`
   view function now takes `search_query: &str` + `layout: Layout`

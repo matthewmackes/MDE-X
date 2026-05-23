@@ -165,10 +165,25 @@ async-trait = { version = "0.1", optional = true }
 # Q8 first-packet < 3 s.
 mdns-sd = { version = "0.11", optional = true }
 
+# Phase 12.18 D.2 — Https443 transport. rustls 0.23 + tokio-rustls
+# 0.26 match the workspace's existing TLS stack (mde-kdc uses
+# the same versions). rustls-native-certs loads the system root
+# CA store so the fallback host's LE-signed cert chain validates
+# against the operator's distro trust bundle (Fedora ships
+# `ca-certificates`, the system store rustls-native-certs reads).
+# Locked 2026-05-23 — Q10 "indistinguishable from real HTTPS".
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+
 [dev-dependencies]
 # Deterministic snapshot diffs for library-contract tests (12.11.5).
 insta    = { version = "1", features = ["json", "redactions"] }
 tempfile = "3"
+# Phase 12.18 D.2 — self-signed certs for the Https443 loopback
+# integration test. Same version mde-kdc uses for the KDC TLS
+# bench harness.
+rcgen    = "0.13"
 
 [features]
 # Phase 12.11.2 — opt-in E2E suite that needs a running Docker daemon.
@@ -187,7 +202,17 @@ x11 = []
 # modules compile only with this feature; downstream library
 # consumers that just want the existing sync read-API can leave it
 # off. Locked 2026-05-19.
-async-services = ["dep:tokio", "dep:task-supervisor", "dep:zbus", "dep:async-trait", "dep:mdns-sd", "dep:mde-kdc"]
+async-services = [
+    "dep:tokio",
+    "dep:task-supervisor",
+    "dep:zbus",
+    "dep:async-trait",
+    "dep:mdns-sd",
+    "dep:mde-kdc",
+    "dep:rustls",
+    "dep:tokio-rustls",
+    "dep:rustls-native-certs",
+]
 
 [package.metadata.docs.rs]
 # Skip the docker-tests feature on docs.rs — it pulls a network
