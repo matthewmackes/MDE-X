@@ -1800,9 +1800,18 @@ integration needed.
   healthz summarisation, empty-state + populated-state view
   renders.
 
-- [ ] **v4.0.1: WB-2.i Network Mesh Pending (Tier 2)**
-  Lists incoming-pair-requests from peers that haven't been
-  approved yet, with Accept / Reject buttons.
+- [✓] **v4.0.1: WB-2.i Network Mesh Pending (shipped 2026-05-23)**
+  Built `crates/mde-workbench/src/panels/mesh_pending.rs` —
+  scans `$XDG_CACHE_HOME/mde/peers/<peer-id>/probe.json` (the
+  `mackesd::peer_join::write_probe` landing spot) and renders
+  each cached PeerProbe as a pending pair-request row:
+  hostname + peer_id + `distro · mded vN.N.N · NN ms` chip
+  line + Accept button (shells `mackesd enroll <peer-id>`) +
+  Reject button (deletes the probe.json). Empty-state card
+  shows the Carbon `StatusOk` glyph + the probe.json path
+  template. Auto-loads on nav. 6 tests covering parser shape
+  lock + garbage rejection + view renders for both
+  populated + empty states.
 
 - [✓] **v4.0.1: WB-2.j Network Mesh Services (shipped 2026-05-23)**
   Built `crates/mde-workbench/src/panels/mesh_services.rs` —

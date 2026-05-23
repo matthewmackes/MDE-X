@@ -29,6 +29,7 @@ use crate::panels::{
     inventory as inventory_panel,
     logs as logs_panel, mesh_control as mesh_control_panel,
     mesh_history as mesh_history_panel, mesh_join as mesh_join_panel,
+    mesh_pending as mesh_pending_panel,
     mesh_services as mesh_services_panel,
     notifications as notifications_panel, playbooks as playbooks_panel, power as power_panel,
     printers as printers_panel, remote_desktop as remote_desktop_panel,
@@ -158,6 +159,7 @@ pub enum Message {
     AppsRemove(apps_remove_panel::Message),
     HealthCheck(health_check_panel::Message),
     MeshControl(mesh_control_panel::Message),
+    MeshPending(mesh_pending_panel::Message),
     MeshServices(mesh_services_panel::Message),
     RemoteDesktop(remote_desktop_panel::Message),
     /// CB-1.8 partial — Network → Firewall panel sub-message.
@@ -229,6 +231,7 @@ pub struct App {
     apps_remove: apps_remove_panel::AppsRemovePanel,
     health_check: health_check_panel::HealthCheckPanel,
     mesh_control: mesh_control_panel::MeshControlPanel,
+    mesh_pending: mesh_pending_panel::MeshPendingPanel,
     mesh_services: mesh_services_panel::MeshServicesPanel,
     remote_desktop: remote_desktop_panel::RemoteDesktopPanel,
     firewall: firewall_panel::FirewallPanel,
@@ -307,6 +310,7 @@ impl App {
             apps_remove: apps_remove_panel::AppsRemovePanel::new(),
             health_check: health_check_panel::HealthCheckPanel::new(),
             mesh_control: mesh_control_panel::MeshControlPanel::new(),
+            mesh_pending: mesh_pending_panel::MeshPendingPanel::new(),
             mesh_services: mesh_services_panel::MeshServicesPanel::new(),
             remote_desktop: remote_desktop_panel::RemoteDesktopPanel::new(),
             firewall: firewall_panel::FirewallPanel::new(),
@@ -651,6 +655,7 @@ impl App {
             Message::AppsRemove(msg) => self.apps_remove.update(msg),
             Message::HealthCheck(msg) => self.health_check.update(msg),
             Message::MeshControl(msg) => self.mesh_control.update(msg),
+            Message::MeshPending(msg) => self.mesh_pending.update(msg),
             Message::MeshServices(msg) => self.mesh_services.update(msg),
             Message::RemoteDesktop(msg) => self.remote_desktop.update(msg),
             Message::Firewall(msg) => self.firewall.update(msg),
@@ -717,6 +722,8 @@ impl App {
             (Group::Maintain, "health_check") => health_check_panel::HealthCheckPanel::load(),
             // v4.0.1 WB-2.h — leader lock + healthz probe.
             (Group::Network, "mesh_control") => mesh_control_panel::MeshControlPanel::load(),
+            // v4.0.1 WB-2.i — scan probe.json cache for pending peers.
+            (Group::Network, "mesh_pending") => mesh_pending_panel::MeshPendingPanel::load(),
             // v4.0.1 WB-2.j — same pattern for mesh services.
             (Group::Network, "mesh_services") => mesh_services_panel::MeshServicesPanel::load(),
             // v4.0.1 WB-2.l — load cached peer-macs.json on
@@ -970,6 +977,14 @@ impl App {
                 group: Group::Network,
                 panel: "mesh_control",
             } => self.mesh_control.view(),
+            // v4.0.1 WB-2.i (2026-05-23) — Network → Mesh
+            // Pending lists peer-probe rows from
+            // $XDG_CACHE_HOME/mde/peers/<id>/probe.json with
+            // Accept / Reject buttons.
+            View::Panel {
+                group: Group::Network,
+                panel: "mesh_pending",
+            } => self.mesh_pending.view(),
             // v4.0.1 WB-2.j (2026-05-23) — Network → Mesh
             // Services renders systemctl status + start/stop/
             // restart for the mesh-fabric daemons (tailscaled,

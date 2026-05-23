@@ -26,6 +26,7 @@ pub mod logs;
 pub mod mesh_control;
 pub mod mesh_history;
 pub mod mesh_join;
+pub mod mesh_pending;
 pub mod mesh_services;
 pub mod notifications;
 pub mod playbooks;
