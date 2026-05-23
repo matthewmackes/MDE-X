@@ -844,8 +844,143 @@ above; integration tasks below in dependency order.
   Android peer, kill `~/.local/share/mde/kdc/pairings.json`, try
   to reconnect — the peer is rejected with the right error.
 
+### v4.0.1 planning-doc gap pass (audit 2026-05-23)
 
-### Notification Center (new — Rust Desktop handoff bundle, 2026-05-19)
+Cross-referencing every planning doc against the worklist (post
+v4.0.0 cut) surfaced items that exist in design locks /
+specs but had no worklist coverage. Most are small ("verify
+license," "add guard," "add CI gate"); a few are scope
+clarifications ("Phase G migration in or out of v4.x?"). Working
+through them in priority order.
+
+- [ ] **v4.0.1: lightdm-gtk-greeter Mackes theme assets (Q36
+  v3.0.0 lock)** — Q36 in
+  `docs/design/v3.0.0-mackes-xfce-workstation.md` locks "20 px
+  dark stripe, Carbon glyphs, Red Hat fonts for visual
+  continuity" on the login greeter. No theme assets ship today.
+  Generate the GTK CSS theme + add to `packaging/fedora/
+  mackes-shell.spec` install lines. Acceptance: fresh
+  `dnf install mde && reboot` shows the Mackes greeter at the
+  login prompt rather than vanilla LightDM.
+- [ ] **v4.0.1: Plymouth theme rebuild (Q37 v3.0.0 lock)** —
+  Q37 locks "black bg + Mackes logo + 20 px progress line at
+  bottom". Build the Plymouth theme directory
+  (`data/plymouth/mackes/{mackes.plymouth,mackes.script,logo.png}`),
+  add spec install lines, register via
+  `plymouth-set-default-theme mackes`. Acceptance: cold boot
+  shows the Mackes splash with the progress line.
+- [ ] **v4.0.1: panel.toml sync-status surface in Look & Feel
+  (Q18-Q22 v3.0.0 lock)** — drift-monitored TOML mesh sync
+  ships (mackesd workers active); the user-visible status
+  surface in `Look & Feel → Panel → Sync status` is missing.
+  Add a small Iced widget in `mde-workbench` that reads the
+  current sync state (last applied revision, peer that pushed
+  it, drift count) from mackesd's healthz output. Acceptance:
+  opening Look & Feel shows "Synced to revision N at HH:MM by
+  peer-X" or "Drifted by N keys" when applicable.
+- [ ] **v4.0.1: snapshot restore — pre-validate against active
+  preset schema (MACKES_SHELL_SPEC.md §6.1)** — current
+  snapshot restore writes the YAML into xfconf without
+  comparing the schema against the active preset's. A snapshot
+  from a different preset version could silently overwrite
+  newer keys. Add a `validate_snapshot_against_preset(snap,
+  preset)` step in the restore pipeline that errors with a
+  diff before writing. Acceptance: restoring a v1.x snapshot
+  on a v2.0+ preset surfaces a clear error rather than partial
+  state.
+- [ ] **v4.0.1: pytest coverage gate ≥60% on mesh modules
+  (EPIC-production-ready-mackes Track 4)** — Track 4 of the
+  epic locks "test coverage ≥60% on mesh_vpn / mesh_discovery
+  / mesh_mdns / birthright". Add a `make test-coverage`
+  target that runs `pytest --cov=mackes.mesh_vpn
+  --cov=mackes.mesh_discovery --cov=mackes.mesh_mdns
+  --cov=mackes.birthright --cov-fail-under=60`. Wire into the
+  release workflow as a hard gate before tag push. Acceptance:
+  attempting `cut release` with coverage <60% on any of the 4
+  modules fails the workflow.
+- [ ] **v4.0.1: mackes-wm Wayland guard (wayland-readiness.md
+  §32)** — `mackes-wm i3|xfwm4` is an X11-only binary; under
+  Wayland sessions it errors loudly or no-ops. Either
+  conditionally autostart it from
+  `~/.config/autostart/mackes-wm.desktop` with
+  `OnlyShowIn=XFCE;` + `NotShowIn=sway;` OR add a
+  `XDG_SESSION_TYPE=x11` guard at the top of the binary that
+  exits 0 on Wayland. The autostart-condition approach is
+  cleaner. Acceptance: sway session never shows mackes-wm
+  errors in the journal; XFCE/X11 session still runs the
+  binary.
+- [ ] **v4.0.1: hotkey portal path for Phase 6.4
+  (wayland-readiness.md)** — Phase 6.4 currently implements
+  `XGrabKey` which doesn't work under Wayland. Add an
+  `org.freedesktop.portal.GlobalShortcuts` D-Bus client as
+  the Wayland path; fall through to XGrabKey on X11. Both
+  paths are portable across compositors. Acceptance: on sway,
+  the user's locked global hotkeys (Super+M, etc.) fire via
+  the portal; on XFCE/X11 they keep firing via XGrabKey.
+- [ ] **v4.0.1: 12.17 STUN ≤1.5s acceptance criterion**
+  (v12-connectivity-scope.md Q8) — Phase 12.17 already
+  `[!] Blocked` on TransportRegistry concrete impls; the
+  acceptance bar should explicitly include "STUN handshake
+  completes in ≤1.5s on symmetric-NAT peers" so the impl
+  can't ship with unbounded blocking. Acceptance: bench-test
+  STUN against a symmetric-NAT bench peer; p99 ≤1.5s.
+- [ ] **v4.0.1: 12.18 HTTPS-fallback TLS + DPI acceptance**
+  (v12-connectivity-scope.md Q10) — Phase 12.18 already
+  `[!] Blocked` on TransportRegistry; the acceptance bar
+  should include "real TLS handshake + realistic SNI + valid
+  Let's Encrypt cert" + "survives deep-packet inspection on
+  restrictive firewalls." Acceptance: bench-test the
+  fallback against a packet-inspecting bench firewall; the
+  fallback succeeds.
+- [ ] **v4.0.1: Geologica font license + RPM bundle audit
+  (visual-identity.md)** — visual-identity.md locks Geologica
+  as the display + body font. Verify (a) the license is
+  redistributable (it's OFL per the upstream repo), (b) the
+  variable font TTF lives somewhere under `data/fonts/`
+  OR a dependency on `google-noto-fonts-geologica` is declared
+  in the spec, (c) Iced + GTK both find it at runtime via
+  fontconfig. Acceptance: fresh install of mde renders the
+  Workbench in Geologica without a fallback warning in the
+  fonts-debug log.
+- [ ] **v4.0.1: voice-and-tone verb CI gate
+  (voice-and-tone.md)** — voice-and-tone.md locks specific
+  verb pairs: "Add" not "New/Create", "Remove" not "Delete"
+  (except in destructive UI), "Apply" not "Save/Confirm".
+  Add a CI gate that greps user-visible strings for the
+  disallowed verbs + fails with a diff hint. Implementation:
+  `install-helpers/lint-voice.sh` calling `grep -rn -E
+  "\b(New|Create|Save|Confirm)\b" data/ mackes/ crates/*/src/`
+  with an allowlist for valid contexts (e.g. "save" in
+  filesystem code is fine; the gate targets user-strings).
+  Acceptance: introducing "Save" in a button label fails the
+  pre-commit hook + CI.
+- [ ] **v4.0.1: scope-clarification — Phase G model migration
+  in or out of v4.x?** — multiple v3.0.3 items
+  (`mde-files::dbus_backend Backend impl`, the panel-host
+  consumption for several modules) are `[!] Blocked` on Phase
+  G migrating `model::{Peer,SelfNode,FileRow}` off
+  `&'static str` fields. Decide: ship Phase G in v4.1 (so
+  these can land in v4.1+) OR defer to v5.0 (so the
+  `[!] Blocked` entries stay blocked through v4.x).
+  Decision-doc-style task; outcome flips block status on the
+  6+ dependent worklist entries.
+- [ ] **v4.0.1: scope-clarification — async birthright DAG in
+  scope for v4.x?** — EPIC-production-ready-mackes Track 1
+  locks the "foreground vs background classification +
+  systemd `mackes-firstboot.service` + Conky HUD status
+  surface" first-boot wizard parallelization. v2.0.x shipped
+  the synchronous version. Decide if v4.x scope includes the
+  async refactor.
+- [ ] **v4.0.1: docs/design/v1.1.0-carbon-refresh handoff —
+  closeout or retire?** — design handoff bundle exists at
+  `docs/design/v1.1.0-carbon-refresh/`; the implementation is
+  arguably shipped (the v3.x panel + popovers are the
+  carbon-refresh outcome). Either explicitly close out the
+  handoff with a pointer to the implementation commits OR
+  retire the bundle since it's superseded by v3.0.x +
+  v4.0.0. Decision-doc-style task.
+
+
 
 - [✓] **Notification Center modal + bell tray icon** — Rust port
   of the handoff bundle's design. New modules:
