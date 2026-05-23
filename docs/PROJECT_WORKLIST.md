@@ -916,6 +916,33 @@ no new RPM cut.
   Acceptance: panel title area shows the focused window's title
   string (e.g. "Firefox — Wikipedia") with sway-cluster chips
   in their own zone.
+- [ ] **v4.0.1: BUG-10 Window borders too thin — operator
+  wants a thicker border around each window (Tier 1
+  operator-visible)** — current sway config inherits the
+  default 2 px border. Bump the global `default_border pixel
+  <N>` directive in `data/sway/config` to a more
+  visually-prominent value (proposed: 4 px or 6 px; pick based
+  on how the focused-window highlight reads at 4K-TV viewing
+  distance per the 2026-05-22 operator bench rig). Also ensure
+  `data/sway/config.d/` overlays don't subsequently revert
+  this. Acceptance: every tiled window shows a noticeably
+  thicker border (≥ 4 px) with the focused-window accent
+  visibly distinct from the unfocused borders.
+- [ ] **v4.0.1: BUG-11 Desktop missing the Win10-style watermark
+  in the right-hand corner (Tier 1 operator-visible)** —
+  `project_1_1_0_win10_layout` memory: "Win10 watermark visible
+  only on pending dnf updates". `crates/mde-popover/src/
+  watermark.rs` ships but apparently never surfaces. The
+  operator reports the watermark is missing entirely. Either
+  (a) the dnf-update probe never fires (so the watermark
+  thinks there are 0 updates and stays hidden — possibly
+  correct behavior!), or (b) the watermark widget isn't wired
+  into the desktop background renderer at all. Confirm
+  `dnf check-update` returns non-empty; if so, this is a
+  wiring gap (mark Tier 2). If it returns empty, the system
+  is correctly hiding the watermark and the operator is
+  asking for a permanent watermark instead — capture as a
+  scope-change. Acceptance: TBD pending probe confirmation.
 - [ ] **v4.0.1: BUG-9 Network applet shows "Disconnected" while
   the network is online; no icon either (Tier 1
   operator-visible)** — `mde-applet-network` reports
