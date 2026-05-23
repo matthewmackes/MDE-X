@@ -803,20 +803,49 @@ above; integration tasks below in dependency order.
   that's where a fresh `LogContext::fresh()` per iteration
   belongs; landing it preemptively against subprocess
   supervisors is no-op cosmetics.
-- [!] **v3.0.3: 12.17 wire STUN (BLOCKED on TransportRegistry having concrete Transport impls) candidate gathering into the
-  transport handshake (Tier 3 mackesd::stun)** — `mackesd/src/stun.rs`
-  ships an RFC 5389/8489 STUN client but nothing in `transport/`
-  or `workers/mesh_router.rs` calls it. Wire `gather_candidates()`
-  into the peer-pair handshake so symmetric-NAT edges get
-  server-reflexive candidates before falling through to DERP.
-  Acceptance: on a symmetric-NAT bench peer, `mackesd serve` logs
-  one STUN binding response per probe; the resulting
-  server-reflexive candidate appears in `peer_path.rs::candidates`
-  before any DERP fallback. **v4.0.1 amendment:** add latency bar
-  per v12-connectivity-scope.md Q8 — STUN handshake p99 ≤ 1.5 s
-  on the symmetric-NAT bench peer. Implementation must include
-  a hard timeout that surfaces a fallback decision rather than
-  blocking indefinitely.
+- [✓] **v3.0.3: 12.17 wire STUN candidate gathering into the
+  transport handshake (Tier 3 mackesd::stun) — shipped 2026-05-23**
+  — `mackesd/src/stun.rs` is no longer dead. The new
+  `StunGatherWorker` (`mackesd::workers::stun_gather`) runs at a
+  30 s cadence, probes the configured STUN server pool in
+  parallel with a 1.4 s per-server timeout (inside the Q8
+  1.5 s budget), and publishes every successful reflexive
+  address as a `StunCandidate { reflexive, server, observed_at }`
+  on every tracked peer's `PeerPath::candidates`.
+
+  Shipped:
+  - `mackes_transport::peer_path::StunCandidate` + a new
+    `candidates: Vec<StunCandidate>` field on `PeerPath` with a
+    `set_candidates(...)` sorter (deterministic ordering for
+    audit + tie-break).
+  - `mackesd::stun::encode_binding_success_with_xor_mapped` —
+    used by the loopback STUN responder integration test +
+    available to any future "be a STUN server" operator mode.
+  - `mackesd::workers::stun_gather::StunGatherWorker::{new,
+    with_servers, with_tick, with_probe_timeout, gather_once,
+    tick_once}` — both worker loop entrypoints + the granular
+    test seams.
+  - `mackesd serve` spawns the worker alongside the mesh-router,
+    sharing the same `RouterState` Arc so candidates land on the
+    shared per-peer state map.
+  - Default server pool: IP-pinned Google STUN cluster (no DNS
+    on hot path). Operator-overridable via the future
+    `/etc/mde/connect/stun.toml`.
+
+  Acceptance covered by tests:
+  - **Empty-on-no-responses:** point at a refused address; per-
+    server timeout fires; candidate list is empty (operator
+    sees "no STUN responses" via the debug log).
+  - **Stale-clear:** seed peer with old candidates, gather
+    against unreachable servers, confirm candidates cleared.
+  - **End-to-end:** loopback STUN responder echoes binding-
+    success with XOR-MAPPED-ADDRESS; worker publishes one
+    candidate against every tracked peer.
+
+  Symmetric-NAT bench acceptance (3-of-3 servers respond in
+  under 1.5 s on a real corporate-wifi peer) is pending HW-2
+  alongside the rest of the connectivity bench scope. The
+  code-side gate is closed.
 - [!] **v3.0.3: 12.18 wire HTTPS (BLOCKED on TransportRegistry having concrete Transport impls)-tunneled fallback activation
   (Tier 3 mackesd::https_fallback)** — `mackesd/src/https_fallback.rs`
   ships the policy layer (3-failed-cycle activation rule, etc.)

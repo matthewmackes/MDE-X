@@ -97,6 +97,7 @@ pub mod nats;
 pub mod notification_relay;
 pub mod perf;
 pub mod remmina_sync;
+pub mod stun_gather;
 pub mod subprocess_tick;
 pub mod thumbnailer;
 pub mod wol;

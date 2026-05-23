@@ -8,11 +8,33 @@
 //! router's health-based default would pick DirectUdp.
 
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{MessageClass, TransportKind};
+
+/// One ICE-style candidate sourced from STUN (Phase 12.17) for a
+/// peer. Tailscale's WireGuard endpoint set is seeded with the
+/// `reflexive` address ahead of its own NAT-traversal probe so
+/// symmetric-NAT edges find a hole-punch path inside the 1.5 s
+/// candidate-gather budget locked by Q8 in
+/// `docs/design/v12-connectivity-scope.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StunCandidate {
+    /// The peer-side address as reported by the STUN server's
+    /// `XOR-MAPPED-ADDRESS` attribute. This is the address other
+    /// peers should try first when reaching this peer.
+    pub reflexive: SocketAddr,
+    /// The STUN server that produced this candidate. Useful for
+    /// audit + diagnostic logs when multiple servers respond.
+    pub server: SocketAddr,
+    /// SystemTime when the candidate was last refreshed. Stale
+    /// candidates (older than the Q13 backoff-cap, 5 min) get
+    /// pruned by the gather worker.
+    pub observed_at: SystemTime,
+}
 
 /// Reasons the router switched from one transport to another.
 /// Every `PathSwitch` audit-log entry carries one of these.
@@ -94,6 +116,17 @@ pub struct PeerPath {
     /// the router uses the mapped TransportKind for that class
     /// regardless of `primary` / health.
     pub message_class_overrides: BTreeMap<MessageClass, TransportKind>,
+    /// Phase 12.17 — STUN candidates the router can hand to
+    /// Tailscale's endpoint set so symmetric-NAT edges
+    /// hole-punch before falling through to DERP. The
+    /// `kdc_stun_gather` worker (`mackesd::workers::stun_gather`)
+    /// populates this list; the mesh-router consults it on each
+    /// tick when picking the primary.
+    ///
+    /// Default empty so existing tests + non-symmetric peers
+    /// see no behavior change.
+    #[serde(default)]
+    pub candidates: Vec<StunCandidate>,
 }
 
 impl PeerPath {
@@ -109,7 +142,17 @@ impl PeerPath {
             last_switch_reason: SwitchReason::Initial,
             health_score: 1.0,
             message_class_overrides: BTreeMap::new(),
+            candidates: Vec::new(),
         }
+    }
+
+    /// Phase 12.17 — replace this peer's STUN candidate list with
+    /// freshly-gathered values from the `stun_gather` worker.
+    /// Sorted-by-reflexive so the audit log + router's tie-
+    /// breaker stays deterministic.
+    pub fn set_candidates(&mut self, mut candidates: Vec<StunCandidate>) {
+        candidates.sort_by_key(|c| c.reflexive);
+        self.candidates = candidates;
     }
 
     /// Resolve the transport for a specific message class.

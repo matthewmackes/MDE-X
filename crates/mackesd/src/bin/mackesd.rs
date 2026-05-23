@@ -1357,7 +1357,20 @@ fn run_serve(
         let router_registry: mackesd_core::workers::mesh_router::TransportRegistry =
             Arc::new(Vec::new());
         sup.spawn(Spawn::new(
-            MeshRouterWorker::new(router_state, router_registry),
+            MeshRouterWorker::new(Arc::clone(&router_state), router_registry),
+            RestartPolicy::OnFailure,
+        ));
+        // v4.0.1 Phase 12.17 wire (2026-05-23) — STUN candidate
+        // gatherer. Shares router_state with the router so
+        // reflexive candidates land on every tracked peer's
+        // PeerPath.candidates list. 30 s cadence; per-server
+        // probe timeout 1.4 s; default server pool is Google's
+        // public STUN cluster (IP-pinned so the worker doesn't
+        // hit DNS on the hot path).
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::stun_gather::StunGatherWorker::new(
+                Arc::clone(&router_state),
+            ),
             RestartPolicy::OnFailure,
         ));
         // notification_relay needs its own SQLite connection

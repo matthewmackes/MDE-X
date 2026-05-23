@@ -85,6 +85,56 @@ pub fn random_transaction_id() -> TransactionId {
     id
 }
 
+/// Encode a binding-success response with one XOR-MAPPED-ADDRESS
+/// attribute pointing at `reflexive`. Used by the
+/// `stun_gather` worker's loopback test responder + by any
+/// future operator-mode "be the STUN server" smoke. The encoder
+/// matches the parser in [`parse_binding_response`] +
+/// [`decode_xor_mapped_address`] so a round-trip lands the
+/// caller's address back unchanged.
+///
+/// IPv4 only; the v12 connectivity-scope lock (Q9) defers IPv6.
+#[must_use]
+pub fn encode_binding_success_with_xor_mapped(
+    txid: TransactionId,
+    reflexive: SocketAddr,
+) -> Vec<u8> {
+    let ip = match reflexive {
+        SocketAddr::V4(v4) => v4.ip().octets(),
+        SocketAddr::V6(_) => panic!("encode_binding_success_with_xor_mapped: IPv4 only"),
+    };
+    // X-Port = port XOR high 16 bits of MAGIC_COOKIE.
+    let x_port = reflexive.port() ^ ((MAGIC_COOKIE >> 16) as u16);
+    // X-Address = addr XOR MAGIC_COOKIE (network-byte-order
+    // when read as u32).
+    let addr_u32 = u32::from_be_bytes(ip);
+    let x_addr_u32 = addr_u32 ^ MAGIC_COOKIE;
+    let x_addr = x_addr_u32.to_be_bytes();
+
+    // Attribute body: family (0x01 = IPv4, 1 byte zero-pad +
+    // family byte) + X-Port + X-Address.
+    let mut attr_value = Vec::with_capacity(8);
+    attr_value.push(0x00); // reserved
+    attr_value.push(0x01); // family = IPv4
+    attr_value.extend_from_slice(&x_port.to_be_bytes());
+    attr_value.extend_from_slice(&x_addr);
+
+    // Attribute = type + length + value (no padding since 8 is
+    // already 4-aligned).
+    let mut attrs = Vec::with_capacity(4 + attr_value.len());
+    attrs.extend_from_slice(&ATTR_XOR_MAPPED_ADDRESS.to_be_bytes());
+    attrs.extend_from_slice(&(attr_value.len() as u16).to_be_bytes());
+    attrs.extend_from_slice(&attr_value);
+
+    let mut msg = Vec::with_capacity(20 + attrs.len());
+    msg.extend_from_slice(&MSG_BINDING_SUCCESS.to_be_bytes());
+    msg.extend_from_slice(&(attrs.len() as u16).to_be_bytes());
+    msg.extend_from_slice(&MAGIC_COOKIE.to_be_bytes());
+    msg.extend_from_slice(&txid);
+    msg.extend_from_slice(&attrs);
+    msg
+}
+
 /// One parsed STUN response. We only model the success case (the
 /// caller treats an Err as "try the next STUN server").
 #[derive(Debug, Clone, PartialEq, Eq)]
