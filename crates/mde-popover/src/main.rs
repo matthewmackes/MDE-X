@@ -23,6 +23,7 @@
 #![forbid(unsafe_code)]
 
 mod admin_menu;
+mod app_switcher;
 mod audio;
 mod clipboard;
 mod clock;
@@ -83,6 +84,11 @@ enum Kind {
     /// scratchpad windows + click-to-restore via swaymsg. Bind
     /// with `bindsym $mod+Shift+s exec mde-popover minimized`.
     Minimized,
+    /// v4.0.1 WM-5 — visible Alt-Tab window switcher. Centered
+    /// overlay with one card per open window; Tab cycles, Enter
+    /// focuses, Esc cancels. Bind with `bindsym Mod1+Tab exec
+    /// mde-popover app-switcher`.
+    AppSwitcher,
 }
 
 fn main() -> iced_layershell::Result {
@@ -109,5 +115,6 @@ fn main() -> iced_layershell::Result {
         Kind::Toast => toasts::run(),
         Kind::Network => network::run(),
         Kind::Minimized => minimized::run(),
+        Kind::AppSwitcher => app_switcher::run(),
     }
 }

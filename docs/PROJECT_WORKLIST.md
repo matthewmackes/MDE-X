@@ -2172,8 +2172,49 @@ integration needed.
   - **Icon source:** no per-zone icons; the indigo overlay
     IS the affordance.
 
-- [ ] **v4.0.1: WM-5 visible Super+Tab switcher (Tier 1 chrome /
-  retires the invisible mde-applet-app-switcher)**
+- [✓] **v4.0.1: WM-5 visible Alt-Tab switcher (shipped 2026-05-23,
+  retires the invisible mde-applet-app-switcher) — Tier 1 chrome**
+
+  Built `crates/mde-popover/src/app_switcher.rs` + the
+  `Kind::AppSwitcher` variant in main.rs. 640×360 centered
+  Layer::Overlay surface with KeyboardInteractivity::Exclusive.
+  Grid of 3-cards-per-row showing every open sway window
+  (skips scratchpad). Selected card has the Q2 indigo border
+  + tinted background. Default selection is the second card
+  (alt-tab "go-back-to-previous-window" idiom).
+
+  **Keybinds (sway subscription via `keyboard::on_key_press`):**
+  * Tab           — next
+  * Shift+Tab     — prev
+  * Arrow keys    — also nav (right/down = next, left/up = prev)
+  * Enter         — focus selected + close
+  * Esc           — cancel + close
+  * Click card    — focus that card + close
+
+  **Bound from `data/sway/config.d/mackes-keybinds-wm.conf`:**
+    `bindsym Mod1+Tab exec mde-popover app-switcher`
+
+  Mod1 = Alt rather than Super because Super+Tab is reserved
+  for workspace switching in mackes-defaults.conf — same idiom
+  as Win11 + macOS where Alt-Tab cycles windows.
+
+  Spec deferred: per-card screenshot thumbnail (would need
+  `grim` per-window capture; iced 0.13 can't paint live
+  Wayland buffers). Tracked as **WM-5.a**.
+
+  10 unit tests cover parser shape lock + scratchpad-skip +
+  XWayland class fallback + garbage rejection + Next/Prev
+  wrap-around + truncate-helper bounds.
+
+- [ ] **v4.0.1: WM-5.a app-switcher screenshot thumbnails** —
+  the v4.0.1 ship shows text-only cards. The full v4 spec
+  also called for `grim`-captured per-window thumbnails.
+  Adding them needs a per-window grim invocation +
+  iced::widget::image to paint the PNG bytes; the
+  invocation is straightforward but pre-render captures
+  may stall the surface visibility, so wire as a deferred
+  Task after first paint. Closed when the cards have
+  thumbnails.
 
   **As** an operator,
   **I want** pressing Super+Tab to show a centered overlay
