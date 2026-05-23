@@ -6422,9 +6422,11 @@ Locked 25-Q survey 2026-05-19 in
   (which Headscale inherits automatically). 9 unit tests cover
   the unit's gating, flags, lockdown, resource caps, and the
   spec install lines for both files.
-- [>] **v3.0.3: 12.17 ICE/STUN augmentation for symmetric-NAT edges
-  (helpers shipped 2026-05-20, daemon never invokes them —
-  audit 2026-05-22)** —
+- [!] **v3.0.3: 12.17 ICE/STUN augmentation BLOCKED on
+  TransportRegistry concrete Transport impls (KDC2-4.x epic)
+  — flipped from [>] to [!] 2026-05-23 since the in-progress
+  state was misleading. Helpers shipped 2026-05-20; daemon
+  invocation chains on the registry work.** —
   shipped 2026-05-20. New module `crates/mackesd/src/stun.rs`
   ships a real RFC 5389/8489 STUN client:
   `encode_binding_request(txid)` returns the 20-byte header,
@@ -6439,9 +6441,11 @@ Locked 25-Q survey 2026-05-19 in
   attribute-padding handling, txid uniqueness, and a timeout
   smoke test. Q8 ≤ 1.5 s gather budget enforced via the
   `timeout` arg.
-- [>] **v3.0.3: 12.18 HTTPS-tunneled fallback (policy layer) (helpers
-  shipped 2026-05-20, fallback activation never wired — audit
-  2026-05-22)** — shipped
+- [!] **v3.0.3: 12.18 HTTPS-tunneled fallback BLOCKED on
+  TransportRegistry concrete Transport impls (KDC2-4.x epic)
+  — flipped from [>] to [!] 2026-05-23. Activation policy
+  shipped 2026-05-20; wiring chains on the registry work.**
+  Original: shipped
   2026-05-20. New module `crates/mackesd/src/https_fallback.rs`
   ships the activation-policy state machine:
   Inactive → Activating → Active → Failing, plus the
@@ -8060,7 +8064,9 @@ fuzzable + reproducible.
   is the device identity. Use `rcgen` to issue the cert with
   device-id CN. `generate_identity_cert(&KeyStore, device_id) ->
   CertChain`. 5 unit tests.
-- [>] **KDC2-2.8: `crypto` — TLS handshake helper (rustls) (pure
+- [!] **KDC2-2.8: TLS handshake — BLOCKED on KDC2-3.4..3.6/3.9
+  method bundle (flipped [>]→[!] 2026-05-23 for hygiene).
+  Original: `crypto` — TLS handshake helper (rustls) (pure
   helper shipped, KDC host never invokes it — audit 2026-05-22)** — Pure
   helper that wraps a `tokio_rustls::TlsStream` with the cert
   pinning logic. Verifies remote cert matches the paired-device
@@ -8174,12 +8180,17 @@ service. Hosts the `dev.mackes.MDE.Connect.*` D-Bus interface.
   `Cargo.toml` to drop the `mackes-kdc` re-export dep and add
   real deps (`mde-kdc-proto`, `mackes-transport`, `zbus 5`,
   `tokio`, `serde`). Update `src/lib.rs` skeleton.
-- [>] **KDC2-3.2: `KdcHost` struct implementing `Transport`** —
+- [!] **KDC2-3.2: KdcHost — BLOCKED on KDC2-3.4..3.6/3.9
+  method bundle (flipped [>]→[!] 2026-05-23). Original:
+  `KdcHost` struct implementing `Transport`** —
   Wraps `mde-kdc-proto` with the `Transport` trait from
   KDC2-1.2. Routes incoming packets through the protocol
   plugins; exposes outgoing-packet API for the D-Bus methods.
   8 unit tests.
-- [>] **KDC2-3.3: D-Bus host scaffold (zbus 5) (bus acquisition
+- [!] **KDC2-3.3: D-Bus host scaffold — BLOCKED on
+  KDC2-3.4..3.6/3.9 method bundle (flipped [>]→[!]
+  2026-05-23). Original: D-Bus host scaffold (zbus 5)
+  (bus acquisition
   shipped, concrete methods explicitly deferred to KDC2-3.4..3.6/3.9
   — audit 2026-05-22)** — Acquire bus
   name `dev.mackes.MDE.Connect` on the user session bus.
@@ -8704,9 +8715,11 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `crates/mde-theme/src/components/{button,input,toggle,
   spinner,skeleton}.rs`; updated Iced view calls.
 
-- [>] **UX-7.a: Control-state sweep + focus-ring render — v2.1+
-  scope (sweep portion landed 2026-05-22; focus-ring BLOCKED
-  on UX-PRE Iced 0.14)** — (a) **BLOCKED on UX-PRE** — Render
+- [!] **UX-7.a: Control-state sweep + focus-ring render —
+  BLOCKED on UX-PRE Iced 0.14 (flipped [>]→[!] 2026-05-23
+  for hygiene; the in-progress state misled the Phase 0
+  rescue pass into thinking work was active)** — (a) **BLOCKED
+  on UX-PRE** — Render
   the 2 px accent focus ring on `crate::controls::variant_button`
   when the button holds keyboard focus. iced 0.13's button
   doesn't expose `ButtonStatus::Focused`; resolves when
@@ -8792,10 +8805,12 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `crates/mde-logout-dialog/`; `crates/mde-workbench/src/
   notification_center.rs`; Iced animation subscriptions.
 
-- [>] **UX-9.a: Motion wiring — subscription-driven panel mount +
-  notification pulse + tooltip — v2.1+ scope (Phase A landed
-  2026-05-22: `mde_theme::animation` tween math + ease curves +
-  pulse_scale; Phase B = consumer wiring chains here)** —
+- [!] **UX-9.a: Motion wiring BLOCKED on iced 0.13 lacking
+  animation primitives (no Subscription-driven interpolation
+  api); chains on UX-PRE Iced 0.14 — flipped [>]→[!]
+  2026-05-23 for hygiene.** Phase A locked tokens land
+  2026-05-22; Phase B consumer wiring needs the upstream
+  animation api.
   Use the locked tokens in `mde_theme::motion` to actually
   animate. (a) Sidebar panel mount: wire an `iced::Subscription`
   on `Message::SelectPanel` that schedules a 180 ms opacity +
