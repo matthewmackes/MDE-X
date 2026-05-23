@@ -376,6 +376,7 @@ impl ResolvedIcon {
         // consumer's `fallback_glyph` path keeps working — the
         // contract is "Some when wired, None to fall back".
         match self.carbon_name {
+            // Navigation surfaces (9)
             "dashboard" => Some(include_bytes!("../../../assets/icons/carbon/dashboard.svg")),
             "application" => Some(include_bytes!("../../../assets/icons/carbon/application.svg")),
             "network--3" => Some(include_bytes!("../../../assets/icons/carbon/network--3.svg")),
@@ -385,13 +386,53 @@ impl ResolvedIcon {
             "tools" => Some(include_bytes!("../../../assets/icons/carbon/tools.svg")),
             "network--public" => Some(include_bytes!("../../../assets/icons/carbon/network--public.svg")),
             "help" => Some(include_bytes!("../../../assets/icons/carbon/help.svg")),
+
+            // Panel-specific (Snapshot, Peer, Logs, Update, Repair,
+            // Sound, Display, Printer, Power, Removable, Clock,
+            // Wallpaper, Fonts, Themes, Session, Notification,
+            // Wifi, Vpn, Firewall, Playbook, History, Settings,
+            // Inventory).
+            "save" => Some(include_bytes!("../../../assets/icons/carbon/save.svg")),
+            "machine-learning-model" => Some(include_bytes!("../../../assets/icons/carbon/machine-learning-model.svg")),
+            "list" => Some(include_bytes!("../../../assets/icons/carbon/list.svg")),
+            "rocket" => Some(include_bytes!("../../../assets/icons/carbon/rocket.svg")),
+            "volume-up" => Some(include_bytes!("../../../assets/icons/carbon/volume-up.svg")),
+            "screen" => Some(include_bytes!("../../../assets/icons/carbon/screen.svg")),
+            "printer" => Some(include_bytes!("../../../assets/icons/carbon/printer.svg")),
+            "battery-charging" => Some(include_bytes!("../../../assets/icons/carbon/battery-charging.svg")),
+            "usb" => Some(include_bytes!("../../../assets/icons/carbon/usb.svg")),
+            "time" => Some(include_bytes!("../../../assets/icons/carbon/time.svg")),
+            "image" => Some(include_bytes!("../../../assets/icons/carbon/image.svg")),
+            "text-font" => Some(include_bytes!("../../../assets/icons/carbon/text-font.svg")),
+            "user" => Some(include_bytes!("../../../assets/icons/carbon/user.svg")),
+            "notification--filled" => Some(include_bytes!("../../../assets/icons/carbon/notification--filled.svg")),
+            "wifi" => Some(include_bytes!("../../../assets/icons/carbon/wifi.svg")),
+            "vpn-connection" => Some(include_bytes!("../../../assets/icons/carbon/vpn-connection.svg")),
+            "firewall-classic" => Some(include_bytes!("../../../assets/icons/carbon/firewall-classic.svg")),
+            "play-filled" => Some(include_bytes!("../../../assets/icons/carbon/play-filled.svg")),
+            "recently-viewed" => Some(include_bytes!("../../../assets/icons/carbon/recently-viewed.svg")),
+            "list-boxes" => Some(include_bytes!("../../../assets/icons/carbon/list-boxes.svg")),
+
+            // Window controls.
+            "subtract" => Some(include_bytes!("../../../assets/icons/carbon/subtract.svg")),
+            "maximize" => Some(include_bytes!("../../../assets/icons/carbon/maximize.svg")),
+
+            // Status dots.
+            "checkmark--filled" => Some(include_bytes!("../../../assets/icons/carbon/checkmark--filled.svg")),
+            "warning--alt--filled" => Some(include_bytes!("../../../assets/icons/carbon/warning--alt--filled.svg")),
+            "error--filled" => Some(include_bytes!("../../../assets/icons/carbon/error--filled.svg")),
+            "help--filled" => Some(include_bytes!("../../../assets/icons/carbon/help--filled.svg")),
+
+            // Action affordances.
+            "renew" => Some(include_bytes!("../../../assets/icons/carbon/renew.svg")),
+            "add" => Some(include_bytes!("../../../assets/icons/carbon/add.svg")),
+            "trash-can" => Some(include_bytes!("../../../assets/icons/carbon/trash-can.svg")),
+            "edit" => Some(include_bytes!("../../../assets/icons/carbon/edit.svg")),
+            "checkmark" => Some(include_bytes!("../../../assets/icons/carbon/checkmark.svg")),
+            "close" => Some(include_bytes!("../../../assets/icons/carbon/close.svg")),
+            "search" => Some(include_bytes!("../../../assets/icons/carbon/search.svg")),
             "chevron--right" => Some(include_bytes!("../../../assets/icons/carbon/chevron--right.svg")),
             "chevron--down" => Some(include_bytes!("../../../assets/icons/carbon/chevron--down.svg")),
-            "search" => Some(include_bytes!("../../../assets/icons/carbon/search.svg")),
-            "add" => Some(include_bytes!("../../../assets/icons/carbon/add.svg")),
-            "close" => Some(include_bytes!("../../../assets/icons/carbon/close.svg")),
-            "time" => Some(include_bytes!("../../../assets/icons/carbon/time.svg")),
-            "notification--filled" => Some(include_bytes!("../../../assets/icons/carbon/notification--filled.svg")),
             _ => None,
         }
     }
@@ -522,13 +563,36 @@ mod tests {
     }
 
     #[test]
-    fn svg_bytes_returns_none_for_unwired_variants() {
-        // Variants whose Carbon name isn't yet in the starter
-        // batch fall back to None so the consumer's fallback_glyph
-        // path keeps working.
-        for unwired in [Icon::Snapshot, Icon::Wallpaper, Icon::Fonts] {
-            let r = mde_icon(unwired, IconSize::Nav);
-            assert!(r.svg_bytes().is_none(), "{unwired:?} should still be None");
+    fn svg_bytes_wired_for_every_variant() {
+        // v4.0.1 BUG-13.c — full close on the API + asset bundle.
+        // Every Icon variant must resolve to Some bytes; consumers
+        // can safely treat svg_bytes() as infallible once the
+        // assert here passes.
+        for icon in [
+            Icon::Dashboard, Icon::Apps, Icon::Network, Icon::Devices,
+            Icon::LookAndFeel, Icon::System, Icon::Maintain,
+            Icon::Fleet, Icon::Help,
+            Icon::Snapshot, Icon::Peer, Icon::Logs, Icon::Update,
+            Icon::Repair, Icon::Sound, Icon::Display, Icon::Printer,
+            Icon::Power, Icon::Removable, Icon::Clock, Icon::Wallpaper,
+            Icon::Fonts, Icon::Themes, Icon::Session,
+            Icon::Notification, Icon::Wifi, Icon::Vpn, Icon::Firewall,
+            Icon::Playbook, Icon::History, Icon::Settings,
+            Icon::Inventory,
+            Icon::WindowMinimize, Icon::WindowMaximize, Icon::WindowClose,
+            Icon::StatusOk, Icon::StatusWarning, Icon::StatusError,
+            Icon::StatusUnknown,
+            Icon::Refresh, Icon::Add, Icon::Delete, Icon::Edit,
+            Icon::Confirm, Icon::Cancel, Icon::Search,
+            Icon::ChevronRight, Icon::ChevronDown,
+        ] {
+            let r = mde_icon(icon, IconSize::Nav);
+            let bytes = r.svg_bytes();
+            assert!(
+                bytes.is_some(),
+                "{icon:?} carbon_name={} → svg_bytes() returned None",
+                r.carbon_name,
+            );
         }
     }
 

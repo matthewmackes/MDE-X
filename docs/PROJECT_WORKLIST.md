@@ -978,19 +978,32 @@ no new RPM cut.
   `svg_bytes_wired_for_nav_surfaces` (every nav icon must be
   Some) + `svg_bytes_returns_none_for_unwired_variants`
   (Snapshot/Wallpaper/Fonts still fall through).
-- [ ] **v4.0.2: BUG-13.c bake the remaining Carbon SVGs for
-  the unwired Icon variants + add iced `svg` feature to
-  mde-workbench / consumer swap** — Snapshot, Peer, Logs,
-  Update, Repair, Sound, Display, Printer, Power, Removable,
-  Clock, Wallpaper, Fonts, Themes, Session, Wifi, Vpn,
-  Firewall, Playbook, History, Inventory, plus the four
-  Status* dots, Window* glyphs, and the action affordances
-  (Refresh, Delete, Edit, Confirm, Cancel). Then add the
-  `svg` feature to `crates/mde-workbench/Cargo.toml`, update
-  workbench render sites to prefer `svg_bytes()` over
-  `fallback_glyph()`. Acceptance: every workbench panel
-  header + sidebar nav row + status dot renders a Carbon SVG
-  with no Unicode fallback visible.
+- [>] **v4.0.1: BUG-13.c bake every remaining Carbon SVG
+  (shipped 2026-05-23; workbench iced-svg consumer swap
+  pending)** — all 49 `Icon` variants now resolve to
+  `Some(SVG bytes)`. Beyond the BUG-13.b starter batch this
+  added: save (Snapshot), machine-learning-model (Peer), list
+  (Logs), rocket (Update), volume-up (Sound), screen (Display),
+  printer (Printer), battery-charging (Power), usb (Removable
+  — mapped to flash.svg from system theme since the system
+  theme lacks `usb.svg`), image (Wallpaper), text-font (Fonts
+  — mapped to string-text.svg), user (Session), wifi (Wifi),
+  vpn-connection (Vpn), firewall-classic (Firewall),
+  play-filled (Playbook), recently-viewed (History),
+  list-boxes (Inventory), subtract (WindowMinimize), maximize
+  (WindowMaximize), checkmark--filled (StatusOk),
+  warning--alt--filled (StatusWarning), error--filled
+  (StatusError), help--filled (StatusUnknown), renew (Refresh),
+  trash-can (Delete), edit (Edit), checkmark (Confirm).
+  New test `svg_bytes_wired_for_every_variant` iterates every
+  Icon variant + asserts `svg_bytes()` is Some — catches the
+  next-time-we-add-a-variant unwired regression. **Remaining
+  scope** (BUG-13.c continued): add `svg` cargo feature to
+  `crates/mde-workbench/Cargo.toml`, update `header.rs` +
+  `panel_chrome.rs` to prefer `svg::Handle::from_memory(
+  bytes)` over `text(fallback_glyph)` when `svg_bytes()` is
+  Some. Pure consumer-side wiring; no API change. Holding
+  this open as the last v4.0.1 BUG-13 step.
 
 - [✓] **v4.0.1: BUG-12 pinned Files+Workbench tiles at top of
   start menu (shipped 2026-05-23)** — `crates/mde-popover/src/
