@@ -30,6 +30,7 @@ mod fonts;
 mod notifications;
 mod start_menu;
 mod watermark;
+mod weather;
 
 use clap::Parser;
 

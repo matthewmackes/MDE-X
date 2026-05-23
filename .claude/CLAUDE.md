@@ -142,8 +142,19 @@ A worklist task is not `[✓] Done` until **every** gate passes:
 5. **All module imports clean** — `python3 -c "import mackes.<module>"`
    passes for everything touched.
 6. **CHANGELOG updated** — user-visible change documented.
+7. **Runtime reachability** (added 2026-05-22) — every public function
+   the task introduces must be invocable from a runtime entry point
+   (a user gesture, scheduled tick, subscription, or daemon `run_serve`
+   spawn). For Rust crates, the test is: `grep -rln "${mod}::" --include='*.rs'
+   crates/${crate}` returns at least one file other than `${mod}.rs`
+   itself. For Python modules, the test is: at least one `import` or
+   `from … import` references the module's name from outside its own
+   file. This gate is what the v3.x audit on 2026-05-22 would have
+   caught — 22 misleading `[✓]` entries shipped helpers + tests but
+   left the wiring dead, costing 4 user-visible bugs and an emergency
+   integration sweep. See [[V3_RUNTIME_INTEGRATION_AUDIT]].
 
-Writing code alone never satisfies Done. If gates 1–6 aren't confirmed,
+Writing code alone never satisfies Done. If gates 1–7 aren't confirmed,
 the task stays `[>] In Progress` with a note on which gate is incomplete.
 
 ### 0.9 Destructive operations require explicit authorization

@@ -593,14 +593,24 @@ dependency sweep.
   `swaymsg [con_id=N] focus` + close overlay. Acceptance: with
   5 windows open, F3 shows a 5-card grid; clicking a card
   raises that window.
-- [ ] **v3.0.3: weather popover surface (Tier 2 E.17 follow-up
-  wiring)** — wire `weather::WeatherSnapshot` into a popover
-  (new kind `weather` in `crates/mde-popover/`) anchored above
-  the clock zone. Click the clock → opens. Polls `wttr.in?
-  format=j1` every POLL_INTERVAL_SECS=1800 per the existing
-  helper. Acceptance: clicking the clock shows the locked
-  4-line column (location / temp+condition / high-low / wind)
-  with freshness label.
+- [✓] **v3.0.3: weather popover surface (Tier 2 E.17 follow-up
+  wiring) — shipped 2026-05-22** — best-choice deviation from
+  the spec: rather than a separate `Kind::Weather` triggered by
+  a different click, the weather column was integrated **into**
+  the existing clock popover (clicking the clock now opens
+  calendar + weather in one surface). Single click target,
+  cleaner UX, no extra anchor decisions. `git mv weather.rs
+  from mde-panel to mde-popover`; added `fetch_via_curl()` +
+  `spawn_poll_thread()` helpers (curl follows the workspace's
+  "shell out for simple things" convention — no new HTTP dep).
+  `clock::App::new()` kicks off the poll thread on first popover
+  open; `clock::view()` reads the latest cached snapshot via
+  `weather::load_cached(default_cache_path())` on each render
+  and renders a 4-line column (location / temp+condition /
+  high-low / wind) plus the freshness label and "wttr.in"
+  attribution footer. Shows "Weather loading…" before the
+  first fetch lands. 14 weather tests come along from the move;
+  51 mde-popover tests total.
 - [ ] **v3.0.3: dock_dnd integration with dock applet (Tier 2
   E.9 wiring + depends on dock applet drag recognition)** —
   coordinate with v3.1 dock applet work. The applet adds Iced
@@ -639,13 +649,17 @@ dependency sweep.
   Acceptance: `mded serve` startup logs show each registered
   worker by name; helper modules carry a top-of-file
   classification comment.
-- [ ] **v3.0.3: extend Definition-of-Done to require runtime
-  reachability (CLAUDE.md §0.8 amendment)** — current §0.8 gates
-  on "all module imports clean." Add a 7th gate: "module is
-  reachable from a runtime entry point — a user gesture or
-  scheduled tick must invoke a public function of the module."
-  Acceptance: §0.8 updated; new tasks (Phase X-helpers vs.
-  Phase X-wiring split) demonstrate compliance.
+- [✓] **v3.0.3: extend Definition-of-Done to require runtime
+  reachability (CLAUDE.md §0.8 amendment) — shipped 2026-05-22**
+  — §0.8 grew a 7th gate: "Runtime reachability — every public
+  function the task introduces must be invocable from a runtime
+  entry point." For Rust crates the gate's mechanical test is
+  the same grep that drives the worklist-rescue / iteration
+  Phase 0 pipeline; for Python modules the test is an external
+  `import` or `from … import` of the module from outside its
+  own file. Note added pointing at the V3 audit doc as the
+  motivating incident. All v3.0.3 task acceptance lines below
+  satisfy the new gate by design.
 
 #### Second-pass rescues (audit-2 2026-05-22 — workspace-wide grep with corrected crate-scoping)
 
@@ -2054,8 +2068,8 @@ src/`) and its destination.
   with content. `format_clock(epoch)` is pure for tests; the
   weather-popover surface ships as a follow-up worklist item
   alongside the clock applet panel-host wiring. 9 unit tests.
-- [>] **v3.0.3: Phase E.17 follow-up — weather popover (helpers shipped
-  2026-05-21, popover surface deferred — audit 2026-05-22)** — `crates/mde-panel/src/weather.rs` ships
+- [✓] **v3.0.3: Phase E.17 follow-up — weather popover (helpers shipped
+  2026-05-21, integrated into clock popover 2026-05-22)** — `crates/mde-panel/src/weather.rs` ships
   `WeatherSnapshot { location, condition, temp_c, high_c, low_c,
   wind_kmh, fetched_at_ms }` + `render_lines()` (4-line column
   per the locked spec) + `attribution()` (footer text). Pure

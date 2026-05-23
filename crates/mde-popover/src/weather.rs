@@ -199,6 +199,60 @@ struct NameValue {
     value: String,
 }
 
+// ──────────────────────────────────────────────────────────────
+// v3.0.3 — background fetcher + auto-poll thread
+// ──────────────────────────────────────────────────────────────
+
+/// Fetch the current snapshot from wttr.in using curl as the HTTP
+/// client. Following the rest of the workspace's "shell out for
+/// simple things" pattern (sway-cluster uses swaymsg, watermark
+/// uses dnf) — avoids pulling reqwest/ureq into the popover
+/// crate's dep tree. Returns `None` on any curl failure or parse
+/// error so the caller can fall through to the cached value.
+#[must_use]
+pub fn fetch_via_curl() -> Option<WeatherSnapshot> {
+    use std::process::Command;
+    let output = Command::new("curl")
+        .args(["-s", "--max-time", "10", "https://wttr.in/?format=j1"])
+        .output()
+        .ok()?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return None;
+    }
+    let body = String::from_utf8_lossy(&output.stdout);
+    parse(&body).ok()
+}
+
+/// Spawn the background poll thread. Fires `fetch_via_curl()`
+/// every `POLL_INTERVAL_SECS`, saves the result to the standard
+/// cache path so the popover view picks it up on its next render.
+/// First fetch runs immediately so a fresh login shows the latest
+/// weather without waiting 30 minutes for the first poll.
+///
+/// Returns immediately; the caller does not own the thread.
+pub fn spawn_poll_thread() {
+    use std::thread;
+    use std::time::Duration;
+    thread::Builder::new()
+        .name("weather-wttr-poll".into())
+        .spawn(move || {
+            let cache = default_cache_path();
+            loop {
+                if let Some(snap) = fetch_via_curl() {
+                    if let Err(e) = save_cached(&cache, &snap) {
+                        tracing::warn!(error = %e, "weather save_cached failed");
+                    } else {
+                        tracing::debug!(location = %snap.location, "weather poll updated");
+                    }
+                } else {
+                    tracing::debug!("weather poll: fetch_via_curl returned None");
+                }
+                thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
+            }
+        })
+        .expect("spawn weather poll thread");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

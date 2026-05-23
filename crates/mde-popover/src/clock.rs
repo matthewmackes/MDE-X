@@ -71,6 +71,13 @@ impl iced_layershell::Application for App {
         let weekday_today = weekday_of(today.0, today.1, today.2);
         let month_grid = build_month_grid(today.0, today.1);
         tracing::info!(date = ?today, "clock popover open");
+        // v3.0.3 — kick off the weather poll thread so the cache
+        // file freshens in the background. The popover view loads
+        // the latest cached snapshot on each render; the first
+        // popover open after a fresh login may show the
+        // "(never updated)" stub until the first fetch lands
+        // (~1-3s for curl + wttr.in).
+        crate::weather::spawn_poll_thread();
         (
             Self {
                 today,
@@ -163,6 +170,31 @@ impl iced_layershell::Application for App {
             grid = grid.push(grid_row);
         }
 
+        // v3.0.3 — weather column below the calendar. Reads the
+        // latest cached snapshot on each render; the background
+        // poll thread (kicked off in `new()`) freshens the cache
+        // every 30 min. Shows nothing when there's no cached
+        // value yet (first session before the first fetch lands).
+        let weather_snapshot = crate::weather::load_cached(&crate::weather::default_cache_path());
+        let weather_col: Element<'_, Message> = if weather_snapshot.location.is_empty() {
+            text("Weather loading…").size(11).color(FG_MUTED).into()
+        } else {
+            let lines = weather_snapshot.render_lines();
+            let mut col = column![].spacing(2);
+            for (i, line) in lines.iter().enumerate() {
+                let color = if i == 0 { FG_TEXT } else { FG_MUTED };
+                let size: u16 = if i == 0 { 13 } else { 11 };
+                col = col.push(text(line.clone()).size(size).color(color));
+            }
+            col = col.push(Space::with_height(Length::Fixed(4.0)));
+            col = col.push(
+                text(crate::weather::WeatherSnapshot::attribution())
+                    .size(9)
+                    .color(FG_MUTED),
+            );
+            col.into()
+        };
+
         let body = column![
             close_row,
             big_time,
@@ -170,6 +202,12 @@ impl iced_layershell::Application for App {
             date_line,
             Space::with_height(Length::Fixed(14.0)),
             grid,
+            Space::with_height(Length::Fixed(12.0)),
+            text("Weather")
+                .size(11)
+                .color(FG_MUTED),
+            Space::with_height(Length::Fixed(4.0)),
+            weather_col,
             Space::with_height(Length::Fill),
             text("Esc closes · click × to dismiss")
                 .size(10)
