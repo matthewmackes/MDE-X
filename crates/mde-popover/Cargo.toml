@@ -29,6 +29,9 @@ mde-applet-audio      = { path = "../mde-applets/audio" }
 mde-applet-clock      = { path = "../mde-applets/clock" }
 mde-applet-notifications = { path = "../mde-applets/notifications" }
 
+# v4.0.1 WM-3 — window-actions popover writes to ~/.config/mde/panel.toml.
+mackes-config = { path = "../mackes-config" }
+
 # JSON parsing for the notifications popover (read
 # ~/.cache/mackes/notifications.json).
 serde      = { version = "1", features = ["derive"] }

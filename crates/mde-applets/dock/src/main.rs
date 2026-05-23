@@ -119,8 +119,9 @@ pub enum Message {
     /// Left-click: focus the running window or launch the
     /// pinned-only `.desktop`.
     Activate(usize),
-    /// Right-click: spawn the icon-mapper popover.
-    OpenIconMapper(String),
+    /// Right-click: spawn the WM-3 window-actions popover for
+    /// the targeted cell (Close / Move to ws 1-4 / Pin-Unpin).
+    OpenWindowActions(usize),
     /// Middle-click: toggle pin/unpin for the cell.
     TogglePin(usize),
 }
@@ -157,8 +158,10 @@ impl iced_layershell::Application for App {
                 }
                 Task::none()
             }
-            Message::OpenIconMapper(app_id) => {
-                spawn_icon_mapper(&app_id);
+            Message::OpenWindowActions(idx) => {
+                if let Some(cell) = self.cells.get(idx).cloned() {
+                    spawn_window_actions(&cell);
+                }
                 Task::none()
             }
             Message::TogglePin(idx) => {
@@ -254,7 +257,7 @@ fn render_cell(idx: usize, cell: &DockCell) -> Element<'_, Message> {
 
     mouse_area(body)
         .on_press(Message::Activate(idx))
-        .on_right_press(Message::OpenIconMapper(cell.app_id.clone()))
+        .on_right_press(Message::OpenWindowActions(idx))
         .on_middle_press(Message::TogglePin(idx))
         .into()
 }
@@ -420,12 +423,15 @@ fn activate_cell(cell: &DockCell) {
         .status();
 }
 
-fn spawn_icon_mapper(app_id: &str) {
-    if app_id.is_empty() {
-        return;
-    }
+/// Spawn the WM-3 window-actions popover for the given cell.
+/// The popover reads MDE_WINDOW_CON_ID + MDE_WINDOW_APP_ID
+/// from its env to know which window to target.
+fn spawn_window_actions(cell: &DockCell) {
+    let con_id = cell.con_id.map(|n| n.to_string()).unwrap_or_default();
     let _ = Command::new("mde-popover")
-        .args(["icon-mapper", app_id])
+        .arg("window-actions")
+        .env("MDE_WINDOW_CON_ID", &con_id)
+        .env("MDE_WINDOW_APP_ID", &cell.app_id)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();

@@ -37,6 +37,7 @@ mod start_menu;
 mod toasts;
 mod watermark;
 mod weather;
+mod window_actions;
 
 use clap::Parser;
 
@@ -89,6 +90,11 @@ enum Kind {
     /// focuses, Esc cancels. Bind with `bindsym Mod1+Tab exec
     /// mde-popover app-switcher`.
     AppSwitcher,
+    /// v4.0.1 WM-3 — right-click-on-dock-cell window-actions
+    /// popover. Reads target via MDE_WINDOW_CON_ID +
+    /// MDE_WINDOW_APP_ID env vars (the dock applet sets both
+    /// before spawning).
+    WindowActions,
 }
 
 fn main() -> iced_layershell::Result {
@@ -116,5 +122,6 @@ fn main() -> iced_layershell::Result {
         Kind::Network => network::run(),
         Kind::Minimized => minimized::run(),
         Kind::AppSwitcher => app_switcher::run(),
+        Kind::WindowActions => window_actions::run(),
     }
 }

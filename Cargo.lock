@@ -3673,6 +3673,7 @@ dependencies = [
  "dirs 5.0.1",
  "iced",
  "iced_layershell",
+ "mackes-config",
  "mde-applet-audio",
  "mde-applet-clock",
  "mde-applet-notifications",

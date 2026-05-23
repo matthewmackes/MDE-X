@@ -2283,8 +2283,27 @@ integration needed.
     poll loop in the panel-host (same 2 s cadence as the
     mesh-status applet).
 
-- [ ] **v4.0.1: WM-3 dock interactive: click to focus / right-
-  click for actions (Tier 1 chrome / unblocks BUG-5)**
+- [✓] **v4.0.1: WM-3 dock interactive: click to focus / right-
+  click for actions (shipped 2026-05-23 alongside DOCK-1)** —
+  Cycle G follow-on. The dock applet's interactive layer
+  (left-click focus, right-click action menu, focused-cell
+  indigo underline) shipped as part of DOCK-1 above; this
+  task closes the gap that DOCK-1 deferred — the right-click
+  menu surface itself. New `crates/mde-popover/src/
+  window_actions.rs` + `Kind::WindowActions` variant: 240 px
+  layer-shell popover with Move-to-workspace 1-4 chips,
+  Close-window (urgent-tinted), Pin/Unpin-to-dock
+  (accent-tinted, label flips by live `mackes_config` lookup).
+  Actions execute via `swaymsg [con_id=N] move container to
+  workspace M` / `swaymsg [con_id=N] kill` /
+  `mackes_config::{pin_app,unpin_app}` + write panel.toml.
+  Spawn contract: dock applet sets `MDE_WINDOW_CON_ID` +
+  `MDE_WINDOW_APP_ID` env vars before exec'ing
+  `mde-popover window-actions`. Esc / outside-click /
+  close-button all dismiss. 4 new popover tests cover
+  dimension lock + workspace-button-handles-1..4 +
+  empty-con-id no-op invariants. 116 popover tests green
+  (was 112).
 
   **As** an operator,
   **I want** the dock area to render one clickable button
