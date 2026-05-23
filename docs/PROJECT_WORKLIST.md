@@ -1326,6 +1326,43 @@ integration needed.
   - Icon source: Carbon `help` + per-topic glyphs from
     `mde_theme::Icon`.
 
+- [ ] **v4.0.1: BUG-19 catch-all "lands in a later CB-1.x substep"
+  text leaks to the operator (Tier 1 chrome — surfaced by the
+  Phase 0.7 lands-marker audit added 2026-05-23)**
+
+  **As** an operator,
+  **I want** clicking any of the 9 still-unwired sidebar
+  entries (WB-2.d..l) to render a friendly "this panel isn't
+  ready yet" empty-state card with the panel name + the
+  worklist task ID + a "back to group" affordance,
+  **so that** I don't read internal jargon
+  ("Panel view lands in a later CB-1.x substep") as the
+  Workbench's actual response to my click.
+
+  **Acceptance** (bench-observable):
+  - [ ] `crates/mde-workbench/src/app.rs::panel_body`
+        catch-all branch returns a Workbench EmptyState
+        instead of a raw `text()`.
+  - [ ] The EmptyState heading is the panel's display name
+        (resolved via `nav_model()`), not "Panel view lands…".
+  - [ ] The body cites the relevant WB-2.* worklist task id
+        so a curious operator can find what's coming.
+  - [ ] A "Back to <group>" button navigates to the parent
+        group view via Message::SelectGroup.
+
+  **Implementation notes:**
+  - Chrome influence: Win11 Settings → "Page under
+    construction" empty-state shape (Settings sometimes
+    shows this when a deep-link points at a feature only
+    available in a higher SKU).
+  - Icon source: Carbon `tools` for the hero glyph.
+  - Strict gate: Phase 0.7's new
+    `text\("[^"]*(lands in|not yet|coming soon|under
+    construction|wired in|substep|follow-up)` user-visible-
+    text grep MUST return zero hits after this lands. CI
+    can wire that grep as a fail-the-build check once
+    BUG-19 closes.
+
 - [ ] **v4.0.1: WB-2.d Apps Panel Apps grid (Tier 2 chrome)**
 
   **As** an operator,
