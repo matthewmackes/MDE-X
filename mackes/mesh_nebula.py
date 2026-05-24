@@ -15,10 +15,9 @@ from __future__ import annotations
 
 import os
 import shutil
-import socket
 import subprocess
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 
 # ─────────────────────────────────────────────────────────────────
