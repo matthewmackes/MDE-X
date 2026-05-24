@@ -45,6 +45,100 @@ def passcode_is_valid(passcode: str) -> bool:
     return all(c in _VALID_PASSCODE_CHARS for c in passcode)
 
 
+# ─────────────────────────────────────────────────────────────────
+# NF-7.2 + NF-14.2 (v2.5) — Nebula join-token format.
+# ─────────────────────────────────────────────────────────────────
+#
+# Wire shape: `mesh:<mesh_id>@<lighthouse_ip>:<port>#<bearer>`
+#
+#   mesh_id        ≥ 1 char, URL-safe (no '@' / ':' / '#' / '/')
+#   lighthouse_ip  IPv4 dotted-quad (overlay or public; the wizard
+#                  rejects empty)
+#   port           1..=65535 integer
+#   bearer         base32-encoded 64-byte enrollment token (~104
+#                  chars including padding); URL-safe charset.
+#
+# Compact (target ≤ 120 chars), copy-pasteable, QR-code-friendly
+# for the kiosk wizard. Locked per the design doc's
+# `docs/design/v2.5-nebula-fabric.md` NF-7.2 section.
+
+import re as _re
+from dataclasses import dataclass as _dc
+
+
+# Locked target so the join token fits inside a standard 1KB QR
+# without splitting.
+JOIN_TOKEN_MAX_LEN = 120
+
+# Single regex for fast validation. Each named group surfaces a
+# parsed component so the apply step doesn't need a parallel
+# parser.
+_JOIN_TOKEN_RE = _re.compile(
+    r"^mesh:"
+    r"(?P<mesh_id>[A-Za-z0-9._-]+)"
+    r"@"
+    r"(?P<lighthouse>[0-9.]+)"
+    r":"
+    r"(?P<port>[0-9]+)"
+    r"#"
+    r"(?P<bearer>[A-Za-z0-9_=-]+)"
+    r"$"
+)
+
+
+@_dc(frozen=True)
+class JoinToken:
+    """One parsed join token. Returned by ``parse_join_token``."""
+
+    mesh_id: str
+    lighthouse: str
+    port: int
+    bearer: str
+
+    def encode(self) -> str:
+        """Round-trip back to the wire form."""
+        return f"mesh:{self.mesh_id}@{self.lighthouse}:{self.port}#{self.bearer}"
+
+
+def parse_join_token(raw: str) -> JoinToken | None:
+    """Pure parser. Returns a :class:`JoinToken` on success, or
+    ``None`` when the input doesn't match the locked shape. Caller
+    is the wizard's apply step + the ``mackesd enroll`` CLI.
+    """
+    if not raw or len(raw) > JOIN_TOKEN_MAX_LEN:
+        return None
+    m = _JOIN_TOKEN_RE.match(raw)
+    if not m:
+        return None
+    try:
+        port = int(m.group("port"))
+    except ValueError:
+        return None
+    if not 1 <= port <= 65535:
+        return None
+    # IPv4 dotted-quad sanity. Reject anything that doesn't parse
+    # via the std-library socket helpers (covers IPv6 + hostnames;
+    # the locked shape is IPv4 overlay/public only).
+    import socket as _sk
+    try:
+        _sk.inet_pton(_sk.AF_INET, m.group("lighthouse"))
+    except OSError:
+        return None
+    return JoinToken(
+        mesh_id=m.group("mesh_id"),
+        lighthouse=m.group("lighthouse"),
+        port=port,
+        bearer=m.group("bearer"),
+    )
+
+
+def join_token_is_valid(raw: str) -> bool:
+    """Pure predicate. True when ``raw`` parses cleanly.
+    Wizard validator + CLI sanity-check both call this.
+    """
+    return parse_join_token(raw) is not None
+
+
 def _mackesd_available() -> bool:
     return shutil.which("mackesd") is not None
 

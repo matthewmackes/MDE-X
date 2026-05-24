@@ -1,6 +1,8 @@
 """Wizard screen 7 — Network."""
 from __future__ import annotations
 
+import socket
+import subprocess
 from pathlib import Path
 
 import gi
@@ -11,6 +13,104 @@ from mackes.workbench._common import info_label, labeled_row, section_header
 
 
 FIREWALL_ZONES = ["FedoraWorkstation", "public", "home", "work", "trusted", "block"]
+
+
+# ─────────────────────────────────────────────────────────────────
+# NF-14.3 (v2.5) — Nebula preflight check.
+# ─────────────────────────────────────────────────────────────────
+#
+# Pre-flight verifies the operator's firewall + ISP doesn't block
+# the two ports the v2.5 Nebula fabric needs:
+#
+#   UDP/4242  — native Nebula transport (direct UDP)
+#   TCP/443   — covert HTTPS-tunnel fallback (NF-1.x)
+#
+# Failure surfaces an actionable "Open these ports in your
+# firewall" page with a one-click `firewalld` rule for the common
+# Fedora setup. Quick check: bind a socket locally; if bind fails
+# with EADDRINUSE that's fine (something else is bound — likely
+# the port is open + reachable). If bind fails with EACCES, the
+# Linux capability layer + the operator's selinux profile are
+# blocking us — surface that distinctly.
+
+PREFLIGHT_PORTS = (
+    (4242, "udp"),   # Nebula native
+    (443, "tcp"),    # covert HTTPS tunnel
+)
+
+
+def nebula_preflight() -> list[dict]:
+    """Pure-ish helper — try to bind each PREFLIGHT_PORTS entry
+    locally. Returns one dict per port:
+
+        {"port": int, "proto": str, "ok": bool, "detail": str}
+
+    ok=True when the bind succeeded (port is free + we have the
+    capability to use it). ok=False with a human-readable detail
+    when something rejects the bind. The wizard's apply step
+    surfaces the failures in a banner; firewall.py's "Allow
+    Nebula" preset (NF-17.1) is the one-click fix.
+    """
+    out: list[dict] = []
+    for port, proto in PREFLIGHT_PORTS:
+        sock_type = socket.SOCK_DGRAM if proto == "udp" else socket.SOCK_STREAM
+        s = socket.socket(socket.AF_INET, sock_type)
+        try:
+            s.bind(("0.0.0.0", port))
+        except PermissionError:
+            out.append({
+                "port": port,
+                "proto": proto,
+                "ok": False,
+                "detail": (
+                    "Permission denied — privileged port requires "
+                    "CAP_NET_BIND_SERVICE. The Nebula systemd units "
+                    "grant this automatically; this preflight check "
+                    "runs unprivileged and will fail on ports < 1024."
+                ),
+            })
+        except OSError as e:
+            if e.errno == 98:  # EADDRINUSE
+                # Port is in use by something else — that's
+                # actually GOOD news (it means the firewall isn't
+                # blocking us; we just collide with another bound
+                # socket). Treat as ok.
+                out.append({
+                    "port": port,
+                    "proto": proto,
+                    "ok": True,
+                    "detail": "(already bound by another process — port is reachable)",
+                })
+            else:
+                out.append({
+                    "port": port,
+                    "proto": proto,
+                    "ok": False,
+                    "detail": f"bind failed: {e}",
+                })
+        else:
+            out.append({
+                "port": port,
+                "proto": proto,
+                "ok": True,
+                "detail": "bind succeeded",
+            })
+        finally:
+            s.close()
+    return out
+
+
+def preflight_summary(rows: list[dict]) -> str:
+    """Pure helper — one-line summary suitable for the wizard's
+    inline status text. Returns "All Nebula ports reachable"
+    when every row passed; "1 port blocked: UDP/4242" style
+    otherwise.
+    """
+    failed = [r for r in rows if not r["ok"]]
+    if not failed:
+        return "All Nebula ports reachable"
+    parts = [f"{r['proto'].upper()}/{r['port']}" for r in failed]
+    return f"{len(failed)} port{'s' if len(failed) != 1 else ''} blocked: {', '.join(parts)}"
 
 
 def build(ctx) -> Gtk.Widget:

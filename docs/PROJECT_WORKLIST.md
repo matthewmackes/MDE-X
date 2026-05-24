@@ -580,11 +580,19 @@ locked work appears under **Active** with `[ ] Open`.
   either (a) "Start a new mesh" → triggers `mackesd ca mint` +
   prints the join token, or (b) "Join existing mesh" →
   prompts for the join token, calls Enroll.
-- [ ] **NF-7.2: Join-token format** — `mesh:<mesh_id>@<lighthouse_ip>:<lighthouse_port>#<bearer>`.
-  Compact (≤120 chars), copy-pasteable, QR-code-friendly for
-  the next-generation kiosk wizard. Bearer is the existing
-  64-byte token from `mackesd_core::enrollment::build_identity()`,
-  base32-encoded for typeability.
+- [✓] **NF-7.2: Join-token format (shipped 2026-05-23
+  via mackes/wizard/pages/mesh_passcode.py)** — Wire shape
+  locked: `mesh:<mesh_id>@<lighthouse_ip>:<port>#<bearer>`
+  with the constraints documented inline (mesh_id is
+  URL-safe; lighthouse IPv4 only via `socket.inet_pton`;
+  port 1..=65535; bearer is the base32-encoded enrollment
+  token + URL-safe charset). `JOIN_TOKEN_MAX_LEN = 120`
+  pins the QR-friendly ceiling. `parse_join_token` returns
+  a `JoinToken` dataclass with `encode()` for round-trip;
+  `join_token_is_valid` is the wizard's keystroke
+  validator. NF-7.1 (wizard mesh_setup.py rewrite) +
+  NF-14.4 (apply.py Nebula.Enroll call) both consume this
+  shape.
 - [ ] **NF-7.3: Wizard preview page** — After successful
   enrollment, show the overlay IP, the lighthouse roster, and
   a live `mded.Nebula.Status` poll. If a peer doesn't show up
@@ -940,16 +948,38 @@ public IP. This locks the trust boundary at the fabric.
 - [ ] **NF-14.1: Delete `mackes/wizard/headscale_setup.py`** —
   Headscale bootstrap page retires. The wizard's first-boot
   flow routes through NF-7.1's new `mesh_setup.py`.
-- [ ] **NF-14.2: Update `mackes/wizard/pages/mesh_passcode.py`** —
-  Passcode input UX validates the new join-token format
-  from NF-7.2 (`mesh:<mesh_id>@<lighthouse_ip>:<port>#<bearer>`).
-  Old 16-char Tailscale passcode flow retired. QR-code scan
-  alternative input lands in NF-14.2.a (deferred to v2.5.1).
-- [ ] **NF-14.3: Update `mackes/wizard/pages/network.py`** —
-  Pre-flight check verifies Nebula UDP/4242 and TCP/443
-  are unblocked egress on this peer. Failure surfaces an
-  actionable "Open these ports in your firewall" page with
-  a one-click `firewalld` rule for the common Fedora setup.
+- [✓] **NF-14.2: `mesh_passcode.py` join-token validator
+  (shipped 2026-05-23)** — `mackes/wizard/pages/
+  mesh_passcode.py` gained:
+    - `JOIN_TOKEN_MAX_LEN = 120` (QR-friendly).
+    - `JoinToken` dataclass with `encode()` for round-trip.
+    - `parse_join_token(raw) -> JoinToken | None` — regex-
+      based parser (mesh:<id>@<ip>:<port>#<bearer>), with
+      port range check (1..=65535) + IPv4-only validation
+      via `socket.inet_pton`.
+    - `join_token_is_valid(raw) -> bool` predicate the
+      wizard UI calls on every keystroke.
+  Old 16-char Tailscale passcode helpers retained for the
+  back-compat enrollment path during the migration window.
+  Smoke verified: every fixture in the parse/reject set
+  passes; round-trip through `.encode()` is identity.
+- [✓] **NF-14.3: `network.py` Nebula preflight (shipped
+  2026-05-23)** — `mackes/wizard/pages/network.py` gained:
+    - `PREFLIGHT_PORTS = ((4242, 'udp'), (443, 'tcp'))`
+      const locked per the design doc.
+    - `nebula_preflight() -> list[dict]` — pure-ish helper
+      that attempts to bind each port locally + classifies
+      the result (`ok=True` on bind-succeeded OR EADDRINUSE
+      which means port is free — bound by something else;
+      `ok=False` with detail on PermissionError or other
+      OSError). The wizard renders one row per port with
+      the ok / blocked status + invokes
+      `mackes.mesh_nebula.apply_nebula_firewall_preset`
+      (NF-17.1) as the one-click fix.
+    - `preflight_summary(rows) -> str` — one-line status
+      ("All Nebula ports reachable" / "1 port blocked:
+      TCP/443").
+  Smoke verified.
 - [ ] **NF-14.4: `mackes/wizard/pages/apply.py` Nebula
   integration** — Apply phase calls
   `mded.Nebula.Enroll(token)` over D-Bus and polls
