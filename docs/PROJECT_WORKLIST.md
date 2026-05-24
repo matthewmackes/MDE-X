@@ -536,25 +536,41 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### NF-6.x — Packaging hardcut (RPM spec)
 
-- [ ] **NF-6.1: `packaging/fedora/mackes-shell.spec` dependency
-  swap** — Drop `Requires: tailscale`, `Requires: headscale`,
-  `Requires: tailscale-derp`. Add `Requires: nebula >= 1.9.0`
-  (Fedora ships 1.9.4 as of F44). Verify package availability
-  on F42/F43/F44 via `dnf repoquery` in CI.
-- [ ] **NF-6.2: `%files` list update** — Add
-  `/usr/lib/systemd/system/nebula.service`,
-  `/usr/lib/systemd/system/nebula-lighthouse.service`,
-  `/usr/lib/systemd/system/mackes-nebula-https-tunnel.service`,
-  `%dir /etc/nebula/ (0755 root:root)`,
-  `%dir /var/lib/mackesd/nebula-ca/ (0700 root:root)`.
-  Drop `/usr/lib/systemd/system/mde-derper.service`,
-  `%dir /etc/headscale/`, and the example DERP map.
-- [ ] **NF-6.3: `%post` scriptlet** — `systemctl daemon-reload`
-  is enough; the units don't auto-enable (gating-based
-  activation via `nebula_supervisor`). Drop the headscale +
-  derper `%post` lines.
-- [ ] **NF-6.4: SRPM build smoke** — `make rpm` exits 0 on a
-  clean tree. Per CLAUDE.md §0.6, never `--short-circuit`.
+- [✓] **NF-6.1: `packaging/fedora/mackes-shell.spec`
+  dependency swap (shipped 2026-05-23)** — Spec line 181-
+  187 now requires `nebula >= 1.9.0` (Fedora 44 ships
+  1.9.4). The legacy `Requires: tailscale` +
+  `Requires: headscale` lines are deleted. `tailscale-derp`
+  was never declared as a separate Require (it was bundled
+  in the tailscale package), so nothing to drop on that
+  axis. Doc comment updated to spell out the supersession.
+- [✓] **NF-6.2: `%files` list update (shipped 2026-05-23)** —
+  Spec %install gained the 3 NF-3.x systemd unit
+  installs (`nebula.service`,
+  `nebula-lighthouse.service`,
+  `mackes-nebula-https-tunnel.service`) + the 3 sealed
+  dirs (`/var/lib/mackesd/nebula-ca` 0700,
+  `/etc/nebula` 0755, `/var/lib/mackesd/nebula-peers`
+  0700). Matching %files entries added under the
+  existing `_unitdir` block. The legacy
+  `mde-derper.service` + `headscale/derp-map.example.json`
+  install lines + %files entries remain pending in NF-6.2.a
+  (a separate cleanup commit handles the parallel
+  deletion path so existing tailscale-still-running
+  peers don't lose units mid-upgrade).
+- [✓] **NF-6.3: `%post` scriptlet (closed 2026-05-23 —
+  no-op required)** — Audit finding: the existing %post
+  already calls `systemctl daemon-reload` + nothing else;
+  no headscale / derper-specific %post lines exist that
+  would need dropping. The new Nebula units inherit the
+  same daemon-reload — no separate scriptlet needed
+  since activation is supervisor-driven (NF-3.4 writes
+  the role.host marker that gates lighthouse + tunnel
+  via ConditionPathExists).
+- [ ] **NF-6.4: SRPM build smoke** — `make rpm` exits 0 on
+  a clean tree. Operator-gated per the "Do not cut RPM"
+  standing directive; will run when the user lifts the
+  RPM-cut gate.
 
 #### NF-7.x — Wizard rebuild (mesh-init + enroll)
 

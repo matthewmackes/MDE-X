@@ -178,9 +178,13 @@ Requires:       conky
 #   wmctrl + xprop).
 # - kanshi for per-output config (replaces xrandr / xorg-utils).
 
-# Mesh fabric (§8.11–§8.14): WireGuard via Tailscale + self-hosted Headscale
-Requires:       tailscale
-Requires:       headscale
+# Mesh fabric (v2.5 NF-6.1): Nebula overlay. The legacy
+# Tailscale + Headscale deps retire — Nebula's lighthouse
+# replaces Headscale's control plane, and Nebula's native UDP
+# overlay replaces the Tailscale dataplane. The covert TCP/443
+# tunnel is owned by the mackes-nebula-https-tunnel binary the
+# workspace builds.
+Requires:       nebula >= 1.9.0
 
 # Mesh filesystem (SSHFS-over-QNM, §8.10)
 # Fedora packages sshfs as `fuse-sshfs` (deliberately namespaced to
@@ -469,6 +473,14 @@ install -D -m 0644 data/mesh-ssh-policy.example.yaml \
 install -d %{buildroot}%{_unitdir}
 install -m 0644 data/systemd/mackes-node.service             %{buildroot}%{_unitdir}/
 install -m 0644 data/systemd/mackes-tailscale-bootstrap.service %{buildroot}%{_unitdir}/
+# NF-3.1/3.2/3.3 (v2.5) — Nebula systemd units.
+install -m 0644 data/systemd/nebula.service                  %{buildroot}%{_unitdir}/
+install -m 0644 data/systemd/nebula-lighthouse.service       %{buildroot}%{_unitdir}/
+install -m 0644 data/systemd/mackes-nebula-https-tunnel.service %{buildroot}%{_unitdir}/
+# NF-6.2 — sealed CA dir + Nebula config dir + per-peer cert dir.
+install -d -m 0700 %{buildroot}/var/lib/mackesd/nebula-ca
+install -d -m 0755 %{buildroot}/etc/nebula
+install -d -m 0700 %{buildroot}/var/lib/mackesd/nebula-peers
 # v2.0.0 Phase B.13 — 10 standalone .service/.timer units retired
 # (mackes-clipboard-daemon, mackes-gvfsd-mesh, mackes-mdns-relay,
 # mackes-remmina-sync.{service,timer}, mackes-media-sync.{service,
@@ -947,6 +959,17 @@ fi
 %{_unitdir}/mackes-node.service
 %{_unitdir}/mackes-tailscale-bootstrap.service
 %{_unitdir}/mackesd.service
+# NF-3.1/3.2/3.3 (v2.5) — Nebula systemd units. Activation
+# is supervisor-driven (NF-3.4 nebula_supervisor writes the
+# role.host marker that gates the lighthouse + tunnel
+# units); the regular nebula.service runs on every node.
+%{_unitdir}/nebula.service
+%{_unitdir}/nebula-lighthouse.service
+%{_unitdir}/mackes-nebula-https-tunnel.service
+# NF-6.2 — sealed dirs the supervisor writes into.
+%dir %attr(0700, root, root) /var/lib/mackesd/nebula-ca
+%dir %attr(0755, root, root) /etc/nebula
+%dir %attr(0700, root, root) /var/lib/mackesd/nebula-peers
 # v12.16 Self-hosted DERP relay unit. Inactive on non-Host peers
 # (gated by ConditionPathExists=/var/lib/mde/derper.enabled). The
 # headscale DERP-map example shipped under
