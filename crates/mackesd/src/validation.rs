@@ -101,23 +101,175 @@ pub fn validate(snapshot: &DesiredSnapshot) -> Vec<ValidationError> {
 
     // v2.0.0 Phase G.3 — settings_keys validation. Each (key,
     // value_json) pair must parse to a known SettingKey + a
-    // SettingValue whose shape matches the key.
+    // SettingValue whose JSON shape matches the key's expected
+    // type. v4.1 (2026-05-24) — shape check landed via
+    // settings_value_shape_matches; previously deferred with
+    // `let _ = parsed_key;`.
     for (key, value_json) in &snapshot.settings_keys {
         let Ok(parsed_key): Result<crate::settings::SettingKey, _> = key.parse() else {
             errors.push(ValidationError::UnknownSettingKey { key: key.clone() });
             continue;
         };
-        let value: Result<crate::settings::SettingValue, _> = serde_json::from_str(value_json);
-        let _ = parsed_key; // shape-validation lands when SettingValue carries shape info
-        if let Err(e) = value {
+        let value: Result<serde_json::Value, _> = serde_json::from_str(value_json);
+        let Ok(value) = value else {
             errors.push(ValidationError::InvalidSettingValue {
                 key: key.clone(),
-                reason: e.to_string(),
+                reason: value.unwrap_err().to_string(),
+            });
+            continue;
+        };
+        if let Err(reason) = settings_value_shape_matches(parsed_key, &value) {
+            errors.push(ValidationError::InvalidSettingValue {
+                key: key.clone(),
+                reason,
             });
         }
     }
 
     errors
+}
+
+/// v4.1 (2026-05-24) — per-key shape validation for
+/// `SettingValue` payloads. Each variant of [`crate::settings::SettingKey`]
+/// has a canonical JSON shape (string / unsigned integer /
+/// boolean / float / array of string / object). Returns
+/// `Err("expected <shape>; got <kind>")` when the payload's
+/// JSON kind doesn't match, `Ok(())` otherwise.
+///
+/// Closes the previously-deferred shape-check gap captured in
+/// the v4.0.1 validation pass (`let _ = parsed_key;` with the
+/// "lands when SettingValue carries shape info" comment).
+pub fn settings_value_shape_matches(
+    key: crate::settings::SettingKey,
+    value: &serde_json::Value,
+) -> Result<(), String> {
+    // Six canonical shapes. Locked by the SettingKey doc-comments
+    // — see crates/mackesd/src/settings/mod.rs.
+    let shape = key_expected_shape(key);
+    let got = describe_value_kind(value);
+    let ok = match shape {
+        ValueShape::Str => value.is_string(),
+        // Bools serialize/deserialize as Value::Bool, never
+        // Value::String — strict.
+        ValueShape::Bool => value.is_boolean(),
+        // Unsigned ints — accept any non-negative integer.
+        // serde_json::Value::Number can be i64/u64/f64; accept
+        // i64 >= 0 OR u64 OR (f64 with no fractional part >= 0).
+        ValueShape::UnsignedInt => is_unsigned_integer(value),
+        // Floats — accept any number (int subtype is fine for a
+        // float field; e.g. scale=1 is valid even when the JSON
+        // serialized to `1` instead of `1.0`).
+        ValueShape::Float => value.is_number(),
+        // Arrays of string — accept empty arrays + arrays whose
+        // every element is a string.
+        ValueShape::ArrayOfStr => value
+            .as_array()
+            .map(|a| a.iter().all(serde_json::Value::is_string))
+            .unwrap_or(false),
+        // Object — any JSON object.
+        ValueShape::Object => value.is_object(),
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected {}; got {got}",
+            shape.describe(),
+        ))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueShape {
+    Str,
+    Bool,
+    UnsignedInt,
+    Float,
+    ArrayOfStr,
+    Object,
+}
+
+impl ValueShape {
+    fn describe(self) -> &'static str {
+        match self {
+            Self::Str => "string",
+            Self::Bool => "boolean",
+            Self::UnsignedInt => "unsigned integer",
+            Self::Float => "number",
+            Self::ArrayOfStr => "array of string",
+            Self::Object => "object",
+        }
+    }
+}
+
+fn key_expected_shape(key: crate::settings::SettingKey) -> ValueShape {
+    use crate::settings::SettingKey as K;
+    match key {
+        // Strings — every name / enum-as-string variant.
+        K::ThemeName
+        | K::ThemeAccent
+        | K::ThemeMode
+        | K::ThemeIconSet
+        | K::FontName
+        | K::FontMonospace
+        | K::FontHinting
+        | K::FontAntialias
+        | K::DisplayPrimary
+        | K::PowerLidAction
+        | K::PowerProfile
+        | K::NotificationLocation
+        | K::WallpaperPath
+        | K::WallpaperMode => ValueShape::Str,
+        // Unsigned integers — brightness, kelvin, idle seconds, ms.
+        K::DisplayBrightness
+        | K::DisplayNightLightTemp
+        | K::PowerSuspendIdleBatteryS
+        | K::PowerSuspendIdleAcS
+        | K::NotificationDefaultExpireMs => ValueShape::UnsignedInt,
+        // Floats — fractional scale factor.
+        K::DisplayScale => ValueShape::Float,
+        // Booleans.
+        K::DisplayNightLight
+        | K::PowerPresentationMode
+        | K::NotificationDoNotDisturb
+        | K::AutomountOnInsert
+        | K::AutomountOpenOnMount
+        | K::AutomountAutorun => ValueShape::Bool,
+        // Object — keybinds map.
+        K::KeybindsMap => ValueShape::Object,
+        // Arrays of string — autostart hidden/extra lists.
+        K::AutostartHidden | K::AutostartExtra => ValueShape::ArrayOfStr,
+    }
+}
+
+fn is_unsigned_integer(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Number(n) => {
+            if let Some(u) = n.as_u64() {
+                let _ = u;
+                true
+            } else if let Some(i) = n.as_i64() {
+                i >= 0
+            } else if let Some(f) = n.as_f64() {
+                // Allow whole-number floats >= 0 (e.g. `1.0`).
+                f >= 0.0 && f.fract() == 0.0
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+fn describe_value_kind(v: &serde_json::Value) -> &'static str {
+    match v {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
 }
 
 /// Validate a single node for ad-hoc checks (enrollment, manual
@@ -139,6 +291,160 @@ pub fn validate_node(n: &Node) -> Vec<ValidationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::SettingKey;
+    use serde_json::json;
+
+    // ---- v4.1 settings_value_shape_matches coverage ------------
+
+    #[test]
+    fn shape_check_accepts_string_for_theme_name() {
+        let ok = settings_value_shape_matches(SettingKey::ThemeName, &json!("Mackes-Carbon"));
+        assert!(ok.is_ok());
+    }
+
+    #[test]
+    fn shape_check_rejects_int_for_theme_name() {
+        let err = settings_value_shape_matches(SettingKey::ThemeName, &json!(42))
+            .expect_err("int is not a string");
+        assert!(err.contains("expected string"), "msg: {err}");
+        assert!(err.contains("number"), "msg: {err}");
+    }
+
+    #[test]
+    fn shape_check_rejects_bool_for_brightness() {
+        let err = settings_value_shape_matches(SettingKey::DisplayBrightness, &json!(true))
+            .expect_err("bool is not an int");
+        assert!(err.contains("expected unsigned integer"));
+    }
+
+    #[test]
+    fn shape_check_accepts_unsigned_int_for_brightness() {
+        for raw in [json!(0), json!(50), json!(100), json!(1.0)] {
+            assert!(
+                settings_value_shape_matches(SettingKey::DisplayBrightness, &raw).is_ok(),
+                "{raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shape_check_rejects_negative_int_for_brightness() {
+        let err = settings_value_shape_matches(SettingKey::DisplayBrightness, &json!(-5))
+            .expect_err("negative");
+        assert!(err.contains("expected unsigned integer"));
+    }
+
+    #[test]
+    fn shape_check_accepts_bool_for_do_not_disturb() {
+        assert!(settings_value_shape_matches(SettingKey::NotificationDoNotDisturb, &json!(true))
+            .is_ok());
+        assert!(settings_value_shape_matches(SettingKey::NotificationDoNotDisturb, &json!(false))
+            .is_ok());
+    }
+
+    #[test]
+    fn shape_check_rejects_string_bool() {
+        // JSON booleans should land as Value::Bool. A string
+        // "true" is a regression we want flagged.
+        let err = settings_value_shape_matches(
+            SettingKey::NotificationDoNotDisturb,
+            &json!("true"),
+        )
+        .expect_err("string is not a bool");
+        assert!(err.contains("expected boolean"));
+    }
+
+    #[test]
+    fn shape_check_accepts_float_for_scale() {
+        for raw in [json!(0.5), json!(1.0), json!(1.5), json!(3.0), json!(2)] {
+            assert!(
+                settings_value_shape_matches(SettingKey::DisplayScale, &raw).is_ok(),
+                "{raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn shape_check_accepts_array_of_strings_for_autostart_hidden() {
+        let v = json!(["a.desktop", "b.desktop"]);
+        assert!(settings_value_shape_matches(SettingKey::AutostartHidden, &v).is_ok());
+        assert!(settings_value_shape_matches(SettingKey::AutostartHidden, &json!([])).is_ok());
+    }
+
+    #[test]
+    fn shape_check_rejects_mixed_array_for_autostart_hidden() {
+        let err = settings_value_shape_matches(
+            SettingKey::AutostartHidden,
+            &json!(["a.desktop", 7, "c.desktop"]),
+        )
+        .expect_err("mixed types");
+        assert!(err.contains("expected array of string"));
+    }
+
+    #[test]
+    fn shape_check_accepts_object_for_keybinds_map() {
+        let v = json!({"super+Return": "exec foot", "super+d": "exec wofi"});
+        assert!(settings_value_shape_matches(SettingKey::KeybindsMap, &v).is_ok());
+        assert!(settings_value_shape_matches(SettingKey::KeybindsMap, &json!({})).is_ok());
+    }
+
+    #[test]
+    fn shape_check_rejects_array_for_keybinds_map() {
+        let err =
+            settings_value_shape_matches(SettingKey::KeybindsMap, &json!(["super+Return"]))
+                .expect_err("array is not an object");
+        assert!(err.contains("expected object"));
+    }
+
+    #[test]
+    fn shape_check_full_validate_flags_wrong_shape_in_snapshot() {
+        // End-to-end: a snapshot whose settings_keys contains a
+        // wrongly-typed value surfaces an InvalidSettingValue
+        // error from validate() via the new shape check.
+        let snap = DesiredSnapshot {
+            nodes: vec![],
+            allow_east_west: vec![],
+            settings_keys: vec![
+                ("theme.name".into(), serde_json::json!(42).to_string()),
+                ("display.brightness".into(), serde_json::json!(75).to_string()),
+            ],
+        };
+        let errors = validate(&snap);
+        let invalids: Vec<_> = errors
+            .iter()
+            .filter_map(|e| match e {
+                ValidationError::InvalidSettingValue { key, reason } => {
+                    Some((key.clone(), reason.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(invalids.len(), 1);
+        assert_eq!(invalids[0].0, "theme.name");
+        assert!(invalids[0].1.contains("expected string"));
+    }
+
+    #[test]
+    fn shape_check_full_validate_clean_snapshot_emits_no_setting_errors() {
+        let snap = DesiredSnapshot {
+            nodes: vec![],
+            allow_east_west: vec![],
+            settings_keys: vec![
+                ("theme.name".into(), serde_json::json!("Mackes-Carbon").to_string()),
+                ("display.brightness".into(), serde_json::json!(75).to_string()),
+                ("notification.do_not_disturb".into(), serde_json::json!(true).to_string()),
+                ("autostart.hidden".into(), serde_json::json!(["a.desktop"]).to_string()),
+            ],
+        };
+        let errors = validate(&snap);
+        let any_setting_error = errors.iter().any(|e| {
+            matches!(
+                e,
+                ValidationError::InvalidSettingValue { .. } | ValidationError::UnknownSettingKey { .. }
+            )
+        });
+        assert!(!any_setting_error, "unexpected errors: {errors:?}");
+    }
 
     fn n(id: &str, region: &str) -> Node {
         Node {
