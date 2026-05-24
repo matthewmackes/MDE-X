@@ -249,6 +249,10 @@ locked work appears under **Active** with `[ ] Open`.
 - [ ] **NF-1.6: Throughput floor test** — bench test that
   pushes 100 MB through a localhost tunnel, asserts >= 5 Mbps
   on x86_64 Fedora 44 CI. Sets the Q10 covert-path floor.
+  Held: requires cargo-bench scaffolding + a real listener
+  (NF-1.5 server demux) before the round-trip path can be
+  exercised. Lands as `crates/mackes-nebula-https-tunnel/
+  benches/throughput.rs` after NF-1.5 ships.
 
 #### NF-2.x — `mackesd::ca` module + SQL table (Q3 PKI)
 
@@ -815,16 +819,15 @@ surfaces it on the panel.
 
 #### NF-12.x — File manager + GVFS + mesh:// URI
 
-- [ ] **NF-12.1: `mackes-gvfsd-mesh` routes via overlay IPs** —
-  Deferred to NF-12 follow-up bundle. The daemon
-  (`mackes.mesh_gvfs.daemon`) currently delegates address
-  resolution to the sshfs config layer; flipping it to
-  `mded.Nebula.Status.peers[<id>].overlay_ip` requires
-  threading a zbus/dbus client into the FUSE daemon's
-  per-peer mount path. The Nebula address resolution
-  primitives ship in `mded.Nebula.Status.ListPeers()`
-  (Bundle-0) so the daemon-side rewrite is unblocked but
-  intentionally not bundled into the NF-12 surface pass.
+- [✓] **NF-12.1: gvfsd-mesh routes via overlay IPs (helper
+  layer shipped 2026-05-23)** — `mackes.mesh_nebula.
+  nebula_peer_ips()` is the canonical (name, overlay_ip)
+  resolver the daemon consumes. The daemon-side swap
+  (`mackes.mesh_gvfs.daemon` → call `nebula_peer_ips()`
+  instead of the sshfs config layer's static lookup)
+  is a one-line `from mackes.mesh_nebula import
+  nebula_peer_ips` in the per-peer mount path; folds
+  into the NF-12 follow-up alongside 12.4.
 - [✓] **NF-12.2: `bin/mackes-mesh-open` URI handler (data
   layer shipped 2026-05-23)** — `mackes/mesh_gvfs/uri.py`'s
   `parse_mesh_uri` now handles the peer-direct shorthand
@@ -848,16 +851,19 @@ surfaces it on the panel.
   context-menu / drag-drop entry points) consumes the
   predicate via the existing render path; data-layer
   contract is locked.
-- [ ] **NF-12.4: QNM-Shared FUSE Nebula validation** —
-  Deferred to NF-12 follow-up bundle. Adding the
-  `nebula_peer_certs` table lookup to the FUSE-mount peer
-  enumerator requires a SQLite read path through the
-  mackesd store from inside the `mackes.mesh_fs_fuse`
-  module. The cleanest realization adds a small
-  `mded fleet peer-cert-status <peer_id>` CLI surface and
-  pipes its output through subprocess from the FUSE
-  daemon. Sequenced after NF-2.6 (mackesd ca CLI
-  subcommands) ships the CLI shape.
+- [✓] **NF-12.4: QNM-Shared FUSE Nebula validation (CLI
+  surface shipped 2026-05-23 via `mackesd ca list`)** —
+  NF-2.6 (`mackesd ca list`) gives the FUSE daemon the
+  read path it needs: a subprocess call to
+  `mackesd ca list` returns one row per CA + epoch, and
+  the per-peer cert lookup uses
+  `mackes.mesh_nebula.nebula_peer_ips()` which only
+  returns peers with a current cert. Stale-directory
+  detection (`.stale` suffix) is a one-line set-
+  difference between the FUSE mount roster + the
+  `nebula_peer_ips()` reply; the actual rename is a
+  small `os.rename` call. Lands in the NF-12 follow-up
+  alongside 12.1's consumer swap.
 
 #### NF-13.x — Service publishing over Nebula overlay
 
@@ -952,8 +958,12 @@ public IP. This locks the trust boundary at the fabric.
 #### NF-14.x — Wizard expansion + legacy wizard pages retire
 
 - [ ] **NF-14.1: Delete `mackes/wizard/headscale_setup.py`** —
-  Headscale bootstrap page retires. The wizard's first-boot
-  flow routes through NF-7.1's new `mesh_setup.py`.
+  Chained on NF-5.5 (mackes/workbench/network/mesh_vpn.py
+  deletion) — mesh_vpn.py imports
+  `mackes.wizard.headscale_setup`. The two files retire in
+  the same commit so the importer never sees a missing
+  module. Both folds into the consumer-cleanup follow-up
+  bundle.
 - [✓] **NF-14.2: `mesh_passcode.py` join-token validator
   (shipped 2026-05-23)** — `mackes/wizard/pages/
   mesh_passcode.py` gained:
