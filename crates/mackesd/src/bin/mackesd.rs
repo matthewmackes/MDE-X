@@ -1398,6 +1398,46 @@ fn run_serve(
             }
         }
 
+        // v2.5 NF-3.4 (2026-05-23) — Nebula supervisor.
+        // Watches the leader-election state + the QNM-Shared
+        // nebula-bundle.json mtime; on leader-promotion mints
+        // the CA, writes the role.host marker, starts the
+        // lighthouse + tunnel units. On bundle change, re-
+        // materializes the on-disk Nebula config + reloads.
+        match mackesd_core::store::open(&db_path) {
+            Ok(conn) => {
+                let sup_store = Arc::new(tokio::sync::Mutex::new(conn));
+                // Bundle path mirrors the existing heartbeat
+                // convention: QNM-Shared/<self>/mackesd/...
+                let bundle_path = qnm_root
+                    .join(&node_id)
+                    .join("mackesd")
+                    .join(mackesd_core::ca::bundle::BUNDLE_FILENAME);
+                // mesh_id defaults to the configured node-id
+                // namespace when the wizard hasn't named a
+                // mesh yet. NF-7.x's wizard will overwrite the
+                // record once the operator types a name.
+                let mesh_id = std::env::var("MDE_MESH_ID")
+                    .unwrap_or_else(|_| format!("mesh-{node_id}"));
+                sup.spawn(Spawn::new(
+                    mackesd_core::workers::nebula_supervisor::NebulaSupervisor::new(
+                        sup_store,
+                        node_id.clone(),
+                        mesh_id,
+                        bundle_path,
+                    ),
+                    RestartPolicy::OnFailure,
+                ));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    db_path = %db_path.display(),
+                    "nebula-supervisor: sqlite open failed; worker skipped"
+                );
+            }
+        }
+
         // v4.0.1 AF-NET-2 (2026-05-23) — mesh-latency sniffer.
         // Pings every enrolled non-local peer every 30 s and
         // writes the result to ~/.cache/mde/mesh-latency.json.

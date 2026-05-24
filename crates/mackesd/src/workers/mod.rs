@@ -93,6 +93,10 @@ pub mod mdns;
 pub mod media_sync;
 pub mod mesh_latency;
 pub mod mesh_router;
+// NF-3.4 (v2.5) — Nebula supervisor worker (CA mint +
+// role-marker management + bundle-watch + systemctl
+// reload).
+pub mod nebula_supervisor;
 pub mod metrics_flush;
 pub mod nats;
 pub mod notification_relay;

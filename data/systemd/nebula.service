@@ -1,0 +1,50 @@
+[Unit]
+# NF-3.1 (v2.5) — Nebula overlay mesh runtime.
+#
+# Replaces the legacy tailscaled.service that v1.x shipped.
+# Runs on every node (host + peer). The lighthouse role is a
+# *separate* unit (nebula-lighthouse.service, NF-3.2) gated on
+# the role.host marker file the supervisor writes when this
+# node wins the leader-election lease.
+Description=Nebula overlay mesh (NF-3.1)
+Documentation=https://nebula.defined.net/
+Documentation=file:///usr/share/mackes-shell/help/nebula.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/nebula/config.yaml
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/nebula -config /etc/nebula/config.yaml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+User=root
+Group=root
+
+# Per the v2.5 design doc: Nebula needs CAP_NET_ADMIN to
+# create the tun device, and CAP_NET_BIND_SERVICE so the
+# covert TCP/443 listener (mackes-nebula-https-tunnel.service)
+# can co-bind alongside.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+
+# Lockdown — much tighter than tailscaled because Nebula
+# doesn't need /var/run access for its own RPC socket; it
+# uses an internal listener.
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/mackesd/nebula /etc/nebula
+
+# Resource caps — Nebula is much lighter than tailscaled
+# because it doesn't run a control-plane translator + it
+# doesn't manage DERP relay state.
+CPUQuota=200%
+MemoryHigh=128M
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

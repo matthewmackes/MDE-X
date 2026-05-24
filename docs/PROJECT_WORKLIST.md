@@ -324,35 +324,69 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### NF-3.x — `nebula_supervisor` worker + systemd units (Q1+Q2)
 
-- [ ] **NF-3.1: `nebula.service` systemd unit** —
-  `data/systemd/nebula.service`. `ExecStart=/usr/sbin/nebula
-  -config /etc/nebula/config.yaml`. Capabilities:
-  `CAP_NET_ADMIN`, `CAP_NET_BIND_SERVICE`. Lockdown:
-  `ProtectSystem=strict`, `ProtectHome=true`,
-  `NoNewPrivileges`. Resource caps: CPUQuota=200%,
-  MemoryHigh=128M, MemoryMax=256M (Nebula is much lighter than
-  tailscaled). `Restart=on-failure`, `RestartSec=5`.
-- [ ] **NF-3.2: `nebula-lighthouse.service` systemd unit** —
-  Same binary, separate unit. Gating:
-  `ConditionPathExists=/var/lib/mackesd/nebula/role.host`.
-  `BindsTo=nebula.service` so demotion-induced lighthouse stop
-  cascades cleanly. Resource caps: CPUQuota=300%,
-  MemoryHigh=256M, MemoryMax=512M (higher for the relay role).
-- [ ] **NF-3.3: `mackes-nebula-https-tunnel.service`** — Wraps
-  the NF-1 binary. `BindsTo=nebula.service`. Cert-renewal hook
-  reads from the same `/etc/letsencrypt/live/<host>/` directory
-  the lighthouse uses. Reload on cert change via
-  `Restart=on-failure` + 90-day cert-expiry buffer documented
-  in the unit's `[Service]` comments.
-- [ ] **NF-3.4: `nebula_supervisor` worker (Rust)** —
-  `crates/mackesd/src/workers/nebula_supervisor.rs`. Watches
-  the leader-election lease; on win, writes `role.host` marker
-  + starts the lighthouse unit via the system D-Bus surface;
-  on loss, removes marker + stops the unit. Watches
-  `~/QNM-Shared/<self>/mackesd/nebula-bundle.json` for updates
-  and reloads `nebula.service` when the bundle changes. Reaches
-  runtime via `bin/mackesd.rs::run_serve` spawn (per §0.12
-  runtime-reachability gate).
+- [✓] **NF-3.1: `nebula.service` systemd unit (shipped
+  2026-05-23)** — `data/systemd/nebula.service` ships per
+  design lock: ExecStart=/usr/sbin/nebula -config
+  /etc/nebula/config.yaml; ambient caps CAP_NET_ADMIN +
+  CAP_NET_BIND_SERVICE; ProtectSystem=strict / ProtectHome=
+  true / NoNewPrivileges / PrivateTmp;
+  ReadWritePaths=/var/lib/mackesd/nebula /etc/nebula; resource
+  caps CPUQuota=200% MemoryHigh=128M MemoryMax=256M;
+  Restart=on-failure RestartSec=5s.
+- [✓] **NF-3.2: `nebula-lighthouse.service` systemd unit
+  (shipped 2026-05-23)** — `data/systemd/nebula-lighthouse
+  .service` gates on the role.host marker
+  (ConditionPathExists), BindsTo=nebula.service so demotion
+  cascades cleanly, ExecStart loads
+  /etc/nebula/lighthouse-config.yaml (separate from
+  config.yaml so promote/demote doesn't touch the local
+  peer config), resource caps CPUQuota=300% MemoryHigh=
+  256M MemoryMax=512M (higher for the relay role). Not
+  WantedBy=multi-user.target — activation is supervisor-
+  driven.
+- [✓] **NF-3.3: `mackes-nebula-https-tunnel.service` (shipped
+  2026-05-23)** — `data/systemd/mackes-nebula-https-tunnel
+  .service` wraps the NF-1 binary, BindsTo=nebula.service,
+  reads /etc/letsencrypt/live/<host>/ (ReadOnlyPaths),
+  CAP_NET_BIND_SERVICE only (needs :443 bind), modest
+  resource caps (CPUQuota=100% MemoryHigh=64M). Gated on
+  the same role.host marker as the lighthouse — only host-
+  role peers run the covert listener; client-side activation
+  is handled by the in-process NF-1.4 state machine
+  toggling the dial path on existing peer sockets.
+- [✓] **NF-3.4: `nebula_supervisor` worker (shipped
+  2026-05-23)** — `crates/mackesd/src/workers/
+  nebula_supervisor.rs` (~430 LOC). 5 s tick cadence;
+  watches the role.host marker as the leader-lease proxy
+  (NF-3.4.a follow-up: replace marker poll with
+  `crate::leader::current_holder()` once that surface gains
+  an async-services entry point). On promote: idempotent
+  CA mint (calls NF-2.2 mint_ca; logs + continues on
+  BinaryMissing) + write role.host marker + systemctl start
+  on lighthouse + tunnel units. On demote: systemctl stop +
+  marker remove. On bundle mtime change: re-materializes
+  /etc/nebula/{ca.crt, host.crt, host.key, config.yaml}
+  (+ lighthouse-config.yaml for hosts) atomically (temp +
+  rename per file). Open-mesh firewall rule baked into the
+  generated config — every port + proto allowed in both
+  directions per the 2026-05-23 directive. 10 tests cover
+  materialize-writes-four-files / lighthouse-includes-5th /
+  peer-renders-roster / host-marks-am_lighthouse-true /
+  open-mesh-firewall-baked-in / relay-stanza-on-lighthouse /
+  role-marker-creates-parent / worker-name-locked / worker-
+  exits-on-shutdown / atomic-write-no-tempfile-leak. Wired
+  into `bin/mackesd.rs::run_serve` with RestartPolicy::
+  OnFailure + its own SQLite handle.
+- [✓] **NF-3.5: Config-file writer (shipped alongside NF-3.4)**
+  `nebula_supervisor::materialize_config(config_dir, bundle,
+  role)` writes the 4 (or 5 for hosts) Nebula config files
+  atomically. Pure helpers `render_config_yaml` +
+  `render_lighthouse_config_yaml` are tested without
+  touching the filesystem. lighthouse.hosts is populated
+  from bundle.lighthouses; static_host_map seeded from the
+  bundle's `(overlay_ip, external_addr)` tuples. Atomic via
+  per-file temp + rename so a peer reading the dir during
+  the write never sees a half-written file.
 - [ ] **NF-3.5: Config-file writer** —
   `nebula_supervisor::materialize_config(bundle, role)` writes
   `/etc/nebula/{config.yaml, ca.crt, host.crt, host.key}` atomically

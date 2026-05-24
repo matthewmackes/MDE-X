@@ -1,0 +1,52 @@
+[Unit]
+# NF-3.2 (v2.5) — Nebula lighthouse role.
+#
+# Same `nebula` binary as nebula.service but loaded against
+# the lighthouse config (broadcast + relay enabled). Gated on
+# the role.host marker file the supervisor writes when this
+# node wins the leader-election lease — if the marker is
+# absent, the unit refuses to start, so non-host peers never
+# accidentally serve as lighthouses.
+#
+# BindsTo nebula.service so demotion (supervisor removes the
+# marker + stops this unit) cascades cleanly — the base
+# nebula tun device stays up.
+Description=Nebula lighthouse (host-role only) (NF-3.2)
+Documentation=https://nebula.defined.net/docs/config/lighthouse
+Documentation=file:///usr/share/mackes-shell/help/nebula.md
+After=nebula.service network-online.target
+Wants=network-online.target
+BindsTo=nebula.service
+ConditionPathExists=/var/lib/mackesd/nebula/role.host
+ConditionPathExists=/etc/nebula/lighthouse-config.yaml
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/nebula -config /etc/nebula/lighthouse-config.yaml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+User=root
+Group=root
+
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/mackesd/nebula /etc/nebula
+
+# Higher resource caps than the regular nebula.service — the
+# lighthouse fans out to every peer + may relay traffic when
+# a NAT-traversal peer can't reach another directly.
+CPUQuota=300%
+MemoryHigh=256M
+MemoryMax=512M
+
+[Install]
+# Not WantedBy=multi-user.target — activation is supervisor-
+# driven via the role.host marker. Manual `systemctl start`
+# remains possible for testing.
