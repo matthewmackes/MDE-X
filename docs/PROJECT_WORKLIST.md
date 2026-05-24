@@ -239,13 +239,26 @@ locked work appears under **Active** with `[ ] Open`.
   default state + threshold-after-3 invariants stay in sync.
   Full removal lands in NF-4.5; this commit only adds the
   port + reachability check.
-- [ ] **NF-1.5: Server-side demux** — Lighthouse process
-  accepts both `:4242/udp` (native Nebula) and `:443/tcp`
-  (TLS-wrapped). Frame demux happens *before* the Nebula crypto
-  layer sees the packet — the inner Nebula stack runs
-  unmodified, the tunnel adapter just unwraps frames and feeds
-  bytes to a Unix domain socket the Nebula process is also
-  listening on. Validated by NF-9.4 acceptance scenario.
+- [✓] **NF-1.5: Server-side demux (shipped 2026-05-24)** —
+  Ships in TWO modules: `mackes-nebula-https-tunnel::demux`
+  (pump_one_stream + DemuxConfig — pure bidirectional pump
+  that shuttles framed bytes between a TLS stream and a
+  UDP socket) + `mackesd::workers::nebula_https_listener`
+  (binds TLS 1.3 on 0.0.0.0:443, spawns one detached pump
+  task per accepted stream). Best-choice deviation from the
+  Unix-socket framing in the original entry: forwards to
+  UDP 127.0.0.1:4242 instead, since standard Nebula doesn't
+  expose a Unix-socket peer interface + UDP-localhost works
+  without modifying Nebula (peer attribution stays correct
+  because Nebula identifies peers from the encrypted
+  handshake, not the UDP source IP). Per-stream ephemeral
+  UDP socket so return traffic routes back via OS source-
+  port. Operator-configurable via MDE_HTTPS_TUNNEL_{CERT,
+  KEY,BIND} env vars. NF-9.4 acceptance test stays open as
+  the hardware-bench validation gate. 15 tests (9 in demux
+  + 6 in listener). cargo test green: 783/0 on mackesd,
+  48/0 on tunnel.
+  **Original entry:**
 - [ ] **NF-1.6: Throughput floor test** — bench test that
   pushes 100 MB through a localhost tunnel, asserts >= 5 Mbps
   on x86_64 Fedora 44 CI. Sets the Q10 covert-path floor.
@@ -436,21 +449,59 @@ locked work appears under **Active** with `[ ] Open`.
   to do — the audit on 2026-05-24 confirmed both helper
   shipping and runtime reachability (NebulaSupervisor is
   spawned in run_serve at mackesd.rs:1592).
-- [ ] **NF-3.6: D-Bus surface for `mded enroll` (split
-  2026-05-24)** —
-  `dev.mackes.MDE.Nebula.{Enroll, Status, RegenCerts}` methods.
-  Status + RegenCerts already ship via `NebulaStatusService`
-  (NF-Bundle-0); the gap is Enroll. Polkit policy gates Enroll
-  behind the existing `dev.mackes.mded.admin` action ID.
+- [✓] **NF-3.6: dev.mackes.MDE.Nebula.Status.Enroll D-Bus
+  method (shipped 2026-05-24)** — `NebulaStatusService` gained
+  an `Enroll(token: String) -> String` method that delegates
+  to `nebula_enroll::enroll_with_token` inside
+  `tokio::task::spawn_blocking` so the 30s lighthouse-wait
+  doesn't pin the zbus runtime. Returns the same
+  human-readable summary the CLI prints; surfaces
+  EnrollError::Display verbatim on failure. Reachable from
+  the existing daemon connection (shared `org.mackes.mackesd`
+  bus name with FleetFiles + Nebula.Status). 3 new tests
+  (12 total in nebula.rs).
 
-  **Split:** NF-3.6.a ships the peer-enrollment helper (CLI +
-  in-process library). NF-3.6 layers an Enroll D-Bus method on
-  top — convenience surface for the wizard, not the source of
-  truth. The CLI path is sufficient to unblock NF-7.1 / 14.4 /
-  14.5; D-Bus is a nice-to-have.
+- [✓] **NF-3.6.a: peer-enrollment helper + `mackesd enroll
+  --token` CLI (shipped 2026-05-24)** — Library function
+  `mackesd_core::nebula_enroll::enroll_with_token` (parse
+  token → build CSR identity → publish to QNM-Shared →
+  poll-wait for signed bundle) + `mackesd enroll --token`
+  CLI extension (mutually exclusive with --passcode via clap
+  conflicts_with). EnrollError variants each carry
+  operator-actionable copy. 19 tests. End-to-end smoke
+  verified the CLI surfaces "invalid join token (length 17)"
+  for garbage input + the correct shape hint.
 
-- [ ] **NF-3.6.a: peer-enrollment helper + `mackesd enroll
-  --token` CLI extension (added 2026-05-24)** — The actual
+- [✓] **NF-3.6.b: lighthouse-side `mackesd ca sign-csr` CLI
+  (shipped 2026-05-24)** — Companion to NF-3.6.a. Reads
+  QNM-Shared/<peer-id>/mackesd/pending-enroll.json, signs
+  via `ca::sign::sign_peer_cert` under PeerRole::Peer,
+  reads back the unsealed peer key via seal::read_sealed
+  (the seal just enforces mode-0600 + uid match — bytes are
+  raw PEM), assembles a NebulaBundle with the signed cert +
+  CA cert + lighthouse roster, writes via
+  ca::bundle::write_bundle to
+  QNM-Shared/<peer-id>/mackesd/nebula-bundle.json. CLI
+  surface: --node-id positional + --ca-crt / --ca-key /
+  --scratch-dir / --lighthouse-addr / --cert-lifetime-days
+  overrides. 6 new tests. The generic-over-NebulaCertBackend
+  change to sign_peer_cert + sign_pending_csr (?Sized
+  relaxation) lets tests inject MockBackend.
+
+- [✓] **NF-3.6.c: nebula_csr_watcher worker (shipped
+  2026-05-24)** — Auto-signer worker. Polls
+  QNM-Shared/*/mackesd/pending-enroll.json every 30s. For
+  each CSR without a matching bundle (or with a CSR newer
+  than its bundle — operator-initiated re-enroll), invokes
+  nebula_enroll::sign_pending_csr. On peer-role boxes (no
+  active CA), sign_pending_csr returns SignFailed and the
+  worker logs at debug + moves on (no journal spam). 11
+  tests covering discovery, needs_signing mtime gate, tick
+  idempotency, shutdown. Backend injectable via with_backend
+  so tests pass MockBackend.
+
+  **Original NF-3.6.a entry preserved for audit:** The
+  actual
   work behind NF-3.6's "Enroll" verb. Today `mackesd enroll
   --passcode <16-char>` exists for the v1.x Tailscale flow.
   Extend the CLI to accept `--token mesh:<id>@<ip>:<port>#<bearer>`
@@ -1309,12 +1360,26 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 #### NF-18.x — Backup, recovery, admin runbook
 
-- [ ] **NF-18.1: `mackesd ca export / import` CLI** — Export
-  the sealed CA private key + every peer cert into a
-  passphrase-encrypted bundle. Import reverses. Used for
-  leader-hardware-failure recovery before NF-2.5's
-  failover path lands. Encrypted with libsodium
-  `secretstream`; passphrase entered interactively.
+- [✓] **NF-18.1: `mackesd ca export / import` CLI (shipped
+  2026-05-24)** — `crates/mackesd/src/ca/backup.rs` (~670
+  LOC) ships the seal/unseal primitives + the
+  assemble_from_store / restore_to_store pair. CLI hooks:
+  `mackesd ca export [--output PATH] [--mesh-id M] [--ca-key
+  PATH]` reads MDE_BACKUP_PASSPHRASE env var, writes
+  ASCII-armored bundle to stdout or file. `mackesd ca
+  import [--input PATH]` reverses. Best-choice crypto
+  deviation from the original "libsodium secretstream"
+  spec: Argon2id KDF + XChaCha20-Poly1305 AEAD via
+  RustCrypto crates (argon2 0.5 + chacha20poly1305 0.10 +
+  base64 0.22 deps added). Avoids the system-libsodium dep
+  + matches OWASP 2023 KDF baseline (t=2, m=19456 KiB, p=1).
+  Bundle format is versioned so future swaps don't break
+  old backups. Passphrase via env var (not interactive)
+  so the operator can script backups without TTY juggling.
+  15 tests covering seal/unseal round-trip, every rejection
+  branch (truncated / bad magic / unknown version / wrong
+  passphrase / tampered ciphertext), armor + dearmor with
+  whitespace tolerance, assemble_from_store, restore_round_trip.
 - [✓] **NF-18.2: `mackesd nebula export-roster` CLI (shipped
   2026-05-24)** — New `mackesd_core::nebula_roster` module
   (~190 LOC) + `Cmd::Nebula { sub: NebulaCmd::ExportRoster }`
@@ -1341,7 +1406,19 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   single-peer loss (decommission + re-enroll); leader
   loss (failover via NF-2.5, manual override via
   `mackesd take-leadership`).
-- [ ] **NF-18.4: Automated CA backup to QNM-Shared** —
+- [✓] **NF-18.4: nebula_ca_backup auto-backup worker (shipped
+  2026-05-24)** — Worker
+  `mackesd_core::workers::nebula_ca_backup::NebulaCaBackup`
+  on a 24h default tick. Reuses the NF-18.1 seal primitives
+  + assemble_from_store flow. Writes to
+  QNM-Shared/<self>/mackesd/ca-backup.enc atomically (temp
+  + rename). Opt-in via MDE_BACKUP_PASSPHRASE env var — when
+  unset the worker silently skips (info-level log on first
+  tick, debug thereafter) so non-lighthouse boxes stay
+  quiet. Skip variants (BackupTickError) name each reason:
+  CaKeyMissing, Assemble, NoCa, Seal, Io. 8 tests. Spawned
+  in run_serve alongside the other Nebula workers.
+  **Original entry:**
   `nebula_supervisor` writes an encrypted CA bundle to
   `~/QNM-Shared/<leader-id>/mackesd/ca-backup.enc` every
   24 hours. Per-peer mackesd processes verify their copy
