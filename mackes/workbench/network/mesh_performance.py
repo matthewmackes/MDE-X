@@ -340,8 +340,12 @@ class MeshPerformancePanel(Gtk.Box):
                 "✓ Tuning active" if snap["sysctl_tuning_active"]
                 else "Default kernel buffers — apply to enable bursts."
             )
-            # Stub statuses
-            from mackes import mesh_mdns, mesh_derp
+            # v2.5 NF-5.2 (2026-05-24): mesh_derp replaced with
+            # the Nebula HTTPS tunnel status. The lighthouse's
+            # mackes-nebula-https-tunnel.service is the v2.5
+            # equivalent of the legacy DERP relay — on-peer
+            # boxes the service isn't installed.
+            from mackes import mesh_mdns
             if mesh_mdns.is_available():
                 self._discovery_status.set_text(
                     "✓ mDNS-SD ready (python-zeroconf + avahi-publish "
@@ -357,17 +361,24 @@ class MeshPerformancePanel(Gtk.Box):
                 self._discovery_status.set_text(
                     "Polling-based discovery (active). Install avahi "
                     "+ python3-zeroconf for push-based mDNS.")
-            ds = mesh_derp.status()
-            if ds["running"]:
+            import shutil as _shutil
+            import subprocess as _sp
+            tunnel_active = False
+            if _shutil.which("systemctl"):
+                tunnel_active = _sp.call(
+                    ["systemctl", "is-active", "--quiet",
+                     "mackes-nebula-https-tunnel.service"]
+                ) == 0
+            if tunnel_active:
                 self._relay_status.set_text(
-                    f"✓ Private DERP running on :{ds['ports']['derp']}")
-            elif ds["installed"]:
-                self._relay_status.set_text(
-                    "DERP binary installed but service not running.")
+                    "✓ Nebula HTTPS tunnel running on :443 — peers behind "
+                    "UDP-blocking firewalls reach the mesh via the "
+                    "covert TLS path.")
             else:
                 self._relay_status.set_text(
-                    "Using Tailscale public DERP. Install a private "
-                    "relay on the control peer for LAN-local latency.")
+                    "Direct UDP only. Lighthouse-role peers enable the "
+                    "TCP/443 covert path with `systemctl enable "
+                    "mackes-nebula-https-tunnel.service`.")
             from mackes.mesh_metrics import prometheus_status
             ps = prometheus_status()
             if ps["exporter_running"]:
