@@ -215,6 +215,22 @@ pub fn sidebar<'a>(
         Message::SelectView(View::MeshOverview),
     ));
 
+    // AF-mesh.2 — Mesh Home entry. Routes to the XDG-dir card
+    // grid; per the v5.0.0 GlusterFS lock the shared XDG dirs
+    // are first-class mesh resources, not local.
+    mesh_col = mesh_col.push(side_row(
+        icons::FOLDER,
+        "Mesh Home",
+        None,
+        Some(MESH_HOME_DIRS.len().to_string()),
+        if matches!(view, View::MeshHome | View::MeshHomeChild(_)) {
+            SideRowVariant::Active
+        } else {
+            SideRowVariant::Default
+        },
+        Message::SelectView(View::MeshHome),
+    ));
+
     // Self row (rust-coloured "you" label).
     let self_label = format!("{}  · you", self_node.host);
     mesh_col = mesh_col.push(side_row(
@@ -921,6 +937,199 @@ pub fn local_veil<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
     ]
     .spacing(0)
     .into()
+}
+
+// ─── Mesh Home (AF-mesh.2) ────────────────────────────────────────────────
+
+/// Landing card grid for the five shared XDG dirs. Per the
+/// v5.0.0 GlusterFS lock these dirs are full-mesh-replicated
+/// over Nebula, so they're first-class mesh resources — not
+/// local files. The page is the operator's primary entry into
+/// the shared file plane.
+pub fn mesh_home<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
+    let (vol_summary, mount_subtitle) =
+        match (snap.mesh_volume.as_ref(), snap.mesh_mount.as_ref()) {
+            (Some(v), Some(m)) if v.volume_online && m.is_mounted => (
+                vec![
+                    BannerStat::new(fmt_bytes_u64(v.total_bytes), "Total"),
+                    BannerStat::new(fmt_bytes_u64(v.free_bytes), "Free"),
+                    BannerStat::new(v.bricks_count.to_string(), "Bricks"),
+                ],
+                format!("GlusterFS mounted at {}", m.mount_point),
+            ),
+            (Some(v), _) if v.volume_online => (
+                vec![
+                    BannerStat::new(fmt_bytes_u64(v.total_bytes), "Total"),
+                    BannerStat::new(fmt_bytes_u64(v.free_bytes), "Free"),
+                ],
+                "GlusterFS volume online; FUSE mount pending".into(),
+            ),
+            _ => (
+                vec![BannerStat::new("—".to_string(), "No mesh".to_string())],
+                "Local-only mode · gluster bootstrap pending".into(),
+            ),
+        };
+
+    let banner_widget = banner(
+        icons::MESH_HUB,
+        "Mesh Home".to_string(),
+        mount_subtitle,
+        vol_summary,
+    );
+
+    // Five cards — Documents · Pictures · Music · Videos · Downloads.
+    // Each card routes to MeshHomeChild(slug).
+    let cards: Vec<Element<'_, Message>> = MESH_HOME_DIRS
+        .iter()
+        .map(|(slug, label, pin_icon)| mesh_home_card(slug, label, *pin_icon))
+        .collect();
+    let card_grid = iced::widget::Row::with_children(cards)
+        .spacing(10)
+        .wrap();
+
+    column![
+        banner_widget,
+        Space::with_height(Length::Fixed(22.0)),
+        section_h(
+            "Shared directories",
+            Some("auto-synced across every peer in the mesh")
+        ),
+        card_grid,
+    ]
+    .spacing(0)
+    .into()
+}
+
+/// File listing inside one of the shared XDG dirs. Reads
+/// from `local:<slug>` via the backend (which today is the
+/// `LocalFsBackend` path) — once GlusterFS is FUSE-mounted at
+/// the XDG dirs the listing is the same disk read but the
+/// content reflects mesh-replicated state.
+pub fn mesh_home_child<'a>(
+    slug: &'a str,
+    files: Vec<FileRow>,
+    search: &'a str,
+    _layout: Layout,
+) -> Element<'a, Message> {
+    let label = crate::app::mesh_home_label(slug);
+    let filtered: Vec<FileRow> = if search::is_active(search) {
+        search::filter_rows(&files, search)
+    } else {
+        files
+    };
+    let count = filtered.len();
+    let banner_widget = banner(
+        icons::FOLDER,
+        format!("Mesh Home · {label}"),
+        format!(
+            "{count} item{plural} · mesh-replicated via GlusterFS",
+            plural = if count == 1 { "" } else { "s" }
+        ),
+        vec![BannerStat::new(count.to_string(), "Items")],
+    );
+
+    let mut list = column![file_row_head("Modified")];
+    for f in filtered {
+        list = list.push(file_row(f, false));
+    }
+
+    column![
+        banner_widget,
+        Space::with_height(Length::Fixed(22.0)),
+        list.spacing(0),
+    ]
+    .spacing(0)
+    .into()
+}
+
+/// The five mesh-home shortcut slugs the sidebar + the
+/// MeshHome card grid both consume. Stays a single source of
+/// truth so adding a sixth directory means changing one
+/// constant.
+pub const MESH_HOME_DIRS: &[(&str, &str, crate::model::PinIcon)] = &[
+    ("docs", "Documents", crate::model::PinIcon::Doc2),
+    ("pics", "Pictures", crate::model::PinIcon::Image),
+    ("music", "Music", crate::model::PinIcon::Doc),
+    ("videos", "Videos", crate::model::PinIcon::Player),
+    ("downloads", "Downloads", crate::model::PinIcon::Home),
+];
+
+fn mesh_home_card(
+    slug: &'static str,
+    label: &'static str,
+    pin_icon: crate::model::PinIcon,
+) -> Element<'static, Message> {
+    let inner = container(
+        column![
+            row![
+                icon(icons::svg_for_pin(pin_icon), 20.0, t::ACCENT),
+                Space::with_width(Length::Fill),
+                text("shared")
+                    .size(9)
+                    .color(t::ACCENT),
+            ]
+            .align_y(iced::alignment::Vertical::Center),
+            Space::with_height(Length::Fixed(12.0)),
+            text(label).size(14).color(t::FG),
+            text(format!("~/{label}"))
+                .size(10)
+                .color(t::FG_FAINT),
+        ]
+        .spacing(2),
+    )
+    .padding(Padding::from([14.0, 16.0]))
+    .width(Length::Fixed(180.0))
+    .height(Length::Fixed(110.0))
+    .style(|_| container::Style {
+        background: Some(Background::Color(Color {
+            a: 0.04,
+            ..Color::WHITE
+        })),
+        border: Border {
+            color: Color {
+                a: 0.12,
+                ..Color::WHITE
+            },
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+        ..container::Style::default()
+    });
+
+    button(inner)
+        .padding(0)
+        .on_press(Message::SelectView(crate::model::View::MeshHomeChild(
+            slug.into(),
+        )))
+        .style(|_, _| button::Style {
+            background: Some(Background::Color(Color::TRANSPARENT)),
+            text_color: t::FG,
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: 0.0.into(),
+            },
+            ..button::Style::default()
+        })
+        .into()
+}
+
+fn fmt_bytes_u64(n: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+    if n >= TB {
+        format!("{:.1} TB", n as f64 / TB as f64)
+    } else if n >= GB {
+        format!("{:.1} GB", n as f64 / GB as f64)
+    } else if n >= MB {
+        format!("{:.1} MB", n as f64 / MB as f64)
+    } else if n >= KB {
+        format!("{} KB", n / KB)
+    } else {
+        format!("{n} B")
+    }
 }
 
 fn local_pin_tile(pin: LocalPin) -> Element<'static, Message> {

@@ -197,6 +197,13 @@ pub enum Mime {
 ///
 /// Default is `MeshOverview` — the mesh is the home base, not
 /// the local filesystem.
+///
+/// v4.x AF-mesh.2 (2026-05-24) — adds `MeshHome` + `MeshHomeChild`
+/// for the shared XDG dirs (Documents, Pictures, Music, Videos,
+/// Downloads). Per the v5.0.0 GlusterFS lock these dirs ARE the
+/// mesh — they're full-mesh-replicated over Nebula — so they
+/// belong in the mesh section of the UI, not the Local one.
+/// `Downloads` stays as a top-level shortcut for the common case.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
     MeshOverview,
@@ -204,6 +211,12 @@ pub enum View {
     Peer(String),
     Downloads,
     Local,
+    /// Mesh Home landing — shows the five shared XDG dirs as
+    /// cards. Clicking a card routes to `MeshHomeChild(slug)`.
+    MeshHome,
+    /// Browsing one of the shared XDG dirs. `slug` is one of
+    /// `docs` / `pics` / `music` / `videos` / `downloads`.
+    MeshHomeChild(String),
 }
 
 impl Default for View {
@@ -214,10 +227,17 @@ impl Default for View {
 
 impl View {
     /// True for any view that operates on mesh content (mesh
-    /// overview, inbox, a peer folder).
+    /// overview, inbox, a peer folder, mesh home).
     #[must_use]
     pub fn is_mesh(&self) -> bool {
-        matches!(self, Self::MeshOverview | Self::Inbox | Self::Peer(_))
+        matches!(
+            self,
+            Self::MeshOverview
+                | Self::Inbox
+                | Self::Peer(_)
+                | Self::MeshHome
+                | Self::MeshHomeChild(_)
+        )
     }
 }
 
@@ -292,6 +312,13 @@ mod tests {
         assert!(View::Peer("pine".into()).is_mesh());
         assert!(!View::Downloads.is_mesh());
         assert!(!View::Local.is_mesh());
+    }
+
+    #[test]
+    fn view_is_mesh_recognises_mesh_home_variants() {
+        assert!(View::MeshHome.is_mesh());
+        assert!(View::MeshHomeChild("docs".into()).is_mesh());
+        assert!(View::MeshHomeChild("pics".into()).is_mesh());
     }
 
     #[test]

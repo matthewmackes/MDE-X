@@ -394,6 +394,7 @@ impl MdeFiles {
         self.snapshot = BackendSnapshot::capture(&*self.backend);
         self.peer_files = match &self.view {
             View::Peer(id) => self.backend.list(&format!("peer:{id}")),
+            View::MeshHomeChild(slug) => self.backend.list(&format!("local:{slug}")),
             _ => Vec::new(),
         };
     }
@@ -421,6 +422,13 @@ impl MdeFiles {
             }
             View::Downloads => views::downloads(snap),
             View::Local => views::local_veil(snap),
+            View::MeshHome => views::mesh_home(snap),
+            View::MeshHomeChild(slug) => views::mesh_home_child(
+                slug,
+                self.peer_files.clone(),
+                &self.search,
+                self.layout,
+            ),
         };
 
         let content = container(scrollable(container(main_body).padding(Padding {
@@ -527,8 +535,8 @@ fn breadcrumbs_for(view: &View) -> Vec<Crumb> {
         }
         View::Downloads => vec![
             Crumb {
-                label: "~".into(),
-                mesh: false,
+                label: "Mesh".into(),
+                mesh: true,
             },
             Crumb {
                 label: "Downloads".into(),
@@ -545,6 +553,42 @@ fn breadcrumbs_for(view: &View) -> Vec<Crumb> {
                 mesh: false,
             },
         ],
+        View::MeshHome => vec![
+            Crumb {
+                label: "Mesh".into(),
+                mesh: true,
+            },
+            Crumb {
+                label: "Home".into(),
+                mesh: false,
+            },
+        ],
+        View::MeshHomeChild(slug) => vec![
+            Crumb {
+                label: "Mesh".into(),
+                mesh: true,
+            },
+            Crumb {
+                label: "Home".into(),
+                mesh: true,
+            },
+            Crumb {
+                label: mesh_home_label(slug).into(),
+                mesh: false,
+            },
+        ],
+    }
+}
+
+/// Human-readable label for a mesh-home XDG-dir slug.
+pub fn mesh_home_label(slug: &str) -> &'static str {
+    match slug {
+        "docs" => "Documents",
+        "pics" => "Pictures",
+        "music" => "Music",
+        "videos" => "Videos",
+        "downloads" => "Downloads",
+        _ => "Files",
     }
 }
 
@@ -869,5 +913,50 @@ mod tests {
         let c = breadcrumbs_for(&View::Local);
         assert_eq!(c.len(), 2);
         assert!(!c.iter().any(|x| x.mesh));
+    }
+
+    #[test]
+    fn selecting_mesh_home_clears_selection() {
+        let mut s = MdeFiles::default();
+        let _ = s.update(Message::RowClick("x".into()));
+        let _ = s.update(Message::SelectView(View::MeshHome));
+        assert_eq!(s.view, View::MeshHome);
+        assert!(s.selection.is_empty(), "mesh-home should clear selection");
+    }
+
+    #[test]
+    fn mesh_home_child_refreshes_local_listing() {
+        let mut s = MdeFiles::default();
+        // Route into a child; refresh_snapshot should query the
+        // backend for `local:<slug>`. With the default RealBackend
+        // pointing at $HOME, the call returns whatever's on disk
+        // (or an empty Vec). The contract under test is just that
+        // refresh_snapshot doesn't panic + the view variant is
+        // accepted.
+        let _ = s.update(Message::SelectView(View::MeshHomeChild("docs".into())));
+        assert_eq!(s.view, View::MeshHomeChild("docs".into()));
+    }
+
+    #[test]
+    fn mesh_home_label_covers_xdg_slugs() {
+        assert_eq!(mesh_home_label("docs"), "Documents");
+        assert_eq!(mesh_home_label("pics"), "Pictures");
+        assert_eq!(mesh_home_label("music"), "Music");
+        assert_eq!(mesh_home_label("videos"), "Videos");
+        assert_eq!(mesh_home_label("downloads"), "Downloads");
+        assert_eq!(mesh_home_label("unknown"), "Files");
+    }
+
+    #[test]
+    fn breadcrumbs_for_mesh_home_marks_mesh_segments() {
+        let c = breadcrumbs_for(&View::MeshHome);
+        assert_eq!(c.len(), 2);
+        assert!(c[0].mesh);
+        assert_eq!(c[0].label, "Mesh");
+        assert_eq!(c[1].label, "Home");
+
+        let c = breadcrumbs_for(&View::MeshHomeChild("docs".into()));
+        assert_eq!(c.len(), 3);
+        assert_eq!(c[2].label, "Documents");
     }
 }
