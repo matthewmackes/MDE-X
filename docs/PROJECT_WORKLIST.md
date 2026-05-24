@@ -4598,7 +4598,7 @@ offline-delivery), Vitelity outage drill, single-peer
 `voice_public` deploy. *(The 4-way ConfBridge drill moves to
 the v4.2.0 epic with the rest of the PBX feature set.)*
 
-- [>] **v4.1.0: VV-1 per-host Kamailio daemon (Tier 1 platform)**
+- [✓] **v4.1.0: VV-1 per-host Kamailio daemon (Tier 1 platform)** *(shipped 2026-05-24, runtime-reachable via the `mackesd voice render-config` ExecStartPre hook → `mde_voice_config::generate()`)*
 
   **As** the operator,
   **I want** every MDE peer to run its own Kamailio 5.8 instance
@@ -4630,7 +4630,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
     `mkdir -p` scriptlets.
   - Carbon glyph for the panel tray entry: `phone`.
 
-- [ ] **v4.1.0: VV-1.5 per-host RTPengine daemon (Tier 1 platform)**
+- [✓] **v4.1.0: VV-1.5 per-host RTPengine daemon (Tier 1 platform)** *(shipped 2026-05-24 with VV-1 — same render-config hook generates `rtpengine.conf`; same systemd-managed dirs pattern)*
 
   **As** the operator,
   **I want** every MDE peer to run its own RTPengine instance
@@ -4663,7 +4663,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
   - User-space relay only — no kernel module — until VV-15's
     hardware perf bench (deferred to v4.1.x).
 
-- [ ] **v4.1.0: VV-2 config generator crate `mde-voice-config` (Tier 1 platform)**
+- [>] **v4.1.0: VV-2 config generator crate `mde-voice-config` (Tier 1 platform)** *(scaffolded 2026-05-24 with VV-1/VV-1.5 — pure-fn `generate()` + 16 unit tests + 4 snapshot fixtures landed; remaining VV-2 scope is policy-driven `VoiceDesired` population from `voice_mesh` + `voice_public` and the mackesd `voice_supervisor` worker that reloads on policy changes)*
 
   **As** the operator,
   **I want** `mackesd` to generate the four authoritative

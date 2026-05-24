@@ -3,6 +3,63 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## Unreleased — VV-1 + VV-1.5: Kamailio + RTPengine voice stack foundation
+
+First substantive code on the v4.1.0 Voice & Video epic after
+the 2026-05-24 operator-directed Asterisk→Kamailio swap. Ships
+the platform foundation: per-host Kamailio (SIP signaling), per-
+host RTPengine (SRTP media relay), their dedicated users + dirs,
+and the bootstrap path that lets both start cleanly.
+
+- **New systemd unit `kamailio-mde.service`.** Runs Kamailio 5.8
+  as the dedicated `_kamailio_mde` user, bound to
+  `127.0.0.1:5060` (loopback for the embedded PJSIP client) +
+  `nebula1:5061` TLS (Nebula mesh) only — never a public
+  interface. Hardened with `ProtectSystem=strict`,
+  `NoNewPrivileges`, capability set narrowed to
+  `CAP_NET_BIND_SERVICE`.
+- **New systemd unit `rtpengine-mde.service`.** Runs RTPengine
+  as the dedicated `_rtpengine_mde` user. SRTP relay only — no
+  transcoding (operator lock 2026-05-24). NG control socket at
+  `/var/run/rtpengine-mde/ng.sock` is `_rtpengine_mde:_kamailio_mde`
+  so Kamailio can drive it via the `rtpengine` module. RTP port
+  range `30000-40000/udp` bound to `nebula1` + loopback only.
+- **New Rust crate `mde-voice-config`.** Pure-function generator
+  producing four files: `kamailio.cfg`, `dispatcher.list`,
+  `uacreg.list`, `rtpengine.conf`. 16 unit tests including 4
+  `insta` snapshot fixtures. VV-1's minimal scope produces a
+  bootable default-config that answers SIP OPTIONS keepalives,
+  stores REGISTER bindings from the local PJSIP client, and
+  cleanly 503's everything else until VV-2/VV-4/VV-14 add the
+  routing.
+- **New CLI subcommand `mackesd voice render-config`.** Invoked
+  by both systemd units' `ExecStartPre=` hooks so the on-disk
+  config is always coherent with the active policy snapshot.
+  `--dry-run` prints to stdout; `--kamailio-dir` /
+  `--rtpengine-dir` override paths for tests. Atomic
+  write+rename so a partial render never leaves either daemon
+  reading a half-written file.
+- **Spec changes** (`packaging/fedora/mackes-shell.spec`): adds
+  `Requires: kamailio >= 5.8` + `Requires: rtpengine`, creates
+  the `_kamailio_mde` + `_rtpengine_mde` system users in `%pre`,
+  adds `_kamailio_mde` to the `_rtpengine_mde` group so it can
+  write to the NG socket, seeds the state/TLS dirs in `%post`,
+  installs both units + config dirs.
+
+**Not yet enabled at install time.** The `%post` scriptlet
+deliberately omits `systemctl enable --now kamailio-mde
+rtpengine-mde` until VV-4 (mesh routing) + VV-14 (Vitelity REGISTER)
+are also green — otherwise an operator running the new RPM would
+have both daemons up but the SIP routing path would just 503
+every INVITE.
+
+**What's NOT in v4.1.0 (moved to v4.2.0):** ConfBridge,
+voicemail, music-on-hold, ring groups, IVR, recordings, group
+chat. These all need a media server (transcoding + mixing +
+recording) which v4.1.0 deliberately doesn't ship. The v4.2.0
+"Voice PBX" epic picks the media server (FreeSWITCH / Janus /
+other) and adds the features back.
+
 ## 4.0.0 — runtime integration sweep: everything actually works now (2026-05-22)
 
 The headline change: MDE's v3 line shipped most features as

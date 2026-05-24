@@ -186,6 +186,14 @@ Requires:       conky
 # workspace builds.
 Requires:       nebula >= 1.9.0
 
+# VV-1 + VV-1.5 (v4.1.0) — voice stack. Kamailio is the SIP
+# proxy/registrar/router; rtpengine is the SRTP relay it drives
+# via the NG unix socket. Both from F44's official repo (no
+# third-party COPRs). The 2026-05-24 Asterisk→Kamailio swap
+# replaced the previous `Requires: asterisk >= 21.0` plan.
+Requires:       kamailio >= 5.8
+Requires:       rtpengine
+
 # Mesh filesystem (SSHFS-over-QNM, §8.10)
 # Fedora packages sshfs as `fuse-sshfs` (deliberately namespaced to
 # disambiguate fuse2/fuse3 binaries).
@@ -481,6 +489,12 @@ install -m 0644 data/systemd/mackes-nebula-https-tunnel.service %{buildroot}%{_u
 install -d -m 0700 %{buildroot}/var/lib/mackesd/nebula-ca
 install -d -m 0755 %{buildroot}/etc/nebula
 install -d -m 0700 %{buildroot}/var/lib/mackesd/nebula-peers
+# VV-1 (v4.1.0) — Kamailio daemon unit + config dir.
+install -m 0644 data/systemd/kamailio-mde.service            %{buildroot}%{_unitdir}/
+install -d -m 0755 %{buildroot}/etc/kamailio-mde
+# VV-1.5 (v4.1.0) — RTPengine daemon unit + config dir.
+install -m 0644 data/systemd/rtpengine-mde.service           %{buildroot}%{_unitdir}/
+install -d -m 0755 %{buildroot}/etc/rtpengine-mde
 # v2.0.0 Phase B.13 — 10 standalone .service/.timer units retired
 # (mackes-clipboard-daemon, mackes-gvfsd-mesh, mackes-mdns-relay,
 # mackes-remmina-sync.{service,timer}, mackes-media-sync.{service,
@@ -819,6 +833,26 @@ getent passwd mackesd >/dev/null 2>&1 || \
             --shell /sbin/nologin \
             --comment "Mackes Mesh control plane" mackesd
 
+# VV-1 + VV-1.5 (v4.1.0) — voice stack runs as two dedicated
+# users for defense-in-depth. Per-component naming locked
+# 2026-05-24; the underscore prefix matches the design-doc
+# convention.
+getent group _kamailio_mde >/dev/null 2>&1 || \
+    groupadd --system _kamailio_mde
+getent passwd _kamailio_mde >/dev/null 2>&1 || \
+    useradd --system --gid _kamailio_mde --home-dir /var/lib/kamailio-mde \
+            --shell /sbin/nologin \
+            --comment "MDE per-host Kamailio daemon (VV-1)" _kamailio_mde
+getent group _rtpengine_mde >/dev/null 2>&1 || \
+    groupadd --system _rtpengine_mde
+getent passwd _rtpengine_mde >/dev/null 2>&1 || \
+    useradd --system --gid _rtpengine_mde --home-dir /var/lib/rtpengine-mde \
+            --shell /sbin/nologin \
+            --comment "MDE per-host RTPengine relay (VV-1.5)" _rtpengine_mde
+# Kamailio needs write access to RTPengine's NG socket. The
+# `usermod -aG` is idempotent so this is safe on upgrade.
+usermod -aG _rtpengine_mde _kamailio_mde 2>/dev/null || :
+
 %post
 /usr/share/%{name}/install-helpers/create-mackes-user.sh || :
 /usr/share/%{name}/install-helpers/hide-xfce-settings.sh || :
@@ -829,6 +863,29 @@ systemctl daemon-reload || :
 # Phase 12.1 — initialize the mackesd store on install/upgrade. The
 # migrate subcommand is idempotent (no-op if schema is current).
 systemctl enable --now mackesd.service 2>/dev/null || :
+# VV-1 + VV-1.5 (v4.1.0) — voice stack state + spool + TLS dirs.
+# Config trees /etc/kamailio-mde/ + /etc/rtpengine-mde/ are owned
+# by the RPM (root:root 0755) so the generated config files end
+# up world-readable, letting the daemons read them while running
+# as their dedicated users. The state dirs hold per-peer
+# secrets / TLS keys / Vitelity creds, so those stay tight
+# (0750 owned by the service user). systemd's StateDirectory /
+# RuntimeDirectory / LogsDirectory directives create most of
+# these at first start, but seeding the TLS dir + the
+# /etc/kamailio-mde subdirs keeps operator-side
+# `ls /etc/kamailio-mde` predictable before the daemons enable.
+install -d -m 0750 -o _kamailio_mde -g _kamailio_mde /etc/kamailio-mde/tls 2>/dev/null || :
+install -d -m 0750 -o _kamailio_mde -g _kamailio_mde /var/lib/kamailio-mde 2>/dev/null || :
+install -d -m 0750 -o _rtpengine_mde -g _rtpengine_mde /var/lib/rtpengine-mde 2>/dev/null || :
+# Don't auto-enable the voice services yet — VV-1 + VV-1.5 ship
+# the units + render-config hook, but the policy-driven config
+# that routes real mesh + PSTN calls lands in VV-2..VV-4 / VV-14.
+# The operator (or a v4.1.0 cut script) flips
+# `systemctl enable --now kamailio-mde.service rtpengine-mde.service`
+# once VV-4 + VV-14 are green. Until then, refresh systemd's
+# cache so `systemctl status kamailio-mde` reports a sane
+# "inactive (dead)" rather than "unknown unit."
+systemctl daemon-reload 2>/dev/null || :
 # Validate the sudoers drop-in we shipped; on failure remove it so we
 # never break the host's sudo behavior.
 visudo -c -f /etc/sudoers.d/mackes-shell >/dev/null 2>&1 \
@@ -970,6 +1027,16 @@ fi
 %dir %attr(0700, root, root) /var/lib/mackesd/nebula-ca
 %dir %attr(0755, root, root) /etc/nebula
 %dir %attr(0700, root, root) /var/lib/mackesd/nebula-peers
+# VV-1 (v4.1.0) — Kamailio daemon. The /var/lib/kamailio-mde
+# + /var/log/kamailio-mde + /var/run/kamailio-mde dirs are
+# created at first start by the unit's StateDirectory= /
+# LogsDirectory= / RuntimeDirectory= directives.
+%{_unitdir}/kamailio-mde.service
+%dir %attr(0755, root, root) /etc/kamailio-mde
+# VV-1.5 (v4.1.0) — RTPengine relay daemon. Same systemd-
+# managed runtime/state/log dir pattern as Kamailio above.
+%{_unitdir}/rtpengine-mde.service
+%dir %attr(0755, root, root) /etc/rtpengine-mde
 # v12.16 Self-hosted DERP relay unit. Inactive on non-Host peers
 # (gated by ConditionPathExists=/var/lib/mde/derper.enabled). The
 # headscale DERP-map example shipped under

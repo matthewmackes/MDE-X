@@ -317,6 +317,49 @@ enum Cmd {
         #[command(subcommand)]
         sub: NebulaCmd,
     },
+
+    /// VV-1 / VV-1.5 (v4.1.0) — Voice/Video stack operations.
+    /// Today only `render-config` ships; VV-2 adds policy-driven
+    /// reload, VV-14 adds Vitelity `uac.reg_dump`, etc.
+    Voice {
+        #[command(subcommand)]
+        sub: VoiceCmd,
+    },
+}
+
+/// VV-1 / VV-1.5 — `mackesd voice <sub>` subcommands.
+#[derive(Subcommand)]
+enum VoiceCmd {
+    /// Regenerate the four kamailio-mde + rtpengine-mde config
+    /// files (`kamailio.cfg`, `dispatcher.list`, `uacreg.list`,
+    /// `rtpengine.conf`) from the current policy snapshot.
+    ///
+    /// Invoked by both `kamailio-mde.service` and
+    /// `rtpengine-mde.service` as their `ExecStartPre=` hook on
+    /// every (re)start, so the on-disk config is always coherent
+    /// with the latest approved `voice_mesh` / `voice_public`
+    /// policy revision.
+    ///
+    /// VV-1 ships the minimal generator: no peer routing, no
+    /// Vitelity, just enough to boot Kamailio + `RTPengine`. VV-2
+    /// wires the generator to mackesd's policy store so peer
+    /// AORs (via `dispatcher.list`) + Vitelity sub-accounts (via
+    /// `uacreg.list`) flow from approved `voice_mesh` /
+    /// `voice_public` revisions.
+    RenderConfig {
+        /// Override the kamailio-mde output directory (defaults
+        /// to `/etc/kamailio-mde/`). Used by tests + dry-runs.
+        #[arg(long, value_name = "DIR", default_value = "/etc/kamailio-mde")]
+        kamailio_dir: PathBuf,
+        /// Override the rtpengine-mde output directory.
+        #[arg(long, value_name = "DIR", default_value = "/etc/rtpengine-mde")]
+        rtpengine_dir: PathBuf,
+        /// Print each generated file to stdout instead of
+        /// writing to disk. Useful for diff'ing across policy
+        /// revisions.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// NF-2.6 — `mackesd ca <sub>` subcommands.
@@ -969,6 +1012,50 @@ fn main() -> anyhow::Result<()> {
                     let rows = mackesd_core::nebula_roster::export_roster(&conn)
                         .map_err(|e| anyhow::anyhow!("export-roster: {e}"))?;
                     println!("{}", serde_json::to_string_pretty(&rows)?);
+                }
+            }
+        }
+        Cmd::Voice { sub } => {
+            // VV-1 / VV-1.5 (v4.1.0) — voice stack operator surface.
+            // Today the only subcommand is `render-config`, invoked
+            // by both `kamailio-mde.service` and
+            // `rtpengine-mde.service` as their ExecStartPre hook.
+            // VV-2 expands the input to read from the policy store.
+            match sub {
+                VoiceCmd::RenderConfig {
+                    kamailio_dir,
+                    rtpengine_dir,
+                    dry_run,
+                } => {
+                    let desired =
+                        mde_voice_config::VoiceDesired::boot_default(default_node_id());
+                    let set = mde_voice_config::generate(&desired);
+                    let kamailio_files = [
+                        ("kamailio.cfg", &set.kamailio_cfg),
+                        ("dispatcher.list", &set.dispatcher_list),
+                        ("uacreg.list", &set.uacreg_list),
+                    ];
+                    let rtpengine_files = [("rtpengine.conf", &set.rtpengine_conf)];
+                    if dry_run {
+                        for (name, body) in kamailio_files {
+                            println!("# ---- {} (would write under {}) ----", name, kamailio_dir.display());
+                            print!("{body}");
+                        }
+                        for (name, body) in rtpengine_files {
+                            println!("# ---- {} (would write under {}) ----", name, rtpengine_dir.display());
+                            print!("{body}");
+                        }
+                    } else {
+                        write_voice_config_files(&kamailio_dir, &kamailio_files)?;
+                        write_voice_config_files(&rtpengine_dir, &rtpengine_files)?;
+                        println!(
+                            "voice render-config: wrote {} files under {} + {} under {}",
+                            kamailio_files.len(),
+                            kamailio_dir.display(),
+                            rtpengine_files.len(),
+                            rtpengine_dir.display(),
+                        );
+                    }
                 }
             }
         }
@@ -2045,6 +2132,38 @@ fn legacy_name_char(c: char) -> bool {
 /// Resolve the stable node id from `$MACKESD_NODE_ID` then
 /// `$HOSTNAME` then the `hostname` syscall, falling back to
 /// `peer:unknown` so the audit-log column is never empty.
+/// VV-1 helper — atomic write-and-rename of the generated voice
+/// configs. The directory is `mkdir -p`'d; each file is written
+/// to a hidden `.tmp` sibling and renamed into place so a
+/// partial render never leaves Kamailio / `RTPengine` reading a
+/// half-written file.
+fn write_voice_config_files(
+    out_dir: &std::path::Path,
+    files: &[(&str, &String)],
+) -> anyhow::Result<()> {
+    std::fs::create_dir_all(out_dir).map_err(|e| {
+        anyhow::anyhow!("voice render-config: mkdir {}: {e}", out_dir.display())
+    })?;
+    for (name, body) in files {
+        let final_path = out_dir.join(name);
+        let tmp_path = out_dir.join(format!(".{name}.tmp"));
+        std::fs::write(&tmp_path, body.as_bytes()).map_err(|e| {
+            anyhow::anyhow!(
+                "voice render-config: write {}: {e}",
+                tmp_path.display()
+            )
+        })?;
+        std::fs::rename(&tmp_path, &final_path).map_err(|e| {
+            anyhow::anyhow!(
+                "voice render-config: rename {} → {}: {e}",
+                tmp_path.display(),
+                final_path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn default_node_id() -> String {
     if let Ok(v) = std::env::var("MACKESD_NODE_ID") {
         return v;

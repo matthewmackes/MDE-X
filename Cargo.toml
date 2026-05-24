@@ -47,6 +47,7 @@ members  = [
     "crates/mde-popover",
     "crates/mde-session",
     "crates/mde-theme",
+    "crates/mde-voice-config",
     "crates/mde-wizard",
     "crates/mde-workbench",
     "crates/mded",

@@ -1,0 +1,78 @@
+[Unit]
+# VV-1.5 (v4.1.0) — per-host RTPengine for the MDE voice stack.
+#
+# User-space SRTP relay. Kamailio drives it via the NG-protocol
+# unix socket at /var/run/rtpengine-mde/ng.sock. No transcoding
+# (operator-locked 2026-05-24): the embedded PJSIP client and
+# Vitelity negotiate codecs end-to-end, RTPengine just shuttles
+# the encrypted frames.
+#
+# Runs alongside (NOT inside) any upstream `rtpengine.service`
+# install: separate config tree at /etc/rtpengine-mde/, separate
+# runtime root at /var/run/rtpengine-mde/, separate user
+# `_rtpengine_mde`.
+Description=MDE per-host RTPengine SRTP relay (VV-1.5)
+Documentation=file:///usr/share/mackes-shell/docs/design/v4.1-voice-video.md
+After=network-online.target nebula.service mackesd.service
+Wants=network-online.target
+Requires=mackesd.service
+
+[Service]
+Type=simple
+User=_rtpengine_mde
+Group=_rtpengine_mde
+
+# Regenerate rtpengine.conf from the current policy snapshot
+# before the daemon starts (same render-config helper Kamailio
+# uses; the helper writes all four config files in one pass).
+ExecStartPre=+/usr/bin/mackesd voice render-config
+
+# rtpengine doesn't take a config file via argv — it reads
+# /etc/rtpengine/rtpengine.conf by default; we override with --config-file.
+# --foreground keeps it under systemd's supervision.
+ExecStart=/usr/sbin/rtpengine --config-file=/etc/rtpengine-mde/rtpengine.conf
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+
+# Capabilities — RTPengine binds the RTP port range
+# (30000-40000/udp by default) which is in the user-space range
+# so doesn't need CAP_NET_BIND_SERVICE. It does need
+# CAP_NET_RAW for some kernel-module integrations we're not
+# using, so the bounding set stays empty.
+CapabilityBoundingSet=
+
+# Lockdown.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+ReadWritePaths=/var/lib/rtpengine-mde /var/log/rtpengine-mde /var/run/rtpengine-mde
+
+# Resource caps — RTPengine is memory-light but CPU-bursty
+# during call setup.
+CPUQuota=200%
+MemoryHigh=128M
+MemoryMax=192M
+
+RuntimeDirectory=rtpengine-mde
+# 0750 with group=_kamailio_mde so the Kamailio process can
+# write to the NG socket and read the PID file. The %post
+# scriptlet adds `_kamailio_mde` to the `_rtpengine_mde`
+# group; systemd's RuntimeDirectoryMode honors the per-file
+# permissions RTPengine sets on the socket (0660 default).
+RuntimeDirectoryMode=0750
+StateDirectory=rtpengine-mde
+StateDirectoryMode=0750
+LogsDirectory=rtpengine-mde
+LogsDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target
