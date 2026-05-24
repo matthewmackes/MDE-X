@@ -386,7 +386,7 @@ enum VoiceCmd {
         #[arg(
             long,
             value_name = "PATH",
-            default_value = "/etc/kamailio-mde/desired.json"
+            default_value = "/var/lib/mackesd/voice-desired.json"
         )]
         desired_json: PathBuf,
         /// Skip the desired_json file entirely and use
@@ -1700,7 +1700,8 @@ fn run_serve(
     use mackesd_core::workers::{
         clipboard::ClipboardWorker, fs_sync::FsSyncWorker, heartbeat::HeartbeatWorker,
         mdns::MdnsWorker, mesh_router::MeshRouterWorker,
-        notification_relay::NotificationRelayWorker, RestartPolicy, Spawn, Supervisor,
+        notification_relay::NotificationRelayWorker, voice_config::VoiceConfigWorker,
+        RestartPolicy, Spawn, Supervisor,
     };
     let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
     let node_id = node_id.unwrap_or_else(default_node_id);
@@ -1754,6 +1755,19 @@ fn run_serve(
             RestartPolicy::OnFailure,
         ));
         worker_names.lock().expect("worker_names mutex").push("heartbeat".into());
+        // VV-2 (v4.1.0) — voice_config worker. Seeds the
+        // /var/lib/mackesd/voice-desired.json document on first
+        // tick + triggers `systemctl try-reload-or-restart` on
+        // kamailio-mde + rtpengine-mde when the file changes.
+        // try-reload-or-restart is a no-op while the units are
+        // disabled (v4.1.0 ships them disabled per the spec
+        // %post comment until VV-4 + VV-14 are green), so the
+        // worker is harmless to run on a fresh peer.
+        sup.spawn(Spawn::new(
+            VoiceConfigWorker::new(node_id.clone()),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("voice_config".into());
         // mesh_router bootstraps with the per-transport
         // registry. Phase 12.18 D.2 (2026-05-23) — the NebulaHttps443
         // transport is registered at startup so the per-peer

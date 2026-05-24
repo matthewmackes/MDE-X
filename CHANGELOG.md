@@ -3,6 +3,73 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## Unreleased — VV-2 + VV-3: voice-config generator drives Kamailio + RTPengine
+
+Closes the loop on the v4.1.0 Voice & Video platform tier: the
+generator now produces real `dispatcher.list` + `uacreg.list`
+rows from a `VoiceDesired` document, two new `Policy` variants
++ conflict checks land in `mackesd_core::policy`, and a new
+`voice_config` worker keeps the daemons reloaded when the
+operator-visible JSON document changes.
+
+**VV-2 — `mde-voice-config` generator + worker:**
+
+- **`VoiceDesired` carries peers + Vitelity now.** New
+  `PeerEntry { extension, node_id, display_name, mesh_address }`
+  list drives the `dispatcher.list` rows; new
+  `VitelityAccount { username, password, outbound_cid }` drives
+  the per-peer outbound REGISTER binding in `uacreg.list`. 24
+  unit tests + 6 `insta` snapshot fixtures (up from 16/4)
+  cover both empty and populated cases.
+- **`mackesd voice render-config` reads from JSON now.** New
+  `--desired-json PATH` flag (default
+  `/var/lib/mackesd/voice-desired.json`) lets operators or the
+  new `voice_config` worker supply a populated `VoiceDesired`
+  document. Missing file silently falls back to
+  `VoiceDesired::boot_default(node_id)`; parse errors on a
+  present file are hard errors (no silent fallback masking a
+  bad hand-edit). `--boot-default` flag forces the boot path
+  for testing.
+- **New `voice_config` worker.** Polls
+  `/var/lib/mackesd/voice-desired.json` mtime every 5 s. On
+  first tick, if the file is absent, seeds it with
+  `boot_default(node_id)` so the daemon's `ExecStartPre`
+  helper always has *something* to generate from. On every
+  mtime advance, shells out to `systemctl
+  try-reload-or-restart kamailio-mde.service
+  rtpengine-mde.service`. `try-reload-or-restart` is the
+  no-op-when-disabled variant — safe to run on a fresh peer
+  before VV-4 / VV-14 enable the daemons. Registered in the
+  supervisor's worker pool alongside heartbeat / mdns /
+  fs_sync.
+
+**VV-3 — `voice_mesh` + `voice_public` policy variants:**
+
+- `Policy::VoiceMesh { id, extension, node_id, display_name }`
+  — assigns a 4-digit extension to a remote peer in the voice
+  mesh.
+- `Policy::VoicePublic { id, peer_node_id, vitelity_username,
+  vitelity_password, outbound_cid }` — per-peer Vitelity
+  sub-account that drives the outbound REGISTER + the CID
+  rewrite.
+- Conflict detection added: two `VoiceMesh` rules assigning the
+  same extension to different peers raise `PolicyConflict`;
+  two `VoicePublic` rules pointing at the same peer also
+  conflict (a peer has at most one Vitelity trunk). 8 new
+  tests; existing `detect_conflicts()` API unchanged.
+
+**Worklist hygiene:** VV-3's original acceptance listed
+`policy::types.rs`, `schemas/policy/voice_*.json`, and a
+`policy_dispatch::dispatch()` arm — none of those structures
+exist in the codebase today (the policy module is a single
+`Policy` enum + `detect_conflicts()` validator with no
+external schema files). The shipped pattern matches what's
+actually present; the worklist entry now records the
+divergence honestly. The full Phase-12 policy lifecycle that
+writes `voice-desired.json` from approved revisions in the
+store is split out as VV-2.a (open) and explicitly blocks on
+extending `DesiredSnapshot` with a `voice_policies` field.
+
 ## Unreleased — VV-1 + VV-1.5: Kamailio + RTPengine voice stack foundation
 
 First substantive code on the v4.1.0 Voice & Video epic after

@@ -105,6 +105,11 @@ pub mod remmina_sync;
 pub mod stun_gather;
 pub mod subprocess_tick;
 pub mod thumbnailer;
+// VV-2 (v4.1.0) — voice-config worker that owns the
+// /var/lib/mackesd/voice-desired.json document + triggers
+// `systemctl try-reload-or-restart` on kamailio-mde +
+// rtpengine-mde when it changes.
+pub mod voice_config;
 pub mod wol;
 
 /// Every worker registered with the supervisor implements this

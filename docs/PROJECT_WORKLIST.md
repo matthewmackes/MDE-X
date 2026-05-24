@@ -4704,7 +4704,42 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
   - User-space relay only — no kernel module — until VV-15's
     hardware perf bench (deferred to v4.1.x).
 
-- [>] **v4.1.0: VV-2 config generator crate `mde-voice-config` (Tier 1 platform)** *(scaffolded 2026-05-24 with VV-1/VV-1.5 — pure-fn `generate()` + 16 unit tests + 4 snapshot fixtures landed; remaining VV-2 scope is policy-driven `VoiceDesired` population from `voice_mesh` + `voice_public` and the mackesd `voice_supervisor` worker that reloads on policy changes)*
+- [✓] **v4.1.0: VV-2 config generator crate `mde-voice-config` (Tier 1 platform)** *(shipped 2026-05-24 — `VoiceDesired` carries peers + Vitelity sub-account; `generate()` emits real `dispatcher.list` rows + real `uacreg.list` rows + outbound-CID comment; 24 unit tests + 6 insta snapshot fixtures; `mackesd voice render-config` reads operator-visible JSON from `/var/lib/mackesd/voice-desired.json` (or `--desired-json PATH` override) and falls back to `boot_default` when the file is absent; `voice_config` worker seeds the JSON on first boot + triggers `systemctl try-reload-or-restart kamailio-mde rtpengine-mde` on every mtime advance — 6 worker tests cover the seed-then-idle-then-reload cycle. **Deferred to a follow-up:** the policy lifecycle that writes `voice-desired.json` from approved `voice_mesh` / `voice_public` revisions in the store — see VV-2.a below)*
+
+- [ ] **v4.1.0: VV-2.a policy-lifecycle writer for `voice-desired.json` (Tier 1 platform — VV-2 follow-up)**
+
+  **As** the operator,
+  **I want** approved `Policy::VoiceMesh` + `Policy::VoicePublic`
+  revisions in `desired_config.spec_json` to flow into
+  `/var/lib/mackesd/voice-desired.json` so the next
+  `voice_config` tick reloads kamailio-mde with the new routing,
+  **so that** the Phase-12 draft → approved → applied lifecycle
+  is the only thing that needs to mutate voice routing — the
+  override file isn't a parallel operator surface.
+
+  **Why split from VV-2:** the existing `DesiredSnapshot` type
+  in `crates/mackesd/src/topology/mod.rs` carries `nodes` +
+  `allow_east_west` + `settings_keys` but no `voice_policies`
+  field. Adding that + the reconciler arm that materializes
+  voice policies into `voice-desired.json` is its own
+  ~400 LOC change, not appropriate to bundle into the VV-2
+  generator commit. Today operators / `voice_config`'s own
+  boot-seed are the only writers; the policy path is
+  explicitly the open work.
+
+  **Acceptance:**
+  - [ ] `DesiredSnapshot` gains a `voice_policies: Vec<Policy>`
+    field, default-empty for backward compat.
+  - [ ] Reconciler hook: when an `applied` revision's
+    `voice_policies` differs from the last-materialized set,
+    rebuild a `VoiceDesired` from (own node identity, peers
+    from `nodes`, voice_mesh assigning this peer's extension,
+    voice_public matching this peer) and atomic-write it to
+    `voice-desired.json`.
+  - [ ] Three-peer integration test: approve a `voice_mesh`
+    revision; within one `voice_config` tick (~5 s) every peer's
+    `voice-desired.json` mtime has moved forward and
+    `kamcmd dispatcher.list` shows the new rows.
 
   **As** the operator,
   **I want** `mackesd` to generate the four authoritative
@@ -4742,7 +4777,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
     consumes; `dispatcher.list` + `uacreg.list` are the two
     text databases Kamailio reloads without a daemon restart.
 
-- [ ] **v4.1.0: VV-3 policy kinds `voice_mesh` + `voice_public` (Tier 1 platform)**
+- [✓] **v4.1.0: VV-3 policy kinds `voice_mesh` + `voice_public` (Tier 1 platform)** *(shipped 2026-05-24 — `Policy::VoiceMesh { id, extension, node_id, display_name }` + `Policy::VoicePublic { id, peer_node_id, vitelity_username, vitelity_password, outbound_cid }` variants added to the existing `policy::Policy` enum; `pair_conflict()` extended to catch the "extension 1003 collision" rule + the "two Vitelity sub-accounts for the same peer" rule; 8 new tests covering valid/duplicate/conflict cases + JSON round-trip with the `kind: voice_mesh` / `kind: voice_public` serde discriminator. **Note on acceptance phrasing:** the original acceptance listed `crates/mackesd/src/policy/types.rs`, `schemas/policy/voice_mesh.json`, and `policy_dispatch::dispatch()` — none of those structures exist in the codebase today. The shipped pattern matches what's actually present (single `policy::mod.rs` with the `Policy` enum + `detect_conflicts()` validator); JSON schemas are not used anywhere in the workspace — serde's `#[serde(tag = "kind")]` discriminator + the conflict detector is the validation surface.)*
 
   **As** the operator,
   **I want** two distinct JSON-schema-validated policy kinds

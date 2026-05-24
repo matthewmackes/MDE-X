@@ -42,10 +42,12 @@ use std::fmt::Write as _;
 use serde::{Deserialize, Serialize};
 
 /// Operator-visible identity + mesh-binding facts that drive
-/// the minimal VV-1 configuration.
+/// the generated configuration.
 ///
-/// VV-2 expands this with peer rosters, Vitelity sub-account
-/// credentials, and per-DID inbound rules.
+/// VV-1 shipped only the identity + bind fields (the rest were
+/// empty / unused). VV-2 (2026-05-24) added `peers` and
+/// `vitelity` so the generator can emit real `dispatcher.list`
+/// rows + the per-peer outbound REGISTER binding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VoiceDesired {
     /// This peer's stable identifier — used as the comment
@@ -75,6 +77,46 @@ pub struct VoiceDesired {
 
     /// RTP port range upper bound (inclusive).
     pub rtp_port_max: u16,
+
+    /// VV-2 — remote peers reachable on the mesh. Each entry
+    /// becomes one `dispatcher.list` row. Empty when no
+    /// `voice_mesh` policies have been approved yet.
+    #[serde(default)]
+    pub peers: Vec<PeerEntry>,
+
+    /// VV-2 — this peer's Vitelity sub-account. `None` when no
+    /// `voice_public` policy has been approved for this peer.
+    /// When `Some`, generator emits one `uacreg.list` row + the
+    /// `route[VITELITY_OUT]` CID rewrite picks this up.
+    #[serde(default)]
+    pub vitelity: Option<VitelityAccount>,
+}
+
+/// VV-2 — one remote peer in the mesh dispatcher table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeerEntry {
+    /// 4-digit extension assigned to this peer (the `1NNN`
+    /// pattern, `1001`..`1016` for the 16-peer cap).
+    pub extension: String,
+    /// Stable node id — comment-only on the dispatcher row; the
+    /// routing target is `mesh_address` below.
+    pub node_id: String,
+    /// Operator-friendly display name — comment-only.
+    pub display_name: String,
+    /// The peer's Nebula overlay IP (where to send the INVITE).
+    pub mesh_address: String,
+}
+
+/// VV-2 — this peer's Vitelity sub-account, drives one
+/// `uacreg.list` row + the outbound CID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VitelityAccount {
+    /// Vitelity sub-account username (e.g. `mde-alice-laptop`).
+    pub username: String,
+    /// Vitelity sub-account password.
+    pub password: String,
+    /// Verified outbound CID (E.164 without the `+` prefix).
+    pub outbound_cid: String,
 }
 
 impl VoiceDesired {
@@ -83,8 +125,8 @@ impl VoiceDesired {
     /// empty (first-boot, recovery, or single-peer dev rig).
     /// Produces a config Kamailio + `RTPengine` will accept and
     /// run; the daemons answer OPTIONS health checks and
-    /// reject everything else with `503` until VV-2..VV-4 fill
-    /// in the routing.
+    /// reject everything else with `503` until peer routing +
+    /// Vitelity policies are approved.
     #[must_use]
     pub fn boot_default(node_id: impl Into<String>) -> Self {
         Self {
@@ -100,6 +142,8 @@ impl VoiceDesired {
             mesh_bind_address: "0.0.0.0".to_string(),
             rtp_port_min: 30_000,
             rtp_port_max: 40_000,
+            peers: Vec::new(),
+            vitelity: None,
         }
     }
 }
@@ -300,10 +344,25 @@ fn render_dispatcher_list(desired: &VoiceDesired) -> String {
     let mut out = header_hash("dispatcher.list", desired);
     out.push_str(
         "# format: setid destination [flags [priority [attrs [body]]]]\n\
-         # VV-2 populates one row per remote peer's mde-local AOR\n\
-         # from the voice_mesh policy. VV-1 ships the file empty\n\
-         # so the dispatcher module loads cleanly.\n",
+         # One row per remote peer in the voice_mesh policy.\n\
+         # setid 1 = mesh peers; flags 0; priority 0; attrs carry\n\
+         # the operator-visible identity so kamcmd dispatcher.list\n\
+         # reads usefully.\n\n",
     );
+    if desired.peers.is_empty() {
+        out.push_str("# (no peers — empty voice_mesh policy)\n");
+        return out;
+    }
+    for peer in &desired.peers {
+        let _ = writeln!(
+            out,
+            "1 sip:{ext}@{addr}:5061;transport=tls 0 0 attrs=node={node};name={name}",
+            ext = peer.extension,
+            addr = peer.mesh_address,
+            node = peer.node_id,
+            name = peer.display_name,
+        );
+    }
     out
 }
 
@@ -312,10 +371,33 @@ fn render_uacreg_list(desired: &VoiceDesired) -> String {
     out.push_str(
         "# format: l_uuid l_username l_domain r_username r_domain realm\n\
          #         auth_username auth_password auth_proxy expires flags reg_delay\n\
-         # VV-13/14 populate this from the voice_public policy.\n\
-         # VV-1 ships the file empty so the uac module loads\n\
-         # cleanly with no outbound registrations.\n",
+         # One row per peer's Vitelity sub-account in the\n\
+         # voice_public policy. VV-13's Workbench panel writes\n\
+         # the credentials; we generate the binding here.\n\n",
     );
+    if let Some(v) = &desired.vitelity {
+        // The `l_uuid` ties the registration back to this peer
+        // for kamcmd uac.reg_dump filtering; using the node_id
+        // keeps the operator surface readable.
+        let _ = writeln!(
+            out,
+            "{uuid} mde-local 127.0.0.1 {user} out.vitelity.net out.vitelity.net \
+             {user} {pass} sip:out.vitelity.net:5061;transport=tls 3600 0 0",
+            uuid = desired.node_id,
+            user = v.username,
+            pass = v.password,
+        );
+        // Outbound CID is consumed by Kamailio's `route[VITELITY_OUT]`
+        // via the htable; emit it as a comment so the operator can
+        // see what CID Vitelity will see on outbound calls.
+        let _ = writeln!(
+            out,
+            "# outbound CID for this trunk: {}",
+            v.outbound_cid,
+        );
+    } else {
+        out.push_str("# (no Vitelity sub-account — empty voice_public policy)\n");
+    }
     out
 }
 
@@ -368,6 +450,37 @@ mod tests {
             mesh_bind_address: "192.168.42.7".to_string(),
             rtp_port_min: 30_000,
             rtp_port_max: 40_000,
+            peers: Vec::new(),
+            vitelity: None,
+        }
+    }
+
+    fn fixture_full() -> VoiceDesired {
+        VoiceDesired {
+            node_id: "alice-laptop".to_string(),
+            mesh_bind_device: "nebula1".to_string(),
+            mesh_bind_address: "192.168.42.7".to_string(),
+            rtp_port_min: 30_000,
+            rtp_port_max: 40_000,
+            peers: vec![
+                PeerEntry {
+                    extension: "1002".into(),
+                    node_id: "peer:bob-desktop".into(),
+                    display_name: "Bob desktop".into(),
+                    mesh_address: "192.168.42.11".into(),
+                },
+                PeerEntry {
+                    extension: "1003".into(),
+                    node_id: "peer:carol-pi".into(),
+                    display_name: "Carol Pi".into(),
+                    mesh_address: "192.168.42.12".into(),
+                },
+            ],
+            vitelity: Some(VitelityAccount {
+                username: "mde-alice-laptop".into(),
+                password: "vit3lity-s3cret".into(),
+                outbound_cid: "15551234567".into(),
+            }),
         }
     }
 
@@ -460,10 +573,11 @@ mod tests {
     }
 
     #[test]
-    fn dispatcher_list_ships_as_empty_format_doc() {
+    fn dispatcher_list_empty_when_no_peers() {
         let set = generate(&fixture_desired());
-        // No data rows yet; just the header + format note.
-        assert!(set.dispatcher_list.contains("VV-2 populates"));
+        // No data rows; just the header + format note + the
+        // "no peers" line.
+        assert!(set.dispatcher_list.contains("no peers"));
         assert!(!set
             .dispatcher_list
             .lines()
@@ -471,13 +585,92 @@ mod tests {
     }
 
     #[test]
-    fn uacreg_list_ships_as_empty_format_doc() {
+    fn uacreg_list_empty_when_no_vitelity() {
         let set = generate(&fixture_desired());
-        assert!(set.uacreg_list.contains("VV-13/14 populate"));
+        assert!(set.uacreg_list.contains("no Vitelity sub-account"));
         assert!(!set
             .uacreg_list
             .lines()
             .any(|l| !l.is_empty() && !l.starts_with('#')));
+    }
+
+    // ---- VV-2 populated-config tests --------------------------
+
+    #[test]
+    fn dispatcher_list_emits_one_row_per_peer() {
+        let set = generate(&fixture_full());
+        // Each peer contributes exactly one non-comment line.
+        let data_lines: Vec<&str> = set
+            .dispatcher_list
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        assert_eq!(data_lines.len(), 2);
+    }
+
+    #[test]
+    fn dispatcher_row_includes_peer_address_and_extension() {
+        let set = generate(&fixture_full());
+        assert!(set
+            .dispatcher_list
+            .contains("sip:1002@192.168.42.11:5061;transport=tls"));
+        assert!(set
+            .dispatcher_list
+            .contains("sip:1003@192.168.42.12:5061;transport=tls"));
+    }
+
+    #[test]
+    fn dispatcher_row_carries_operator_visible_attrs() {
+        let set = generate(&fixture_full());
+        assert!(set.dispatcher_list.contains("node=peer:bob-desktop"));
+        assert!(set.dispatcher_list.contains("name=Bob desktop"));
+    }
+
+    #[test]
+    fn uacreg_emits_one_row_when_vitelity_present() {
+        let set = generate(&fixture_full());
+        let data_lines: Vec<&str> = set
+            .uacreg_list
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        assert_eq!(data_lines.len(), 1);
+    }
+
+    #[test]
+    fn uacreg_row_carries_credentials_and_outbound_proxy() {
+        let set = generate(&fixture_full());
+        assert!(set.uacreg_list.contains("mde-alice-laptop"));
+        assert!(set.uacreg_list.contains("vit3lity-s3cret"));
+        assert!(set
+            .uacreg_list
+            .contains("sip:out.vitelity.net:5061;transport=tls"));
+    }
+
+    #[test]
+    fn uacreg_records_outbound_cid_as_comment() {
+        // The CID is referenced from Kamailio's route[VITELITY_OUT]
+        // via the htable, not from the uac binding. Emit it as a
+        // documentation comment so kamcmd uac.reg_dump readers can
+        // cross-check the CID.
+        let set = generate(&fixture_full());
+        assert!(set.uacreg_list.contains("outbound CID"));
+        assert!(set.uacreg_list.contains("15551234567"));
+    }
+
+    #[test]
+    fn voice_desired_round_trips_with_peers_and_vitelity() {
+        let desired = fixture_full();
+        let json = serde_json::to_string(&desired).unwrap();
+        let back: VoiceDesired = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, desired);
+    }
+
+    #[test]
+    fn snapshot_populated_config_set() {
+        let set = generate(&fixture_full());
+        insta::assert_snapshot!("populated.dispatcher.list", set.dispatcher_list);
+        insta::assert_snapshot!("populated.uacreg.list", set.uacreg_list);
     }
 
     #[test]
