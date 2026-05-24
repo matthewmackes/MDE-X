@@ -147,8 +147,31 @@ def _scan_mdns(timeout: float = 2.0) -> List[MediaServer]:
 # ---------------------------------------------------------------------------
 
 
-def _tailscale_peer_ips() -> List[tuple[str, str]]:
-    """Return (hostname, ip) pairs for every tailscale peer including self."""
+def _mesh_peer_ips() -> List[tuple[str, str]]:
+    """Return (hostname, ip) pairs for every reachable mesh peer.
+
+    NF-13.4 (v2.5, 2026-05-23): prefers Nebula overlay IPs from
+    `mded.Nebula.Status.ListPeers()` via mackes.mesh_nebula; falls
+    back to the legacy `tailscale status --json` parse during the
+    migration window when mackesd isn't reachable.
+    """
+    try:
+        from mackes.mesh_nebula import nebula_peer_ips
+    except ImportError:
+        nebula_peer_ips = None  # type: ignore[assignment]
+    if nebula_peer_ips is not None:
+        pairs = nebula_peer_ips()
+        if pairs:
+            return pairs
+    return _legacy_tailscale_peer_ips()
+
+
+def _legacy_tailscale_peer_ips() -> List[tuple[str, str]]:
+    """Pre-v2.5 enumeration via `tailscale status --json`. Kept
+    as a back-compat fallback for the migration window when
+    mackesd hasn't started yet. Retires alongside NF-5.1
+    (mesh_vpn.py deletion).
+    """
     try:
         proc = subprocess.run(
             ["tailscale", "status", "--json"],
@@ -178,6 +201,12 @@ def _tailscale_peer_ips() -> List[tuple[str, str]]:
     return peers
 
 
+# NF-13.4 — alias kept for back-compat with any in-tree caller
+# that hasn't migrated yet. New code calls _mesh_peer_ips
+# directly.
+_tailscale_peer_ips = _mesh_peer_ips
+
+
 def _probe_port(ip: str, port: int, timeout: float = 0.25) -> bool:
     """One TCP connect with a short timeout."""
     try:
@@ -188,9 +217,9 @@ def _probe_port(ip: str, port: int, timeout: float = 0.25) -> bool:
 
 
 def _scan_probe(already_seen: set[tuple[str, int]]) -> List[MediaServer]:
-    """For every tailscale peer not in `already_seen`, probe the two media ports."""
+    """For every mesh peer not in `already_seen`, probe the two media ports."""
     found: List[MediaServer] = []
-    for host, ip in _tailscale_peer_ips():
+    for host, ip in _mesh_peer_ips():
         if (ip, _AIRSONIC_PORT) not in already_seen \
                 and _probe_port(ip, _AIRSONIC_PORT):
             found.append(MediaServer(KIND_AIRSONIC, host, ip, _AIRSONIC_PORT))

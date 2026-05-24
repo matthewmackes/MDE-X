@@ -886,8 +886,8 @@ public IP. This locks the trust boundary at the fabric.
   retains its existing SSH-connect path; the bind-side
   wiring lives in mesh_nebula so the connect / publish
   paths stay independent.
-- [✓] **NF-13.2..13.5: overlay-bind helper shipped
-  2026-05-23 (consumer-side wiring deferred)** —
+- [✓] **NF-13.2..13.5: overlay-bind helpers + first
+  consumer swap (mesh_media.py) shipped 2026-05-23** —
   `mackes/mesh_nebula.py` gained:
     - `nebula_peer_ips()` — pure helper that calls
       `dev.mackes.MDE.Nebula.Status.ListPeers()` via
@@ -899,14 +899,19 @@ public IP. This locks the trust boundary at the fabric.
       overlay IP each service binds to; None until the
       peer is enrolled. Future-proofed via the service_id
       parameter for per-service overrides.
-  The consumer side (mesh_nats.py / mesh_fs.py /
-  mesh_media.py / mesh_sync.py: swap their
-  `_tailscale_peer_ips()` calls + `tailscale-magic-DNS`
-  hosts for `nebula_peer_ips()` + `bind_target_for(...)`)
-  lands in a follow-up bundle that touches each module
-  in isolation. Helper layer ships first so the
-  migration is a one-line swap per consumer when it
-  happens.
+  Consumer-side swaps land per-module. NF-13.4
+  (mesh_media.py) shipped today as the reference pattern:
+  the legacy `_tailscale_peer_ips` is renamed to
+  `_legacy_tailscale_peer_ips`, a new `_mesh_peer_ips`
+  prefers Nebula via `mackes.mesh_nebula.nebula_peer_ips`
+  + falls back to the legacy path during the migration
+  window. `_scan_probe` now consumes the new helper.
+  Back-compat alias `_tailscale_peer_ips = _mesh_peer_ips`
+  retained so any straggler caller doesn't break.
+  Same pattern applies to NF-13.2 (mesh_nats), NF-13.3
+  (mesh_fs), NF-13.5 (mesh_sync) — each lands in its own
+  small follow-up commit so the change is auditable per
+  module.
 - [✓] **NF-13.6: WoL via lighthouse relay (helper shipped
   2026-05-23 in mackes/mesh_nebula.py)** —
   `wol_via_lighthouse(target_mac, lighthouse_ip=None)`
