@@ -1541,16 +1541,29 @@ fn run_serve(
         // because its sync rusqlite calls would block the tokio
         // scheduler if hosted here; both supervisors coexist.
         let mut sup = Supervisor::new();
+        // v4.1 — track spawned worker names so Shell.Workers can
+        // surface them via D-Bus. Strings get pushed alongside
+        // each sup.spawn(); skipped workers (sqlite open failure)
+        // don't get added so the report matches reality. The
+        // Mutex<Vec<String>> is shared with ShellService so
+        // post-registration spawns (KDC + reconcile, which come
+        // after IPC registration) still appear in the roster.
+        let worker_names: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         sup.spawn(Spawn::new(
             ClipboardWorker::new(),
             RestartPolicy::OnFailure,
         ));
+        worker_names.lock().expect("worker_names mutex").push("clipboard".into());
         sup.spawn(Spawn::new(MdnsWorker::new(), RestartPolicy::OnFailure));
+        worker_names.lock().expect("worker_names mutex").push("mdns".into());
         sup.spawn(Spawn::new(FsSyncWorker::new(), RestartPolicy::OnFailure));
+        worker_names.lock().expect("worker_names mutex").push("fs_sync".into());
         sup.spawn(Spawn::new(
             HeartbeatWorker::new(qnm_root.clone(), node_id.clone()),
             RestartPolicy::OnFailure,
         ));
+        worker_names.lock().expect("worker_names mutex").push("heartbeat".into());
         // mesh_router bootstraps with the per-transport
         // registry. Phase 12.18 D.2 (2026-05-23) — the NebulaHttps443
         // transport is registered at startup so the per-peer
@@ -1569,6 +1582,7 @@ fn run_serve(
             MeshRouterWorker::new(Arc::clone(&router_state), router_registry),
             RestartPolicy::OnFailure,
         ));
+        worker_names.lock().expect("worker_names mutex").push("mesh_router".into());
         // v4.0.1 Phase 12.17 wire (2026-05-23) — STUN candidate
         // gatherer. Shares router_state with the router so
         // reflexive candidates land on every tracked peer's
@@ -1582,6 +1596,7 @@ fn run_serve(
             ),
             RestartPolicy::OnFailure,
         ));
+        worker_names.lock().expect("worker_names mutex").push("stun_gather".into());
         // notification_relay needs its own SQLite connection
         // (the legacy reconcile worker holds its own; we mint a
         // second handle so the two run independently).
@@ -1591,6 +1606,7 @@ fn run_serve(
                     NotificationRelayWorker::new(qnm_root.clone(), conn),
                     RestartPolicy::OnFailure,
                 ));
+                worker_names.lock().expect("worker_names mutex").push("notification_relay".into());
             }
             Err(e) => {
                 tracing::warn!(
@@ -1631,6 +1647,7 @@ fn run_serve(
                     ),
                     RestartPolicy::OnFailure,
                 ));
+                worker_names.lock().expect("worker_names mutex").push("nebula_supervisor".into());
             }
             Err(e) => {
                 tracing::warn!(
@@ -1661,6 +1678,7 @@ fn run_serve(
                     ),
                     RestartPolicy::OnFailure,
                 ));
+                worker_names.lock().expect("worker_names mutex").push("mesh_latency".into());
             }
             Err(e) => {
                 tracing::warn!(
@@ -1727,6 +1745,35 @@ fn run_serve(
                                 );
                             }
                         }
+                        // v4.1 (2026-05-24) — Shell.{Healthz,Workers}
+                        // surface on the same shared connection.
+                        // Workers list is the shared Arc<Mutex<>>
+                        // so post-IPC spawns (KDC + reconcile)
+                        // still appear in the roster.
+                        let shell_state = mackesd_core::ipc::shell::ShellState {
+                            db_path: db_path.clone(),
+                            worker_names: Arc::clone(&worker_names),
+                        };
+                        match mackesd_core::ipc::shell::register_shell_on(
+                            &conn, shell_state,
+                        )
+                        .await
+                        {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "Shell dbus surface registered at {}",
+                                    mackesd_core::ipc::shell::OBJECT_PATH
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    error = %e,
+                                    "Shell dbus registration failed; \
+                                     mackes-panel status cluster will fall back \
+                                     to subprocess invocation of `mackesd healthz`"
+                                );
+                            }
+                        }
                         Box::leak(Box::new(conn));
                     }
                     Err(e) => {
@@ -1768,10 +1815,14 @@ fn run_serve(
             mackesd_core::workers::kdc_host::KdcHostWorker::new(kdc_config_dir),
             RestartPolicy::OnFailure,
         ));
+        worker_names.lock().expect("worker_names mutex").push("kdc_host".into());
 
         // The reconcile worker runs on its own OS thread (kept on
         // std::thread so its sync rusqlite calls don't block the
-        // tokio scheduler).
+        // tokio scheduler). Still surfaced via Shell.Workers so
+        // the operator sees the legacy worker alongside the async
+        // supervisor children.
+        worker_names.lock().expect("worker_names mutex").push("reconcile".into());
         let reconcile = mackesd_core::worker::spawn_reconcile_worker(
             qnm_root,
             node_id,
