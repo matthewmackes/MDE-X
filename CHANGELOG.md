@@ -97,6 +97,18 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-10.1: docs/help/mesh-storage.md user-facing primer
+
+New help page covering the v5.0.0 `mesh-home` model from the
+operator's seat: what's shared (the five XDG dirs) vs not
+(`~/Local/`), the 5 GB stub fall-back + how to fetch the real
+bytes, the LWW conflict resolution + `.conflict-<host>-<ts>`
+sibling convention + the Resolve UI, the fleet quota +
+EROFS-at-cap behaviour, the v4.0.x → v5.0.0 migration archive
+path, and the phone-share folder rewrite. Cross-linked from
+mesh-admin / mesh-ssh / mesh-recovery so the discoverability
+chain stays intact. voice-and-tone lint clean.
+
 ## Unreleased — GF-10.2: v5.0.0 GlusterFS design lock doc
 
 Captures the 25-Q lock from 2026-05-24 in
