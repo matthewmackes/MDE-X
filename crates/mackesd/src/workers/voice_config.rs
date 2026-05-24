@@ -46,9 +46,15 @@ pub const DEFAULT_TICK_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Default path of the operator-visible `VoiceDesired` JSON
 /// document. Lives under `/var/lib/mackesd/` so the daemon's
-/// own user can write it; the `ExecStartPre` helper runs as root
-/// and reads from here to produce `/etc/kamailio-mde/*`.
-pub const DEFAULT_DESIRED_JSON: &str = "/var/lib/mackesd/voice-desired.json";
+/// own user can write it; the `ExecStartPre` helper runs as
+/// root and reads from here to produce `/etc/kamailio-mde/*`.
+///
+/// Re-exports the canonical path defined in
+/// [`crate::voice::materialize::DEFAULT_DESIRED_JSON`] (the
+/// always-on lib module). Kept under this legacy name so the
+/// rest of the async-services tree doesn't need to flip its
+/// imports.
+pub use crate::voice::materialize::DEFAULT_DESIRED_JSON;
 
 /// Worker handle. Tracks the last-observed mtime so the worker
 /// doesn't reload on every tick when the file is unchanged.

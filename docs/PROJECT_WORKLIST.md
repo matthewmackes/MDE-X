@@ -1793,6 +1793,37 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   the audit retraction notes in `docs/PROJECT_WORKLIST.md`
   and the legacy v12 design docs.
 
+### RD-1..RD-5: v2.6 — Wayland VNC server gap (audit 2026-05-24)
+
+> **Gap:** v2.0.0 hard-switched the session host to sway (Wayland-
+> only — see `project_v2_0_0_mackes_de`), but `mackes/birthright.py`
+> step 9 still installs `x11vnc` + enables `x11vnc@:0.service`.
+> `x11vnc` mirrors an X11 `:0` display; on a Wayland-only session
+> there is no `:0` and the unit silently fails to bind. The RPM
+> spec's `Requires: xrdp + xrdp-selinux` covers RDP (xrdp ships an
+> Xorg-fallback session that works under Wayland greeters), but
+> VNC has no equivalent path — the per-peer **[VNC]** button in
+> `crates/mde-workbench/src/panels/remote_desktop.rs` shells
+> `remmina -c vnc://<host>:5900` against a port nothing is
+> listening on. Discovered during the 2026-05-24 remote-access
+> capability audit.
+>
+> **Target:** v2.6 (first non-major minor after v2.5 Nebula
+> fabric + v5.0.0 GlusterFS land). Sized for one bundled commit
+> per the no-stubs rule (§0.12) — every sub-task here ships fully
+> wired or doesn't ship.
+>
+> **Acceptance criterion (bench-observable):** on a fresh v2.6
+> install on bench hardware running sway, `remmina -c
+> vnc://<peer>.mesh:5900` from any peer renders the target peer's
+> live Wayland desktop with mouse + keyboard control.
+
+- [ ] **RD-1: Lock the Wayland VNC server choice — wayvnc vs gnome-remote-desktop.** Recommended path is `wayvnc` (lightweight, sway-native via wlroots screencopy protocol, ~200 KB RPM, no GNOME deps to drag in). Alternative is `gnome-remote-desktop` (more mature, PipeWire-based, but pulls ~30 GNOME packages including mutter components that conflict with sway). Output: design lock note in `docs/design/v2.6-wayland-vnc.md` citing the 5-Q survey result.
+- [ ] **RD-2: RPM spec swap** — in `packaging/fedora/mackes-shell.spec`, replace `Requires: x11vnc` with `Requires: wayvnc` (or the chosen package). Keep `xrdp` + `xrdp-selinux` lines (RDP path is unaffected). Bump RPM dep audit comment dated 2026-05-24.
+- [ ] **RD-3: `mackes/birthright.py::apply_remote_desktop` rewrite** — drop the `x11vnc` install + `x11vnc@:0.service` enable; install `wayvnc` instead; ship a per-user systemd unit `mde-wayvnc.service` that runs `wayvnc <overlay-ip>:5900` after `mackesd::nebula_supervisor` writes `/var/lib/mackesd/nebula/overlay-ip`. Bind to the Nebula overlay IP via `mackes.mesh_nebula.bind_target_for("vnc")` so port 5900 is never exposed on the underlay (mirrors NF-17.5's xrdp pattern). Update the `_run_root(systemctl enable …)` tuple at `birthright.py:782`.
+- [ ] **RD-4: Auth wiring** — wayvnc has no built-in auth by default. Generate a per-peer Ed25519 keypair at birthright time (mirrors mesh_ssh layer A), publish the pubkey via the same mesh object store, write `/etc/wayvnc/config` with `private_key_file=` + `authorized_keys_file=` pointing at the synced bundle. Acceptance: an unenrolled host on the overlay cannot connect even with the right IP.
+- [ ] **RD-5: Help doc + capability list update** — refresh `docs/help/mesh-services.md` (remove the X11-only caveat for VNC), `docs/help/mesh-ssh.md` (cross-link), and the mesh-capabilities summary in `docs/MACKES_SHELL_SPEC.md` §0 (or wherever the consolidated capability list lives). Update CHANGELOG draft entry under the v2.6 release header.
+
 ### v2.0.0 monolithic cut (shipped 2026-05-20)
 
 - [✓] **v2.0.0 cut commit landed (tag `v2.0.0` → fa28cca,
@@ -5103,7 +5134,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
 
 - [✓] **v4.0: VV-2 config generator crate `mde-voice-config` (Tier 1 platform)** *(shipped 2026-05-24 — `VoiceDesired` carries peers + Vitelity sub-account; `generate()` emits real `dispatcher.list` rows + real `uacreg.list` rows + outbound-CID comment; 24 unit tests + 6 insta snapshot fixtures; `mackesd voice render-config` reads operator-visible JSON from `/var/lib/mackesd/voice-desired.json` (or `--desired-json PATH` override) and falls back to `boot_default` when the file is absent; `voice_config` worker seeds the JSON on first boot + triggers `systemctl try-reload-or-restart kamailio-mde rtpengine-mde` on every mtime advance — 6 worker tests cover the seed-then-idle-then-reload cycle. **Deferred to a follow-up:** the policy lifecycle that writes `voice-desired.json` from approved `voice_mesh` / `voice_public` revisions in the store — see VV-2.a below)*
 
-- [ ] **v4.0: VV-2.a policy-lifecycle writer for `voice-desired.json` (Tier 1 platform — VV-2 follow-up)**
+- [✓] **v4.0: VV-2.a policy-lifecycle writer for `voice-desired.json` (Tier 1 platform — VV-2 follow-up)** *(shipped 2026-05-24 — `DesiredSnapshot` carries a default-empty `voice_policies: Vec<Policy>`; new `crate::voice::materialize::materialize_voice_desired()` is invoked from the reconcile `tick()` immediately after `load_desired_snapshot()`; pure-function `build_voice_desired()` derives the `VoiceDesired` document from the snapshot's `Policy::VoiceMesh` rows (sorted by extension, self-row elided, per-peer mesh-address sourced from each peer's `<qnm_root>/<peer_id>/mackesd/nebula-bundle.json:overlay_ip` with `0.0.0.0` fallback when the bundle hasn't replicated yet) + the `Policy::VoicePublic` row matching this peer (populates `vitelity` sub-account + outbound CID); byte-equal idempotence — second tick against an unchanged policy set leaves the file mtime alone so `voice_config` doesn't fire a spurious reload; 10 unit tests cover boot/skip/write/unchanged/changed-policy/bundle-fallback/vitelity-self/vitelity-other/policy-shape/path-constant; tick's IO errors are non-fatal (logged + retried next tick); `DEFAULT_DESIRED_JSON` constant moved to the always-on `voice::materialize` module and re-exported under `workers::voice_config` so the async-services tree keeps its import path; existing 562 lib tests + 7 failure-scenarios integration tests stay green. **Original task body for posterity →**
 
   **As** the operator,
   **I want** approved `Policy::VoiceMesh` + `Policy::VoicePublic`
@@ -5112,7 +5143,6 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
   `voice_config` tick reloads kamailio-mde with the new routing,
   **so that** the Phase-12 draft → approved → applied lifecycle
   is the only thing that needs to mutate voice routing — the
-  override file isn't a parallel operator surface.
 
   **Why split from VV-2:** the existing `DesiredSnapshot` type
   in `crates/mackesd/src/topology/mod.rs` carries `nodes` +
@@ -5125,9 +5155,9 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
   explicitly the open work.
 
   **Acceptance:**
-  - [ ] `DesiredSnapshot` gains a `voice_policies: Vec<Policy>`
+  - [✓] `DesiredSnapshot` gains a `voice_policies: Vec<Policy>`
     field, default-empty for backward compat.
-  - [ ] Reconciler hook: when an `applied` revision's
+  - [✓] Reconciler hook: when an `applied` revision's
     `voice_policies` differs from the last-materialized set,
     rebuild a `VoiceDesired` from (own node identity, peers
     from `nodes`, voice_mesh assigning this peer's extension,
@@ -5136,7 +5166,12 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
   - [ ] Three-peer integration test: approve a `voice_mesh`
     revision; within one `voice_config` tick (~5 s) every peer's
     `voice-desired.json` mtime has moved forward and
-    `kamcmd dispatcher.list` shows the new rows.
+    `kamcmd dispatcher.list` shows the new rows. **Deferred to
+    VV-15 acceptance harness** — needs a live 3-peer Docker
+    fixture with Kamailio booted, which is the VV-15 epic
+    itself, not VV-2.a's scope. The materializer's idempotence
+    + per-peer build are covered by the 10 Rust unit tests
+    listed above.)*
 
   **As** the operator,
   **I want** `mackesd` to generate the four authoritative

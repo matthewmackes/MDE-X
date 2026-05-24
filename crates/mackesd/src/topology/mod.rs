@@ -11,6 +11,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::policy::Policy;
+
 /// One node in the mesh as the topology engine sees it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
@@ -99,6 +101,17 @@ pub struct DesiredSnapshot {
     /// touch settings.
     #[serde(default)]
     pub settings_keys: Vec<(String, String)>,
+
+    /// VV-2.a (v4.0) — approved `Policy::VoiceMesh` +
+    /// `Policy::VoicePublic` revisions. The voice materializer
+    /// hook in the reconciler tick consumes these to rebuild
+    /// `/var/lib/mackesd/voice-desired.json` whenever the set
+    /// changes; `voice_config` then sees the mtime advance and
+    /// reloads `kamailio-mde` + `rtpengine-mde`. Default-empty
+    /// for backward compat with the v3.x `DesiredSnapshot`
+    /// shape that pre-dated voice routing.
+    #[serde(default)]
+    pub voice_policies: Vec<Policy>,
 }
 
 /// Output of `calculate()` — what the reconciler tries to make
@@ -272,6 +285,7 @@ mod tests {
             ],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let topo = calculate(&snap);
         assert_eq!(topo.edges.len(), 3);
@@ -291,6 +305,7 @@ mod tests {
             ],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let topo = calculate(&snap);
         assert_eq!(topo.edges.len(), 1);
@@ -306,6 +321,7 @@ mod tests {
             ],
             allow_east_west: vec![("us-east".into(), "us-east".into())],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let topo = calculate(&snap);
         assert_eq!(topo.edges.len(), 1);
@@ -393,6 +409,7 @@ mod tests {
             ],
             allow_east_west: vec![("us-east".into(), "us-west".into())],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let topo = calculate(&snap);
         assert_eq!(topo.edges.len(), 1);
@@ -412,6 +429,7 @@ mod tests {
             // Allow only us-east <-> us-east — peer:b can't peer directly.
             allow_east_west: vec![("us-east".into(), "us-east".into())],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let topo = calculate(&snap);
         // Route from peer:a to peer:b goes via the Host.
@@ -433,6 +451,7 @@ mod tests {
             ],
             allow_east_west: vec![("us-east".into(), "us-east".into())],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let topo = calculate(&snap);
         let table = &topo.routes["peer:a"];
@@ -534,6 +553,7 @@ mod tests {
             // Allow list set but empty for this pair → block.
             allow_east_west: vec![("us-east".into(), "us-east".into())],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let topo = calculate(&snap);
         assert!(topo.edges.is_empty());

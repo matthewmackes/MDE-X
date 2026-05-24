@@ -97,6 +97,50 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — VV-2.a: policy-lifecycle writer for `voice-desired.json`
+
+Closes the gap VV-2 left open: approved `voice_mesh` +
+`voice_public` revisions in `desired_config.spec_json` now flow
+into `/var/lib/mackesd/voice-desired.json` automatically on every
+reconcile tick, so operators don't have to hand-edit the
+override file to make a new dial plan take effect.
+
+- **New module `mackesd_core::voice::materialize`.** Pure-
+  function `build_voice_desired(snapshot, node_id, address_lookup)`
+  derives a `VoiceDesired` from the snapshot's
+  `Policy::VoiceMesh` + `Policy::VoicePublic` rows: sorts peer
+  rows by extension, drops the self-row from the dispatcher
+  table, looks up per-peer mesh addresses from each peer's
+  `<qnm_root>/<peer_id>/mackesd/nebula-bundle.json:overlay_ip`
+  (with `0.0.0.0` fallback when the bundle hasn't replicated
+  yet), and populates this peer's Vitelity sub-account from the
+  matching `VoicePublic` row.
+- **Idempotent write.** `materialize_voice_desired()` serializes
+  the result and compares byte-for-byte against the existing
+  file; only renames when the bytes differ, so the `voice_config`
+  worker's mtime gate fires exactly once per policy change.
+- **`DesiredSnapshot::voice_policies: Vec<Policy>`** —
+  default-empty for backward compat with the v3.x snapshot shape;
+  the reconciler calls the materializer immediately after
+  `load_desired_snapshot()` and logs `Wrote` / `Unchanged` /
+  `SkippedNoPolicies` per tick.
+- **`DEFAULT_DESIRED_JSON` constant** moved from the
+  async-services `workers::voice_config` module into the
+  always-on `voice::materialize` module + re-exported under the
+  legacy path, so the binary that pulls in workers and the lib
+  that doesn't both reach the same path.
+- 10 unit tests cover empty-snapshot skip, write-on-change,
+  unchanged-on-resubmit, missing-bundle fallback, self-vitelity
+  pickup, other-peer-vitelity rejection, and the
+  non-voice-policy filter (an `AllowEastWest`-only snapshot
+  doesn't touch the file). Existing 562 lib tests + 7
+  failure-scenarios integration tests stay green.
+- **Deferred:** the 3-peer integration test from VV-2.a's
+  acceptance criterion needs a live `kamcmd dispatcher.list`
+  assertion against three running Kamailio peers — that's the
+  VV-15 acceptance harness's scope, not VV-2.a's, and is
+  tracked there.
+
 ## Unreleased — VV-4: voice-routing heuristic + dispatcher priority plumbing
 
 Ships the latency-favoring routing heuristic that picks direct

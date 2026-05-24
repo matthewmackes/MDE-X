@@ -408,6 +408,7 @@ mod tests {
                 ("theme.name".into(), serde_json::json!(42).to_string()),
                 ("display.brightness".into(), serde_json::json!(75).to_string()),
             ],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         let invalids: Vec<_> = errors
@@ -435,6 +436,7 @@ mod tests {
                 ("notification.do_not_disturb".into(), serde_json::json!(true).to_string()),
                 ("autostart.hidden".into(), serde_json::json!(["a.desktop"]).to_string()),
             ],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         let any_setting_error = errors.iter().any(|e| {
@@ -461,6 +463,7 @@ mod tests {
             nodes: vec![n("peer:a", "us-east"), n("peer:b", "us-east")],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         assert!(validate(&snap).is_empty());
     }
@@ -471,6 +474,7 @@ mod tests {
             nodes: vec![n("", "us-east")],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         assert!(errors
@@ -484,6 +488,7 @@ mod tests {
             nodes: vec![n("peer:a", "us-east"), n("peer:a", "us-west")],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         assert!(errors.iter().any(|e| matches!(
@@ -498,6 +503,7 @@ mod tests {
             nodes: vec![n("peer:a", "us-east")],
             allow_east_west: vec![("us-east".into(), "typo-region".into())],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         assert!(errors.iter().any(|e| matches!(
@@ -518,6 +524,7 @@ mod tests {
             nodes: vec![n("", ""), n("", "")],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         // 4 empty-field errors (2 nodes × 2 fields each) + 1 duplicate
@@ -531,6 +538,7 @@ mod tests {
             nodes: vec![n("peer:a", "")],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         assert!(
@@ -547,6 +555,7 @@ mod tests {
             nodes: vec![n("   ", "\t\t")],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         assert_eq!(errors.len(), 2);
@@ -558,6 +567,7 @@ mod tests {
             nodes: vec![n("peer:a", "us-east"), n("peer:b", "us-west")],
             allow_east_west: vec![("us-east".into(), "us-west".into())],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         assert!(validate(&snap).is_empty());
     }
@@ -568,6 +578,7 @@ mod tests {
             nodes: vec![n("peer:a", "us-east")],
             allow_east_west: vec![("typo-a".into(), "typo-b".into())],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let errors = validate(&snap);
         let region_errs: Vec<&str> = errors
@@ -621,6 +632,7 @@ mod tests {
             ],
             allow_east_west: vec![],
             settings_keys: vec![],
+            voice_policies: vec![],
         };
         let dups = validate(&snap)
             .into_iter()

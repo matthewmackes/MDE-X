@@ -10,14 +10,16 @@
 //! when no direct candidate qualifies.
 //!
 //! Pure-function contract: same input always yields exactly the
-//! same output. Callers (the future VV-2.a policy-lifecycle
-//! writer, when it materializes `voice-desired.json` from
-//! approved `voice_mesh` revisions) collect candidates from the
-//! mesh-latency cache + telemetry store and hand a snapshot
+//! same output. Callers (the VV-2.a policy-lifecycle writer in
+//! [`materialize`], when it materializes `voice-desired.json`
+//! from approved `voice_mesh` revisions) collect candidates from
+//! the mesh-latency cache + telemetry store and hand a snapshot
 //! list in. The output `priority` weight gets baked into each
 //! `dispatcher.list` row so Kamailio's dispatcher picks the
 //! direct path when it's healthy and the transit path
 //! otherwise.
+
+pub mod materialize;
 
 use serde::{Deserialize, Serialize};
 

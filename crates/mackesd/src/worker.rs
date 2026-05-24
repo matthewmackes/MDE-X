@@ -253,6 +253,18 @@ pub fn tick(qnm_root: &Path, node_id: &str, db_path: &Path) -> Result<TickOutcom
     let desired_snapshot = load_desired_snapshot(&conn)?;
     let desired_topo = calculate(&desired_snapshot);
 
+    // VV-2.a — materialize the voice-desired.json document from
+    // the snapshot's approved voice policies. Idempotent: only
+    // bumps the file mtime when the serialized bytes differ, so
+    // the `voice_config` worker's mtime gate fires exactly once
+    // per policy change.
+    materialize_voice_desired_for_tick(
+        &desired_snapshot,
+        node_id,
+        qnm_root,
+        &crate::voice::materialize::default_desired_json_path(),
+    );
+
     let topology_diff = diff(&desired_topo, &observed_edges_set);
     let plan = plan_tick(&topology_diff, DEFAULT_AUTO_REPAIR);
 
@@ -409,6 +421,51 @@ pub fn load_desired_snapshot(conn: &Connection) -> Result<DesiredSnapshot> {
             Ok(snap)
         }
         None => Ok(DesiredSnapshot::default()),
+    }
+}
+
+/// VV-2.a — call the voice materializer with best-effort
+/// logging. Wrapped so the reconcile tick can stay
+/// non-fatal on FS errors (writing to `/var/lib/mackesd` can
+/// fail on a read-only mount, full disk, etc., and that
+/// shouldn't poison the whole tick).
+fn materialize_voice_desired_for_tick(
+    snapshot: &DesiredSnapshot,
+    node_id: &str,
+    qnm_root: &Path,
+    desired_json_path: &Path,
+) {
+    match crate::voice::materialize::materialize_voice_desired(
+        snapshot,
+        node_id,
+        qnm_root,
+        desired_json_path,
+    ) {
+        Ok(crate::voice::materialize::MaterializeOutcome::Wrote) => {
+            info!(
+                path = %desired_json_path.display(),
+                voice_policies = snapshot.voice_policies.len(),
+                "voice-desired.json materialized; voice_config will reload on next tick",
+            );
+        }
+        Ok(crate::voice::materialize::MaterializeOutcome::Unchanged) => {
+            debug!(
+                path = %desired_json_path.display(),
+                "voice-desired.json unchanged from previous tick",
+            );
+        }
+        Ok(crate::voice::materialize::MaterializeOutcome::SkippedNoPolicies) => {
+            debug!(
+                "no voice policies in desired snapshot; deferring boot-default seed to voice_config worker",
+            );
+        }
+        Err(e) => {
+            warn!(
+                error = %e,
+                path = %desired_json_path.display(),
+                "voice-desired materialize failed; will retry on next tick",
+            );
+        }
     }
 }
 
