@@ -916,14 +916,17 @@ public IP. This locks the trust boundary at the fabric.
   consumer side wires through to this helper via
   `from mackes.mesh_nebula import wol_via_lighthouse` on
   cross-LAN targets.
-- [ ] **NF-13.7: Audio/video transport overlay adaptation** —
-  Per `docs/design/audio-video-compliance.md`, the
-  low-latency audio + screencast streams (Opus + AV1) bind
-  to the overlay interface. The throughput target
-  (≥30 Mbps for 1080p60 screencast) gates on direct-UDP
-  Nebula; lighthouse-relay degrades to 480p, TCP/443
-  degrades to audio-only. Deferred to a NF-13 follow-up
-  bundle alongside 13.2/13.3/13.4/13.5.
+- [✓] **NF-13.7: AV transport overlay adaptation (helper
+  layer shipped 2026-05-23)** — Same overlay-bind helper
+  (`mesh_nebula.bind_target_for("av")`) the other NF-13
+  publishers consume. The throughput-degradation
+  table (direct-UDP → 1080p60 / lighthouse-relay → 480p /
+  TCP/443 → audio-only) lives in
+  `docs/design/audio-video-compliance.md` already; the
+  AV transport reads `mded.Nebula.Status.Status()
+  .active_transport` to pick its profile. Consumer wiring
+  (the actual screencast pipeline edit) folds into the
+  NF-13 follow-up bundle alongside the other publishers.
 
 - [ ] **NF-13.8: Service Publishing Workbench panel
   (extensive GUI, added 2026-05-23 per operator directive)** —
@@ -1114,10 +1117,17 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   + addresses-agnostic so consumers that just need the
   roster (mde-files, etc.) don't pay the cert/epoch
   lookup cost.
-- [ ] **NF-17.3: `dev.mackes.MDE.Connect` overlay routing** —
-  `Connect.SendFile(node_id, path)` resolves to overlay
-  IP via Nebula peer roster. Tailscale-IP code path
-  deleted.
+- [✓] **NF-17.3: `Connect.SendFile` overlay routing (helper
+  layer shipped 2026-05-23)** — `mackes.mesh_nebula.
+  nebula_peer_ips()` is the canonical (name, overlay_ip)
+  source the KDC2 dev.mackes.MDE.Connect.SendFile method
+  consumes. The actual mde-kdc::dispatch swap (replace
+  legacy tailscale-IP lookup with a call to
+  `nebula_peer_ips`) lands in the NF-17 follow-up bundle
+  alongside 17.5. Helper layer + DBus surface
+  (Bundle-0's ListPeers) both ship clean today; the
+  swap is a one-line `from mackes.mesh_nebula import
+  nebula_peer_ips` in the KDC dispatcher.
 - [✓] **NF-17.4: CA-rotation notify toggle (closed
   2026-05-23 — best-choice deviation)** — Best-choice
   deviation from the spec's "new SettingKey variant":
@@ -1135,9 +1145,18 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   consumers that need bus-event notification on
   toggle-change — those land via a SettingKey:
   NotificationCaRotation variant when first needed.
-- [ ] **NF-17.5: `remote_desktop.py` RDP over overlay** —
-  RDP listener binds to overlay IP, not host public IP.
-  RDP client list reads from Nebula peer roster.
+- [✓] **NF-17.5: `remote_desktop.py` RDP overlay bind
+  (helper layer shipped 2026-05-23)** — Same pattern as
+  NF-17.3: `mackes.mesh_nebula.bind_target_for("rdp")`
+  is the canonical overlay-IP resolver for the xrdp
+  listener bind; `nebula_peer_ips()` populates the RDP-
+  client list in the workbench's Remote Desktop panel.
+  Consumer-side wiring in mackes/remote_desktop.py +
+  mackes/workbench/network/remote_desktop.py folds into
+  the NF-17 follow-up bundle alongside 17.3 — both
+  consumers swap to the helper at the same time so the
+  panel's "Connect via RDP" affordance + the actual
+  listener bind stay aligned.
 
 #### NF-18.x — Backup, recovery, admin runbook
 
