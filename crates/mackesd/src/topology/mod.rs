@@ -52,12 +52,12 @@ pub struct Edge {
 #[serde(rename_all = "snake_case")]
 pub enum EdgeKind {
     /// Best-case: direct UDP between two peers' WireGuard sockets.
-    DirectUdp,
+    NebulaDirect,
     /// Tailscale's relayed-via-DERP transport (used when direct UDP
     /// fails NAT traversal).
-    DerpRelay,
+    NebulaLighthouseRelay,
     /// HTTPS-tunneled fallback over TCP/443 (per 12.18).
-    Https443,
+    NebulaHttps443,
     /// KDE Connect wire over TLS (KDC2-1, v2.1 lock 2026-05-22).
     /// Used for phone↔peer + peer↔peer-via-KDC paths once
     /// `mde-kdc` (KDC2-3) lands. The reconciler renders KDC edges
@@ -72,9 +72,9 @@ impl From<mackes_transport::TransportKind> for EdgeKind {
     /// corresponding `EdgeKind`.
     fn from(t: mackes_transport::TransportKind) -> Self {
         match t {
-            mackes_transport::TransportKind::DirectUdp => EdgeKind::DirectUdp,
-            mackes_transport::TransportKind::DerpRelay => EdgeKind::DerpRelay,
-            mackes_transport::TransportKind::Https443 => EdgeKind::Https443,
+            mackes_transport::TransportKind::NebulaDirect => EdgeKind::NebulaDirect,
+            mackes_transport::TransportKind::NebulaLighthouseRelay => EdgeKind::NebulaLighthouseRelay,
+            mackes_transport::TransportKind::NebulaHttps443 => EdgeKind::NebulaHttps443,
             mackes_transport::TransportKind::KdcTls => EdgeKind::KdcTls,
         }
     }
@@ -133,7 +133,7 @@ pub fn calculate(snapshot: &DesiredSnapshot) -> TopologySnapshot {
             edges.insert(Edge {
                 a: lo.to_owned(),
                 b: hi.to_owned(),
-                kind: EdgeKind::DirectUdp,
+                kind: EdgeKind::NebulaDirect,
             });
         }
     }
@@ -152,7 +152,7 @@ pub fn calculate(snapshot: &DesiredSnapshot) -> TopologySnapshot {
             let direct = edges.contains(&Edge {
                 a: lo.to_owned(),
                 b: hi.to_owned(),
-                kind: EdgeKind::DirectUdp,
+                kind: EdgeKind::NebulaDirect,
             });
             let next_hop = if direct {
                 String::new()
@@ -321,7 +321,7 @@ mod tests {
                 .map(|(a, b)| Edge {
                     a: (*a).to_owned(),
                     b: (*b).to_owned(),
-                    kind: EdgeKind::DirectUdp,
+                    kind: EdgeKind::NebulaDirect,
                 })
                 .collect(),
             routes: BTreeMap::new(),
@@ -449,7 +449,7 @@ mod tests {
                 .map(|(a, b)| Edge {
                     a: (*a).to_owned(),
                     b: (*b).to_owned(),
-                    kind: EdgeKind::DirectUdp,
+                    kind: EdgeKind::NebulaDirect,
                 })
                 .collect(),
             routes: BTreeMap::new(),
@@ -468,17 +468,17 @@ mod tests {
         let e1 = Edge {
             a: "a".into(),
             b: "b".into(),
-            kind: EdgeKind::DirectUdp,
+            kind: EdgeKind::NebulaDirect,
         };
         let e2 = Edge {
             a: "a".into(),
             b: "b".into(),
-            kind: EdgeKind::DerpRelay,
+            kind: EdgeKind::NebulaLighthouseRelay,
         };
         let e3 = Edge {
             a: "a".into(),
             b: "b".into(),
-            kind: EdgeKind::Https443,
+            kind: EdgeKind::NebulaHttps443,
         };
         let mut set = BTreeSet::new();
         set.insert(e1);
@@ -491,13 +491,13 @@ mod tests {
     fn edge_kind_serializes_snake_case() {
         // Wire compatibility across the panel/daemon split — these
         // snake_case strings are the ABI.
-        let k1 = serde_json::to_string(&EdgeKind::DirectUdp).unwrap();
-        let k2 = serde_json::to_string(&EdgeKind::DerpRelay).unwrap();
-        let k3 = serde_json::to_string(&EdgeKind::Https443).unwrap();
+        let k1 = serde_json::to_string(&EdgeKind::NebulaDirect).unwrap();
+        let k2 = serde_json::to_string(&EdgeKind::NebulaLighthouseRelay).unwrap();
+        let k3 = serde_json::to_string(&EdgeKind::NebulaHttps443).unwrap();
         let k4 = serde_json::to_string(&EdgeKind::KdcTls).unwrap();
-        assert_eq!(k1, "\"direct_udp\"");
-        assert_eq!(k2, "\"derp_relay\"");
-        assert_eq!(k3, "\"https443\"");
+        assert_eq!(k1, "\"nebula_direct\"");
+        assert_eq!(k2, "\"nebula_lighthouse_relay\"");
+        assert_eq!(k3, "\"nebula_https443\"");
         assert_eq!(k4, "\"kdc_tls\"");
     }
 

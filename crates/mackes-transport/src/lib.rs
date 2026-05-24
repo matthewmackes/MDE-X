@@ -50,12 +50,12 @@ pub use transport_capabilities::{EncryptionKind, TransportCapabilities};
 #[serde(rename_all = "snake_case")]
 pub enum TransportKind {
     /// Best-case: direct UDP between two peers' WireGuard sockets
-    /// (matches `EdgeKind::DirectUdp`).
-    DirectUdp,
-    /// Tailscale DERP relay fallback (matches `EdgeKind::DerpRelay`).
-    DerpRelay,
-    /// HTTPS-tunneled TCP/443 (matches `EdgeKind::Https443`).
-    Https443,
+    /// (matches `EdgeKind::NebulaDirect`).
+    NebulaDirect,
+    /// Tailscale DERP relay fallback (matches `EdgeKind::NebulaLighthouseRelay`).
+    NebulaLighthouseRelay,
+    /// HTTPS-tunneled TCP/443 (matches `EdgeKind::NebulaHttps443`).
+    NebulaHttps443,
     /// KDE Connect wire over TLS (matches `EdgeKind::KdcTls`, lands
     /// with the KDC2 work). Used for phone↔peer and peer↔peer-via-
     /// KDC links once mesh-shunt (KDC2-4) wires phones up to the
@@ -69,18 +69,18 @@ impl TransportKind {
     /// + capabilities. Lower-latency transports come first.
     ///
     /// This order is locked by the v12 throughput-first routing
-    /// survey (`project_v12_connectivity_scope.md`): DirectUdp >
-    /// KdcTls > DerpRelay > Https443. KdcTls outranks DerpRelay
+    /// survey (`project_v12_connectivity_scope.md`): NebulaDirect >
+    /// KdcTls > NebulaLighthouseRelay > NebulaHttps443. KdcTls outranks NebulaLighthouseRelay
     /// because the KDC handshake reuses a long-lived TLS session
     /// (~0 RTT for steady-state messages), where DERP requires a
     /// fresh client every minute.
     #[must_use]
     pub const fn all() -> [TransportKind; 4] {
         [
-            TransportKind::DirectUdp,
+            TransportKind::NebulaDirect,
             TransportKind::KdcTls,
-            TransportKind::DerpRelay,
-            TransportKind::Https443,
+            TransportKind::NebulaLighthouseRelay,
+            TransportKind::NebulaHttps443,
         ]
     }
 
@@ -90,8 +90,8 @@ impl TransportKind {
     /// places.
     ///
     /// Note: serde's `snake_case` rule only splits at letter-case
-    /// transitions, NOT before digit groups — so `Https443`
-    /// becomes `https443`, not `https_443`. `EdgeKind::Https443`
+    /// transitions, NOT before digit groups — so `NebulaHttps443`
+    /// becomes `https443`, not `https_443`. `EdgeKind::NebulaHttps443`
     /// already serializes that way in production audit chains
     /// (mackesd::topology unit test locks the token); the
     /// `Display` and `as_str` outputs must stay aligned to avoid
@@ -99,10 +99,25 @@ impl TransportKind {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            TransportKind::DirectUdp => "direct_udp",
-            TransportKind::DerpRelay => "derp_relay",
-            TransportKind::Https443 => "https443",
+            TransportKind::NebulaDirect => "nebula_direct",
+            TransportKind::NebulaLighthouseRelay => "nebula_lighthouse_relay",
+            TransportKind::NebulaHttps443 => "nebula_https443",
             TransportKind::KdcTls => "kdc_tls",
+        }
+    }
+
+    /// NF-4.3 — translate a legacy pre-v2.5 token (one of
+    /// `"direct_udp"` / `"derp_relay"` / `"https443"`) to the
+    /// current v2.5 token. The wizard + `policy::migrate_tokens`
+    /// path call this to rewrite hand-edited policy.toml files
+    /// on first boot under the new naming.
+    #[must_use]
+    pub fn rewrite_legacy_token(token: &str) -> Option<&'static str> {
+        match token {
+            "direct_udp" => Some("nebula_direct"),
+            "derp_relay" => Some("nebula_lighthouse_relay"),
+            "https443" => Some("nebula_https443"),
+            _ => None,
         }
     }
 }
@@ -161,7 +176,7 @@ pub struct Capabilities {
     pub carries: MessageClassSet,
     /// Operator-readable name for log lines + audit entries.
     /// Independent of `TransportKind::as_str` so two
-    /// implementations of the same kind (e.g. `DirectUdp` over
+    /// implementations of the same kind (e.g. `NebulaDirect` over
     /// wireguard vs. over plain socket) can differentiate.
     pub label: String,
 }
@@ -174,7 +189,7 @@ pub struct Capabilities {
 ///   * `Control` — KDC always (paired-device commands, ring, find).
 ///   * `Clipboard` — best-path (latency-bound, small frames).
 ///   * `FileBulk` — throughput-best (large frames, DERP/HTTPS only
-///     when DirectUdp is unhealthy).
+///     when NebulaDirect is unhealthy).
 ///   * `Notification` — dual-send, idempotent at receiver. Router
 ///     sends through every healthy transport; receiver dedupes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -369,30 +384,52 @@ mod tests {
     #[test]
     fn transport_kind_preference_order_locks_v12_routing() {
         let order = TransportKind::all();
-        assert_eq!(order[0], TransportKind::DirectUdp);
+        assert_eq!(order[0], TransportKind::NebulaDirect);
         assert_eq!(order[1], TransportKind::KdcTls);
-        assert_eq!(order[2], TransportKind::DerpRelay);
-        assert_eq!(order[3], TransportKind::Https443);
+        assert_eq!(order[2], TransportKind::NebulaLighthouseRelay);
+        assert_eq!(order[3], TransportKind::NebulaHttps443);
     }
 
     #[test]
     fn transport_kind_serializes_snake_case() {
+        // NF-4.1 (v2.5) — tokens renamed under the
+        // tailscaled-supersedes-by-nebula rebrand.
         assert_eq!(
-            serde_json::to_string(&TransportKind::DirectUdp).unwrap(),
-            r#""direct_udp""#,
+            serde_json::to_string(&TransportKind::NebulaDirect).unwrap(),
+            r#""nebula_direct""#,
         );
         assert_eq!(
             serde_json::to_string(&TransportKind::KdcTls).unwrap(),
             r#""kdc_tls""#,
         );
         assert_eq!(
-            serde_json::to_string(&TransportKind::DerpRelay).unwrap(),
-            r#""derp_relay""#,
+            serde_json::to_string(&TransportKind::NebulaLighthouseRelay).unwrap(),
+            r#""nebula_lighthouse_relay""#,
         );
         assert_eq!(
-            serde_json::to_string(&TransportKind::Https443).unwrap(),
-            r#""https443""#,
+            serde_json::to_string(&TransportKind::NebulaHttps443).unwrap(),
+            r#""nebula_https443""#,
         );
+    }
+
+    #[test]
+    fn rewrite_legacy_token_maps_v1_to_v2_5() {
+        // NF-4.3 — migration helper for hand-edited
+        // policy.toml files.
+        assert_eq!(
+            TransportKind::rewrite_legacy_token("direct_udp"),
+            Some("nebula_direct"),
+        );
+        assert_eq!(
+            TransportKind::rewrite_legacy_token("derp_relay"),
+            Some("nebula_lighthouse_relay"),
+        );
+        assert_eq!(
+            TransportKind::rewrite_legacy_token("https443"),
+            Some("nebula_https443"),
+        );
+        assert_eq!(TransportKind::rewrite_legacy_token("kdc_tls"), None);
+        assert_eq!(TransportKind::rewrite_legacy_token("ghost"), None);
     }
 
     #[test]

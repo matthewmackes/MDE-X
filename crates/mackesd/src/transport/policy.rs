@@ -283,9 +283,9 @@ fn parse_transport_kinds(names: Vec<String>) -> Result<Vec<TransportKind>, Polic
     let mut out = Vec::with_capacity(names.len());
     for name in names {
         let kind = match name.as_str() {
-            "direct_udp" => TransportKind::DirectUdp,
-            "derp_relay" => TransportKind::DerpRelay,
-            "https443" => TransportKind::Https443,
+            "direct_udp" => TransportKind::NebulaDirect,
+            "derp_relay" => TransportKind::NebulaLighthouseRelay,
+            "https443" => TransportKind::NebulaHttps443,
             "kdc_tls" => TransportKind::KdcTls,
             other => return Err(PolicyError::UnknownTransportKind(other.to_string())),
         };
@@ -337,7 +337,7 @@ mod tests {
         let p = parse_policy(raw).unwrap();
         assert_eq!(
             p.scorer.pinned_primary,
-            vec![TransportKind::DirectUdp, TransportKind::KdcTls],
+            vec![TransportKind::NebulaDirect, TransportKind::KdcTls],
         );
     }
 

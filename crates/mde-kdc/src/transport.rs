@@ -4,7 +4,7 @@
 //! store (KDC2-3.7) + the discovery registry (KDC2-2.11) into the
 //! `mackes_transport::Transport` trait. The mesh router (KDC2-1.8
 //! worker) dispatches through this impl exactly the same way it
-//! dispatches through DirectUdp / DerpRelay / Https443.
+//! dispatches through NebulaDirect / NebulaLighthouseRelay / NebulaHttps443.
 //!
 //! ## Real TLS network layer (KDC2-2.8 closure, 2026-05-23)
 //!

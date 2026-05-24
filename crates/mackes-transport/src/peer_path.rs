@@ -5,7 +5,7 @@
 //! peer, which is fallback, when the last switch happened, and
 //! why. Per-message-class overrides let an operator pin (for
 //! example) a `FileBulk` transport to KdcTls even when the
-//! router's health-based default would pick DirectUdp.
+//! router's health-based default would pick NebulaDirect.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -20,7 +20,7 @@ use crate::{MessageClass, TransportKind};
 /// into a per-peer `FailureWindow` (re-exported from
 /// `mackesd::https_fallback`). When the failure window meets the
 /// 3-cycle threshold, this state advances from `Inactive` to
-/// `Activating`; once the Https443 transport reports a successful
+/// `Activating`; once the NebulaHttps443 transport reports a successful
 /// TLS handshake, to `Active`. A fresh direct-UDP-or-DERP success
 /// snaps it back to `Inactive`.
 ///
@@ -96,7 +96,7 @@ pub enum SwitchReason {
     /// explicitly preferred this transport.
     Policy,
     /// Operator manually pinned the path (e.g. via
-    /// `mde-kdc pin DirectUdp peer-id`).
+    /// `mde-kdc pin NebulaDirect peer-id`).
     ManualOverride,
     /// Router observed flapping (rapid back-and-forth) on the
     /// previous transport and applied a 5-minute cooldown
@@ -104,7 +104,7 @@ pub enum SwitchReason {
     FlapPenalty,
     /// KDC2-4.5 — phone went off-LAN; mesh-shunt activated,
     /// router now reaches the phone via a neighbor MDE peer's
-    /// KDC channel. Distinct from `HealthDegraded(DirectUdp)`
+    /// KDC channel. Distinct from `HealthDegraded(NebulaDirect)`
     /// so the audit log + operator UI can show "via peer-A"
     /// instead of "direct UDP lost."
     MeshShuntActivated,
@@ -248,9 +248,9 @@ mod tests {
 
     #[test]
     fn peer_path_initial_construction_sets_expected_defaults() {
-        let p = PeerPath::initial("peer-A".into(), TransportKind::DirectUdp);
+        let p = PeerPath::initial("peer-A".into(), TransportKind::NebulaDirect);
         assert_eq!(p.peer_id, "peer-A");
-        assert_eq!(p.primary, TransportKind::DirectUdp);
+        assert_eq!(p.primary, TransportKind::NebulaDirect);
         assert_eq!(p.fallback, None);
         assert_eq!(p.last_switch_at, None);
         assert_eq!(p.last_switch_reason, SwitchReason::Initial);
@@ -260,20 +260,20 @@ mod tests {
 
     #[test]
     fn transport_for_returns_primary_when_no_override() {
-        let p = PeerPath::initial("p".into(), TransportKind::DirectUdp);
+        let p = PeerPath::initial("p".into(), TransportKind::NebulaDirect);
         for class in [
             MessageClass::Control,
             MessageClass::Clipboard,
             MessageClass::FileBulk,
             MessageClass::Notification,
         ] {
-            assert_eq!(p.transport_for(class), TransportKind::DirectUdp);
+            assert_eq!(p.transport_for(class), TransportKind::NebulaDirect);
         }
     }
 
     #[test]
     fn transport_for_honors_override() {
-        let mut p = PeerPath::initial("p".into(), TransportKind::DirectUdp);
+        let mut p = PeerPath::initial("p".into(), TransportKind::NebulaDirect);
         p.message_class_overrides
             .insert(MessageClass::FileBulk, TransportKind::KdcTls);
         assert_eq!(
@@ -283,7 +283,7 @@ mod tests {
         // Other classes still fall through to primary.
         assert_eq!(
             p.transport_for(MessageClass::Clipboard),
-            TransportKind::DirectUdp,
+            TransportKind::NebulaDirect,
         );
     }
 
@@ -291,8 +291,8 @@ mod tests {
     fn switch_reason_audit_token_health_degraded_includes_transport() {
         let r = SwitchReason::HealthDegraded(TransportKind::KdcTls);
         assert_eq!(r.audit_token(), "health_degraded_kdc_tls");
-        let r = SwitchReason::HealthDegraded(TransportKind::Https443);
-        assert_eq!(r.audit_token(), "health_degraded_https443");
+        let r = SwitchReason::HealthDegraded(TransportKind::NebulaHttps443);
+        assert_eq!(r.audit_token(), "health_degraded_nebula_https443");
     }
 
     #[test]
@@ -346,11 +346,11 @@ mod tests {
     #[test]
     fn peer_path_round_trips_through_json() {
         let mut p = PeerPath::initial("peer-X".into(), TransportKind::KdcTls);
-        p.fallback = Some(TransportKind::DerpRelay);
-        p.last_switch_reason = SwitchReason::HealthDegraded(TransportKind::DirectUdp);
+        p.fallback = Some(TransportKind::NebulaLighthouseRelay);
+        p.last_switch_reason = SwitchReason::HealthDegraded(TransportKind::NebulaDirect);
         p.health_score = 0.85;
         p.message_class_overrides
-            .insert(MessageClass::FileBulk, TransportKind::Https443);
+            .insert(MessageClass::FileBulk, TransportKind::NebulaHttps443);
         // SystemTime serializes (we don't use it in the round-
         // trip test to keep the JSON deterministic across runs).
         let s = serde_json::to_string(&p).unwrap();

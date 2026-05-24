@@ -319,9 +319,9 @@ pub fn read_all_heartbeats(qnm_root: &Path) -> Vec<Heartbeat> {
 ///
 /// An observed edge exists between peer A and B when A's `links.json`
 /// records a `LinkSample` with `rtt_ms = Some` (i.e. the probe
-/// actually reached). The kind is hard-coded to `DirectUdp` today;
+/// actually reached). The kind is hard-coded to `NebulaDirect` today;
 /// once the transport classifier ships (12.14+), the worker fills in
-/// `DerpRelay` / `Https443` from the probe metadata.
+/// `NebulaLighthouseRelay` / `NebulaHttps443` from the probe metadata.
 #[must_use]
 pub fn read_all_observed_edges(qnm_root: &Path) -> TopologySnapshot {
     use std::collections::BTreeSet;
@@ -369,7 +369,7 @@ pub fn read_all_observed_edges(qnm_root: &Path) -> TopologySnapshot {
             edges.insert(Edge {
                 a,
                 b,
-                kind: EdgeKind::DirectUdp,
+                kind: EdgeKind::NebulaDirect,
             });
         }
     }

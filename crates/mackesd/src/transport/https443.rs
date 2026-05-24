@@ -1,4 +1,4 @@
-//! Phase 12.18 D.2 — `Https443Transport` implementation.
+//! Phase 12.18 D.2 — `NebulaHttps443Transport` implementation.
 //!
 //! Closes the v3.0.3 [!] 12.18 second-half blocker by shipping
 //! the real `Transport` impl backing the
@@ -38,7 +38,7 @@
 //!
 //! ## Wiring back to the mesh-router
 //!
-//! `Https443Transport::open()` doesn't directly call into
+//! `NebulaHttps443Transport::open()` doesn't directly call into
 //! `MeshRouterWorker::observe_handshake_outcome`; that would
 //! couple the transport to the router unnecessarily. Instead,
 //! the caller (the future scorer integration KDC2-1.9 + the
@@ -78,7 +78,7 @@ pub const FALLBACK_HOST_ENV: &str = "MDE_HTTPS_FALLBACK_HOST";
 pub const DEFAULT_TLS_PORT: u16 = 443;
 
 /// Decoded fallback host config. Built once from the env var
-/// + held on the `Https443Transport`.
+/// + held on the `NebulaHttps443Transport`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FallbackHostConfig {
     /// Hostname for SNI + TLS verification (must match the
@@ -184,7 +184,7 @@ pub fn build_system_client_config() -> Result<rustls::ClientConfig, TransportErr
 /// [`HttpsFallbackState`](mackes_transport::peer_path::HttpsFallbackState)
 /// transitions to `Activating`.
 #[derive(Debug)]
-pub struct Https443Transport {
+pub struct NebulaHttps443Transport {
     /// Decoded fallback host, or `None` when no env var was set.
     config: Option<FallbackHostConfig>,
     /// Cached rustls config. Built once + reused across opens
@@ -193,7 +193,7 @@ pub struct Https443Transport {
     tls_config: Option<Arc<rustls::ClientConfig>>,
 }
 
-impl Https443Transport {
+impl NebulaHttps443Transport {
     /// Construct the transport from the current environment.
     /// Reads `MDE_HTTPS_FALLBACK_HOST` + loads the system trust
     /// store; both are cached for the transport's lifetime.
@@ -207,7 +207,7 @@ impl Https443Transport {
         if config.is_none() {
             warn!(
                 env = FALLBACK_HOST_ENV,
-                "Https443: no fallback host configured; transport will return Misconfigured on every open"
+                "NebulaHttps443: no fallback host configured; transport will return Misconfigured on every open"
             );
         }
         let tls_config = match build_system_client_config() {
@@ -215,7 +215,7 @@ impl Https443Transport {
             Err(e) => {
                 warn!(
                     error = %e.code(),
-                    "Https443: system trust store unavailable; transport will return Misconfigured on every open"
+                    "NebulaHttps443: system trust store unavailable; transport will return Misconfigured on every open"
                 );
                 None
             }
@@ -249,30 +249,30 @@ impl Https443Transport {
     }
 }
 
-impl Default for Https443Transport {
+impl Default for NebulaHttps443Transport {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Live `Connection` returned by [`Https443Transport::open`].
+/// Live `Connection` returned by [`NebulaHttps443Transport::open`].
 /// Wraps the `tokio_rustls::client::TlsStream<TcpStream>`
 /// produced by the system-trust-rooted handshake.
-pub struct Https443Connection {
+pub struct NebulaHttps443Connection {
     id: String,
     stream: AsyncMutex<TlsStream<TcpStream>>,
 }
 
-impl std::fmt::Debug for Https443Connection {
+impl std::fmt::Debug for NebulaHttps443Connection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Https443Connection")
+        f.debug_struct("NebulaHttps443Connection")
             .field("id", &self.id)
             .field("stream", &"<TlsStream<TcpStream>>")
             .finish()
     }
 }
 
-impl Https443Connection {
+impl NebulaHttps443Connection {
     /// Take an exclusive lock on the TLS stream. The future
     /// frame-codec writer (D.3) writes through this.
     pub async fn lock_stream(&self) -> tokio::sync::MutexGuard<'_, TlsStream<TcpStream>> {
@@ -280,16 +280,16 @@ impl Https443Connection {
     }
 }
 
-impl Connection for Https443Connection {
+impl Connection for NebulaHttps443Connection {
     fn id(&self) -> &str {
         &self.id
     }
 }
 
 #[async_trait]
-impl Transport for Https443Transport {
+impl Transport for NebulaHttps443Transport {
     fn kind(&self) -> TransportKind {
-        TransportKind::Https443
+        TransportKind::NebulaHttps443
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -305,7 +305,7 @@ impl Transport for Https443Transport {
             // Carries every class — the fallback is a
             // last-resort tunnel.
             carries: MessageClassSet::all(),
-            label: "https443".to_string(),
+            label: "nebula_https443".to_string(),
         }
     }
 
@@ -315,7 +315,7 @@ impl Transport for Https443Transport {
         // store loaded). When ready, it's optimistically
         // Healthy; opens that fail later flip to Down via the
         // mesh-router's observation. When not ready, it's Down
-        // so the router never picks Https443 as primary.
+        // so the router never picks NebulaHttps443 as primary.
         if self.ready() {
             HealthState::Healthy
         } else {
@@ -344,7 +344,7 @@ impl Transport for Https443Transport {
             .connect(sni, tcp)
             .await
             .map_err(|_e| TransportError::HandshakeFailed { code: "tls_failed" })?;
-        Ok(Box::new(Https443Connection {
+        Ok(Box::new(NebulaHttps443Connection {
             id: format!("https443:{peer_id}"),
             stream: AsyncMutex::new(stream),
         }))
@@ -401,24 +401,24 @@ mod tests {
         // Constructing with explicit None config so we don't
         // pollute the test runtime's env / fail on missing
         // trust store.
-        let t = Https443Transport::with_config_and_tls(None, None);
-        assert_eq!(t.kind(), TransportKind::Https443);
+        let t = NebulaHttps443Transport::with_config_and_tls(None, None);
+        assert_eq!(t.kind(), TransportKind::NebulaHttps443);
     }
 
     #[test]
     fn capabilities_carry_every_class_and_label_https443() {
-        let t = Https443Transport::with_config_and_tls(None, None);
+        let t = NebulaHttps443Transport::with_config_and_tls(None, None);
         let caps = t.capabilities();
         assert!(caps.carries.control);
         assert!(caps.carries.clipboard);
         assert!(caps.carries.file_bulk);
         assert!(caps.carries.notification);
-        assert_eq!(caps.label, "https443");
+        assert_eq!(caps.label, "nebula_https443");
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn open_without_config_returns_misconfigured_no_fallback_host() {
-        let t = Https443Transport::with_config_and_tls(None, None);
+        let t = NebulaHttps443Transport::with_config_and_tls(None, None);
         let err = t.open("alice").await.expect_err("must fail");
         match err {
             TransportError::Misconfigured { code } => {
@@ -430,7 +430,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn open_with_config_but_no_tls_returns_misconfigured_no_trust_store() {
-        let t = Https443Transport::with_config_and_tls(
+        let t = NebulaHttps443Transport::with_config_and_tls(
             Some(FallbackHostConfig {
                 host: "example.com".into(),
                 port: 443,
@@ -448,7 +448,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn probe_returns_down_when_not_ready() {
-        let t = Https443Transport::with_config_and_tls(None, None);
+        let t = NebulaHttps443Transport::with_config_and_tls(None, None);
         assert_eq!(t.probe("alice").await, HealthState::Down);
         assert_eq!(t.health("alice").await, HealthState::Down);
     }
@@ -459,8 +459,8 @@ mod tests {
             host: "example.com".into(),
             port: 443,
         };
-        assert!(!Https443Transport::with_config_and_tls(None, None).ready());
-        assert!(!Https443Transport::with_config_and_tls(Some(cfg.clone()), None).ready());
+        assert!(!NebulaHttps443Transport::with_config_and_tls(None, None).ready());
+        assert!(!NebulaHttps443Transport::with_config_and_tls(Some(cfg.clone()), None).ready());
     }
 
     // ------- Loopback TLS integration -------------------------------
@@ -551,7 +551,7 @@ mod tests {
         let (cert, key) = issue_loopback_cert(host);
         let addr = spawn_loopback_https(cert.clone(), key);
         let tls_config = loopback_tls_config(&cert);
-        let t = Https443Transport::with_config_and_tls(
+        let t = NebulaHttps443Transport::with_config_and_tls(
             Some(FallbackHostConfig {
                 host: host.into(),
                 port: addr.port(),
@@ -593,7 +593,7 @@ mod tests {
         let (cert, key) = issue_loopback_cert(host);
         let addr = spawn_loopback_https(cert.clone(), key);
         let tls_config = loopback_tls_config(&cert);
-        let t = Https443Transport::with_config_and_tls(
+        let t = NebulaHttps443Transport::with_config_and_tls(
             Some(FallbackHostConfig {
                 host: "127.0.0.1".into(),
                 port: addr.port(),

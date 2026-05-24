@@ -166,7 +166,7 @@ impl MeshRouterWorker {
     ///
     /// Phase 12.18 D.3 (2026-05-23) — `tick_once` now drives the
     /// HTTPS-fallback activation slice: for every peer in the
-    /// `Activating` state, locate the `Https443` transport in
+    /// `Activating` state, locate the `NebulaHttps443` transport in
     /// the registry, call its `open(peer_id)`, and feed the
     /// `Ok` / `Err` result back through
     /// `observe_handshake_outcome` so the state machine advances
@@ -199,13 +199,13 @@ impl MeshRouterWorker {
     }
 
     /// Phase 12.18 D.3 — for every peer in `Activating`, open
-    /// the registered `Https443` transport + feed the result
+    /// the registered `NebulaHttps443` transport + feed the result
     /// back into the state machine.
     ///
     /// Behavior:
     ///   * Snapshots the `Activating` peer-id list under a read
     ///     lock (released before any network IO).
-    ///   * Finds the first `TransportKind::Https443` in the
+    ///   * Finds the first `TransportKind::NebulaHttps443` in the
     ///     registry (today there's at most one; the registry
     ///     intentionally allows multiple impls for future
     ///     experimentation).
@@ -219,11 +219,11 @@ impl MeshRouterWorker {
     /// tick. Exposed so tests + operator-mode smokes can
     /// exercise the drive without owning the full tick loop.
     pub async fn drive_https_fallback_activations(&self) -> usize {
-        // Look up the Https443 transport; bail without an
+        // Look up the NebulaHttps443 transport; bail without an
         // attempt count if none is registered (D.2 hasn't
         // landed in the registry yet, or the deployment chose
         // not to register one).
-        let https443 = match self.find_transport(TransportKind::Https443) {
+        let https443 = match self.find_transport(TransportKind::NebulaHttps443) {
             Some(t) => t,
             None => return 0,
         };
@@ -250,12 +250,12 @@ impl MeshRouterWorker {
                 info!(
                     peer = %peer_id,
                     code = e.code(),
-                    "mesh-router: Https443::open failed; marking peer Failing",
+                    "mesh-router: NebulaHttps443::open failed; marking peer Failing",
                 );
             } else {
                 info!(
                     peer = %peer_id,
-                    "mesh-router: Https443::open succeeded; peer Active",
+                    "mesh-router: NebulaHttps443::open succeeded; peer Active",
                 );
             }
             // Drop the live Connection — D.3 closes the
@@ -335,7 +335,7 @@ impl MeshRouterWorker {
     }
 
     /// Phase 12.18 wire — feed a TLS-handshake-completion signal
-    /// into the per-peer HTTPS-fallback machine. The Https443
+    /// into the per-peer HTTPS-fallback machine. The NebulaHttps443
     /// transport's open() result wires here once the v3.0.3
     /// 12.18 closure ships the transport (D.2 follow-up).
     pub async fn observe_handshake_outcome(
@@ -366,7 +366,7 @@ mod tests {
 
     fn new_registry() -> TransportRegistry {
         Arc::new(vec![
-            Arc::new(MockTransport::new(TransportKind::DirectUdp)) as Arc<dyn Transport>,
+            Arc::new(MockTransport::new(TransportKind::NebulaDirect)) as Arc<dyn Transport>,
             Arc::new(MockTransport::new(TransportKind::KdcTls)) as Arc<dyn Transport>,
         ])
     }
@@ -398,7 +398,7 @@ mod tests {
             let mut s = state.write().await;
             s.insert(
                 "peer-A".into(),
-                PeerPath::initial("peer-A".into(), TransportKind::DirectUdp),
+                PeerPath::initial("peer-A".into(), TransportKind::NebulaDirect),
             );
             s.insert(
                 "peer-B".into(),
@@ -441,10 +441,10 @@ mod tests {
 
     #[test]
     fn detect_switch_returns_none_when_primary_unchanged() {
-        let prior = PeerPath::initial("p".into(), TransportKind::DirectUdp);
+        let prior = PeerPath::initial("p".into(), TransportKind::NebulaDirect);
         let r = MeshRouterWorker::detect_switch(
             &prior,
-            TransportKind::DirectUdp,
+            TransportKind::NebulaDirect,
             SwitchReason::Initial,
             0,
         );
@@ -453,19 +453,19 @@ mod tests {
 
     #[test]
     fn detect_switch_emits_when_primary_flips() {
-        let prior = PeerPath::initial("peer-A".into(), TransportKind::DirectUdp);
+        let prior = PeerPath::initial("peer-A".into(), TransportKind::NebulaDirect);
         let event = MeshRouterWorker::detect_switch(
             &prior,
             TransportKind::KdcTls,
-            SwitchReason::HealthDegraded(TransportKind::DirectUdp),
+            SwitchReason::HealthDegraded(TransportKind::NebulaDirect),
             1_700_000_000_000,
         )
         .expect("primary flipped → event emitted");
         let summary = event.summary();
         assert!(summary.contains("peer=peer-A"));
-        assert!(summary.contains("from=direct_udp"));
+        assert!(summary.contains("from=nebula_direct"));
         assert!(summary.contains("to=kdc_tls"));
-        assert!(summary.contains("reason=health_degraded_direct_udp"));
+        assert!(summary.contains("reason=health_degraded_nebula_direct"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -498,7 +498,7 @@ mod tests {
             let mut g = state.write().await;
             g.insert(
                 "alice".into(),
-                PeerPath::initial("alice".into(), TransportKind::DirectUdp),
+                PeerPath::initial("alice".into(), TransportKind::NebulaDirect),
             );
         }
         let w = MeshRouterWorker::new(Arc::clone(&state), new_registry());
@@ -545,7 +545,7 @@ mod tests {
             let mut g = state.write().await;
             g.insert(
                 "alice".into(),
-                PeerPath::initial("alice".into(), TransportKind::DirectUdp),
+                PeerPath::initial("alice".into(), TransportKind::NebulaDirect),
             );
         }
         let w = MeshRouterWorker::new(Arc::clone(&state), new_registry());
@@ -569,23 +569,23 @@ mod tests {
     // --- Phase 12.18 D.3 — drive_https_fallback_activations ------------
 
     /// Build a router whose registry holds a MockTransport
-    /// pretending to be Https443. MockTransport's `open` returns
+    /// pretending to be NebulaHttps443. MockTransport's `open` returns
     /// Ok for `peer_id == "paired"` and Err otherwise — which
     /// matches the activation drive's call shape: feed the
     /// per-peer peer_id, get a result back.
     fn https443_registry() -> TransportRegistry {
-        Arc::new(vec![Arc::new(MockTransport::new(TransportKind::Https443))
+        Arc::new(vec![Arc::new(MockTransport::new(TransportKind::NebulaHttps443))
             as Arc<dyn Transport>])
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn drive_returns_zero_when_no_https443_registered() {
-        // Default test registry has DirectUdp + KdcTls only; no
-        // Https443 impl. drive() must return 0 without panicking.
+        // Default test registry has NebulaDirect + KdcTls only; no
+        // NebulaHttps443 impl. drive() must return 0 without panicking.
         let state = new_state();
         {
             let mut g = state.write().await;
-            let mut p = PeerPath::initial("alice".into(), TransportKind::DirectUdp);
+            let mut p = PeerPath::initial("alice".into(), TransportKind::NebulaDirect);
             p.https_state = mackes_transport::peer_path::HttpsFallbackState::Activating;
             g.insert("alice".into(), p);
         }
@@ -609,14 +609,14 @@ mod tests {
             // Inactive (default).
             g.insert(
                 "inactive".into(),
-                PeerPath::initial("inactive".into(), TransportKind::DirectUdp),
+                PeerPath::initial("inactive".into(), TransportKind::NebulaDirect),
             );
             // Active.
-            let mut active = PeerPath::initial("active".into(), TransportKind::DirectUdp);
+            let mut active = PeerPath::initial("active".into(), TransportKind::NebulaDirect);
             active.https_state = mackes_transport::peer_path::HttpsFallbackState::Active;
             g.insert("active".into(), active);
             // Failing.
-            let mut failing = PeerPath::initial("failing".into(), TransportKind::DirectUdp);
+            let mut failing = PeerPath::initial("failing".into(), TransportKind::NebulaDirect);
             failing.https_state = mackes_transport::peer_path::HttpsFallbackState::Failing;
             g.insert("failing".into(), failing);
         }
@@ -633,7 +633,7 @@ mod tests {
         let state = new_state();
         {
             let mut g = state.write().await;
-            let mut p = PeerPath::initial("paired".into(), TransportKind::DirectUdp);
+            let mut p = PeerPath::initial("paired".into(), TransportKind::NebulaDirect);
             p.https_state = mackes_transport::peer_path::HttpsFallbackState::Activating;
             g.insert("paired".into(), p);
         }
@@ -655,7 +655,7 @@ mod tests {
         let state = new_state();
         {
             let mut g = state.write().await;
-            let mut p = PeerPath::initial("ghost".into(), TransportKind::DirectUdp);
+            let mut p = PeerPath::initial("ghost".into(), TransportKind::NebulaDirect);
             p.https_state = mackes_transport::peer_path::HttpsFallbackState::Activating;
             g.insert("ghost".into(), p);
         }
@@ -677,10 +677,10 @@ mod tests {
         let state = new_state();
         {
             let mut g = state.write().await;
-            let mut p = PeerPath::initial("paired".into(), TransportKind::DirectUdp);
+            let mut p = PeerPath::initial("paired".into(), TransportKind::NebulaDirect);
             p.https_state = mackes_transport::peer_path::HttpsFallbackState::Activating;
             g.insert("paired".into(), p);
-            let mut q = PeerPath::initial("ghost".into(), TransportKind::DirectUdp);
+            let mut q = PeerPath::initial("ghost".into(), TransportKind::NebulaDirect);
             q.https_state = mackes_transport::peer_path::HttpsFallbackState::Activating;
             g.insert("ghost".into(), q);
         }
@@ -701,20 +701,20 @@ mod tests {
     #[test]
     fn find_transport_returns_some_for_known_kind() {
         let w = MeshRouterWorker::new(new_state(), https443_registry());
-        assert!(w.find_transport(TransportKind::Https443).is_some());
+        assert!(w.find_transport(TransportKind::NebulaHttps443).is_some());
         // Not in registry → None.
         assert!(w.find_transport(TransportKind::KdcTls).is_none());
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn tick_once_drives_activation_for_activating_peers() {
-        // End-to-end: an Activating peer + a registered Https443
+        // End-to-end: an Activating peer + a registered NebulaHttps443
         // transport + a tick_once call → peer is Active after
         // the tick.
         let state = new_state();
         {
             let mut g = state.write().await;
-            let mut p = PeerPath::initial("paired".into(), TransportKind::DirectUdp);
+            let mut p = PeerPath::initial("paired".into(), TransportKind::NebulaDirect);
             p.https_state = mackes_transport::peer_path::HttpsFallbackState::Activating;
             g.insert("paired".into(), p);
         }

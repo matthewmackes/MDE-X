@@ -1349,7 +1349,7 @@ fn run_serve(
             RestartPolicy::OnFailure,
         ));
         // mesh_router bootstraps with the per-transport
-        // registry. Phase 12.18 D.2 (2026-05-23) — the Https443
+        // registry. Phase 12.18 D.2 (2026-05-23) — the NebulaHttps443
         // transport is registered at startup so the per-peer
         // HttpsFallbackState::Active transition can actually
         // route through a real TLS tunnel. The transport
@@ -1359,7 +1359,7 @@ fn run_serve(
         let router_state: mackesd_core::workers::mesh_router::RouterState =
             Arc::new(RwLock::new(HashMap::new()));
         let https443: Arc<dyn mackes_transport::Transport> =
-            Arc::new(mackesd_core::transport::https443::Https443Transport::new());
+            Arc::new(mackesd_core::transport::https443::NebulaHttps443Transport::new());
         let router_registry: mackesd_core::workers::mesh_router::TransportRegistry =
             Arc::new(vec![https443]);
         sup.spawn(Spawn::new(
