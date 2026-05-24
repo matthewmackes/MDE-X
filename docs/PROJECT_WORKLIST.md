@@ -4570,7 +4570,7 @@ recording, Vitelity outage drill (mesh unaffected), single-
 peer `voice_public` deploy without rewriting other peers'
 configs.
 
-- [ ] **v4.1.0: VV-1 per-host Asterisk daemon (Tier 1 platform)**
+- [>] **v4.1.0: VV-1 per-host Asterisk daemon (Tier 1 platform)**
 
   **As** the operator,
   **I want** every MDE peer to run its own Asterisk 21 instance
@@ -4586,7 +4586,9 @@ configs.
   - [ ] `systemctl status asterisk-mde.service` shows `active
     (running)` after first boot.
   - [ ] `ss -tlnp | grep asterisk` shows listeners on `127.0.0.1`
-    + `wg-mesh-<peer-ip>` ONLY — no public-interface bind.
+    + `nebula1` (the live Nebula tun device — wg-mesh was the
+    stale v1.x plan; corrected 2026-05-24) ONLY — no public-
+    interface bind.
   - [ ] Runs as a dedicated `_asterisk_mde` UID; data root at
     `/var/lib/asterisk-mde/`; does not clobber a pre-existing
     upstream `asterisk.service` install.
@@ -4679,7 +4681,7 @@ configs.
     (or a Rust binary if FFI proves cleaner) called from the
     generated `[mde-mesh]` context.
   - [ ] Three-peer integration test: with `iptables -A INPUT
-    -i wg-mesh -s <peer-C-wg-ip> -j DROP` on peer A, dialing
+    -i nebula1 -s <peer-C-nebula-ip> -j DROP` on peer A, dialing
     `1003` from A succeeds via B2BUA on peer B; one direct
     leg A→B, one direct leg B→C, audio bidirectional.
 
@@ -4734,35 +4736,125 @@ configs.
     Asterisk fixture.
   - [ ] `cargo clippy -- -D warnings` is clean.
 
-- [ ] **v4.1.0: VV-7 Workbench Voice surface `mde-voice` (Tier 1 chrome)**
+- [ ] **v4.1.0: VV-7a Workbench Voice — backend management surface (Tier 1 chrome)**
+
+  *(Scope split locked 2026-05-24: the original VV-7 covered
+  both backend administration AND the call/video client; per
+  operator follow-up "the slide-in interface is for the client
+  for voice and video," the client moves to VV-7b as a system-
+  wide slide-from-bottom HUD. VV-7a keeps the Workbench-side
+  administration / status / configuration surface.)*
 
   **As** the operator,
-  **I want** a "Voice" group in the Workbench sidebar with
-  panels for Dial, Contacts, Rooms, Voicemail, History, Chat,
-  Vitelity, and Settings,
-  **so that** I drive every voice / video feature from the
-  same chrome I already use for everything else — no separate
-  softphone app to launch.
+  **I want** a "Voice" group in the Workbench sidebar that
+  surfaces the asterisk-mde backend health, endpoint
+  registrations, Vitelity sub-account configuration, owned
+  DIDs + inbound rules, ConfBridge room definitions, voicemail
+  inboxes, recordings, and call history,
+  **so that** I administer the voice stack from the same
+  chrome I already use for the rest of MDE — separate from
+  the live call/video client (VV-7b).
 
   **Acceptance:**
-  - [ ] Iced application crate `crates/mde-voice/` follows
-    the `mde-workbench` patternfly layout (breadcrumb +
-    `_page_title` + `_page_subtitle` + `_section_title`).
+  - [ ] Iced application crate `crates/mde-voice-workbench/`
+    follows the `mde-workbench` patternfly layout (breadcrumb
+    + `_page_title` + `_page_subtitle` + `_section_title`).
   - [ ] Sidebar nav adds a "Voice" group with the Carbon
-    `phone` glyph; sub-items use Carbon `phone-incoming`,
-    `user--multiple`, `chat`, `voicemail` (or closest
-    equivalent in the locked Carbon set per the icon lock).
-  - [ ] Dial panel: numeric pad + recent-calls list rendered
-    from CDR; clicking a recent-call entry re-dials.
-  - [ ] Contacts panel: peer list with presence dots
-    (`available` / `on-call` / `away` / `dnd` / `offline`).
-  - [ ] Click-to-call from Contacts: opens a call window
-    (separate Iced window via `iced::window::open`).
+    `phone` glyph.
+  - [ ] **Backend panel** (new vs. original VV-7) — surfaces
+    `systemctl is-active asterisk-mde`, last reload timestamp,
+    endpoint-registration table (one row per generated AOR +
+    the Vitelity trunk), restart / reload buttons gated on
+    polkit, recent CLI output buffer (`asterisk -rx 'pjsip
+    show endpoints'` and friends).
+  - [ ] **Vitelity panel** — sub-account credentials, owned
+    DIDs, per-DID inbound rule editor, outbound digit-pattern
+    rules, verified-CID picker, REGISTER status.
+  - [ ] **Rooms panel** — ConfBridge room definitions + live
+    attendee list pulled from `asterisk -rx 'confbridge show
+    bridges'`.
+  - [ ] **Voicemail panel** — per-peer mailbox list, play /
+    delete / mark-read.
+  - [ ] **History panel** — CDR-derived call log; filter by
+    direction / peer / date.
+  - [ ] **Recordings panel** — list of files under
+    `~/.local/share/mde/voice/recordings/` + a per-file play
+    / delete control row.
 
   **Implementation notes:**
-  - Carbon glyphs per the 2026-05-23 iconography lock —
-    bake the SVGs into `assets/icons/carbon/` and wire via
+  - Carbon glyphs per the 2026-05-23 iconography lock — bake
+    the SVGs into `assets/icons/carbon/` and wire via
     `mde_theme::ResolvedIcon::svg_bytes()`.
+  - The Vitelity panel is the literal "I want an interface
+    that connects this peer to Vitelity Communications" ask.
+  - Every operator action that mutates state submits a
+    `voice_mesh` or `voice_public` policy revision through the
+    Phase-12 lifecycle; the panel never writes Asterisk config
+    directly.
+
+- [ ] **v4.1.0: VV-7b Voice/Video Client — slide-from-bottom HUD (Tier 1 chrome)**
+
+  *(New task — split from original VV-7 on 2026-05-24 per
+  operator directive "the slide-in interface is for the client
+  for voice and video." Architecture lock: system-wide layer-
+  shell overlay anchored bottom, not a Workbench panel.)*
+
+  **As** the operator,
+  **I want** a beautiful slide-from-bottom overlay that hosts
+  the entire voice + video client — dialpad, peer / contact
+  picker, incoming-call answer / decline, in-call controls
+  (mute, hold, transfer, hangup, DTMF), live video render,
+  presence + DND toggle —
+  **so that** I place / answer / manage calls without leaving
+  whatever app I'm currently in; the client is always one
+  gesture away regardless of which workspace or surface has
+  focus.
+
+  **Acceptance:**
+  - [ ] New crate `crates/mde-voice-hud/` — `iced_layer_shell`
+    or `smithay-client-toolkit` wlr-layer-shell client anchored
+    to the bottom edge of the active output, animated slide-up
+    on activation, slide-down on dismiss; honors the active
+    `mde-theme` accent + density tokens.
+  - [ ] Triggers (all observable on a peer):
+    - Incoming INVITE arrives at `mde-local`: HUD slides up
+      automatically, ringtone via PipeWire, answer / decline
+      buttons large enough for the operator's eye to land in
+      one second.
+    - Hotkey `Super+Space` toggles the HUD open / closed for
+      outbound dialing.
+    - Panel applet (mde-panel mesh-status tile) gains a phone
+      glyph that taps the HUD open.
+  - [ ] Six modes the HUD must render:
+    - **Idle** — recents list + dialpad strip; one tap places
+      a call.
+    - **Outbound-ringing** — large hangup, called peer's
+      avatar + display name pulled from `voice_mesh.peers`.
+    - **Inbound-ringing** — caller avatar + display name +
+      large answer / decline.
+    - **In-call (audio)** — call timer, mute toggle, hold,
+      DTMF keypad reveal, transfer, hangup; level meter on
+      the local capture device.
+    - **In-call (video)** — same controls plus remote-video
+      pane + local-camera self-view pip; uses XDG camera
+      portal per VV-8.
+    - **Conference** — ConfBridge attendee tiles with per-
+      attendee mute icons; recording state pill.
+  - [ ] Operator never has to launch a separate softphone
+    app; HUD survives logout/login (autostarted in the user
+    session).
+
+  **Implementation notes:**
+  - Bind to `mde-voice-client` (VV-6) for SIP operations;
+    bind to PipeWire (VV-8) for media; bind to the XDG camera
+    portal (VV-8) for video capture.
+  - "Beautiful" is locked as the design bar — visual design
+    iteration happens via the `frontend-design` skill before
+    the first PR; before/after screenshots on the UX-* branch
+    lane per CLAUDE.md §0.11.
+  - Carbon glyphs: `phone`, `phone--filled`, `phone-off`,
+    `microphone`, `microphone--off`, `video`, `video--off`,
+    `pause`, `chevron--down`.
 
 - [ ] **v4.1.0: VV-8 PipeWire capture / playback + portal camera (Tier 1 chrome)**
 
