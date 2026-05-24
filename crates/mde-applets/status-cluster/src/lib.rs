@@ -117,6 +117,50 @@ pub fn format_cluster(battery: Option<&BatteryState>, profile: &str) -> String {
     s
 }
 
+/// NF-10.2 (v2.5) — one-character fabric-health bit
+/// prepended to the cluster. Mirrors the colour key from
+/// mesh-status (green / amber / red / grey). The
+/// status-cluster doesn't render its own tooltip — clicking
+/// drills into the mesh-status applet.
+///
+/// Single-char glyph chosen for the narrow font budget; the
+/// panel SVG renderer translates these to Carbon icons
+/// when paint-time:
+///
+///   ● healthy / direct UDP   → green dot
+///   ◐ degraded / relayed     → amber half-dot
+///   ◒ fallback / TCP/443     → red lower-half-dot
+///   ○ offline                → grey ring
+#[must_use]
+pub const fn fabric_glyph(transport: &str) -> &'static str {
+    match transport.as_bytes() {
+        b"nebula_direct" | b"kdc_tls" => "\u{25CF}",
+        b"nebula_lighthouse_relay" => "\u{25D0}",
+        b"nebula_https443" => "\u{25D2}",
+        _ => "\u{25CB}",
+    }
+}
+
+/// NF-10.2 — extended cluster format that includes the
+/// fabric bit. Pure helper; existing `format_cluster`
+/// callers keep their current shape until they opt in.
+/// When `transport` is empty / unknown, omits the bit
+/// entirely (don't show a grey dot on machines that
+/// haven't enrolled).
+#[must_use]
+pub fn format_cluster_with_fabric(
+    battery: Option<&BatteryState>,
+    profile: &str,
+    transport: &str,
+) -> String {
+    let base = format_cluster(battery, profile);
+    let glyph = fabric_glyph(transport);
+    if transport.is_empty() || transport == "offline" || glyph == "?" {
+        return base;
+    }
+    format!("{glyph} {base}")
+}
+
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)
@@ -213,5 +257,43 @@ mod tests {
     #[test]
     fn handle_host_short_circuits_shutdown() {
         assert!(!handle_host(&HostMessage::Shutdown));
+    }
+
+    // ─────────────────────────────────────────────────────
+    // NF-10.2 — fabric-health bit
+    // ─────────────────────────────────────────────────────
+
+    #[test]
+    fn fabric_glyph_maps_transport_to_dot() {
+        assert_eq!(fabric_glyph("nebula_direct"), "\u{25CF}");
+        assert_eq!(fabric_glyph("kdc_tls"), "\u{25CF}");
+        assert_eq!(fabric_glyph("nebula_lighthouse_relay"), "\u{25D0}");
+        assert_eq!(fabric_glyph("nebula_https443"), "\u{25D2}");
+        assert_eq!(fabric_glyph("offline"), "\u{25CB}");
+        assert_eq!(fabric_glyph(""), "\u{25CB}");
+        // Unknown transport falls through to the offline ring.
+        assert_eq!(fabric_glyph("future-transport"), "\u{25CB}");
+    }
+
+    #[test]
+    fn format_cluster_with_fabric_prepends_glyph_when_enrolled() {
+        let s = format_cluster_with_fabric(
+            None,
+            "balanced",
+            "nebula_direct",
+        );
+        assert!(s.starts_with("\u{25CF} "));
+        assert!(s.contains("balanced"));
+    }
+
+    #[test]
+    fn format_cluster_with_fabric_omits_glyph_when_offline() {
+        // Pre-enrollment machines stay clean — no grey dot
+        // cluttering the cluster.
+        let s = format_cluster_with_fabric(None, "balanced", "");
+        assert!(!s.contains("\u{25CB}"));
+        assert!(!s.contains("\u{25CF}"));
+        let s2 = format_cluster_with_fabric(None, "balanced", "offline");
+        assert!(!s2.contains("\u{25CB}"));
     }
 }

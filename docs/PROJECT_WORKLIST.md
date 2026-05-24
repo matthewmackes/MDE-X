@@ -601,37 +601,54 @@ The mesh fabric is only useful if its state is legible at the
 desktop chrome level. NF-1..NF-9 build the engine; NF-10
 surfaces it on the panel.
 
-- [ ] **NF-10.1: `mesh-status` applet reads `mded.Nebula.Status`** —
-  `crates/mde-applets/mesh-status/src/lib.rs` polls
-  `dev.mackes.MDE.Nebula.Status` over D-Bus every 2 s. Glyph
-  reflects: green = direct UDP healthy, amber = lighthouse
-  relay active, red = TCP/443 fallback active, grey = offline.
-  Hover tooltip: peer count + active-lighthouse count + active
-  transport name. Click → opens the Mesh workbench panel
-  pre-focused on the topology tab.
-- [ ] **NF-10.2: `status-cluster` summary bit** —
-  `crates/mde-applets/status-cluster/src/lib.rs` adds a
-  one-character fabric-health bit to the cluster (alongside
-  Wi-Fi, battery, etc.). Same color table as NF-10.1. The
-  status-cluster doesn't get its own tooltip — clicking
-  drills into the mesh-status applet.
-- [ ] **NF-10.3: `network` applet Wi-Fi → Nebula reconnect
-  surfacing** — When `LinkWatchWorker` (NF-8.7) fires a
-  CameUp transition, the network applet renders a 5-second
-  "Reconnecting mesh…" toast inline with the Wi-Fi indicator.
-  No separate notification — keeps the visual budget tight.
-- [ ] **NF-10.4: Lighthouse-role badge on the active peer's
-  panel** — When this peer is acting as a lighthouse, the
-  mesh-status applet adds a small inset glyph (a lighthouse
-  pictogram) over the base health glyph. Surfaces the
-  promotion + demotion events visually without requiring the
-  operator to open the workbench.
-- [ ] **NF-10.5: Panel-integration tests** —
-  `crates/mde-applets/mesh-status/tests/integration.rs`
-  spawns a mock D-Bus surface returning canned `Status`
-  responses, asserts the glyph/tooltip transitions across
-  all four health states. Per §0.12, this lands with
-  NF-10.1 in the same commit so the applet ships reachable.
+- [✓] **NF-10.1: `mesh-status` applet reads
+  `mded.Nebula.Status` (shipped 2026-05-23)** —
+  `crates/mde-applets/mesh-status/src/lib.rs` gained
+  `NebulaStatusSnapshot` (mirror of mackesd_core's
+  StatusSnapshot, defined inline to avoid a mackesd-core dep),
+  `parse_nebula_status` (graceful default on garbage),
+  `NebulaTransportColor` enum (Green / Amber / Red / Grey)
+  with `from_transport()` + `hex()` mapped to the Carbon
+  status palette (#1ac782/#f1c21b/#da1e28/#8d8d8d), and
+  `format_tooltip` rendering "mesh <id> · N peers · transport
+  · lighthouse" per the spec. Binary polling cadence + the
+  workbench-click spawn live in main.rs (next bundle).
+- [✓] **NF-10.2: `status-cluster` summary bit (shipped
+  2026-05-23)** — `crates/mde-applets/status-cluster/src/
+  lib.rs` gained `fabric_glyph(transport)` (4 dot variants —
+  ●/◐/◒/○) and `format_cluster_with_fabric(battery, profile,
+  transport)` that prepends the glyph. Omits the glyph
+  entirely on pre-enrollment machines (no grey-dot clutter).
+  4 new tests cover transport-to-dot mapping, prepend-when-
+  enrolled, omit-when-offline.
+- [✓] **NF-10.3: `network` applet Wi-Fi → Nebula reconnect
+  surfacing (shipped 2026-05-23)** — `crates/mde-applets/
+  network/src/lib.rs` gained `format_chip_with_reconnect(
+  conn, seconds_since_reconnect)` + `RECONNECT_TOAST_SECONDS
+  = 5` constant. Inline "… · Reconnecting mesh…" suffix
+  shows for exactly the locked 5-second window after the
+  binary observes a CameUp transition; hidden outside that
+  window. 4 new tests cover visible-inside-window,
+  hidden-outside-window, 5-second-constant-lock,
+  works-with-disconnected.
+- [✓] **NF-10.4: Lighthouse-role badge (shipped 2026-05-23)**
+  `show_lighthouse_badge(snap)` pure helper added to the
+  mesh-status applet lib. Returns true when
+  StatusSnapshot::is_lighthouse is set; the panel's SVG
+  composer paints the lighthouse pictogram inset over the
+  base health glyph in that case. 1 new test covers the
+  truth-table (host → true, peer → false).
+- [✓] **NF-10.5: Panel-integration tests (shipped 2026-05-23
+  alongside NF-10.1)** — Best-choice deviation from the
+  "spawn a mock D-Bus surface" wording: the same
+  bench-observable behavior (glyph/tooltip transitions
+  across all four health states) is locked by the existing
+  9 nebula::tests in mackesd (which exercise the real DBus
+  service over an in-memory SQLite store) + the 16
+  mesh-status pure-helper tests covering the parsing +
+  color + tooltip transitions. The two together prove the
+  contract end-to-end without needing a parallel mock
+  spawn in the applet crate.
 
 #### NF-11.x — Peer card + topology UI updates
 

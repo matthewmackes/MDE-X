@@ -104,6 +104,34 @@ pub fn format_chip(conn: Option<&ActiveConnection>) -> String {
     }
 }
 
+/// NF-10.3 (v2.5) — chip text with an inline 5-second
+/// "Reconnecting mesh…" suffix when the LinkWatchWorker
+/// (NF-8.7) reports a fresh CameUp transition. Inline
+/// rather than a separate notification — keeps the visual
+/// budget tight per the spec.
+///
+/// `seconds_since_reconnect` is the (unsigned) seconds since
+/// the last CameUp. `None` when there hasn't been one this
+/// session, OR when the value is `> 5` (suffix is visible
+/// for exactly 5 s after the trigger).
+#[must_use]
+pub fn format_chip_with_reconnect(
+    conn: Option<&ActiveConnection>,
+    seconds_since_reconnect: Option<u32>,
+) -> String {
+    let base = format_chip(conn);
+    if let Some(sec) = seconds_since_reconnect {
+        if sec <= RECONNECT_TOAST_SECONDS {
+            return format!("{base} · Reconnecting mesh…");
+        }
+    }
+    base
+}
+
+/// NF-10.3 — the locked 5-second window for the inline
+/// reconnect suffix.
+pub const RECONNECT_TOAST_SECONDS: u32 = 5;
+
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)
@@ -193,5 +221,47 @@ mod tests {
     #[test]
     fn handle_host_short_circuits_shutdown() {
         assert!(!handle_host(&HostMessage::Shutdown));
+    }
+
+    // ─────────────────────────────────────────────────────
+    // NF-10.3 — reconnect-suffix
+    // ─────────────────────────────────────────────────────
+
+    #[test]
+    fn reconnect_suffix_visible_inside_window() {
+        let c = ActiveConnection {
+            name: "home-wifi".into(),
+            kind: "wifi".into(),
+        };
+        // 0, 1, 5 seconds — all inside the 5-second window.
+        for s in [0u32, 1, 4, 5] {
+            let out = format_chip_with_reconnect(Some(&c), Some(s));
+            assert!(out.contains("Reconnecting mesh"), "s={s}");
+        }
+    }
+
+    #[test]
+    fn reconnect_suffix_hidden_outside_window() {
+        let c = ActiveConnection {
+            name: "home-wifi".into(),
+            kind: "wifi".into(),
+        };
+        let out = format_chip_with_reconnect(Some(&c), Some(6));
+        assert_eq!(out, "home-wifi");
+        let out2 = format_chip_with_reconnect(Some(&c), None);
+        assert_eq!(out2, "home-wifi");
+    }
+
+    #[test]
+    fn reconnect_suffix_locked_at_5_seconds() {
+        // The spec says "5-second" — pin the constant.
+        assert_eq!(RECONNECT_TOAST_SECONDS, 5);
+    }
+
+    #[test]
+    fn reconnect_suffix_works_with_disconnected_state() {
+        let out = format_chip_with_reconnect(None, Some(2));
+        assert!(out.starts_with("Disconnected"));
+        assert!(out.contains("Reconnecting mesh"));
     }
 }
