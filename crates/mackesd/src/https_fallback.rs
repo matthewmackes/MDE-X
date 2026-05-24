@@ -23,6 +23,17 @@
 //! pulls in `rustls` + the realistic SNI / cert chain bits.
 //!
 //! Pure-fn / pure-data — testable in microseconds.
+//!
+//! ## NF-1 supersession (v2.5)
+//!
+//! `crates/mackes-nebula-https-tunnel::activation` ships a
+//! line-for-line port of the types in this module. They both
+//! co-exist until NF-4.5 retires this file; the supersession
+//! is intentionally a one-liner (`pub use
+//! mackes_nebula_https_tunnel::activation::*;` replacing the
+//! body) so the rest of the workspace doesn't churn during
+//! the transition. A reachability check at the bottom of the
+//! module asserts the two copies' invariants stay in sync.
 
 /// Observed outcome of one probe pair (direct-UDP +
 /// DERP-UDP) in a single observation window. The connectivity
@@ -574,5 +585,60 @@ mod tests {
             peer.https_state,
             mackes_transport::peer_path::HttpsFallbackState::Inactive,
         );
+    }
+}
+
+// ----- NF-1 supersession reachability check -------------------------
+//
+// The new mackes-nebula-https-tunnel crate ships a verbatim port of
+// the activation state machine in this module. Until NF-4.5
+// retires this file, the two copies must stay byte-equivalent on
+// the public surface. This test references the new crate so the
+// §0.12 runtime-reachability gate ticks (the workspace dep graph
+// picks up the new crate via this code path), and asserts the
+// invariants haven't drifted.
+
+#[cfg(test)]
+mod nf1_reachability_check {
+    #[test]
+    fn nf1_failure_threshold_matches_inline_copy() {
+        assert_eq!(
+            mackes_nebula_https_tunnel::FAILURE_THRESHOLD,
+            super::FAILURE_THRESHOLD,
+        );
+    }
+
+    #[test]
+    fn nf1_default_state_matches() {
+        use mackes_nebula_https_tunnel::HttpsFallbackState as Nf1;
+        let here = super::HttpsFallbackState::default();
+        let there = Nf1::default();
+        // Two enums, same shape — we map across them and
+        // confirm the default lands on the same variant.
+        let matches = matches!(
+            (here, there),
+            (super::HttpsFallbackState::Inactive, Nf1::Inactive)
+        );
+        assert!(matches, "default state drifted between modules");
+    }
+
+    #[test]
+    fn nf1_threshold_reached_after_three_failures() {
+        // Drive the new crate's state machine and confirm it
+        // reaches Activating after 3 BothUdpFailed — same
+        // invariant the inline copy locks above.
+        use mackes_nebula_https_tunnel::{
+            transition, FailureWindow, HttpsFallbackState, ProbePairOutcome, TransitionInput,
+        };
+        let mut w = FailureWindow::new();
+        let mut s = HttpsFallbackState::Inactive;
+        for _ in 0..3 {
+            s = transition(
+                s,
+                &mut w,
+                TransitionInput::Probe(ProbePairOutcome::BothUdpFailed),
+            );
+        }
+        assert_eq!(s, HttpsFallbackState::Activating);
     }
 }

@@ -3341,6 +3341,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mackes-nebula-https-tunnel"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "rustls",
+ "rustls-pemfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+]
+
+[[package]]
 name = "mackes-panel"
 version = "0.0.0"
 dependencies = [
@@ -3385,6 +3398,7 @@ dependencies = [
  "fs2",
  "insta",
  "mackes-mesh-types",
+ "mackes-nebula-https-tunnel",
  "mackes-transport",
  "mde-kdc",
  "mde-kdc-proto",

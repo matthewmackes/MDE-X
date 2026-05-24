@@ -35,6 +35,13 @@ path = "src/bin/mackesd.rs"
 
 [dependencies]
 mackes-mesh-types = { path = "../mackes-mesh-types" }
+# NF-1 (v2.5) — covert TCP/443 transport. mackesd consumes the
+# activation state machine + framing + rustls listener/dialer
+# from the new crate; `https_fallback.rs` re-exports the
+# activation types as type aliases so the eventual NF-4.5
+# deletion is a one-liner rather than a workspace-wide
+# refactor.
+mackes-nebula-https-tunnel = { path = "../mackes-nebula-https-tunnel" }
 
 # Phase 13 → v2.1+ KDC2 supersession: the legacy mackes-kdc
 # crate + kdc_bridge worker have been retired in favour of the

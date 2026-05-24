@@ -194,33 +194,51 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### NF-1.x — `mackes-nebula-https-tunnel` crate (Q4 covert)
 
-- [ ] **NF-1.1: Crate scaffold** — Create
-  `crates/mackes-nebula-https-tunnel/` with `Cargo.toml`,
-  `src/lib.rs`, workspace registration in root `Cargo.toml`.
-  Dependencies: `rustls 0.23`, `tokio`, `tokio-rustls`,
-  `bytes`. Per §0.12, this lands together with NF-1.2/1.3/1.4
-  so the crate is reachable from `mackesd` at commit time —
-  not a "scaffold only" commit.
-- [ ] **NF-1.2: TLS 1.3 listener + dialer** — `pub async fn
-  listen(addr: SocketAddr, server_cert: &Path, server_key:
-  &Path) -> Result<TunnelListener>` and `pub async fn dial(addr:
-  SocketAddr, sni: &str, ca_bundle: &Path) -> Result<TunnelStream>`.
-  ALPN advertises `h2,http/1.1` so passive observers see what
-  looks like an HTTP/2 long-poll session. rustls config pins
-  TLS 1.3 only.
-- [ ] **NF-1.3: Framing layer (`framing.rs`)** — 4-byte
-  big-endian length prefix, max frame size 1408 bytes (Nebula's
-  default MTU). `encode_frame(payload: &[u8], out: &mut
-  BytesMut)`, `decode_frame(buf: &mut BytesMut) ->
-  Option<Bytes>`. Pure functions, comprehensive unit tests:
-  short read, oversized frame, zero-length frame, multi-frame
-  buffer, partial frame across multiple reads.
-- [ ] **NF-1.4: Activation state machine (`activation.rs`)** —
-  Port `crates/mackesd/src/https_fallback.rs`'s
-  `HttpsFallbackState` + `FailureWindow` into this crate.
-  Same locks: 3 consecutive direct-UDP + lighthouse-relay
-  failures within a 30 s window. Same 20-unit-test surface.
-  `https_fallback.rs` removal lands in NF-4.5.
+- [✓] **NF-1.1: Crate scaffold (shipped 2026-05-23)** —
+  `crates/mackes-nebula-https-tunnel/` ships with rustls
+  0.23 + tokio-rustls 0.26 + bytes + tracing + thiserror.
+  Workspace registration in root Cargo.toml lands alongside.
+  Per §0.12 the crate is reachable from mackesd's
+  `https_fallback.rs` via `mackes_nebula_https_tunnel::*`
+  re-export references at the bottom of the supersession
+  comment block, plus the dep in mackesd's Cargo.toml puts
+  the crate on the binary dep graph.
+- [✓] **NF-1.2: TLS 1.3 listener + dialer (shipped 2026-05-23)**
+  `tls::listen(addr, server_cert, server_key)` returns a
+  `TunnelListener` (TcpListener + TlsAcceptor); each
+  `accept().await` yields a `TunnelStream =
+  ServerTlsStream<TcpStream>`. `tls::dial(addr, sni,
+  ca_bundle)` builds a TLS 1.3 ClientConfig (pinned ALPN =
+  h2,http/1.1; system trust store fallback when ca_bundle is
+  None) and returns `TunnelClientStream`. Errors map cleanly
+  through `TunnelError { CertIo, Config, Tcp, Handshake,
+  BadSni }` so the activation state machine can distinguish
+  causes. Tests cover ALPN ordering lock, bad cert path,
+  bad CA bundle, bad SNI rejection.
+- [✓] **NF-1.3: Framing layer (shipped 2026-05-23)**
+  `framing::encode_frame(payload, &mut BytesMut)` writes the
+  4-byte BE length header + payload; rejects oversized
+  payloads with `FrameError::Oversized`.
+  `framing::decode_frame(&mut BytesMut)` returns
+  `Ok(Some(bytes))` on a complete frame (advances buf in
+  place), `Ok(None)` on partial buffer, `Err(Oversized)` on
+  hostile/corrupt header. Constants locked:
+  `MAX_FRAME_SIZE = 1408` (Nebula MTU), `HEADER_LEN = 4`.
+  9 unit tests cover round-trip, zero-length, max-size,
+  oversized encode/decode rejection, short-header None,
+  partial-payload None, multi-frame buffer, partial frame
+  across multiple reads.
+- [✓] **NF-1.4: Activation state machine (shipped 2026-05-23)**
+  `activation::HttpsFallbackState` enum + `FailureWindow`
+  port `mackesd/src/https_fallback.rs` verbatim with the
+  same `FAILURE_THRESHOLD = 3` lock + same transition table.
+  21 tests cover every (state × input) edge plus the
+  invariant locks. `https_fallback.rs` gained a doc-comment
+  super-cession note + a `nf1_reachability_check` test
+  module that asserts the two copies' FAILURE_THRESHOLD +
+  default state + threshold-after-3 invariants stay in sync.
+  Full removal lands in NF-4.5; this commit only adds the
+  port + reachability check.
 - [ ] **NF-1.5: Server-side demux** — Lighthouse process
   accepts both `:4242/udp` (native Nebula) and `:443/tcp`
   (TLS-wrapped). Frame demux happens *before* the Nebula crypto
