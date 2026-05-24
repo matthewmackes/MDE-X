@@ -2123,7 +2123,8 @@ fn run_serve(
                             Arc::clone(&store),
                             node_id.clone(),
                             host.clone(),
-                        );
+                        )
+                        .with_qnm_root(qnm_root.clone());
                         match mackesd_core::ipc::nebula::register_nebula_status_on(
                             &conn, nebula,
                         )
