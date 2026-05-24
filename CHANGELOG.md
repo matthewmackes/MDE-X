@@ -3,6 +3,34 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## Unreleased — VV-4: voice-routing heuristic + dispatcher priority plumbing
+
+Ships the latency-favoring routing heuristic that picks direct
+vs transit paths for Kamailio's dispatcher.
+
+- **New module `mackesd_core::voice`.** Pure-function
+  `best_path(target_node_id, &[Candidate]) -> Path`. Filters
+  direct candidates whose `rtt_ms < 80` AND `loss_pct < 5`,
+  picks the lowest-score survivor (score =
+  `loss_pct.mul_add(10.0, rtt_ms)`), falls back to a transit
+  path through the best reachable relay peer. `Path::Direct` /
+  `Path::Transit` discriminant; `pick_relay` exposed for
+  callers that want to override the transit selection. 18
+  unit tests covering the heuristic, the round-trip JSON
+  shape, the edge cases (no candidates, all dead, exact-at-cap
+  rejection).
+- **`PeerEntry.priority: u8`** plumbed through `mde-voice-config`
+  so generated `dispatcher.list` rows carry the heuristic's
+  preference in the priority column. Defaults to `0` for
+  backward-compatible JSON parsing — operator hand-edits don't
+  need to know about the field. The future VV-2.a writer
+  derives this from `best_path` (direct → high priority,
+  transit → low priority).
+- **3-peer integration drill** from the original VV-4
+  acceptance is HW-bench-blocked (needs three live Nebula
+  peers + iptables drop). Ported to the Hardware Testing
+  epic; pure-fn surface is fully testable in CI without it.
+
 ## Unreleased — VV-2 + VV-3: voice-config generator drives Kamailio + RTPengine
 
 Closes the loop on the v4.1.0 Voice & Video platform tier: the

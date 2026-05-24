@@ -105,6 +105,14 @@ pub struct PeerEntry {
     pub display_name: String,
     /// The peer's Nebula overlay IP (where to send the INVITE).
     pub mesh_address: String,
+    /// VV-4 — Kamailio `dispatcher.list` priority for this row.
+    /// Higher value = preferred candidate when multiple rows
+    /// share the same `setid`. The future VV-2.a writer derives
+    /// this from `mackesd_core::voice::best_path` (direct =
+    /// high, transit = low). Defaults to `0` so manual JSON
+    /// edits don't need to know about the field.
+    #[serde(default)]
+    pub priority: u8,
 }
 
 /// VV-2 — this peer's Vitelity sub-account, drives one
@@ -356,9 +364,10 @@ fn render_dispatcher_list(desired: &VoiceDesired) -> String {
     for peer in &desired.peers {
         let _ = writeln!(
             out,
-            "1 sip:{ext}@{addr}:5061;transport=tls 0 0 attrs=node={node};name={name}",
+            "1 sip:{ext}@{addr}:5061;transport=tls 0 {prio} attrs=node={node};name={name}",
             ext = peer.extension,
             addr = peer.mesh_address,
+            prio = peer.priority,
             node = peer.node_id,
             name = peer.display_name,
         );
@@ -468,12 +477,14 @@ mod tests {
                     node_id: "peer:bob-desktop".into(),
                     display_name: "Bob desktop".into(),
                     mesh_address: "192.168.42.11".into(),
+                    priority: 10,
                 },
                 PeerEntry {
                     extension: "1003".into(),
                     node_id: "peer:carol-pi".into(),
                     display_name: "Carol Pi".into(),
                     mesh_address: "192.168.42.12".into(),
+                    priority: 5,
                 },
             ],
             vitelity: Some(VitelityAccount {
@@ -624,6 +635,50 @@ mod tests {
         let set = generate(&fixture_full());
         assert!(set.dispatcher_list.contains("node=peer:bob-desktop"));
         assert!(set.dispatcher_list.contains("name=Bob desktop"));
+    }
+
+    #[test]
+    fn dispatcher_row_carries_priority_from_voice_best_path() {
+        // VV-4 — the priority column in `dispatcher.list` is
+        // generated from PeerEntry.priority so Kamailio's
+        // dispatcher prefers the row best_path selected.
+        let set = generate(&fixture_full());
+        // bob's row has priority 10, carol's row has priority 5.
+        let bob_line = set
+            .dispatcher_list
+            .lines()
+            .find(|l| l.contains("peer:bob-desktop"))
+            .expect("bob's row");
+        let carol_line = set
+            .dispatcher_list
+            .lines()
+            .find(|l| l.contains("peer:carol-pi"))
+            .expect("carol's row");
+        // The row format is "1 sip:... 0 <prio> attrs=..."; we
+        // assert the priority column by string match.
+        assert!(
+            bob_line.contains(" 0 10 attrs="),
+            "bob's row should carry priority 10: {bob_line}"
+        );
+        assert!(
+            carol_line.contains(" 0 5 attrs="),
+            "carol's row should carry priority 5: {carol_line}"
+        );
+    }
+
+    #[test]
+    fn peer_entry_priority_defaults_to_zero_on_missing_json_field() {
+        // Manual JSON edits don't need to know about priority;
+        // serde fills in 0. Lets operators copy-paste an old
+        // VoiceDesired without breaking.
+        let json = r#"{
+            "extension": "1004",
+            "node_id": "peer:dave",
+            "display_name": "Dave",
+            "mesh_address": "192.168.42.13"
+        }"#;
+        let entry: PeerEntry = serde_json::from_str(json).expect("parse");
+        assert_eq!(entry.priority, 0);
     }
 
     #[test]
