@@ -97,6 +97,21 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-10.2: v5.0.0 GlusterFS design lock doc
+
+Captures the 25-Q lock from 2026-05-24 in
+`docs/design/v5.0.0-gluster-mesh-home.md` so the design intent
+survives operator turnover + outlasts the worklist's row-per-
+task structure. Embeds the question/lock table verbatim, draws
+the per-peer process diagram (glusterd inside the Nebula
+tunnel, FUSE mounts of XDG dirs, `gluster_worker` subscribing
+to nebula_supervisor enroll/revoke events), walks the
+conflict-resolution model (LWW by mtime, `.conflict-<host>-<ts>`
+siblings, no version history), and lists the ten
+bench-observable gates for the v5.0.0 cut sign-off.
+Cross-references every GF-N worklist cluster to keep the doc +
+worklist synchronized.
+
 ## Unreleased — GF-1.1 + GF-1.2: GlusterFS substrate landed in spec
 
 First v5.0.0 substrate commit. The RPM now pulls in
