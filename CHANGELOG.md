@@ -97,6 +97,44 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — NF-4.5: https_fallback bridge-layer slim + stun re-classify
+
+`crates/mackesd/src/https_fallback.rs` shrinks from 644 LOC
+→ ~110 LOC. The duplicated state-machine body + 350+ lines
+of pure-fn tests retire in favor of the canonical
+`mackes-nebula-https-tunnel::activation` module (NF-1.4's
+port). What's left in `mackesd::https_fallback` is the
+**bridge layer**: re-exports of the activation enums + a
+slim `observe_peer` wrapper that mutates `PeerPath` state in
+place. Three integration tests cover the wrapper's per-tick
+behavior; the state-machine tests stay upstream where the
+logic lives.
+
+To avoid Rust's orphan rule, the
+`From<HttpsFallbackState> <-> mackes_transport::peer_path::
+HttpsFallbackState` impls + the `FailureWindow::
+from_consecutive_failures()` constructor moved upstream
+into `activation.rs`. `mackes-nebula-https-tunnel` gains a
+`mackes-transport` dep (no cycle — mackes-transport has
+zero workspace deps).
+
+**`stun.rs` re-classified as live infrastructure (not
+retired):** the original NF-4.5 worklist body claimed
+`stun.rs` was "absorbed by Nebula's protocol-level
+rendezvous." The audit (2026-05-24) found this is wrong:
+`crates/mackesd/src/workers/stun_gather.rs` is spawned live
+in `run_serve` (NF-1.5 mesh-router context) and uses
+`crate::stun::{gather_endpoint,
+encode_binding_success_with_xor_mapped}` to augment
+Nebula's hole-punching with STUN reflexive candidates.
+Retaining `stun.rs`; the worklist's stun-deletion premise
+was based on a v1.x assumption that v4.0.1 mesh_router
+invalidated.
+
+567 mackesd lib tests + 48 tunnel-crate tests + the
+mackesd binary build under `--features async-services` all
+green.
+
 ## Unreleased — NF-20.6: lint-legacy-mesh.sh pre-commit gate
 
 New `install-helpers/lint-legacy-mesh.sh` script catches

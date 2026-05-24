@@ -29,6 +29,15 @@ tracing = "0.1"
 # Error propagation — same pattern as the rest of the
 # workspace's network code.
 thiserror = "1"
+# NF-4.5 (v2.5, 2026-05-24) — From-impl bridges between this
+# crate's `activation::HttpsFallbackState` and the transport
+# crate's `peer_path::HttpsFallbackState`. The impls have to
+# live in this crate (or in mackes-transport) per Rust's
+# orphan rule; this crate is the more natural home since
+# `activation::HttpsFallbackState` is the canonical enum the
+# state machine works on. mackes-transport has no workspace
+# deps so no dependency cycle.
+mackes-transport = { path = "../mackes-transport" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }

@@ -705,13 +705,7 @@ locked work appears under **Active** with `[ ] Open`.
   not a Tailscale DERP — it's a mackesd happy-path
   smoke, kept as-is. The NF-4.4 spec was forward-
   looking; no deletion needed.
-- [!] **NF-4.5: Delete `crates/mackesd/src/https_fallback.rs` +
-  (BLOCKED on NF-5.x retirement, audit 2026-05-24)** —
-  Cascading caller-cleanup task. Stays blocked until NF-5.1 +
-  NF-5.5 land + the upstream `https_fallback::*` /
-  `stun::*` consumers retire. NF-1.4's re-export shim keeps
-  the public surface stable; the actual file deletion is the
-  one-liner once callers are gone.
+- [✓] **NF-4.5: `https_fallback.rs` slimmed to bridge layer; `stun.rs` retained (still-live infra)** *(shipped 2026-05-24 — slimmed `crates/mackesd/src/https_fallback.rs` from 644 LOC → ~110 LOC (re-exports + `observe_peer` wrapper + 3 PeerPath-mutation tests). The duplicated state-machine body + the 350+ lines of pure-fn tests retired in favor of the canonical `mackes-nebula-https-tunnel::activation` module (NF-1.4's port). `From<HttpsFallbackState> <-> mackes_transport::peer_path::HttpsFallbackState` impls + `FailureWindow::from_consecutive_failures()` constructor moved upstream into `activation.rs` so the bridge layer can stay slim without violating Rust's orphan rule; `mackes-nebula-https-tunnel` gains a `mackes-transport` dep (no cycle — mackes-transport has zero workspace deps). 567 mackesd lib tests + 48 tunnel-crate tests + binary build all green. **`stun.rs` audit (re-classified 2026-05-24):** the original NF-4.5 premise that `stun.rs` was "absorbed by Nebula's protocol-level rendezvous" turned out to be wrong — `crates/mackesd/src/workers/stun_gather.rs` is spawned live in `run_serve` (NF-1.5 mesh-router context) and uses `crate::stun::{gather_endpoint, encode_binding_success_with_xor_mapped}` to augment Nebula's hole-punching with STUN reflexive candidates. Retaining `stun.rs` as live infrastructure; the NF-4.5 worklist body's stun-deletion claim was based on a v1.x assumption that v4.0.1 mesh_router invalidated.)*
   **Original entry:**
   `crates/mackesd/src/stun.rs`** — Functionality migrated to
   NF-1.4 (`activation.rs`) and absorbed by Nebula's

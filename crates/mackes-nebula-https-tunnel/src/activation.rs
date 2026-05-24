@@ -62,6 +62,19 @@ impl FailureWindow {
         Self::default()
     }
 
+    /// NF-4.5 (v2.5, 2026-05-24) — seed the window from an
+    /// existing per-peer failure counter so the policy layer
+    /// (`crate::https_fallback::observe_peer` in `mackesd`)
+    /// can hydrate state from a `PeerPath` snapshot without
+    /// replaying every previous probe. The retired
+    /// `mackesd::https_fallback` v1.x copy did this with a
+    /// direct field-init; we expose it as a constructor so
+    /// the field can stay private.
+    #[must_use]
+    pub fn from_consecutive_failures(n: u32) -> Self {
+        Self { consecutive_failures: n }
+    }
+
     /// Feed one probe-pair outcome. Returns the new failure
     /// count.
     pub fn observe(&mut self, outcome: ProbePairOutcome) -> u32 {
@@ -223,6 +236,38 @@ pub fn transition(
             }
         }
         (HttpsFallbackState::Failing, _) => HttpsFallbackState::Failing,
+    }
+}
+
+// ---- NF-4.5 — peer_path enum <-> activation enum bridge ----
+//
+// The bridges have to live in either this crate or the
+// mackes-transport crate per Rust's orphan rule. This crate
+// owns the canonical activation enum, so the impls are a
+// better fit here than in mackes-transport (which would
+// otherwise need to know about the activation state machine
+// it's bridging away from). Added 2026-05-24 as part of
+// retiring the parallel `mackesd::https_fallback` copy.
+
+impl From<HttpsFallbackState> for mackes_transport::peer_path::HttpsFallbackState {
+    fn from(s: HttpsFallbackState) -> Self {
+        match s {
+            HttpsFallbackState::Inactive => Self::Inactive,
+            HttpsFallbackState::Activating => Self::Activating,
+            HttpsFallbackState::Active => Self::Active,
+            HttpsFallbackState::Failing => Self::Failing,
+        }
+    }
+}
+
+impl From<mackes_transport::peer_path::HttpsFallbackState> for HttpsFallbackState {
+    fn from(s: mackes_transport::peer_path::HttpsFallbackState) -> Self {
+        match s {
+            mackes_transport::peer_path::HttpsFallbackState::Inactive => Self::Inactive,
+            mackes_transport::peer_path::HttpsFallbackState::Activating => Self::Activating,
+            mackes_transport::peer_path::HttpsFallbackState::Active => Self::Active,
+            mackes_transport::peer_path::HttpsFallbackState::Failing => Self::Failing,
+        }
     }
 }
 
