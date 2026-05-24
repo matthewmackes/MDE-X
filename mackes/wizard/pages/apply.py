@@ -49,9 +49,10 @@ from mackes.birthright import (
     apply_apps, apply_clipboard_daemon, apply_dnf_update, apply_drawer,
     apply_enforce_i3, apply_flathub, apply_fleet, apply_fonts,
     apply_gluster_bootstrap, apply_hotkey, apply_lightdm, apply_media_clients,
-    apply_panel_archive, apply_panel_layout, apply_panel_swap, apply_plymouth,
-    apply_qnm, apply_remote_desktop, apply_themes, apply_third_party_repos,
-    apply_thunar_autostart, apply_uid_normalize, apply_uninstall_legacy_xfce,
+    apply_netdata_monitor, apply_panel_archive, apply_panel_layout,
+    apply_panel_swap, apply_plymouth, apply_qnm, apply_remote_desktop,
+    apply_themes, apply_third_party_repos, apply_thunar_autostart,
+    apply_uid_normalize, apply_uninstall_legacy_xfce,
     apply_uninstall_legacy_xsessions, apply_user_dirs,
 )
 from mackes.presets import (
@@ -378,6 +379,14 @@ class ApplyPage(Gtk.Box):
             # Does NOT bootstrap the volume itself — the daemon
             # owns that per GF-2.4.
             _Step("Gluster substrate", lambda: apply_gluster_bootstrap(merged)),
+            # MON-1 (v2.6) — write the locked Netdata baseline
+            # config + reload. Fail-soft per the 2026-05-24
+            # design lock: each peer self-parents with 7d
+            # local dbengine retention. Future MON-1.b
+            # mackesd publisher rewrites the stream block on
+            # leader-flip so children stream to the elected
+            # aggregator.
+            _Step("Netdata monitoring", lambda: apply_netdata_monitor(merged)),
             _Step("XDG user dirs",     lambda: apply_user_dirs(merged)),
             _Step("Super+M hotkey",    lambda: apply_hotkey(merged)),
             # Phase 10.6.1-4: archive the user's pre-1.0 xfce4-panel state,

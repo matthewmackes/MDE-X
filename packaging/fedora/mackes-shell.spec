@@ -206,6 +206,19 @@ Requires:       nebula >= 1.9.0
 Requires:       glusterfs-server
 Requires:       glusterfs-fuse
 
+# Monitoring (MON-1, v2.6): Netdata for per-peer metrics +
+# alerting. The 25-Q monitoring design lock (2026-05-24) reuses
+# `mackesd::leader` for the parent/child streaming election;
+# the aggregator publishes its overlay IP via QNM-Shared and
+# children stream to it. Fail-soft: when the aggregator is
+# unreachable each peer self-parents (7-day local dbengine
+# retention). The birthright `apply_netdata_monitor` step
+# writes /etc/netdata/netdata.conf with the locked baseline
+# params (dbengine memory mode + 7d retention + cloud off +
+# bind to 127.0.0.1 only); the dynamic stream-block update on
+# leader-flip lands with MON-1.b.
+Requires:       netdata
+
 # VV-1 + VV-1.5 (v4.1.0) — voice stack. Kamailio is the SIP
 # proxy/registrar/router; rtpengine is the SRTP relay it drives
 # via the NG unix socket. Both from F44's official repo (no
@@ -902,6 +915,12 @@ systemctl enable --now mackesd.service 2>/dev/null || :
 # `glusterd` only binds locally until GF-1.3's Nebula-overlay
 # drop-in lands; it's safe to enable on first install.
 systemctl enable --now glusterd.service 2>/dev/null || :
+# MON-1 (v2.6) — enable netdata so the birthright
+# `apply_netdata_monitor` step + the future MON-1.b dynamic
+# stream-block rewriter have a live daemon to reload. Bound
+# to 127.0.0.1 in the default config until birthright writes
+# the overlay-bind block.
+systemctl enable --now netdata.service 2>/dev/null || :
 # VV-1 + VV-1.5 (v4.1.0) — voice stack state + spool + TLS dirs.
 # Config trees /etc/kamailio-mde/ + /etc/rtpengine-mde/ are owned
 # by the RPM (root:root 0755) so the generated config files end

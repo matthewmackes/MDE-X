@@ -1838,7 +1838,13 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 > nebula on peer A clears the notification on peer B within 5s
 > (recovery semantics).
 
-- [ ] **v2.6: MON-1 Netdata in `mde` comps group + Birthright step (Tier 1)**
+- [>] **v2.6: MON-1 Netdata in `mde` comps group + Birthright step (Tier 1)** — Split per §0.12 splitting rule into MON-1.a (substrate, shipped) + MON-1.b (streaming, ahead). Design locked 2026-05-24 via in-session AskUserQuestion: aggregator-role reuses `mackesd::leader`; fall-back is fail-soft per-peer-self-parent with 7d local dbengine retention.
+
+- [✓] **v2.6: MON-1.a Netdata substrate — RPM dep + birthright baseline-config writer** *(shipped 2026-05-24 — `Requires: netdata` added to spec alongside `glusterfs-server`; `%post systemctl enable --now netdata.service` wired alongside the existing glusterd/mackesd/sshd enables; new `apply_netdata_monitor(preset)` birthright step writes `/etc/netdata/netdata.conf` with the locked baseline params (memory mode = dbengine, history = 604800s = 7 days, cloud disabled, bind socket to IP = 127.0.0.1, python.d collector enabled, web bind to 127.0.0.1), atomic-write via `_write_root_file` (only fires when bytes differ from existing), reload via `systemctl reload netdata.service` with `systemctl restart` fall-back; "Netdata monitoring" step registered in `mackes/wizard/pages/apply.py` between "Gluster substrate" (GF-3.2) and "XDG user dirs". 6 pytest tests cover CLI-not-installed / already-matches-baseline / config-differs-triggers-write-and-reload / reload-fails-falls-back-to-restart / both-fail-surfaces-errors / config-contains-locked-design-params. ruff clean.)*
+
+- [ ] **v2.6: MON-1.b Aggregator-IP publisher + dynamic stream-block rewrite (Tier 1)** *(remaining MON-1 work — needs a new `netdata_aggregator` worker in mackesd that on every tick (a) checks `check_leader(&store, &node_id)` for THIS peer's leader status, (b) if leader: writes own overlay-ip to `<qnm_root>/<self>/mackesd/netdata-aggregator.json`, (c) always: scans `<qnm_root>/*/mackesd/netdata-aggregator.json` for the latest entry, writes the aggregator overlay-IP to `/var/lib/mackesd/netdata/aggregator-ip` locally, then rewrites `/etc/netdata/netdata.conf`'s `[stream]` block + `systemctl reload netdata.service` when the IP changes. Fail-soft per Q2 lock — if no leader has published yet (all aggregator files missing), no stream block gets written; netdata stays local-only with 7d retention. Bench gate: `netdatacli aclk-state` (or `/api/v1/info`) reports `parent` role on the aggregator + child-count equals peers−1.)*
+
+  **Original MON-1 entry preserved below for context:**
   **As** a mackes-shell operator,
   **I want** Netdata installed and configured automatically on every peer at install time, with the parent/child streaming role following `mackesd`'s leader-election lock,
   **so that** the mesh has a working metrics fabric without any per-peer manual config.

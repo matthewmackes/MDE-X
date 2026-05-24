@@ -97,6 +97,64 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — MON-1.a: Netdata substrate (RPM dep + birthright baseline)
+
+First commit of the v2.6 monitoring epic. Splits MON-1 into
+MON-1.a (substrate, this commit) + MON-1.b (aggregator-IP
+publisher + dynamic stream-block rewrite, the remaining
+work) per §0.12's splitting rule.
+
+Design lock 2026-05-24 (4-question in-session AskUserQuestion):
+
+- Aggregator-role election reuses `mackesd::leader` — same
+  QNM-Shared lockfile that elects the Nebula CA holder. One
+  leader-election fact across all roles.
+- Fall-back is fail-soft — every peer self-parents with 7-day
+  local dbengine retention when the aggregator's overlay-IP
+  isn't (yet) published.
+- Alert event schema accepts the worklist body verbatim:
+  `{id, ts, severity, category, alert, host, summary, value,
+  threshold, chart_url, fired_by, seen_by: []}`. ULID
+  derived from `NETDATA_ALARM_UNIQUE_ID + NETDATA_ALARM_WHEN`.
+- MON-5 Mesh Health panel lands in the Rust mde-workbench (no
+  parallel v1.x Python panel).
+
+This commit ships:
+
+- **`Requires: netdata`** added to the spec alongside the
+  existing glusterfs-server/nebula/kamailio deps.
+- **`%post systemctl enable --now netdata.service`** alongside
+  the existing glusterd + mackesd enables.
+- **`apply_netdata_monitor(preset)`** birthright step writes
+  `/etc/netdata/netdata.conf` with the locked baseline:
+  - `memory mode = dbengine`
+  - `history = 604800` (7 days)
+  - `dbengine multihost disk space = 256` MB
+  - `[cloud] enabled = no` (mesh is the only telemetry path)
+  - `bind socket to IP = 127.0.0.1` (overlay-bind lands with
+    MON-1.b once the aggregator-IP publisher writes the
+    overlay address)
+  - `python.d = yes` (gluster + nebula source data via the
+    python.d collector pattern)
+- Atomic-write via `_write_root_file` (only fires when bytes
+  differ); reload via `systemctl reload netdata.service` with
+  `systemctl restart` fall-back.
+- "Netdata monitoring" step registered in
+  `mackes/wizard/pages/apply.py` between "Gluster substrate"
+  (GF-3.2) and "XDG user dirs".
+
+6 pytest tests cover every branch: CLI-not-installed /
+already-matches-baseline / config-differs-triggers-write-and-
+reload / reload-fails-falls-back-to-restart / both-fail-
+surfaces-errors / config-contains-locked-design-params.
+ruff clean.
+
+MON-1.b (the dynamic stream-block writer hooking into
+mackesd's leader transitions) is the remaining work to fully
+close MON-1. Until then, every peer self-parents per the
+fail-soft lock — 7-day local retention means no metrics loss
+during the substrate-only window.
+
 ## Unreleased — GF-3.2 + GF-11.1: birthright gluster-status step + worker tests
 
 GF-3.2 — new `apply_gluster_bootstrap(preset)` birthright
