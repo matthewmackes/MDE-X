@@ -6,6 +6,8 @@
 
 #![forbid(unsafe_code)]
 
+use std::time::Instant;
+
 use clap::Parser;
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Alignment, Element, Length, Padding, Size, Task, Theme};
@@ -29,11 +31,22 @@ enum Message {
     NavNext,
     NavPrev,
     Quit,
+    /// NF-7.3 — operator clicked the Refresh button on the
+    /// Preview page (or the page just became active).
+    PreviewRefresh,
 }
 
 struct WizardApp {
     page: WizardPage,
     state: WizardState,
+    /// NF-7.3 — Preview page state. Re-populated whenever the
+    /// page becomes active or the operator clicks Refresh.
+    preview: pages::preview::PreviewSnapshot,
+    /// NF-7.3 — wall-clock moment the operator first reached
+    /// the Preview page. Drives the 30 s diagnostics-banner
+    /// gate. `None` until the page has been visited at least
+    /// once in the session.
+    preview_landed_at: Option<Instant>,
 }
 
 impl WizardApp {
@@ -51,6 +64,8 @@ impl WizardApp {
         let app = Self {
             page: WizardPage::Welcome,
             state,
+            preview: pages::preview::PreviewSnapshot::default(),
+            preview_landed_at: None,
         };
         iced::application(Self::title, Self::update, Self::view)
             .theme(Self::theme)
@@ -77,6 +92,18 @@ impl WizardApp {
             Message::NavNext => {
                 if let Some(next) = self.page.next() {
                     self.page = next;
+                    // NF-7.3 — on first landing on Preview, kick
+                    // off a probe + start the diagnostics timer.
+                    // Re-entries (Back then Next again) preserve
+                    // the original landed_at so the 30 s gate
+                    // measures total time on the page, not time
+                    // since the latest re-entry.
+                    if self.page == WizardPage::Preview {
+                        if self.preview_landed_at.is_none() {
+                            self.preview_landed_at = Some(Instant::now());
+                        }
+                        self.preview = pages::preview::probe();
+                    }
                 } else {
                     // Reached the end — finalize + persist + exit.
                     pages::apply::finalize(&mut self.state);
@@ -88,6 +115,13 @@ impl WizardApp {
                 if let Some(prev) = self.page.prev() {
                     self.page = prev;
                 }
+            }
+            Message::PreviewRefresh => {
+                // NF-7.3 — operator-driven re-probe. Doesn't
+                // reset preview_landed_at — the diagnostics
+                // banner stays gated on total elapsed time, not
+                // refresh count.
+                self.preview = pages::preview::probe();
             }
             Message::Quit => {}
         }
@@ -112,6 +146,13 @@ impl WizardApp {
             WizardPage::Network => network_body(),
             WizardPage::Snapshot => snapshot_body(),
             WizardPage::Apply => apply_body(),
+            WizardPage::Preview => {
+                let elapsed = self
+                    .preview_landed_at
+                    .map(|t| t.elapsed().as_secs())
+                    .unwrap_or(0);
+                preview_body(&self.preview, elapsed)
+            }
         };
 
         let mut nav = row![].spacing(12).align_y(Alignment::Center);
@@ -119,10 +160,14 @@ impl WizardApp {
             nav = nav.push(button(text("← Back")).on_press(Message::NavPrev));
         }
         nav = nav.push(Space::with_width(Length::Fill));
-        let next_label = if self.page.next().is_some() {
-            "Next →"
-        } else {
-            "Apply ✓"
+        // NF-7.3 — Preview button label distinguishes "click to
+        // run the birthright steps" (Apply) from "click to exit
+        // the wizard" (Finish). Refresh is a side button on the
+        // Preview body itself.
+        let next_label = match (self.page.next().is_some(), self.page) {
+            (true, _) => "Next →",
+            (false, WizardPage::Preview) => "Finish ✓",
+            (false, _) => "Apply ✓",
         };
         nav = nav.push(button(text(next_label)).on_press(Message::NavNext));
 
@@ -224,6 +269,59 @@ fn snapshot_body<'a>() -> Element<'a, Message> {
         .size(13),
     ]
     .into()
+}
+
+fn preview_body<'a>(
+    snap: &'a pages::preview::PreviewSnapshot,
+    elapsed_secs: u64,
+) -> Element<'a, Message> {
+    let mut col = column![
+        text("Mesh preview").size(16),
+        text(pages::preview::summary_line(snap)).size(13),
+        Space::with_height(Length::Fixed(8.0)),
+    ];
+    if !snap.error.is_empty() {
+        col = col.push(text(format!("Probe error: {}", snap.error)).size(12));
+        col = col.push(Space::with_height(Length::Fixed(6.0)));
+    }
+    if let Some(self_node) = &snap.self_node {
+        col = col.push(text(format!("  node-id: {}", self_node.node_id)).size(12));
+        col = col.push(text(format!("  hostname: {}", self_node.host)).size(12));
+        col = col.push(text(format!("  role: {}", self_node.role)).size(12));
+        col = col.push(text(format!("  cert epoch: {}", self_node.cert_epoch)).size(12));
+        col = col.push(Space::with_height(Length::Fixed(6.0)));
+    }
+    if snap.peers.is_empty() {
+        col = col.push(text("Lighthouse roster: (no peers yet)").size(13));
+    } else {
+        col = col.push(text(format!("Lighthouse roster ({} peers):", snap.peers.len())).size(13));
+        for peer in &snap.peers {
+            col = col.push(
+                text(format!(
+                    "  · {} ({}) @ {} — {}",
+                    peer.name, peer.node_id, peer.overlay_ip, peer.reachable
+                ))
+                .size(12),
+            );
+        }
+    }
+    // NF-7.3 — diagnostics banner once the 30 s threshold passes
+    // with an empty roster. The banner copy is context-aware
+    // (see pages::preview::diagnostic_message).
+    if pages::preview::should_show_diagnostics(snap, elapsed_secs) {
+        col = col.push(Space::with_height(Length::Fixed(10.0)));
+        col = col.push(text("⚠ Diagnostics").size(14));
+        col = col.push(text(pages::preview::diagnostic_message(snap)).size(12));
+    }
+    // Inline Refresh button so the operator can re-poll without
+    // backing out of the wizard.
+    col = col.push(Space::with_height(Length::Fixed(12.0)));
+    col = col.push(
+        row![button(text("Refresh probe")).on_press(Message::PreviewRefresh)]
+            .spacing(8)
+            .align_y(Alignment::Center),
+    );
+    col.into()
 }
 
 fn apply_body<'a>() -> Element<'a, Message> {

@@ -2,7 +2,8 @@
 //! Desktop Environment.
 //!
 //! CB-1.10 port of `mackes/wizard/` — the v1.x GTK3 PyGObject
-//! wizard becomes 8 Iced pages walking the user through:
+//! wizard becomes a 9-page Iced sequence walking the user
+//! through:
 //!
 //! 1. **Welcome** — branded splash + start button.
 //! 2. **Scan** — environment probe (CPU/RAM/disk/distro/Wayland).
@@ -14,6 +15,10 @@
 //! 6. **Network** — first-run NM bring-up.
 //! 7. **Snapshot** — pre-apply snapshot via mackesd.
 //! 8. **Apply** — run every selected birthright step.
+//! 9. **Preview** (NF-7.3, v2.5) — post-apply Nebula state
+//!    confirmation: overlay IP, lighthouse roster, active
+//!    transport, with a 30 s diagnostics banner if the roster
+//!    stays empty.
 //!
 //! State is gated by `~/.config/mde/state.json`'s `provisioned`
 //! flag — the binary short-circuits to "already provisioned"
@@ -26,7 +31,8 @@ use std::path::PathBuf;
 
 pub mod pages;
 
-/// Locked page order matching the v1.x wizard flow.
+/// Locked page order matching the v1.x wizard flow + the
+/// v2.5 Preview tail (NF-7.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WizardPage {
     Welcome,
@@ -37,12 +43,14 @@ pub enum WizardPage {
     Network,
     Snapshot,
     Apply,
+    /// NF-7.3 (v2.5) — post-apply Nebula state confirmation.
+    Preview,
 }
 
 impl WizardPage {
     /// All pages in their canonical order.
     #[must_use]
-    pub const fn ordered() -> [WizardPage; 8] {
+    pub const fn ordered() -> [WizardPage; 9] {
         [
             WizardPage::Welcome,
             WizardPage::Scan,
@@ -52,6 +60,7 @@ impl WizardPage {
             WizardPage::Network,
             WizardPage::Snapshot,
             WizardPage::Apply,
+            WizardPage::Preview,
         ]
     }
 
@@ -67,10 +76,11 @@ impl WizardPage {
             WizardPage::Network => "Network",
             WizardPage::Snapshot => "Snapshot",
             WizardPage::Apply => "Apply",
+            WizardPage::Preview => "Mesh preview",
         }
     }
 
-    /// One-based index (1..=8) shown in the page header.
+    /// One-based index (1..=9) shown in the page header.
     #[must_use]
     pub fn index(&self) -> usize {
         Self::ordered()
@@ -79,13 +89,13 @@ impl WizardPage {
             .map_or(0, |i| i + 1)
     }
 
-    /// Total page count (8).
+    /// Total page count (9).
     #[must_use]
     pub const fn total() -> usize {
         Self::ordered().len()
     }
 
-    /// Next page in the flow. `None` after Apply.
+    /// Next page in the flow. `None` after Preview.
     #[must_use]
     pub fn next(&self) -> Option<WizardPage> {
         let order = Self::ordered();
@@ -158,33 +168,34 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn eight_pages_in_locked_order() {
+    fn nine_pages_in_locked_order() {
         let pages = WizardPage::ordered();
-        assert_eq!(pages.len(), 8);
-        assert_eq!(WizardPage::total(), 8);
+        assert_eq!(pages.len(), 9);
+        assert_eq!(WizardPage::total(), 9);
     }
 
     #[test]
     fn index_is_one_based() {
         assert_eq!(WizardPage::Welcome.index(), 1);
         assert_eq!(WizardPage::Apply.index(), 8);
+        assert_eq!(WizardPage::Preview.index(), 9);
     }
 
     #[test]
-    fn next_walks_forward_to_apply() {
+    fn next_walks_forward_to_preview() {
         let mut p = WizardPage::Welcome;
         let mut count = 1;
         while let Some(next) = p.next() {
             p = next;
             count += 1;
         }
-        assert_eq!(count, 8);
-        assert_eq!(p, WizardPage::Apply);
+        assert_eq!(count, 9);
+        assert_eq!(p, WizardPage::Preview);
     }
 
     #[test]
     fn prev_walks_back_to_welcome() {
-        let mut p = WizardPage::Apply;
+        let mut p = WizardPage::Preview;
         while let Some(prev) = p.prev() {
             p = prev;
         }
@@ -197,15 +208,23 @@ mod tests {
     }
 
     #[test]
-    fn apply_has_no_next() {
-        assert!(WizardPage::Apply.next().is_none());
+    fn preview_has_no_next() {
+        assert!(WizardPage::Preview.next().is_none());
+    }
+
+    #[test]
+    fn apply_advances_to_preview() {
+        // NF-7.3 — the new preview page lives between Apply and
+        // wizard finalization. Apply.next() must return Preview.
+        assert_eq!(WizardPage::Apply.next(), Some(WizardPage::Preview));
+        assert_eq!(WizardPage::Preview.prev(), Some(WizardPage::Apply));
     }
 
     #[test]
     fn every_page_has_distinct_label() {
         let labels: std::collections::HashSet<_> =
             WizardPage::ordered().iter().map(|p| p.label()).collect();
-        assert_eq!(labels.len(), 8);
+        assert_eq!(labels.len(), 9);
     }
 
     #[test]

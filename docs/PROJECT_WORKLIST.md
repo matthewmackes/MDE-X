@@ -436,13 +436,37 @@ locked work appears under **Active** with `[ ] Open`.
   to do — the audit on 2026-05-24 confirmed both helper
   shipping and runtime reachability (NebulaSupervisor is
   spawned in run_serve at mackesd.rs:1592).
-- [ ] **NF-3.6: D-Bus surface for `mded enroll`** —
+- [ ] **NF-3.6: D-Bus surface for `mded enroll` (split
+  2026-05-24)** —
   `dev.mackes.MDE.Nebula.{Enroll, Status, RegenCerts}` methods.
-  Polkit policy gates Enroll behind the existing
-  `dev.mackes.mded.admin` action ID. Status returns
-  `(state: str, lighthouse_count: u32, peer_count: u32,
-  active_transport: str)` — feeds the panel without shelling
-  out.
+  Status + RegenCerts already ship via `NebulaStatusService`
+  (NF-Bundle-0); the gap is Enroll. Polkit policy gates Enroll
+  behind the existing `dev.mackes.mded.admin` action ID.
+
+  **Split:** NF-3.6.a ships the peer-enrollment helper (CLI +
+  in-process library). NF-3.6 layers an Enroll D-Bus method on
+  top — convenience surface for the wizard, not the source of
+  truth. The CLI path is sufficient to unblock NF-7.1 / 14.4 /
+  14.5; D-Bus is a nice-to-have.
+
+- [ ] **NF-3.6.a: peer-enrollment helper + `mackesd enroll
+  --token` CLI extension (added 2026-05-24)** — The actual
+  work behind NF-3.6's "Enroll" verb. Today `mackesd enroll
+  --passcode <16-char>` exists for the v1.x Tailscale flow.
+  Extend the CLI to accept `--token mesh:<id>@<ip>:<port>#<bearer>`
+  (the v2.5 join-token shape locked by NF-7.2) and run the
+  peer-side enrollment: parse token → publish CSR to
+  `QNM-Shared/<self>/mackesd/pending-enroll.json` →
+  poll-wait for the lighthouse to write the signed bundle
+  back to `QNM-Shared/<self>/mackesd/nebula-bundle.json` →
+  hand off to nebula_supervisor for config materialization.
+  Library function `mackesd_core::nebula_enroll::enroll_with_token`
+  exposes the same flow for D-Bus consumers (NF-3.6) +
+  in-process callers. Acceptance: `mackesd enroll --token
+  '<valid>'` on a fresh peer reaches connected state within
+  ~10 s (after the lighthouse signs); on an invalid token,
+  exits non-zero with a human-readable rejection reason
+  inside 2 s.
 
 #### NF-4.x — `mackes-transport` rename + variant retirements
 
@@ -611,10 +635,27 @@ locked work appears under **Active** with `[ ] Open`.
   validator. NF-7.1 (wizard mesh_setup.py rewrite) +
   NF-14.4 (apply.py Nebula.Enroll call) both consume this
   shape.
-- [ ] **NF-7.3: Wizard preview page** — After successful
-  enrollment, show the overlay IP, the lighthouse roster, and
-  a live `mded.Nebula.Status` poll. If a peer doesn't show up
-  within 30 s, surface the diagnostics banner per the Q11 lock.
+- [ ] **NF-7.3: Wizard preview page (unblocked + retargeted
+  2026-05-24)** — After successful enrollment, show the overlay
+  IP, the lighthouse roster, and a live `mded.Nebula.Status` poll.
+  If a peer doesn't show up within 30 s, surface the
+  diagnostics banner per the Q11 lock.
+
+  **Unblocked:** the original entry was implicitly blocked on
+  NF-3.6 (Enroll surface). The reads it needs are
+  `Nebula.Status.SelfNode` + `.ListPeers`, both of which already
+  ship in NF-Bundle-0's NebulaStatusService. No daemon change
+  needed.
+
+  **Retargeted:** the wizard work for v2.x lives in
+  `crates/mde-wizard/` (Rust/Iced — CB-1.10 retired the Python
+  wizard). NF-7.3 ships as a new page module
+  `crates/mde-wizard/src/pages/preview.rs` between Apply and
+  the end of the 8-page sequence (new 9th page), or as a sub-
+  surface invoked from Apply on success. Reads via `dbus-send`
+  subprocess (matches the mesh_control pattern). Diagnostic
+  banner uses a local Instant-based timer; no async runtime
+  needed.
 - [✓] **NF-7.4: First-boot vs reconfigure paths (shipped
   2026-05-23)** — `WizardWindow.__init__` gained a
   `reconfigure: bool = False` keyword arg. When True:
