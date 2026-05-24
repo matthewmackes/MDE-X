@@ -43,6 +43,26 @@ enum Cmd {
     /// panel + the CLI consume identical data.
     Healthz,
 
+    /// GF-12.2 (v5.0.0) — pre-flight check for the GlusterFS
+    /// mesh-home rollout. Walks the user's XDG dirs, sums on-
+    /// disk bytes, queries `/var/lib/gluster/bricks` free
+    /// space, prints a one-line OK / WARN / NoBrick verdict
+    /// + emits the full structured report as a JSON line to
+    /// stdout. Exits 0 on OK, 1 on WARN / NoBrick. Operators
+    /// can run this before an upgrade to v5.0.0; the
+    /// Workbench Mesh Storage panel (GF-8.x) will surface the
+    /// same report as a banner once it lands.
+    PreflightGlusterHeadroom {
+        /// Override the brick parent dir. Defaults to
+        /// `/var/lib/gluster/bricks` per the design lock.
+        #[clap(long, default_value = "/var/lib/gluster/bricks")]
+        brick_dir: std::path::PathBuf,
+        /// Override `$HOME` (used to locate the five XDG
+        /// dirs). Defaults to the env-var `$HOME`.
+        #[clap(long)]
+        home: Option<std::path::PathBuf>,
+    },
+
     /// Generate a fresh 16-char URL-safe passcode (Phase 12.10.1).
     /// Prints the passcode and an instruction to save it to
     /// `libsecret` as `org.mackes.mesh.passcode`. Does NOT mutate
@@ -655,6 +675,25 @@ fn main() -> anyhow::Result<()> {
             // the live fields.
             let report = mackesd_core::health::HealthReport::empty();
             println!("{}", report.to_json_line()?);
+        }
+        Cmd::PreflightGlusterHeadroom { brick_dir, home } => {
+            // GF-12.2 — pre-flight headroom check for the
+            // mesh-home rollout. Operator runs this before
+            // upgrading to v5.0.0; the Workbench Mesh Storage
+            // panel (GF-8.x) consumes the same JSON when it
+            // lands.
+            let home_dir = home.clone().or_else(|| {
+                std::env::var_os("HOME").map(std::path::PathBuf::from)
+            }).context("no HOME env var; pass --home <dir>")?;
+            let xdg = mackesd_core::gluster::headroom::default_xdg_dirs(&home_dir);
+            let report = mackesd_core::gluster::headroom::check(&brick_dir, &xdg);
+            eprintln!("{}", report.summary());
+            println!("{}", serde_json::to_string(&report).context("encode report")?);
+            match report.verdict {
+                mackesd_core::gluster::headroom::Verdict::Ok => {}
+                mackesd_core::gluster::headroom::Verdict::Warn
+                | mackesd_core::gluster::headroom::Verdict::NoBrick => std::process::exit(1),
+            }
         }
         Cmd::GeneratePasscode => {
             let code = mackesd_core::passcode::generate();

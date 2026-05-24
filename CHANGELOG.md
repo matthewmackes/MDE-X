@@ -97,6 +97,28 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-12.2: gluster-headroom pre-flight CLI
+
+`mackesd preflight-gluster-headroom` walks the operator's
+five XDG dirs (Documents / Pictures / Music / Videos /
+Downloads), sums on-disk bytes, queries
+`/var/lib/gluster/bricks` free space via `df -B1 --output=avail`
+(workspace forbids `unsafe_code` so no `statvfs`), classifies
+the headroom verdict against the locked 1.5× XDG-bytes
+threshold, prints the one-line summary to stderr + the full
+structured JSON report to stdout, exits 0 on OK / 1 on
+WARN / NoBrick.
+
+Operators can run this before upgrading to v5.0.0 to confirm
+their brick partition has enough headroom for the mesh-home
+volume. The Workbench Mesh Storage panel (GF-8.x) will
+consume the same JSON shape as a banner once it lands.
+
+`mackesd_core::gluster::headroom` module is pure: same
+inputs → same `HeadroomReport`. 7 unit tests cover
+no-brick / empty-xdg / file-aggregation / missing-xdg-dirs /
+default-xdg-names / summary-per-verdict / JSON round-trip.
+
 ## Unreleased — GF-9.1/9.2/9.4: state-backup tarball carries gluster topology
 
 The daily encrypted backup that NF-18.4 introduced now folds

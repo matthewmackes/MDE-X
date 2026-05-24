@@ -8,4 +8,5 @@
 //! `docs/design/v5.0.0-gluster-mesh-home.md` lock.
 
 pub mod bind;
+pub mod headroom;
 pub mod snapshot;
