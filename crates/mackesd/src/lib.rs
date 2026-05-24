@@ -31,6 +31,12 @@ pub mod leader;
 pub mod legacy_inventory;
 pub mod logging;
 pub mod metrics;
+// NF-3.6.a (v2.5) — peer-side enrollment via the
+// `mesh:<id>@<ip>:<port>#<bearer>` join-token shape. Publishes a
+// pending-enroll CSR to QNM-Shared + polls for the lighthouse-
+// signed bundle. Consumed by the `mackesd enroll --token` CLI +
+// the future NF-3.6 D-Bus method.
+pub mod nebula_enroll;
 // NF-18.2 (v2.5) — typed export of the live nebula_peer_certs
 // table, joined with nodes.role for the groups column. Pure-fn
 // SQL projection; consumed by the `mackesd nebula export-roster`

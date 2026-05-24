@@ -78,16 +78,37 @@ enum Cmd {
         dry_run: bool,
     },
 
-    /// Enroll this peer against the mesh (Phase 12.3.1). Generates
-    /// a fresh Ed25519 keypair + bearer token; prints a signed
-    /// `EnrollmentRequest` JSON that the leader ingests.
+    /// Enroll this peer against the mesh. Two flows:
+    ///
+    /// **Pre-v2.5 (passcode):** Phase 12.3.1 v1.x flow — generates
+    /// an Ed25519 keypair + bearer token, prints a signed
+    /// `EnrollmentRequest` JSON the leader ingests.
+    ///
+    /// **v2.5 Nebula (token):** NF-3.6.a — parses the
+    /// `mesh:<id>@<ip>:<port>#<bearer>` join token, publishes a
+    /// pending-enroll CSR to QNM-Shared, waits up to 30 s for the
+    /// lighthouse to sign + write the bundle back. The
+    /// `nebula_supervisor` worker materializes /etc/nebula/ once
+    /// the bundle lands.
+    ///
+    /// `--passcode` and `--token` are mutually exclusive; exactly
+    /// one must be set.
     Enroll {
-        /// 16-character URL-safe shared passcode.
-        #[arg(long)]
-        passcode: String,
+        /// 16-character URL-safe shared passcode (v1.x flow).
+        #[arg(long, conflicts_with = "token")]
+        passcode: Option<String>,
+        /// v2.5 Nebula join token —
+        /// `mesh:<mesh_id>@<lighthouse_ip>:<port>#<bearer>`.
+        #[arg(long, conflicts_with = "passcode")]
+        token: Option<String>,
         /// Optional display name; defaults to the system hostname.
         #[arg(long)]
         name: Option<String>,
+        /// Override the QNM-Shared root (defaults to
+        /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`). v2.5 token flow
+        /// uses this to locate where the CSR + signed bundle live.
+        #[arg(long, env = "QNM_SHARED_ROOT")]
+        qnm_root: Option<PathBuf>,
     },
 
     /// Decommission a peer (Phase 12.3.4). Soft-deletes the node
@@ -354,6 +375,25 @@ enum VoiceCmd {
         /// Override the rtpengine-mde output directory.
         #[arg(long, value_name = "DIR", default_value = "/etc/rtpengine-mde")]
         rtpengine_dir: PathBuf,
+        /// VV-2 — JSON file containing a serialized `VoiceDesired`
+        /// document. When the file is missing, render-config
+        /// falls back to `VoiceDesired::boot_default(node_id)` and
+        /// emits the minimal SIP-OPTIONS-keepalive-only config.
+        /// The voice_config worker writes to this path on every
+        /// policy change; operators can hand-edit during
+        /// development by dropping a JSON document at the
+        /// default path.
+        #[arg(
+            long,
+            value_name = "PATH",
+            default_value = "/etc/kamailio-mde/desired.json"
+        )]
+        desired_json: PathBuf,
+        /// Skip the desired_json file entirely and use
+        /// `boot_default` — useful for testing the bootstrap
+        /// path in isolation.
+        #[arg(long)]
+        boot_default: bool,
         /// Print each generated file to stdout instead of
         /// writing to disk. Useful for diff'ing across policy
         /// revisions.
@@ -619,9 +659,12 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(2);
             }
         }
-        Cmd::Enroll { passcode, name } => {
-            // Phase 12.3.1 — build identity + signed request.
-            let identity = mackesd_core::enrollment::build_identity();
+        Cmd::Enroll {
+            passcode,
+            token,
+            name,
+            qnm_root,
+        } => {
             let display = name.unwrap_or_else(|| {
                 std::env::var("HOSTNAME").unwrap_or_else(|_| {
                     std::process::Command::new("hostname")
@@ -631,20 +674,74 @@ fn main() -> anyhow::Result<()> {
                         .map_or_else(|| "unknown".to_owned(), |s| s.trim().to_owned())
                 })
             });
-            match mackesd_core::enrollment::build_request(&identity, &passcode, &display) {
-                Some(req) => {
-                    println!("{}", serde_json::to_string_pretty(&req)?);
+            match (passcode, token) {
+                (Some(_), Some(_)) => {
+                    // `conflicts_with` should catch this at parse
+                    // time, but belt-and-braces.
                     eprintln!(
-                        "enrollment request emitted — drop into the leader's \
-                         pending inbox (Phase 12.8.2)."
-                    );
-                }
-                None => {
-                    eprintln!(
-                        "mackesd enroll: passcode failed validation (must be \
-                         16 URL-safe characters)."
+                        "mackesd enroll: --passcode and --token are mutually \
+                         exclusive; pass exactly one."
                     );
                     std::process::exit(2);
+                }
+                (None, None) => {
+                    eprintln!(
+                        "mackesd enroll: pass either --passcode (v1.x flow) or \
+                         --token (v2.5 Nebula flow)."
+                    );
+                    std::process::exit(2);
+                }
+                (Some(pc), None) => {
+                    // Phase 12.3.1 — v1.x build identity + signed request.
+                    let identity = mackesd_core::enrollment::build_identity();
+                    match mackesd_core::enrollment::build_request(&identity, &pc, &display) {
+                        Some(req) => {
+                            println!("{}", serde_json::to_string_pretty(&req)?);
+                            eprintln!(
+                                "enrollment request emitted — drop into the leader's \
+                                 pending inbox (Phase 12.8.2)."
+                            );
+                        }
+                        None => {
+                            eprintln!(
+                                "mackesd enroll: passcode failed validation (must be \
+                                 16 URL-safe characters)."
+                            );
+                            std::process::exit(2);
+                        }
+                    }
+                }
+                (None, Some(tok)) => {
+                    // NF-3.6.a — v2.5 Nebula join-token flow.
+                    let qnm_root = qnm_root
+                        .unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                    let node_id = default_node_id();
+                    eprintln!(
+                        "mackesd enroll: publishing CSR + waiting up to {} s \
+                         for the lighthouse to sign…",
+                        mackesd_core::nebula_enroll::ENROLL_WAIT_TIMEOUT.as_secs(),
+                    );
+                    match mackesd_core::nebula_enroll::enroll_with_token(
+                        &qnm_root, &node_id, &display, &tok,
+                    ) {
+                        Ok(outcome) => {
+                            println!(
+                                "enrolled into mesh '{}' as {} (overlay {}) after {} s.",
+                                outcome.mesh_id,
+                                node_id,
+                                outcome.overlay_ip,
+                                outcome.waited.as_secs(),
+                            );
+                            eprintln!(
+                                "nebula_supervisor will materialize /etc/nebula/ \
+                                 from the bundle on its next reconcile tick."
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("mackesd enroll: {e}");
+                            std::process::exit(2);
+                        }
+                    }
                 }
             }
         }
@@ -1016,19 +1113,25 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Cmd::Voice { sub } => {
-            // VV-1 / VV-1.5 (v4.1.0) — voice stack operator surface.
-            // Today the only subcommand is `render-config`, invoked
-            // by both `kamailio-mde.service` and
-            // `rtpengine-mde.service` as their ExecStartPre hook.
-            // VV-2 expands the input to read from the policy store.
+            // VV-1 / VV-1.5 / VV-2 (v4.1.0) — voice stack operator
+            // surface. `render-config` is invoked by both
+            // `kamailio-mde.service` and `rtpengine-mde.service` as
+            // their ExecStartPre hook; the voice_config worker
+            // writes the JSON input file when policy changes and
+            // triggers `systemctl reload` to re-run this command.
             match sub {
                 VoiceCmd::RenderConfig {
                     kamailio_dir,
                     rtpengine_dir,
+                    desired_json,
+                    boot_default,
                     dry_run,
                 } => {
-                    let desired =
-                        mde_voice_config::VoiceDesired::boot_default(default_node_id());
+                    let desired = load_voice_desired(
+                        &desired_json,
+                        boot_default,
+                        &default_node_id(),
+                    )?;
                     let set = mde_voice_config::generate(&desired);
                     let kamailio_files = [
                         ("kamailio.cfg", &set.kamailio_cfg),
@@ -2132,6 +2235,44 @@ fn legacy_name_char(c: char) -> bool {
 /// Resolve the stable node id from `$MACKESD_NODE_ID` then
 /// `$HOSTNAME` then the `hostname` syscall, falling back to
 /// `peer:unknown` so the audit-log column is never empty.
+/// VV-2 helper — load `VoiceDesired` from the operator's JSON
+/// override file at `desired_json`, falling back to
+/// `boot_default(node_id)` when the file is absent or `force_boot`
+/// is set.
+///
+/// `force_boot=true` is the explicit `--boot-default` CLI flag —
+/// useful for testing the bootstrap path without removing the
+/// override file. A missing override file is the steady-state on a
+/// fresh peer (no voice policies have been approved yet), so it's
+/// a silent fall-through rather than a hard error. Parse errors
+/// on a present file *are* hard errors — the operator's
+/// hand-edited / worker-written file is bad and we should not
+/// silently fall back to defaults that hide the bug.
+fn load_voice_desired(
+    desired_json: &std::path::Path,
+    force_boot: bool,
+    node_id: &str,
+) -> anyhow::Result<mde_voice_config::VoiceDesired> {
+    if force_boot {
+        return Ok(mde_voice_config::VoiceDesired::boot_default(node_id));
+    }
+    match std::fs::read_to_string(desired_json) {
+        Ok(body) => serde_json::from_str(&body).map_err(|e| {
+            anyhow::anyhow!(
+                "voice render-config: parse {}: {e}",
+                desired_json.display()
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(mde_voice_config::VoiceDesired::boot_default(node_id))
+        }
+        Err(e) => Err(anyhow::anyhow!(
+            "voice render-config: read {}: {e}",
+            desired_json.display()
+        )),
+    }
+}
+
 /// VV-1 helper — atomic write-and-rename of the generated voice
 /// configs. The directory is `mkdir -p`'d; each file is written
 /// to a hidden `.tmp` sibling and renamed into place so a
