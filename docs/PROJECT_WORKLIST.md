@@ -1739,13 +1739,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   these is a v2.5-cut regression. Lint runs on
   `crates/mde-*/src/`, `mackes/workbench/`,
   `mackes/wizard/`, `data/applications/*.desktop`.
-- [!] **NF-20.6: Pre-commit gate updates (BLOCKED on NF-5.x
-  retirement)** — Original entry explicitly says "post
-  NF-5.x land" — the workspace-wide grep would catch the
-  20+ live mesh_vpn.py callers + headscale_setup.py etc. as
-  false positives until they retire. Will land in the same
-  commit (or as the immediate follow-up) when NF-5.1 + 5.5 +
-  14.1 ship.
+- [✓] **NF-20.6: Pre-commit gate `install-helpers/lint-legacy-mesh.sh`** *(shipped 2026-05-24 — net-new tailscale/headscale/derper detector with directory-prefix allow-list. The v1.x Python tree (`mackes/*`), the legacy GTK panel (`crates/mackes-panel/`), the NF-4.5 retirement targets under `crates/mackesd/src/` (`https_fallback.rs`, `stun.rs`, `workers/{derp,perf,stun_gather,mesh_router}.rs`, `transport/https443.rs`, `topology/mod.rs`, `legacy_inventory.rs`), the upstream `activation.rs` canonical replacement, the integration testcontainers harness, the full `tests/*` tree (legitimate "assert legacy is GONE" fixtures), and `crates/mde-workbench/src/panels/mesh_services.rs`'s catalog-absence assertions are allow-listed. Retraction-comment lines (NF-N.M / GF-N.M / RD-N / KDC2-N tags or `retired/legacy/superseded/deprecat` verbs) + pure `//`/`#` comment lines are filtered. The result: any net-new `tailscale|headscale|derper` reference in v2.5+ Nebula-native source fires the gate. Wired into `.claude/CLAUDE.md` §0.7 as gate #7; mirrors `lint-voice.sh`'s scan + allow-list shape. Current state: gate runs clean (zero violations); ready as a regression detector for future commits.)*
   **Original entry:**
   workspace-wide `grep -RIn 'tailscale\|headscale\|derper'
   --include='*.{rs,py}' crates/ mackes/ tests/` check to

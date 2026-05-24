@@ -149,6 +149,17 @@ Before every commit, when applicable:
    verb-discipline table + forbidden-strings list locked in
    `docs/design/voice-and-tone.md`. Mirrors the same script the
    CI runs.
+7. **Legacy-mesh-vocabulary lint** (v2.5 NF-20.6, added 2026-05-24):
+   `install-helpers/lint-legacy-mesh.sh` (if any `.rs` or `.py`
+   file outside the v1.x legacy tree is touched). Catches
+   net-new `tailscale` / `headscale` / `derper` references in
+   v2.5+ Nebula-native source. The v1.x Python tree
+   (`mackes/*`), the legacy GTK panel (`crates/mackes-panel/`),
+   the legacy mackesd workers + transport modules that NF-4.5
+   will retire, and `tests/*` are allow-listed by directory
+   prefix; retraction-comment lines (NF-N.M / GF-N.M / RD-N /
+   KDC2-N tags, or "retired"/"legacy"/"superseded" verbs) and
+   pure `//` / `#` comment lines are also allow-listed.
 
 If a pre-commit hook fails, the commit did **not** happen — fix the
 issue, re-stage, and create a **new** commit. Never `--amend` in that

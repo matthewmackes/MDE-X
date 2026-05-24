@@ -97,6 +97,38 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — NF-20.6: lint-legacy-mesh.sh pre-commit gate
+
+New `install-helpers/lint-legacy-mesh.sh` script catches
+net-new `tailscale` / `headscale` / `derper` references in
+v2.5+ Nebula-native source. Wired into `.claude/CLAUDE.md`
+§0.7 as gate #7 alongside the existing voice-and-tone +
+CSS + RPM + ruff + module-import gates.
+
+Allow-list (by directory prefix):
+- `mackes/*` — v1.x Python tree, NF-5.x cluster retires these
+  files; their tailscale references are pre-existing.
+- `crates/mackes-panel/` — v1.x GTK panel, frozen by the
+  Iced rewrite, won't be relabeled.
+- `crates/mackesd/src/{https_fallback,stun}.rs` + workers
+  `{derp,perf,stun_gather,mesh_router}` + `transport/https443`
+  + `topology/mod` + `legacy_inventory` — NF-4.5 retirement
+  targets, allow-listed pending that cascade.
+- `crates/mackes-nebula-https-tunnel/src/activation.rs` — the
+  upstream canonical replacement, naturally names what it
+  replaced.
+- `tests/*` — legitimate "assert legacy is GONE" fixtures.
+- `crates/mde-workbench/src/panels/mesh_services.rs` —
+  catalog-absence assertions.
+
+Retraction-comment lines (NF-N.M / GF-N.M / RD-N / KDC2-N
+tags or `retired/legacy/superseded/deprecat` verbs) plus
+pure `//`/`#` comment lines are also filtered.
+
+Current state: zero violations. The gate is now a regression
+detector — future commits that drag the legacy vocabulary
+back into v2.5+ source will trip CI.
+
 ## Unreleased — RD-4: wayvnc reuses Nebula's X.509 PKI as its TLS identity
 
 Closes the v2.6 RD epic. The original worklist body sketched a
