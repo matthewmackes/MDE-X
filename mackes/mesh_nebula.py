@@ -256,6 +256,121 @@ def published_services_summary() -> list[dict]:
     return out
 
 
+# ─────────────────────────────────────────────────────────────────
+# NF-16 notification emitters (toasts → ~/.cache/mde/toasts.jsonl)
+# ─────────────────────────────────────────────────────────────────
+#
+# The Iced toast applet at crates/mde-popover/src/toasts.rs tails
+# ~/.cache/mde/toasts.jsonl + stacks up to STACK_LIMIT=3 toasts
+# above the panel. These emitters write JSON-line events; the
+# applet's `Kind` field maps to ToastKind { Info, Success, Warn,
+# Error }. Failures are best-effort — a missing cache dir or
+# disk-full doesn't crash the caller.
+
+import json
+
+
+TOASTS_PATH = Path(
+    os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+) / "mde" / "toasts.jsonl"
+
+
+def _emit_toast(kind: str, title: str, body: str = "",
+                visible_ms: int = 5000) -> bool:
+    """Append one JSON line to the toast stream. Returns True on
+    success, False on filesystem error (caller is expected to
+    treat the toast as best-effort).
+    """
+    try:
+        TOASTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with TOASTS_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "kind": kind,
+                "title": title,
+                "body": body,
+                "visible_ms": visible_ms,
+                "created_at": int(__import__("time").time()),
+            }) + "\n")
+        return True
+    except OSError:
+        return False
+
+
+def emit_lighthouse_event(promoted: bool) -> bool:
+    """NF-16.1 — subtle informational toast on
+    promotion/demotion to/from the lighthouse role.
+    """
+    if promoted:
+        return _emit_toast(
+            "info",
+            "Lighthouse active",
+            "This peer is now serving as a lighthouse for the mesh.",
+        )
+    return _emit_toast(
+        "info",
+        "Lighthouse stepped down",
+        "This peer is no longer serving as a lighthouse.",
+    )
+
+
+def emit_ca_rotation(success: bool, error_detail: str = "") -> bool:
+    """NF-16.2 — per-peer toast when the mesh CA rotates.
+    Success path: info toast confirming the new cert
+    propagated. Failure path: error toast pointing to the
+    recovery doc.
+    """
+    if success:
+        return _emit_toast(
+            "info",
+            "Mesh CA rotated",
+            "Your peer cert was re-issued under the new CA epoch.",
+        )
+    body = "See docs/help/mesh-recovery.md for recovery steps."
+    if error_detail:
+        body = f"{error_detail}\n\n{body}"
+    return _emit_toast("error", "CA rotation failed", body)
+
+
+def emit_https_fallback_state(active: bool) -> bool:
+    """NF-16.3 — transition-only event when the TCP/443
+    fallback flips Active / Inactive. Honors the Q12 lock:
+    transition event, not a persistent banner.
+    """
+    if active:
+        return _emit_toast(
+            "warn",
+            "Mesh in firewall mode",
+            "UDP path lost — falling over to TCP/443 (covert tunnel).",
+        )
+    return _emit_toast(
+        "info",
+        "Direct UDP mesh restored",
+        "Covert TCP/443 fallback stood down.",
+    )
+
+
+def emit_cert_expiry_warning(peer_name: str, days_remaining: int) -> bool:
+    """NF-16.4 — early warning when a peer's cert is approaching
+    expiry. < 24 h escalates to error severity (the consumer
+    paints it as a persistent banner); 1-7 days is a warn.
+    """
+    if days_remaining < 1:
+        return _emit_toast(
+            "error",
+            f"{peer_name} cert expired",
+            "Re-enroll the peer or rotate the CA to restore reachability.",
+            visible_ms=0,  # 0 = persistent in the applet's convention
+        )
+    if days_remaining <= 7:
+        return _emit_toast(
+            "warn",
+            f"{peer_name} cert expires in {days_remaining}d",
+            "Plan a CA rotation or peer re-enrollment soon.",
+        )
+    # Already > 7 days — don't toast.
+    return False
+
+
 __all__ = [
     "CANONICAL_SERVICES",
     "CONFIG_DIR",
@@ -263,7 +378,12 @@ __all__ = [
     "LIGHTHOUSE_CONFIG_PATH",
     "SSHD_DROPIN_DIR",
     "SSHD_DROPIN_PATH",
+    "TOASTS_PATH",
     "current_overlay_ip",
+    "emit_ca_rotation",
+    "emit_cert_expiry_warning",
+    "emit_https_fallback_state",
+    "emit_lighthouse_event",
     "lighthouse_addresses",
     "published_services_summary",
     "reload_sshd",

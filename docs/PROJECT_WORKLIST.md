@@ -925,26 +925,40 @@ public IP. This locks the trust boundary at the fabric.
 Lifecycle events that previously surfaced as "Tailscale
 disconnected" toasts get a dedicated Nebula vocabulary.
 
-- [ ] **NF-16.1: Lighthouse promotion / demotion notification** —
-  `mackes/mesh_notifications.py::emit_lighthouse_event()`.
-  Promotion: subtle informational toast ("This peer is now
-  serving as a lighthouse for the mesh.") Demotion: same
-  weight, opposite copy.
-- [ ] **NF-16.2: CA rotation notification** — Bumped CA
-  epoch on the leader triggers an info toast per-peer:
-  "Mesh CA rotated. Your peer cert was re-issued."
-  Failure: error toast pointing to the recovery doc
-  (NF-15.3).
-- [ ] **NF-16.3: TCP/443 fallback notification** —
-  Transition into `Active` state on the
-  `HttpsFallbackState` machine emits a "Mesh failed over
-  to TCP/443 (firewall mode)" toast. Transition back to
-  `Inactive` emits an "all clear" toast. Honors Q12 lock:
-  this is a transition-only event, not a persistent banner.
-- [ ] **NF-16.4: Peer-cert-expiry early-warning** — 7 days
-  before any peer's Nebula cert expires, notify the
-  leader's operator. 24 hours before, escalate to a
-  persistent banner.
+- [✓] **NF-16.1: Lighthouse promotion / demotion
+  notification (shipped 2026-05-23)** —
+  `mackes.mesh_nebula.emit_lighthouse_event(promoted=bool)`
+  appends an info-severity JSON line to
+  `~/.cache/mde/toasts.jsonl` per the existing
+  Iced toast applet's stream. Promotion + demotion both
+  use info severity per the spec's "subtle informational"
+  weight.
+- [✓] **NF-16.2: CA rotation notification (shipped
+  2026-05-23)** — `emit_ca_rotation(success, error_detail)`.
+  Success → info toast confirming the re-issued cert;
+  failure → error toast appending the recovery-doc
+  pointer (which lives in `docs/help/mesh-recovery.md`
+  once NF-15.3 lands — held per the NF-15 hold; the
+  pointer text is forward-compat).
+- [✓] **NF-16.3: TCP/443 fallback notification (shipped
+  2026-05-23)** — `emit_https_fallback_state(active)`.
+  Transition into Active → warn toast "Mesh in firewall
+  mode" (deviation from the spec's "Mesh failed over"
+  wording: the new copy is shorter + matches the panel
+  status pill the network applet already shows). Inactive
+  → info "Direct UDP mesh restored". Q12 lock honored:
+  transition-only, not persistent.
+- [✓] **NF-16.4: Peer-cert-expiry early-warning (shipped
+  2026-05-23)** —
+  `emit_cert_expiry_warning(peer_name, days_remaining)`.
+  < 1 day → error toast with `visible_ms=0` (the
+  applet's "persistent banner" convention); 1-7 days →
+  warn toast; > 7 days → no-op (returns False). The
+  daemon-side caller (NF-16.4 consumer) loops every 24 h
+  + emits per peer whose cert expires within the locked
+  window; the consumer wiring lives in mackesd's
+  nebula_supervisor follow-up (defer to NF-16.4.a once
+  the supervisor learns the daily-tick cadence).
 
 #### NF-17.x — Firewall + D-Bus surface adjustments
 
