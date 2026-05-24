@@ -301,6 +301,52 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// NF-2.6 (v2.5) — Nebula CA management subcommands.
+    /// Mint / rotate / list / dump-ca the mesh-CA artifacts.
+    Ca {
+        /// Sub-subcommand selector — see `CaCmd` below.
+        #[command(subcommand)]
+        sub: CaCmd,
+    },
+}
+
+/// NF-2.6 — `mackesd ca <sub>` subcommands.
+#[derive(Subcommand)]
+enum CaCmd {
+    /// Idempotent CA mint at epoch 0. No-op when an active
+    /// CA already exists for the named mesh.
+    Mint {
+        /// Mesh id (defaults to `mesh-<hostname>`).
+        #[arg(long, value_name = "MESH_ID")]
+        mesh_id: Option<String>,
+    },
+
+    /// Bump the CA epoch — retires the active CA, mints a
+    /// fresh one at epoch+1, re-signs every active peer
+    /// cert under the new epoch.
+    Rotate {
+        /// Mesh id (defaults to `mesh-<hostname>`).
+        #[arg(long, value_name = "MESH_ID")]
+        mesh_id: Option<String>,
+        /// Cert lifetime in days for the re-signed peer
+        /// certs (default 365).
+        #[arg(long, default_value_t = 365)]
+        cert_lifetime_days: u32,
+    },
+
+    /// Print one row per CA epoch — mesh_id, epoch,
+    /// created_at, retired_at (or "active" when NULL).
+    List,
+
+    /// Print the public CA cert PEM to stdout. Used by
+    /// peer-bootstrap flows that need the CA chain to
+    /// validate inbound TLS.
+    DumpCa {
+        /// Mesh id (defaults to `mesh-<hostname>`).
+        #[arg(long, value_name = "MESH_ID")]
+        mesh_id: Option<String>,
+    },
 }
 
 /// Subcommands for `mackesd ansible-history`. CB-1.5.c
@@ -768,6 +814,127 @@ fn main() -> anyhow::Result<()> {
             // Boots the tokio runtime, registers the worker pool +
             // the existing reconcile worker, blocks on SIGTERM.
             run_serve(qnm_root, node_id, db_path)?;
+        }
+        Cmd::Ca { sub } => {
+            // NF-2.6 (v2.5) — mackesd ca {mint, rotate, list,
+            // dump-ca} subcommands. Operator surface backing the
+            // CA module.
+            let mut conn = mackesd_core::store::open(&db_path)?;
+            let default_mesh = format!("mesh-{}", default_node_id());
+            match sub {
+                CaCmd::Mint { mesh_id } => {
+                    let mesh = mesh_id.unwrap_or(default_mesh);
+                    match mackesd_core::ca::mint::mint_ca(
+                        &mackesd_core::ca::SubprocessBackend,
+                        &conn,
+                        &mesh,
+                        None,
+                        None,
+                    ) {
+                        Ok(mackesd_core::ca::mint::MintOutcome::Created { .. }) => {
+                            println!("CA minted at epoch 0 for mesh '{mesh}'.");
+                        }
+                        Ok(mackesd_core::ca::mint::MintOutcome::AlreadyMinted {
+                            epoch,
+                            ..
+                        }) => {
+                            println!(
+                                "CA for mesh '{mesh}' already exists at epoch {epoch} (no-op)."
+                            );
+                        }
+                        Err(mackesd_core::ca::CaError::BinaryMissing) => {
+                            return Err(anyhow::anyhow!(
+                                "nebula-cert not on PATH. Install the Fedora `nebula` package + retry."
+                            ));
+                        }
+                        Err(e) => {
+                            return Err(anyhow::anyhow!("mint: {e}"));
+                        }
+                    }
+                }
+                CaCmd::Rotate {
+                    mesh_id,
+                    cert_lifetime_days,
+                } => {
+                    let mesh = mesh_id.unwrap_or(default_mesh);
+                    match mackesd_core::ca::epoch::bump_epoch(
+                        &mackesd_core::ca::SubprocessBackend,
+                        &mut conn,
+                        &mesh,
+                        None,
+                        None,
+                        cert_lifetime_days,
+                    ) {
+                        Ok(o) => {
+                            println!(
+                                "CA rotated for mesh '{mesh}': epoch {} → {} ({} peer certs re-signed).",
+                                o.retired_epoch
+                                    .map(|e| e.to_string())
+                                    .unwrap_or_else(|| "none".into()),
+                                o.new_epoch,
+                                o.re_signed,
+                            );
+                        }
+                        Err(mackesd_core::ca::CaError::BinaryMissing) => {
+                            return Err(anyhow::anyhow!(
+                                "nebula-cert not on PATH. Install the Fedora `nebula` package + retry."
+                            ));
+                        }
+                        Err(e) => {
+                            return Err(anyhow::anyhow!("rotate: {e}"));
+                        }
+                    }
+                }
+                CaCmd::List => {
+                    let mut stmt = conn.prepare(
+                        "SELECT mesh_id, epoch, created_at, retired_at \
+                         FROM nebula_ca ORDER BY mesh_id, epoch DESC",
+                    )?;
+                    let rows = stmt.query_map([], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, i64>(1)?,
+                            r.get::<_, i64>(2)?,
+                            r.get::<_, Option<i64>>(3)?,
+                        ))
+                    })?;
+                    println!(
+                        "{:<24} {:>6} {:>12} {:>12}",
+                        "MESH_ID", "EPOCH", "CREATED", "RETIRED"
+                    );
+                    let mut count = 0;
+                    for row in rows {
+                        let (mesh, epoch, created, retired) = row?;
+                        let retired_disp = match retired {
+                            Some(t) => t.to_string(),
+                            None => "active".to_string(),
+                        };
+                        println!(
+                            "{mesh:<24} {epoch:>6} {created:>12} {retired_disp:>12}",
+                        );
+                        count += 1;
+                    }
+                    if count == 0 {
+                        println!("(no CAs minted yet — run `mackesd ca mint`)");
+                    }
+                }
+                CaCmd::DumpCa { mesh_id } => {
+                    let mesh = mesh_id.unwrap_or(default_mesh);
+                    match mackesd_core::ca::mint::current_ca(&conn, &mesh) {
+                        Ok(Some((_epoch, pem))) => {
+                            print!("{pem}");
+                        }
+                        Ok(None) => {
+                            return Err(anyhow::anyhow!(
+                                "no active CA for mesh '{mesh}'"
+                            ));
+                        }
+                        Err(e) => {
+                            return Err(anyhow::anyhow!("dump-ca: {e}"));
+                        }
+                    }
+                }
+            }
         }
         Cmd::PeerCard { peer, dry_run } => {
             // PC-3.a — operator-driven trigger for the peer-card

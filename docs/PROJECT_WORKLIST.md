@@ -319,10 +319,29 @@ locked work appears under **Active** with `[ ] Open`.
   RegenCerts() wiring + NF-11.3 + NF-13.8.a button
   callers all chain on this backend; each ships in its
   own follow-up commit.
-- [ ] **NF-2.6: `mackesd ca {mint, rotate, list, dump-ca}` CLI
-  subcommands** — Operator surface. `dump-ca` writes the public
-  CA cert to stdout for manual peer bootstrap (the wizard
-  also calls this path internally).
+- [✓] **NF-2.6: `mackesd ca {mint, rotate, list, dump-ca}`
+  CLI subcommands (shipped 2026-05-23)** —
+  `crates/mackesd/src/bin/mackesd.rs` gained the `Ca`
+  subcommand + nested `CaCmd { Mint, Rotate, List,
+  DumpCa }`. Each maps to the existing `mackesd_core::ca`
+  surface:
+    - `mackesd ca mint [--mesh-id <id>]` → `mint::mint_ca`
+      (idempotent; reports created vs already-minted).
+    - `mackesd ca rotate [--mesh-id <id>]
+      [--cert-lifetime-days <n>]` → `epoch::bump_epoch`
+      (NF-2.5); reports old→new epoch + peer count.
+    - `mackesd ca list` → tabular print of every row in
+      `nebula_ca` (mesh_id, epoch, created_at,
+      retired_at).
+    - `mackesd ca dump-ca [--mesh-id <id>]` → prints the
+      active CA's PEM to stdout (used by manual peer-
+      bootstrap flows + the wizard's preview page).
+  Defaults: `mesh-id` falls back to `mesh-<node_id>`
+  (matches the supervisor's default). BinaryMissing
+  surfaces as the "install the Fedora nebula package"
+  hint per the same pattern the DBus method uses.
+  `mackesd ca --help` verified to render the 4-command
+  surface.
 - [✓] **NF-2.7: Bundle writer (shipped 2026-05-23)** —
   `ca/bundle.rs` ships `NebulaBundle` (mesh_id, epoch,
   ca_cert_pem, peer_cert_pem, peer_key_pem, overlay_ip,
