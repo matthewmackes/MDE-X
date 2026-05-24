@@ -186,6 +186,18 @@ Requires:       conky
 # workspace builds.
 Requires:       nebula >= 1.9.0
 
+# Mesh storage (GF-1.1, v5.0.0): GlusterFS over the Nebula
+# overlay. `glusterfs-server` ships the `glusterd` daemon that
+# owns the cluster + volume topology; `glusterfs-fuse` is the
+# FUSE client every peer mounts to serve `~/Documents`,
+# `~/Pictures`, etc. from the replicated `mesh-home` volume
+# (see `docs/PROJECT_WORKLIST.md` GF-2.x / GF-4.x for the
+# bootstrap + mount wiring). The %post block below enables
+# glusterd at install time so subsequent gluster-worker ticks
+# can hand the daemon CLI work without a manual operator step.
+Requires:       glusterfs-server
+Requires:       glusterfs-fuse
+
 # VV-1 + VV-1.5 (v4.1.0) — voice stack. Kamailio is the SIP
 # proxy/registrar/router; rtpengine is the SRTP relay it drives
 # via the NG unix socket. Both from F44's official repo (no
@@ -863,6 +875,12 @@ systemctl daemon-reload || :
 # Phase 12.1 — initialize the mackesd store on install/upgrade. The
 # migrate subcommand is idempotent (no-op if schema is current).
 systemctl enable --now mackesd.service 2>/dev/null || :
+# GF-1.2 (v5.0.0) — enable glusterd so the mesh-home volume
+# (managed by the future `gluster_worker` in mackesd) can be
+# bootstrapped + joined without a manual operator step.
+# `glusterd` only binds locally until GF-1.3's Nebula-overlay
+# drop-in lands; it's safe to enable on first install.
+systemctl enable --now glusterd.service 2>/dev/null || :
 # VV-1 + VV-1.5 (v4.1.0) — voice stack state + spool + TLS dirs.
 # Config trees /etc/kamailio-mde/ + /etc/rtpengine-mde/ are owned
 # by the RPM (root:root 0755) so the generated config files end

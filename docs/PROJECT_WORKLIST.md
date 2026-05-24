@@ -159,8 +159,8 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Substrate (RPM + glusterd bind)
 
-- [ ] **GF-1.1: Add hard `Requires: glusterfs-server, glusterfs-fuse`** to `packaging/fedora/mackes-shell.spec` after the existing `nebula >= 1.9.0` line in the `Requires:` block.
-- [ ] **GF-1.2: `%post` scriptlet — `systemctl enable --now glusterd`** alongside the existing `mackesd.service` enable in `packaging/fedora/mackes-shell.spec:856`.
+- [✓] **GF-1.1: Add hard `Requires: glusterfs-server, glusterfs-fuse`** to `packaging/fedora/mackes-shell.spec` after the existing `nebula >= 1.9.0` line in the `Requires:` block. *(shipped 2026-05-24 — two explicit `Requires:` lines + dedicated comment block citing GF-1.1 + GF-2.x/GF-4.x wiring intent; no version pin since F44's `glusterfs-server` 11.x already covers every CLI surface the worker needs)*
+- [✓] **GF-1.2: `%post` scriptlet — `systemctl enable --now glusterd`** alongside the existing `mackesd.service` enable in `packaging/fedora/mackes-shell.spec:856`. *(shipped 2026-05-24 — wrapped in the same `2>/dev/null || :` idiom as the surrounding scriptlet lines so RPM upgrade survives a host where glusterd is already enabled or the unit file is missing; comment block notes the GF-1.3 Nebula-bind drop-in is still pending so glusterd binds locally until that lands)*
 - [ ] **GF-1.3: Ship `/etc/glusterfs/glusterd.vol.d/10-nebula-bind.vol` drop-in** binding `transport.socket.bind-address` to the Nebula overlay address. New `mackes-glusterd-nebula-bind.service` generator unit reads `/var/lib/mackesd/nebula/overlay-ip` at boot and renders the drop-in.
 
 #### Daemon & D-Bus (`mackesd::gluster_worker`)

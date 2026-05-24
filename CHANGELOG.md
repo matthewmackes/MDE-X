@@ -97,6 +97,16 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-1.1 + GF-1.2: GlusterFS substrate landed in spec
+
+First v5.0.0 substrate commit. The RPM now pulls in
+`glusterfs-server` + `glusterfs-fuse`, and the `%post`
+scriptlet enables `glusterd.service` alongside `mackesd.service`.
+glusterd binds locally (no Nebula-overlay drop-in yet — that's
+GF-1.3) but is reachable for the upcoming `gluster_worker`
+(GF-2.x) to drive volume creation + peer-join CLI without a
+manual operator step.
+
 ## Unreleased — VV-2.a: policy-lifecycle writer for `voice-desired.json`
 
 Closes the gap VV-2 left open: approved `voice_mesh` +
