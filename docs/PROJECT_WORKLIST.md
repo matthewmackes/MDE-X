@@ -1347,12 +1347,7 @@ public IP. This locks the trust boundary at the fabric.
 
 #### NF-14.x — Wizard expansion + legacy wizard pages retire
 
-- [!] **NF-14.1: Delete `mackes/wizard/headscale_setup.py`
-  (BLOCKED on NF-5.5)** — Chained per the original entry —
-  mesh_vpn.py imports `mackes.wizard.headscale_setup`. Both
-  files retire in the same commit to avoid an importer
-  seeing a missing module. Will land alongside NF-5.5 once
-  the workbench mesh_vpn.py panel retires.
+- [✓] **NF-14.1: Delete `mackes/wizard/headscale_setup.py`** *(shipped 2026-05-24 — 688-line `headscale_setup.py` deleted; the only importer (`mackes/workbench/network/mesh_vpn.py` line 304's `_on_setup_wizard` method) had its method + the "Setup wizard" button removed from the action bar with a comment block routing operators to the Rust `mde-wizard` crate; ruff F401/F541/F811/F841 lint clean; 278/0 pytest suite + module import smoke pass; the v1.x workbench mesh_vpn panel now ships with Add-Peer / Leave-Mesh / Diagnostics / Refresh affordances only, no broken Setup-wizard button. NF-5.5 (panel retirement) and NF-5.1 (mesh_vpn.py core retirement) stay open; this commit is the leaf-first first step of the operator-authorized wholesale-Python-retire sequence.)*
   **Original entry:**
   Chained on NF-5.5 (mackes/workbench/network/mesh_vpn.py
   deletion) — mesh_vpn.py imports

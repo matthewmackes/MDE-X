@@ -56,10 +56,14 @@ class MeshVpnPanel(Gtk.Box):
         box.pack_start(self._status_tile, False, False, 0)
 
         # ---- Action bar ----
+        # NF-14.1 (v2.5): Setup-wizard button retired with the
+        # `mackes/wizard/headscale_setup.py` deletion. Operators
+        # now run the Rust `mde-wizard` (crates/mde-wizard/) for
+        # first-boot mesh setup; this v1.x panel keeps the
+        # add-peer / leave / diagnostics affordances for the
+        # remaining Tailscale/Headscale lifetime, which itself
+        # retires entirely with NF-5.5.
         actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        setup_btn = Button("Setup wizard", kind=ButtonKind.PRIMARY,
-                           icon_name="system-run-symbolic",
-                           on_click=self._on_setup_wizard)
         add_btn = Button("Add Peer", kind=ButtonKind.TERTIARY,
                          icon_name="list-add-symbolic",
                          on_click=self._on_add_peer)
@@ -72,7 +76,7 @@ class MeshVpnPanel(Gtk.Box):
         refresh_btn = Button("Refresh", kind=ButtonKind.GHOST,
                              icon_name="view-refresh-symbolic",
                              on_click=self._refresh)
-        for b in (setup_btn, add_btn, leave_btn, diag_btn, refresh_btn):
+        for b in (add_btn, leave_btn, diag_btn, refresh_btn):
             actions_box.pack_start(b, False, False, 0)
         box.pack_start(actions_box, False, False, 0)
 
@@ -297,20 +301,11 @@ class MeshVpnPanel(Gtk.Box):
         return f"{int(age/3600)}h ago"
 
     # ---- actions -------------------------------------------------------
-
-    def _on_setup_wizard(self) -> None:
-        """Open the dedicated Headscale setup wizard (v1.6.1)."""
-        try:
-            from mackes.wizard.headscale_setup import HeadscaleSetupWindow
-            top = self.get_toplevel()
-            win = HeadscaleSetupWindow(parent=top if isinstance(top, Gtk.Window) else None)
-            win.show_all()
-        except Exception as e:  # noqa: BLE001
-            try:
-                from mackes.workbench.shell.toasts import toast
-                toast(f"Could not open Headscale wizard: {e}", kind="error")
-            except Exception:  # noqa: BLE001
-                pass
+    #
+    # NF-14.1 (v2.5): `_on_setup_wizard` removed when the
+    # Headscale setup wizard (mackes/wizard/headscale_setup.py)
+    # retired. The Rust `mde-wizard` crate now owns first-boot
+    # mesh setup.
 
     def _on_add_peer(self) -> None:
         from mackes.mesh_vpn import at_capacity

@@ -97,6 +97,25 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — NF-14.1: retire mackes/wizard/headscale_setup.py
+
+First commit of the operator-authorized wholesale Python-tree
+retire (2026-05-24): 688-line `headscale_setup.py` GTK wizard
+window is gone, the only importer (`mackes/workbench/network/
+mesh_vpn.py`'s `_on_setup_wizard` method) loses its method +
+the action bar's "Setup wizard" button. The Rust mde-wizard
+crate (crates/mde-wizard/) now owns first-boot mesh setup
+entirely.
+
+The remaining v1.x mesh_vpn panel retires under NF-5.5; this
+commit is the leaf-first first step. Add-Peer / Leave-Mesh /
+Diagnostics / Refresh stay live until that broader cleanup
+lands.
+
+ruff F401/F541/F811/F841 lint clean; 278/0 pytest suite
+green; module-import smoke for the trimmed `MeshVpnPanel`
+passes.
+
 ## Unreleased — GF-4.1: per-user mesh-home FUSE mount unit
 
 New `data/systemd/mde-mesh-mount@.service` templated user
