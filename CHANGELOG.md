@@ -97,6 +97,43 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-3.2 + GF-11.1: birthright gluster-status step + worker tests
+
+GF-3.2 — new `apply_gluster_bootstrap(preset)` birthright
+step gives the wizard's apply rail operator-visibility into
+the v5.0.0 gluster substrate. Probes:
+
+1. `shutil.which("gluster")` — CLI installed?
+2. `systemctl is-active glusterd.service` — daemon running?
+3. `gluster pool list` — daemon reachable?
+4. `gluster volume info mesh-home` — has the worker
+   bootstrapped yet?
+
+Reports the daemon's expected next-tick action (gluster_worker
+owns the actual bootstrap per GF-2.4; this step doesn't
+duplicate the work). Registered as the "Gluster substrate"
+step between "Normalize UID" (GF-3.1) and "XDG user dirs" in
+`mackes/wizard/pages/apply.py`.
+
+Deviation from the worklist body: the originally-sketched
+`mackesd gluster bootstrap-or-join` CLI handoff retired
+during implementation because the gluster_worker daemon
+(GF-2.4) already runs the bootstrap on every 5s tick —
+a parallel operator-typed CLI would have been redundant.
+
+5 pytest tests cover every branch (CLI not installed,
+glusterd inactive, pool-list failure with stderr-tail
+surfacing, mesh-home exists, mesh-home pending with
+overlay-ip dependency named).
+
+GF-11.1 — marked `[✓]` (no new code). 32 gluster_worker
+tests shipped incrementally across the GF-2.x cluster cover
+worker lifecycle + PATH-probe + bootstrap-argv shape +
+conflict-detector + quota-probe + peer-convergence + LWW-
+resolver. Mocked-CLI shim uses `/bin/true` / `/bin/false` /
+nonexistent paths — same pattern as the existing
+`nebula_supervisor` tests.
+
 ## Unreleased — GF-2.9: gluster_worker delegates split-brain resolution
 
 Closes the GF-2.x cluster (modulo the GF-2.2 D-Bus surface).
