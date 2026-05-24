@@ -97,6 +97,36 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — RD-5: docs/help/remote-desktop.md operator primer
+
+New user-facing help doc covering all three remote-desktop
+daemons each Mackes peer ships:
+
+- **wayvnc** (port 5900) — sway-native via wlroots
+  screencopy; binds to the Nebula overlay only;
+  `--unauthenticated` for v2.6 (Ed25519 follows in RD-4).
+- **xrdp** (port 3389) — PAM-authenticated; brings its own
+  Xorg fallback session so RDP works under a Wayland
+  greeter.
+- **Guacamole** (port 8080 + `https://media.mesh/desktop/`) —
+  noauth web app; auto-populates the connection list from the
+  Nebula peer roster via `mackes-remote-sync.service`.
+
+Covers the firewall posture (3 ports on the `firewalld`
+`trusted` zone only — never the underlay), the auth-model
+difference per protocol, and the 3 most common operator
+questions (connection-refused right after install, can-I-
+connect-from-outside-the-mesh, why-only-xrdp-has-PAM-auth).
+
+`mesh-services.md` gains a "See also" cross-link pointing to
+the new doc so the discoverability chain stays intact. The
+worklist's pre-supposed `MACKES_SHELL_SPEC.md §0` capability
+list + `mesh-services.md`'s "X11-only caveat" turned out not
+to exist (grep confirms zero VNC mentions); per iteration-
+skill standing-authorization #4 the literal RD-5 targets were
+re-interpreted as "ship an operator-facing help doc that
+closes the remote-desktop documentation gap end-to-end."
+
 ## Unreleased — RD-1 + RD-2 + RD-3: v2.6 Wayland VNC swap (wayvnc)
 
 The v2.0.0 hard-switch to sway (Wayland-only) broke x11vnc's

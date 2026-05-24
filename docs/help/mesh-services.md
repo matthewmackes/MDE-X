@@ -143,3 +143,12 @@ before local rebroadcast to avoid `jellyfin.local` collisions.
   browser
 - `mackes services enable-gateway` — enable Layer 3 (interactive auth)
 - `mackes services disable-gateway` — disable Layer 3
+
+## See also
+
+- [Remote desktop](remote-desktop.md) — the wayvnc + xrdp +
+  Guacamole stack each peer ships (separate from the catalog
+  here; remote-desktop is part of the birthright pipeline,
+  not the mDNS-discovered service surface).
+- [Mesh SSH](mesh-ssh.md) — overlay-bound SSH that uses the
+  same Nebula-trust model as the remote-desktop servers.
