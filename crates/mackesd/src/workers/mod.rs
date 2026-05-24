@@ -122,6 +122,14 @@ pub mod nebula_ca_backup;
 // the GF-1.3.a overlay-ip publish file is missing (peer
 // hasn't completed Nebula enrollment).
 pub mod gluster_worker;
+// MON-4 (v2.6) — alert relay worker. Polls
+// `~/.local/share/mde/alerts/*.json` (written by
+// `mde-alert-emit` via Netdata's `health_alarm_notify.conf`
+// custom-sender hook) on a 2s tick + forwards each new
+// event as an FDO desktop notification via `notify-send`.
+// Deduplicates via the deterministic-ULID `id` field so
+// idempotent re-emissions don't re-toast.
+pub mod alert_relay;
 pub mod metrics_flush;
 pub mod nats;
 pub mod notification_relay;

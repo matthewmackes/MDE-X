@@ -2297,6 +2297,24 @@ fn run_serve(
             }
         }
 
+        // MON-4 (v2.6) — alert relay worker. Polls
+        // ~/.local/share/mde/alerts/*.json for events
+        // written by mde-alert-emit (MON-3) via Netdata's
+        // health_alarm_notify.conf custom-sender hook + fires
+        // an FDO desktop notification via notify-send per
+        // new event. Deduplicates by deterministic ULID.
+        // RestartPolicy::Always since the tick is passive +
+        // operator outage detection is the failure-tolerance
+        // goal.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::alert_relay::AlertRelayWorker::new(),
+            RestartPolicy::Always,
+        ));
+        worker_names
+            .lock()
+            .expect("worker_names mutex")
+            .push("alert_relay".into());
+
         // GF-2.1 + GF-2.3 + GF-2.4 (v5.0.0) — gluster fleet
         // supervisor. Spawned unconditionally; the worker
         // silently no-ops when the `gluster` CLI isn't on

@@ -97,6 +97,66 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — MON-3 + MON-4: alert event pipeline (mde-alert-emit + alert_relay)
+
+Closes the MON-3 + MON-4 mutually-blocked pair in one
+commit per their worklist body's coupling note ("emitting
+JSON nothing reads is the §0.12 anti-pattern" + "needs
+MON-3 emitting events"). Together they wire the Netdata
+custom-sender hook → mesh-wide FDO desktop notification
+path.
+
+**MON-3 — new `crates/mde-alert-emit/` crate:**
+- Single binary at `/usr/libexec/mde/alert-emit` (FHS-
+  correct location for helper binaries the user never
+  invokes directly).
+- Reads `NETDATA_ALARM_*` env vars + translates to the
+  locked MON-3 schema JSON: `{id, ts, severity, category,
+  alert, host, summary, value, threshold, chart_url,
+  fired_by, seen_by: []}`.
+- `make_ulid(when_unix_s, unique_id)` derives a
+  deterministic ULID-format-compatible string: 48-bit
+  timestamp + FNV-1a-derived randomness + Crockford-base32
+  encoding via inline u128 arithmetic (no external `ulid`
+  crate dep).
+- Atomic write via tempfile + fsync + rename → one inotify
+  event, not two.
+- Idempotent: same env → same filename → single file. Tests
+  cover the round-trip via direct env-block injection.
+- CLI: `--output-dir` + `--dry-run-from-env`.
+- 10 unit tests, all passing.
+
+**MON-4 — new `mackesd::workers::alert_relay`:**
+- Polls `~/.local/share/mde/alerts/*.json` on a 2s tick
+  (polling instead of inotify mirrors the existing
+  `notification_relay` worker's documented rationale +
+  survives FUSE flakiness when `$HOME` is sshfs-mounted).
+- Deserializes each new event via `AlertEventPartial`
+  (schema-bump-tolerant via `#[serde(default)]`).
+- Dedupes via per-worker `BTreeSet<String>` keyed on the
+  deterministic ULID.
+- Fires `notify-send` with severity-mapped urgency
+  (CRITICAL/ERROR → critical, WARNING/WARN → normal, else
+  low) + `--hint=string:chart-url:<url>` for click-through.
+- Pure-fn `notify_send_argv(binary, event)` exposed for
+  testing without shelling.
+- Spawned in `run_serve` between the existing CA-backup +
+  gluster_worker spawn sites. RestartPolicy::Always.
+- 11 unit tests, all passing.
+
+Worklist body deviation: MON-4 sketched inotify; the
+shipped implementation uses polling per iteration-skill
+best-choice authorization — matches the existing
+`notification_relay` pattern + survives FUSE quirks.
+
+`health_alarm_notify.conf` operator-wire-up lives with
+MON-1.b's mackesd-side health.conf rewriter (HW-blocked
+pending a live multi-peer Netdata fleet to verify the
+stream-block transitions).
+
+Binary build under `--features async-services` clean.
+lint-legacy-mesh.sh clean.
+
 ## Unreleased — GF-5.2: retire KDC2 file-share UI surface
 
 The KDC2 outbound file-share affordance retires per the v5.0.0
