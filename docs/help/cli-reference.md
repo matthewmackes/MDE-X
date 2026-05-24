@@ -23,14 +23,12 @@ Global flags:
 ```
 mackes init                              # interactive first-run setup
 mackes init --preset <name>              # preset name (default: node headless / picker GUI)
-            --tailscale-authkey=<key>    # skip Tailscale OAuth (cloud-init)
-            --enable-on-boot             # enable mackes-node.service
+            --enable-on-boot             # enable mde-session.service
             --skip-snapshot              # don't create initial snapshot
-            --join '<mesh-join://link>'  # join existing mesh instead of creating
             --yes                        # accept all defaults
 
-mackes join '<mesh-join://?code=…&ts-key=…&seed-tag=…>'
-mackes leave                             # leave the mesh (keeps Mackes installed)
+mackesd enroll --token '<join-token>'    # join an existing Nebula mesh
+mackes leave                             # leave the mesh (keeps MDE installed)
 ```
 
 ## Status
@@ -118,14 +116,29 @@ mackes notify --all "message"            # broadcast to every peer
 
 Useful from cron / scripts on headless nodes.
 
-## Mesh VPN
+## Nebula mesh
 
 ```
-mackes mesh status                       # VPN-only status
-mackes mesh add-peer                     # generate join link (prints + writes to ~/.config/...)
-mackes mesh remove-peer <name>           # revoke a peer
-mackes mesh elect-control                # force re-election (dev/debug)
-mackes mesh snapshot list                # VPN state snapshots (separate from app snapshots)
+mackesd enroll --token '<join-token>'    # enroll this peer into an existing mesh
+mackesd nebula status                    # overlay IP, cert expiry, active transport
+mackesd nebula peer-list                 # all peers + overlay IPs + cert expiry
+mackesd nebula regen-certs               # request cert renewal for this peer
+```
+
+## Nebula CA (lighthouse operators only)
+
+```
+mackesd ca mint --mesh-id <name> [--cert-lifetime-days 365]
+                                         # create a new CA (first-boot only)
+mackesd ca rotate [--cert-lifetime-days 365]
+                                         # rotate the CA; re-issues all peer certs
+mackesd ca list                          # all signed certs + expiry + revocation status
+mackesd ca dump-ca                       # print CA cert in PEM format
+mackesd ca sign <node-id> [--groups lighthouse,peer]
+                                         # sign (or re-sign) a peer cert
+mackesd ca revoke <node-id>              # revoke a peer cert + push CRL to all peers
+mackesd ca export                        # export encrypted CA backup bundle (stdout)
+mackesd ca import                        # import a CA backup bundle (stdin)
 ```
 
 ## Daemon
@@ -152,9 +165,9 @@ mackes help --open <topic>               # open in $PAGER
 ```
 
 Available topics: `index`, `getting-started`, `dashboard`, `look-and-feel`,
-`devices`, `network`, `system`, `apps`, `maintain`, `mesh`, `mesh-vpn`,
-`mesh-thunar`, `mesh-ssh`, `mesh-services`, `headless`, `presets`,
-`troubleshooting`, `keybindings`, `cli-reference`.
+`devices`, `network`, `system`, `apps`, `maintain`, `mesh`, `mesh-nebula`,
+`mesh-thunar`, `mesh-ssh`, `mesh-services`, `mesh-admin`, `mesh-ops`,
+`headless`, `presets`, `troubleshooting`, `keybindings`, `cli-reference`.
 
 ## Exit codes
 
@@ -163,7 +176,7 @@ Available topics: `index`, `getting-started`, `dashboard`, `look-and-feel`,
 - `2` — usage error (invalid args / unknown subcommand)
 - `3` — not provisioned (mesh op called before `mackes init`)
 - `4` — mesh capacity reached (16-peer cap)
-- `5` — auth failure (Tailscale OAuth declined, code expired, etc.)
+- `5` — auth failure (join token rejected, cert expired, etc.)
 - `124` — operation timed out
 - `127` — required binary not in PATH
 

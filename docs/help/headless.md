@@ -26,7 +26,7 @@ $ mackes init
 `mackes init` runs through the wizard equivalent using pure stdin prompts:
 
 ```
-→ Welcome to Mackes Desktop Environment (MDE) 2.0.0 (headless mode)
+→ Welcome to Mackes Desktop Environment (MDE) 2.5.0 (headless mode)
 
 → Environment scan...
    Hostname:  fileserver
@@ -35,23 +35,22 @@ $ mackes init
    RAM:       16 GB
 
 → Preset: node (auto-selected for headless)
-   Mesh VPN: enabled
-   Mesh FS:  enabled
-   Mesh Sync: enabled
+   Mesh:     enabled (Nebula overlay)
+   Mesh FS:  enabled (~/QNM-Shared via SSHFS)
+   Mesh Sync: enabled (NATS replica)
 
-→ Mesh VPN setup (Tailscale account for cross-network discovery)
-   This peer will be the seed/control node for a new mesh.
-   Open https://login.tailscale.com/a/abc123 on any device, sign in,
-   then press Enter here.
-   [Enter]
+→ Mesh setup
+   Is this the first peer in a new mesh? [Y/n] Y
+   Minting CA... done.
+   Lighthouse overlay IP: 10.42.0.1
+   Join token: mesh:a3f9c712@203.0.113.5:4242#eyJhbGci...
 
-   ✓ Tailscale account linked. Generating mesh state...
-   ✓ Headscale started.
-   ✓ Mesh ID: a3f9c712 · Mesh IP: 100.64.1.1
+   (share this token with peers that want to join)
 
 → Apply preset 'node'...
    ✓ snapshot created: 2026-05-16T22-08-12_node-baseline
-   ✓ qnmd started
+   ✓ mded started (supervisor + workers)
+   ✓ nebula.service started
    ✓ mesh-fs enabled (sharing ~/QNM-Shared)
    ✓ mesh-sync enabled (NATS replica)
    ✓ mesh-ssh keys distributed
@@ -59,39 +58,38 @@ $ mackes init
 → Auto-start mesh node on boot? [Y/n] _
 ```
 
-On Y: `systemctl enable --now mackes-node`. Done. The fileserver is now
-on the mesh and rejoins automatically on every boot.
+On Y: `systemctl enable --now mde-session.service`. Done. The
+fileserver is now on the mesh and rejoins automatically on every boot.
 
 ## Joining an existing mesh
 
 ```bash
-$ mackes join 'mesh-join://?code=412753&ts-key=tskey-...&seed-tag=mackes-a3f9'
-✓ Contacted seed peer (100.64.1.1, RTT 12ms via DERP)
-✓ Code accepted; received Headscale pre-auth key
-✓ Joined Headscale; assigned mesh IP 100.64.1.4
-✓ qnmd started
+$ mackesd enroll --token 'mesh:a3f9c712@203.0.113.5:4242#eyJhbGci...'
+✓ Lighthouse contacted (10.42.0.1, RTT 12 ms via direct UDP)
+✓ Cert signed; overlay IP: 10.42.0.4
+✓ /etc/nebula/ written; nebula.service started
 ✓ mesh-ssh keys received from 3 peers
-$ mackes status
-Connected · 4 peers · This peer: fileserver (100.64.1.4)
+$ mackesd nebula status
+state: connected  overlay_ip: 10.42.0.4  peers: 4  transport: nebula_direct
 ```
 
-The seed peer's admin generates the join link via Mackes → Network →
-Mesh VPN → Add Peer (GUI) or `mackes mesh add-peer` (CLI).
+The lighthouse operator generates the join token via Workbench →
+Network → Mesh → + Add Peer (GUI) or `mackesd ca sign` (CLI).
 
 ## Cloud-init / fully automated
 
-For provisioning at scale:
+For provisioning at scale (seed peer):
 
 ```bash
-mackes init --preset node \
-            --tailscale-authkey=tskey-auth-... \
-            --enable-on-boot
+mackes init --preset node --enable-on-boot
+# copy the printed join token into your secrets store
 ```
 
-Or for joiners:
+For subsequent peers:
 
 ```bash
-mackes join 'mesh-join://?code=...&ts-key=...&seed-tag=...' --enable-on-boot
+mackesd enroll --token '<join-token-from-lighthouse>'
+systemctl enable --now mde-session.service
 ```
 
 Zero interaction. Ideal for cloud-init `runcmd:` blocks.
@@ -103,9 +101,9 @@ Comprehensive parity with the GUI panels:
 | Command | Equivalent GUI panel |
 |---|---|
 | `mackes init` | First-run wizard |
-| `mackes join <link>` | Wizard's join screen |
+| `mackesd enroll --token <t>` | Wizard's join screen |
 | `mackes status` | Dashboard |
-| `mackes peers` | Network → Mesh VPN peer DataTable |
+| `mackesd nebula peer-list` | Network → Mesh peer DataTable |
 | `mackes shares` | Mesh in Thunar `Peers/` subtree |
 | `mackes snapshot create [label]` | Maintain → Snapshots → Create |
 | `mackes snapshot list` | Maintain → Snapshots list |

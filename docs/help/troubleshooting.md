@@ -47,38 +47,44 @@ mDNS issues:
 - Avahi running? `systemctl status avahi-daemon`
 - Multicast blocked by router? Some enterprise/hotel networks filter
   `224.0.0.251`.
-- Fallback: ask the seed peer's admin for a join link (Mackes → Network
-  → Mesh VPN → Add Peer).
+- Fallback: ask the lighthouse operator for a fresh join token
+  (Workbench → Network → Mesh → + Add Peer).
 
 ## "Cross-network peer can't join"
 
-- Confirm the seed peer's Tailscale presence: `tailscale status` on
-  the seed should show it registered.
-- The join link expires after 10 minutes — regenerate if stale.
-- If both peers are behind hostile NAT, the connection uses Tailscale's
-  DERP relays — check DERP RTT in Mackes → Network → Mesh VPN →
-  Diagnostics.
+1. Confirm the lighthouse is reachable on UDP/4242 from the peer's
+   network. Test with `nc -uz <lighthouse_ip> 4242`.
+2. The join token bearer expires after one use — the lighthouse
+   operator can generate a fresh one from the Workbench or with
+   `mackesd ca sign`.
+3. If UDP/4242 is blocked, Nebula falls back to TCP/443 on the
+   lighthouse automatically. Check `mackesd nebula status` on the
+   new peer for `active_transport: nebula_https443`.
 
-### NAT traversal on the v2.5 Nebula fabric
+## "Mesh peer cert expired"
 
-The v2.5 rebuild retires the explicit ICE/STUN candidate-gathering
-step (Phase 12.17). Nebula uses protocol-level UDP hole-punching:
-both peers send simultaneous packets through their respective NATs
-under coordination from the lighthouse, and the resulting NAT
-mappings stay open for the lifetime of the tunnel. No separate
-STUN servers, no `stun.l.google.com` probes — the lighthouse
-handshake carries the reflexive addresses inline. Symptoms that
-used to map to "STUN gather timed out" now map to "lighthouse
-unreachable" — see Mackes → Network → Mesh VPN → Diagnostics for
-the lighthouse RTT card.
+```bash
+# On the peer:
+mackesd nebula status   # shows cert_expiry
+
+# On the lighthouse (CA host):
+mackesd ca rotate       # re-issues all peer certs
+```
+
+Peers that were offline when the CA rotation ran won't receive their
+new cert until they come online. Once online, `nebula_supervisor`
+picks up the updated bundle from `~/QNM-Shared/` within one
+heartbeat cycle (≤ 10 seconds).
 
 ## "Mesh peer says offline but I can ping it"
 
-Mesh VPN goes through Headscale's control plane. Possible causes:
-- Control node went offline; failover takes ~120s.
-- DERP relay temporarily unreachable; retry in ~30s.
-- Peer's tailscale daemon crashed; on the peer: `systemctl restart
-  tailscaled`.
+Nebula goes through the overlay cert chain. Possible causes:
+- `nebula.service` crashed: `systemctl status nebula.service` on the
+  peer; restart if needed.
+- Peer cert expired or revoked: `mackesd ca list` on the lighthouse.
+- Lighthouse unreachable: check `mackesd nebula status` on the peer;
+  if `active_transport` is empty, the peer hasn't connected to any
+  lighthouse yet.
 
 ## "Clipboard items aren't syncing"
 

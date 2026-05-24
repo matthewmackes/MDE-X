@@ -1,194 +1,161 @@
 # Mesh operator runbook
 
-Operator-facing reference for the day-2 tasks of running a Mackes
-mesh. Covers enrollment, decommission, passcode rotation,
-split-brain recovery, and reading the audit log. Pairs with the
-architecture overview in `docs/design/v12.0-enterprise-mesh.md`.
+Day-2 tasks for running an MDE Nebula mesh. Covers enrollment,
+decommission, lighthouse operations, split-brain recovery, and diagnostics.
 
 ## Enrolling a peer
 
-Every new peer needs to register with the mesh's leader.
+### From the wizard (GUI)
 
-### From the new peer
+Workbench → Network → Mesh → **Join existing mesh** → paste join token.
+
+### CLI (headless)
 
 ```bash
-# Get the shared 16-character passcode from the Host operator
-# (it lives in libsecret on the Host; `mackesd show-passcode`
-# prints it after the AdminSession prompt).
-mackesd enroll --passcode <16-character-code>
+mackesd enroll --token 'mesh:<mesh_id>@<lighthouse_ip>:4242#<bearer>'
 ```
 
-The command is **idempotent by hardware fingerprint** — re-running
-on the same machine refreshes credentials without creating a
-duplicate node row.
+Idempotent by hardware fingerprint — re-running refreshes the cert.
 
 ### What enrollment does
 
-1. Generates an Ed25519 keypair at `~/.local/share/mackes/node.key`
-   (per 12.3.2).
-2. Hashes the public key + machine-id and registers the fingerprint
-   in the leader's `nodes` table.
-3. Issues a per-node bearer token + a Tailscale auth key.
-4. Starts `mackesd.service` + connects the peer to the Headscale
-   coordinator.
-
-A successful enrollment ends with the peer reporting `healthy` to
-the leader's next heartbeat aggregation tick (≤ 10 seconds).
+1. Calls `dev.mackes.MDE.Nebula.Enroll(token)` on the mackesd D-Bus
+   surface.
+2. The lighthouse signs a cert for this peer and writes a bundle to
+   `~/QNM-Shared/<lighthouse_id>/mackesd/bundle.json`.
+3. `nebula_supervisor` on the new peer picks up the bundle, writes
+   `/etc/nebula/{config.yaml,ca.crt,host.crt,host.key}` atomically,
+   and starts `nebula.service`.
+4. Peer appears in `mackesd nebula peer-list` within one heartbeat cycle.
 
 ## Decommissioning a peer
 
-When a peer is permanently leaving the mesh:
-
 ```bash
-mackesd decommission <node-id>          # graceful
-mackesd decommission <node-id> --force  # if the peer is unreachable
+mackesd ca revoke <node-id>          # revokes the cert immediately
+mackesd decommission <node-id>       # marks the row decommissioned
+mackesd decommission <node-id> --force   # if the peer is unreachable
 ```
 
-The leader revokes the bearer token, asks Tailscale to expire the
-node, and marks the row decommissioned. **The historical row is
-preserved** — audit + topology snapshots that referenced the
-node still resolve.
+The CA CRL is pushed to every active peer within one `nebula_supervisor`
+tick. The decommissioned peer loses overlay connectivity immediately.
 
-If the node ever comes back (maybe a laptop that was offline for
-months), the operator can re-enroll it without losing the
-historical link — `mackesd reenroll <node-id>` issues fresh
-credentials against the existing row.
+Historical rows are preserved — audit + topology snapshots that
+referenced the node still resolve.
 
-## Rotating the passcode
+## Rotating the join token
 
-The shared 16-character passcode gates both peer enrollment AND
-service-to-service authentication (per 12.10.1). Rotate it any
-time the operator suspects compromise, or on a fixed schedule.
+The join token embeds a short-lived bearer. To generate a fresh one:
 
 ```bash
-# On the Host peer (the only one that holds the canonical libsecret entry):
-mackesd rotate-passcode
+mackesd nebula peer-list   # review current peers
+# From Workbench: Network → Mesh → + Add peer → copy the new token
 ```
 
-After the rotation:
+Old bearers expire; they can't be reused for a second enrollment.
 
-1. The new passcode is written to libsecret as
-   `org.mackes.mesh.passcode`.
-2. Every enrolled peer gets a fresh bearer token on its next
-   heartbeat (≤ 10 seconds).
-3. Offline peers require **manual re-entry** — they can't pull the
-   new code through the mesh because their old token is dead.
+## Recovering from split-brain (two lighthouses both think they're leader)
 
-**Show the new passcode to the operator once.** It's not recoverable
-from libsecret without the AdminSession prompt.
-
-## Recovering from split-brain
-
-Two peers both think they're leader. Symptoms:
-
-- `mackesd healthz` on both peers reports `is_leader: true`.
-- The shared `~/QNM-Shared/.mackesd-leader.lock` has a contested
-  state.
-- Recent `applied_changes` rows diverge between the two leaders'
-  stores.
-
-### The automatic path (per 12.A.5)
-
-On lease conflict, **the side with the older `applied_revision`
-yields automatically**:
-
-1. Detects the conflict via the lockfile.
-2. Marks its in-memory state stale.
-3. Re-reads the store from the side with the newer revision.
-4. Resumes as a follower.
-
-This usually completes within one lease cycle (≤ 60 seconds).
-
-### Manual intervention
-
-If automatic resolution fails (e.g. both peers crashed mid-write
-and the lockfile is broken):
+Symptom: `mackesd healthz` on two peers both report `is_leader: true`.
 
 ```bash
-# On the peer you want to keep as leader:
-mackesd take-leadership --force
+# Automatic path: usually resolves within one lease cycle (≤ 60 s)
+# as the side with the older applied_revision yields.
 
-# On the other peer:
-mackesd yield-leadership
+# Manual: pick the peer you want to keep as leader
+mackesd take-leadership --force     # on the desired leader
+mackesd yield-leadership            # on the other peer
 
-# Re-verify:
+# Verify:
 mackesd healthz | jq '.is_leader, .applied_revision'
 ```
 
-`take-leadership --force` rewrites the lockfile with the current
-peer's node-id and bumps the lease epoch by 1, so any other peer
-with a stale lease will yield on its next renewal attempt.
+## Diagnosing lighthouse health
+
+```bash
+# Is this peer's Nebula up?
+systemctl status nebula.service
+journalctl -u nebula.service -f        # live logs
+
+# Is the lighthouse reachable?
+mackesd nebula status                  # shows active_transport
+
+# Overlay connectivity check
+ping <peer_overlay_ip>                 # from another peer
+```
+
+`active_transport` values:
+
+| Value | Meaning |
+|---|---|
+| `nebula_direct` | Direct UDP between peers (best case) |
+| `nebula_lighthouse_relay` | Traffic relayed via a lighthouse UDP path |
+| `nebula_https443` | TLS/443 fallback — UDP blocked, tunnel is active |
+
+## TCP/443 fallback
+
+When direct UDP (port 4242) fails, Nebula's lighthouse runs a
+TLS-wrapped TCP/443 listener that relays Nebula frames. This activates
+automatically on three consecutive UDP failures.
+
+Operator-visible indicators:
+
+- `mackesd nebula status` → `active_transport: nebula_https443`
+- Workbench → Network → Mesh panel → "Mesh in firewall mode" banner
+
+To test the fallback path manually:
+
+```bash
+# Block UDP/4242 temporarily (then unblock):
+sudo iptables -A OUTPUT -p udp --dport 4242 -j DROP
+mackesd nebula status     # should show nebula_https443 within ~30 s
+sudo iptables -D OUTPUT -p udp --dport 4242 -j DROP
+```
 
 ## Reading the audit log
 
-Every config change, auth event, and lifecycle action lands in the
-`events` table with a hash-chained `prev_hash` field (per 12.6.3).
-
 ```bash
-# Tail the log live:
-mackesd logs --kind=audit
-
-# Verify the hash chain:
-mackesd audit verify
-
-# Filter by node + time range:
-mackesd events --node <node-id> --since '2026-05-19 09:00'
+mackesd logs --kind=audit                        # tail live
+mackesd audit verify                             # verify hash chain
+mackesd events --node <node-id> --since '2026-05-01'
 ```
 
-`mackesd audit verify` walks the chain forward and reports the
-first row whose `prev_hash` doesn't match the previous row's hash.
-A failed verify is a serious finding — it means either the store
-was tampered with directly or there's a `mackesd` bug; do not
-trust audit data past the break point.
+Nebula event kinds in the log:
+
+| Kind | Triggered by |
+|---|---|
+| `nebula_ca_rotated` | `mackesd ca rotate` |
+| `nebula_peer_cert_issued` | new peer enrolled or cert renewed |
+| `nebula_peer_cert_revoked` | `mackesd ca revoke <node-id>` |
+| `nebula_lighthouse_promoted` | peer promoted to lighthouse |
+| `nebula_lighthouse_demoted` | peer demoted from lighthouse |
+
+A failed `audit verify` is a serious finding — do not trust audit data
+past the break point.
 
 ## Common diagnostics
 
-### A peer shows `unreachable` but ping works
+### Peer shows `unreachable` but ping works
 
-The peer is reachable on the network but `mackesd` hasn't
-heartbeated in ≥ 30 seconds (three missed cycles). Check:
+The peer is on the LAN but its Nebula overlay is down. Check:
 
 ```bash
-ssh <peer> systemctl --user status mackesd
-ssh <peer> journalctl --user -u mackesd -n 50
+ssh <peer> systemctl status nebula.service
+ssh <peer> journalctl -u nebula.service -n 50
 ```
 
-Common causes: `mackesd.service` crashed, the QNM-Shared mount is
-broken, or the peer's SQLite file is locked by a hung process.
+Common causes: `/etc/nebula/host.crt` expired; cert bundle not yet
+propagated from the lighthouse; `nebula_supervisor` paused because
+`mackesd.service` is down.
 
 ### Drift surfaces but never auto-repairs
 
-The reconciler only auto-repairs drift whose `severity` is
-`auto-repairable` AND policy allows. If a drift row has
-`severity = manual-review`, surface it in the panel's Pending
-Changes inbox; the operator must approve the repair before it
-fires.
+See the auto-repairable vs manual-review distinction in
+[mesh-admin.md](mesh-admin.md). If a drift row carries
+`severity = manual-review`, it requires an explicit Approve click in
+Workbench → Network → Mesh → Pending Changes.
 
 ### Telemetry latency numbers look stale
 
-Link telemetry lands in `topology_link_health` every 30 seconds
-per 12.6.2. If a peer's metrics haven't moved in > 2 minutes, its
-local prober is stuck — restart `mackesd` on that peer.
-
-### What if my mesh can't reach the internet over UDP
-
-Some corporate / hotel / captive-portal networks block outbound
-UDP entirely while leaving TCP/443 open. On the v2.5 Nebula
-fabric, the explicit `Https443` transport (Phase 12.18) has been
-**rerouted to the Nebula lighthouse-relay tunnel introduced in
-NF-1**: the lighthouse runs a TLS-wrapped TCP/443 listener and
-relays UDP-style Nebula frames over it whenever a peer's
-direct-UDP and lighthouse-UDP paths both fail.
-
-Operator-side that means:
-
-- No separate `mde-https-fallback` daemon to enable. The
-  lighthouse handles it; peers fail over automatically once the
-  router worker's HTTPS-fallback state machine fires (same
-  policy thresholds as the legacy 12.18 path — 3 consecutive
-  direct-UDP + lighthouse-UDP failures).
-- The `MDE_HTTPS_FALLBACK_HOST` env var is replaced by the
-  lighthouse's `nebula.https_relay.host` config key; the v2.5
-  migration tool copies the old value over on first boot.
-- Diagnostics: `mackesd healthz | jq .transport.active` now
-  reports `nebula_https443` instead of the legacy `https_443`.
+The `mesh_latency` worker pings every overlay peer every 30 seconds.
+If numbers haven't moved in > 2 minutes, the worker is stuck — restart
+`mackesd.service` on the affected peer.
