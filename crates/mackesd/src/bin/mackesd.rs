@@ -2014,6 +2014,48 @@ fn run_serve(
             .expect("worker_names mutex")
             .push("nebula_csr_watcher".into());
 
+        // NF-1.5 (v2.5) — TCP/443 covert listener. Binds the
+        // TLS 1.3 listener on :443 (default; env-overrideable),
+        // spawns the per-stream demux pump per accepted peer
+        // tunnel. Cert + key paths default to
+        // /etc/nebula/lighthouse.{crt,key}; overridable via
+        // MDE_HTTPS_TUNNEL_{CERT,KEY} env vars so operators
+        // running Let's-Encrypt-issued certs can point to the
+        // existing PEM chain. On peer-role boxes (no cert
+        // files), the worker fails its bind + the supervisor's
+        // OnFailure backoff effectively quarantines it.
+        match mackesd_core::workers::nebula_https_listener::NebulaHttpsListener::new() {
+            Ok(mut w) => {
+                if let Ok(p) = std::env::var("MDE_HTTPS_TUNNEL_CERT") {
+                    w = w.with_cert(PathBuf::from(p));
+                }
+                if let Ok(p) = std::env::var("MDE_HTTPS_TUNNEL_KEY") {
+                    w = w.with_key(PathBuf::from(p));
+                }
+                if let Ok(addr) = std::env::var("MDE_HTTPS_TUNNEL_BIND") {
+                    if let Ok(parsed) = addr.parse() {
+                        w = w.with_bind_addr(parsed);
+                    } else {
+                        tracing::warn!(
+                            value = %addr,
+                            "nebula-https-listener: MDE_HTTPS_TUNNEL_BIND parse failed; using default",
+                        );
+                    }
+                }
+                sup.spawn(Spawn::new(w, RestartPolicy::OnFailure));
+                worker_names
+                    .lock()
+                    .expect("worker_names mutex")
+                    .push("nebula_https_listener".into());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "nebula-https-listener: construction failed; skipped",
+                );
+            }
+        }
+
         // v4.0.1 AF-NET-2 (2026-05-23) — mesh-latency sniffer.
         // Pings every enrolled non-local peer every 30 s and
         // writes the result to ~/.cache/mde/mesh-latency.json.

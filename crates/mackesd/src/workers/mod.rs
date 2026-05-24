@@ -103,6 +103,11 @@ pub mod nebula_supervisor;
 // step for the common case (single-lighthouse mesh with an
 // active CA).
 pub mod nebula_csr_watcher;
+// NF-1.5 (v2.5) — Lighthouse-side TCP/443 covert listener.
+// Binds the TLS 1.3 listener on :443, spawns one demux pump
+// per accepted stream (TLS ↔ UDP 127.0.0.1:4242). Inner Nebula
+// stack runs unmodified.
+pub mod nebula_https_listener;
 pub mod metrics_flush;
 pub mod nats;
 pub mod notification_relay;

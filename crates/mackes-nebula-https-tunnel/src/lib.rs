@@ -35,9 +35,12 @@
 //! The lighthouse process accepts both `:4242/udp` (native
 //! Nebula) and `:443/tcp` (this crate's `listen`). Frame demux
 //! happens before the inner Nebula stack sees the packet, so
-//! the inner crypto layer is unmodified. The server-side demux
-//! wiring (NF-1.5) lives in `mackesd`'s lighthouse worker and
-//! is tracked separately.
+//! the inner crypto layer is unmodified. NF-1.5 ships
+//! [`demux::pump_one_stream`] (the per-stream pure pump) +
+//! [`demux::DemuxConfig`] (forward-address + idle-timeout
+//! knobs). The mackesd-side worker that runs `tls::listen` +
+//! spawns `pump_one_stream` per accepted stream lives in
+//! `crates/mackesd/src/workers/nebula_https_listener.rs`.
 //!
 //! ## Throughput floor (NF-1.6)
 //!
@@ -49,16 +52,21 @@
 #![warn(missing_docs)]
 
 pub mod activation;
+pub mod demux;
 pub mod framing;
 pub mod tls;
 
 // Re-exports keep consumer call sites compact:
 //   use mackes_nebula_https_tunnel::{
 //       HttpsFallbackState, TransitionInput, encode_frame, decode_frame,
+//       pump_one_stream, DemuxConfig,
 //   };
 pub use activation::{
     transition, FailureWindow, HttpsFallbackState, ProbePairOutcome, TransitionInput,
     FAILURE_THRESHOLD,
+};
+pub use demux::{
+    pump_one_stream, DemuxConfig, DemuxError, DemuxStats, DEFAULT_NEBULA_ADDR, IDLE_TIMEOUT,
 };
 pub use framing::{decode_frame, encode_frame, FrameError, HEADER_LEN, MAX_FRAME_SIZE};
 pub use tls::{dial, listen, TunnelClientStream, TunnelError, TunnelListener, TunnelStream};
