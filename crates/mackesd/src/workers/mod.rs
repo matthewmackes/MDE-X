@@ -108,6 +108,12 @@ pub mod nebula_csr_watcher;
 // per accepted stream (TLS ↔ UDP 127.0.0.1:4242). Inner Nebula
 // stack runs unmodified.
 pub mod nebula_https_listener;
+// NF-18.4 (v2.5) — Daily encrypted CA backup worker. Writes
+// sealed (Argon2id + XChaCha20-Poly1305) bundles to
+// QNM-Shared/<self>/mackesd/ca-backup.enc on a 24h tick.
+// Opt-in: requires MDE_BACKUP_PASSPHRASE env var; silently
+// skips when unset.
+pub mod nebula_ca_backup;
 pub mod metrics_flush;
 pub mod nats;
 pub mod notification_relay;

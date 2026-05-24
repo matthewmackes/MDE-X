@@ -2122,6 +2122,40 @@ fn run_serve(
             .expect("worker_names mutex")
             .push("nebula_csr_watcher".into());
 
+        // NF-18.4 (v2.5) — automated CA backup worker.
+        // Opens its own SQLite handle for the per-tick
+        // assemble_from_store read. Skips silently on peer-role
+        // boxes (no CA key file). Requires MDE_BACKUP_PASSPHRASE
+        // env var — operators opt in via the systemd unit's
+        // Environment= line.
+        match mackesd_core::store::open(&db_path) {
+            Ok(conn) => {
+                let backup_store = Arc::new(tokio::sync::Mutex::new(conn));
+                let backup_mesh = std::env::var("MDE_MESH_ID")
+                    .unwrap_or_else(|_| format!("mesh-{node_id}"));
+                sup.spawn(Spawn::new(
+                    mackesd_core::workers::nebula_ca_backup::NebulaCaBackup::new(
+                        qnm_root.clone(),
+                        node_id.clone(),
+                        backup_mesh,
+                        backup_store,
+                    ),
+                    RestartPolicy::OnFailure,
+                ));
+                worker_names
+                    .lock()
+                    .expect("worker_names mutex")
+                    .push("nebula_ca_backup".into());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    db_path = %db_path.display(),
+                    "nebula-ca-backup: sqlite open failed; worker skipped"
+                );
+            }
+        }
+
         // NF-1.5 (v2.5) — TCP/443 covert listener. Binds the
         // TLS 1.3 listener on :443 (default; env-overrideable),
         // spawns the per-stream demux pump per accepted peer
