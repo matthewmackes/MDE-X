@@ -35,6 +35,7 @@
 //! [`MockBackend`] that returns canned PEM so they don't
 //! depend on the binary being installed.
 
+pub mod backup;
 pub mod bundle;
 // NF-2.5 (v2.5) — CA epoch rotation. Called by leader.rs
 // on promotion + by the `mackesd ca rotate` CLI (NF-2.6).

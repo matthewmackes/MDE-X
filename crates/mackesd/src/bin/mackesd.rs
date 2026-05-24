@@ -439,6 +439,36 @@ enum CaCmd {
         mesh_id: Option<String>,
     },
 
+    /// NF-18.1 (v2.5) — export the CA + every peer cert into a
+    /// passphrase-encrypted ASCII-armored bundle on stdout (or
+    /// to `--output <path>`). Use for off-cluster disaster
+    /// recovery — `import` reverses. Passphrase read from
+    /// `MDE_BACKUP_PASSPHRASE` env var (operator must export
+    /// before invoking) so it never lands in shell history.
+    Export {
+        /// Mesh id (defaults to `mesh-<hostname>`).
+        #[arg(long, value_name = "MESH_ID")]
+        mesh_id: Option<String>,
+        /// Where to write the armored bundle. Default: stdout.
+        #[arg(long, value_name = "PATH")]
+        output: Option<PathBuf>,
+        /// Sealed CA key path (defaults to
+        /// `/var/lib/mackesd/nebula-ca/ca.key`).
+        #[arg(long, value_name = "PATH")]
+        ca_key: Option<PathBuf>,
+    },
+
+    /// NF-18.1 (v2.5) — import an exported bundle and restore
+    /// the CA + peer certs into the local store. Reads the
+    /// armored bundle from stdin (or `--input <path>`).
+    /// Passphrase via `MDE_BACKUP_PASSPHRASE`.
+    Import {
+        /// Where to read the armored bundle from. Default:
+        /// stdin.
+        #[arg(long, value_name = "PATH")]
+        input: Option<PathBuf>,
+    },
+
     /// NF-3.6.b (v2.5) — sign a peer's pending-enroll CSR.
     /// Reads `QNM-Shared/<peer-id>/mackesd/pending-enroll.json`,
     /// signs the cert under the active CA, writes the
@@ -1133,6 +1163,84 @@ fn main() -> anyhow::Result<()> {
                             return Err(anyhow::anyhow!("dump-ca: {e}"));
                         }
                     }
+                }
+                CaCmd::Export { mesh_id, output, ca_key } => {
+                    // NF-18.1 — encrypted CA backup. Passphrase
+                    // via env var so it doesn't land in shell
+                    // history. CA key path defaults to the
+                    // SignCsrPaths production value.
+                    let mesh = mesh_id.unwrap_or(default_mesh);
+                    let passphrase = std::env::var("MDE_BACKUP_PASSPHRASE")
+                        .map_err(|_| anyhow::anyhow!(
+                            "export: set MDE_BACKUP_PASSPHRASE before invoking \
+                             (the bundle is encrypted with this passphrase)"
+                        ))?;
+                    let key_path = ca_key.unwrap_or_else(|| {
+                        mackesd_core::nebula_enroll::SignCsrPaths::production_defaults().ca_key
+                    });
+                    let ca_key_pem = mackesd_core::ca::seal::read_sealed(&key_path)
+                        .map_err(|e| anyhow::anyhow!(
+                            "export: read CA key {}: {e}", key_path.display(),
+                        ))?;
+                    let ca_key_pem_str = String::from_utf8(ca_key_pem)
+                        .map_err(|e| anyhow::anyhow!("export: CA key not UTF-8: {e}"))?;
+                    let plaintext = mackesd_core::ca::backup::assemble_from_store(
+                        &conn, &mesh, &ca_key_pem_str,
+                    ).map_err(|e| anyhow::anyhow!("export: assemble: {e}"))?;
+                    let sealed = mackesd_core::ca::backup::seal(&passphrase, &plaintext)
+                        .map_err(|e| anyhow::anyhow!("export: seal: {e}"))?;
+                    let armored = mackesd_core::ca::backup::armor(&sealed, plaintext.exported_at);
+                    match output {
+                        Some(path) => {
+                            std::fs::write(&path, &armored).with_context(|| {
+                                format!("write {}", path.display())
+                            })?;
+                            eprintln!(
+                                "exported {} CA rows + {} peer certs → {} ({} bytes armored)",
+                                plaintext.ca_certs.len(),
+                                plaintext.peer_certs.len(),
+                                path.display(),
+                                armored.len(),
+                            );
+                        }
+                        None => {
+                            print!("{armored}");
+                        }
+                    }
+                }
+                CaCmd::Import { input } => {
+                    // NF-18.1 — encrypted CA bundle restore.
+                    let passphrase = std::env::var("MDE_BACKUP_PASSPHRASE")
+                        .map_err(|_| anyhow::anyhow!(
+                            "import: set MDE_BACKUP_PASSPHRASE before invoking",
+                        ))?;
+                    let armored = match input {
+                        Some(path) => std::fs::read_to_string(&path).with_context(|| {
+                            format!("read {}", path.display())
+                        })?,
+                        None => {
+                            use std::io::Read;
+                            let mut s = String::new();
+                            std::io::stdin().read_to_string(&mut s)?;
+                            s
+                        }
+                    };
+                    let sealed = mackesd_core::ca::backup::dearmor(&armored)
+                        .map_err(|e| anyhow::anyhow!("import: dearmor: {e}"))?;
+                    let plaintext = mackesd_core::ca::backup::unseal(&passphrase, &sealed)
+                        .map_err(|e| anyhow::anyhow!("import: {e}"))?;
+                    mackesd_core::ca::backup::restore_to_store(&conn, &plaintext)
+                        .map_err(|e| anyhow::anyhow!("import: restore: {e}"))?;
+                    eprintln!(
+                        "imported {} CA rows + {} peer certs for mesh '{}' \
+                         (exported_at = unix:{}); restart mackesd to pick up \
+                         the new CA + the operator should re-write \
+                         /etc/nebula/{{ca.crt,ca.key}} from the bundle.",
+                        plaintext.ca_certs.len(),
+                        plaintext.peer_certs.len(),
+                        plaintext.mesh_id,
+                        plaintext.exported_at,
+                    );
                 }
                 CaCmd::SignCsr {
                     node_id,

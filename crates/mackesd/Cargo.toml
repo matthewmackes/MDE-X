@@ -102,6 +102,19 @@ chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 rand = "0.8"
 
+# NF-18.1 (v2.5) — passphrase-encrypted CA bundle export/import.
+# Argon2id KDF + ChaCha20-Poly1305 AEAD. Best-choice picks per
+# the iteration skill standing authorizations (2026-05-24):
+# RustCrypto crates are widely audited, no_std-friendly, and
+# don't pull in a system libsodium dep. Bundle format is
+# versioned so future swaps (e.g. to AES-GCM) ship as a new
+# variant without breaking old backups.
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+# Base64 for the on-disk bundle envelope (ASCII-armored so
+# operators can sneakernet via copy/paste).
+base64 = "0.22"
+
 # Phase 12.10.4 — zero-on-drop for bearer tokens + passcodes.
 zeroize = { version = "1.7", features = ["zeroize_derive"] }
 
