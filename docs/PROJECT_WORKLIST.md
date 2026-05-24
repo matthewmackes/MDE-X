@@ -601,10 +601,21 @@ locked work appears under **Active** with `[ ] Open`.
   enrollment, show the overlay IP, the lighthouse roster, and
   a live `mded.Nebula.Status` poll. If a peer doesn't show up
   within 30 s, surface the diagnostics banner per the Q11 lock.
-- [ ] **NF-7.4: First-boot vs reconfigure paths** — First-boot
-  takes the wizard. Reconfigure (`mde-workbench` → Mesh
-  panel → "Reset and rejoin") routes through the same wizard
-  pages but skips the welcome step.
+- [✓] **NF-7.4: First-boot vs reconfigure paths (shipped
+  2026-05-23)** — `WizardWindow.__init__` gained a
+  `reconfigure: bool = False` keyword arg. When True:
+    - titlebar reads "Mesh setup" instead of "Setup" so
+      the operator knows the welcome step gets skipped;
+    - the Welcome page is omitted from the steps list
+      (Scan / Import / Preset / Appearance / Hardware /
+      Network / Mesh-passcode / Snapshot / Review / Apply /
+      Summary all still ship).
+  First-boot callers (mackes.app) keep the default
+  `reconfigure=False`. Reconfigure callers (Workbench
+  Mesh panel "Reset and rejoin" hook — wiring lives in
+  the workbench, lands when NF-7.1 ships the mesh_setup
+  page rewrite) pass `reconfigure=True`. Smoke verified
+  the kwarg is on the constructor + module parses clean.
 
 #### NF-8.x — Connectivity-pass updates (12.14–12.23 follow-throughs)
 

@@ -65,12 +65,24 @@ class WizardWindow(Gtk.ApplicationWindow):
     working.
     """
 
-    def __init__(self, application: Gtk.Application, state: MackesState) -> None:
+    def __init__(
+        self,
+        application: Gtk.Application,
+        state: MackesState,
+        *,
+        reconfigure: bool = False,
+    ) -> None:
         super().__init__(application=application)
         from mackes.workbench._common import versioned_title
         # v2.0.0 Phase 0.11 — "Mackes Shell" → "Setup" in titlebar;
         # versioned_title prepends the "MDE <version>" suffix.
-        self.set_title(versioned_title("Setup"))
+        # NF-7.4 (v2.5, 2026-05-23): reconfigure entries (Workbench
+        # → Mesh panel → "Reset and rejoin") flip the titlebar to
+        # "Mesh setup" so the operator knows the welcome step gets
+        # skipped.
+        title_kind = "Mesh setup" if reconfigure else "Setup"
+        self.set_title(versioned_title(title_kind))
+        self._reconfigure = reconfigure
         # v1.4.2 — Fit the workstation resolution perfectly. Open at the
         # primary monitor's exact size and maximize on realize so the
         # WM finishes the job.
@@ -96,8 +108,17 @@ class WizardWindow(Gtk.ApplicationWindow):
         # ---- Build page widgets + step model ------------------------------
         self._apply_page = apply.ApplyPage(self.ctx)
 
-        steps: List[Tuple[str, str, Gtk.Widget]] = [
-            ("Welcome",     _STEP_CONTENT,  welcome.build(self.ctx)),
+        steps: List[Tuple[str, str, Gtk.Widget]] = []
+        # NF-7.4 — reconfigure flow skips the welcome step (the
+        # operator has already been through this wizard at least
+        # once + clicked "Reset and rejoin" knowing what comes
+        # next). First-boot keeps the welcome page so users who
+        # land here for the first time get the orientation.
+        if not self._reconfigure:
+            steps.append(
+                ("Welcome", _STEP_CONTENT, welcome.build(self.ctx))
+            )
+        steps += [
             ("Scan",        _STEP_CONTENT,  env_scan.build(self.ctx)),
             # Legacy import sits between Scan and Preset so 2.x users
             # see what's being preserved BEFORE they pick a (new)
