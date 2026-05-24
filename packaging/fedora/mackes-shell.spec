@@ -550,6 +550,21 @@ install -m 0644 data/systemd/mde-session.service             %{buildroot}%{_user
 # bootstrapped the volume; the GF-3.3 birthright step will
 # automate the enable when it ships.
 install -m 0644 data/systemd/mde-mesh-mount@.service        %{buildroot}%{_userunitdir}/
+# MON-2 (v2.6) — Netdata health.d alert configs. Five files:
+#   nebula.conf        — overlay process / peer / relay / handshake / latency
+#   gluster.conf       — brick / heal-queue / split-brain / quota / quorum
+#   mackesd.conf       — Healthz ping / leader flap / no-leader
+#   workstation.conf   — boot disk / swap thrash / thermal throttle / dnf pending
+#   mde-suppressions.conf — disable stock alerts that don't fit MDE's failure model
+# Netdata auto-loads everything in /etc/netdata/health.d/*.conf on daemon
+# start + on `netdatacli reload-health`. The MON-1 birthright step enables
+# the daemon; the MON-1.b stream-block rewriter will trigger reload-health
+# on every CA-leader transition once it ships.
+install -d -m 0755 %{buildroot}%{_sysconfdir}/netdata/health.d
+for healthconf in nebula gluster mackesd workstation mde-suppressions; do
+    install -m 0644 data/netdata/health.d/${healthconf}.conf \
+        %{buildroot}%{_sysconfdir}/netdata/health.d/${healthconf}.conf
+done
 # Sudoers drop-in (v1.4.1) — grants NOPASSWD on Mackes-managed commands
 install -D -m 0440 data/sudoers.d/mackes-shell               %{buildroot}/etc/sudoers.d/mackes-shell
 install -D -m 0755 bin/mackes-wm                              %{buildroot}%{_bindir}/mackes-wm
@@ -1113,6 +1128,15 @@ fi
 # GF-4.1 (v5.0.0) — mesh-home FUSE mount template (one
 # instance per XDG dir; operator/birthright enables them).
 %{_userunitdir}/mde-mesh-mount@.service
+# MON-2 (v2.6) — Netdata health.d alert configs. %config(noreplace)
+# so operator edits to thresholds survive package upgrades; the
+# defaults match the v2.6 MON-2 design lock.
+%dir %{_sysconfdir}/netdata/health.d
+%config(noreplace) %{_sysconfdir}/netdata/health.d/nebula.conf
+%config(noreplace) %{_sysconfdir}/netdata/health.d/gluster.conf
+%config(noreplace) %{_sysconfdir}/netdata/health.d/mackesd.conf
+%config(noreplace) %{_sysconfdir}/netdata/health.d/workstation.conf
+%config(noreplace) %{_sysconfdir}/netdata/health.d/mde-suppressions.conf
 %{_prefix}/lib/systemd/user-preset/90-mackes.preset
 # CB-3.6 + CB-2.1 — v2.0.0 user preset + Wayland-session entry.
 %{_prefix}/lib/systemd/user-preset/90-mde.preset

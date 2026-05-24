@@ -97,6 +97,81 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — MON-2: Netdata health.d alert definitions
+
+Closes MON-2 from the v2.6 monitoring epic. Five
+`health.d/*.conf` files land under `/etc/netdata/health.d/`
+via the Mackes RPM, tuning the alert set to this platform's
+actual failure modes + suppressing the noisy stock alerts.
+
+Re-audit 2026-05-24 caught the original `[HW carve-out]`
+classification as wrong: the static config files are the
+deliverable + Netdata auto-loads `/etc/netdata/health.d/*.
+conf` on daemon-start without application-side wiring, so
+the no-stubs / runtime-reachability gate is satisfied
+without a hardware bench. The live `netdatacli
+reload-health` + bench-trigger acceptance criteria stay
+HW-gated, as they should.
+
+**New health.d configs (all `%config(noreplace)` —
+operator edits to thresholds survive package upgrades):**
+
+- `nebula.conf` — 6 alarms: `nebula_process_down` (crit,
+  systemd unit inactive >30s), `nebula_peer_unreachable`
+  (crit, handshake_age >5m), `nebula_relay_fallback_ratio`
+  (warn, >25% peers on relay >10m — violates v12.x
+  throughput-first lock), `nebula_lighthouse_unreachable`
+  (crit, both lighthouses out >2m), `nebula_handshake_
+  failure_rate` (warn, >5/min sustained 5m), `nebula_
+  first_packet_latency` (warn, p95 >3s over 10m — mirrors
+  v12.x SLO).
+- `gluster.conf` — 5 alarms: `gluster_brick_down` (crit),
+  `gluster_heal_queue_depth` (warn, >100 files for >2m),
+  `gluster_split_brain` (crit), `mesh_home_disk_full`
+  (warn @85%, crit @95%), `gluster_quorum_lost` (crit).
+- `mackesd.conf` — 3 alarms: `mackesd_dbus_unresponsive`
+  (crit, Healthz <50% success over 2m, sourced from the
+  v4.1 `Shell.Healthz` prometheus collector), `mackesd_
+  leader_flap` (warn, >3 transitions in 10m — clock-skew
+  signal), `mackesd_no_leader` (crit, no QNM-Shared
+  lockholder >60s — fleet operations stalled).
+- `workstation.conf` — 4 alarms: `boot_disk_full` (warn
+  @90%, crit @97%), `swap_thrashing` (warn, swap-in >100
+  pages/s over 5m), `thermal_throttle` (warn, any core
+  throttled in 5m), `unattended_updates_pending` (warn,
+  pending >7d — desktop nudge for operators who skip the
+  BUG-11 watermark).
+- `mde-suppressions.conf` — disables stock alerts that
+  don't fit MDE's failure-mode set: `cgroup_memory_usage`
+  (sway/Iced apps trip this on every session start),
+  `net_interface_errors` (Wi-Fi 2.4 GHz frame-error noise),
+  `systemd_units_active` (MDE's explicit per-service
+  alarms cover the real signal), `disk_inodes_usage`
+  (modern ext4/xfs/btrfs don't run out of inodes before
+  disk space), `apps_cpu_per_user` (browser tab / video
+  transcode is operator productivity, not alertable).
+
+**Spec wiring:**
+
+- `packaging/fedora/mackes-shell.spec` — five
+  `install -m 0644 data/netdata/health.d/*.conf` lines
+  under a `MON-2 (v2.6)` block; five `%config(noreplace)
+  /etc/netdata/health.d/*.conf` entries in `%files` so
+  rpm-py-inspector tracks them as config files; `%dir
+  %{_sysconfdir}/netdata/health.d` for the directory
+  ownership.
+
+Worklist body deviation: the `[HW carve-out]` tag the
+re-audit caught was annotated 2026-05-24 + removed in the
+same edit — see `feedback_no_cut_until_worklist_empty.md`
+for the recently-reaffirmed "no cut until non-HW tail
+closes" rule that made the misclassification material.
+
+Together with [[MON-1.a]], [[MON-3]], and [[MON-4]] the
+notification fabric is now end-to-end ready except for the
+live aggregator-IP publisher (MON-1.b) and the Mesh Health
+Workbench panel (MON-5).
+
 ## Unreleased — MON-3 + MON-4: alert event pipeline (mde-alert-emit + alert_relay)
 
 Closes the MON-3 + MON-4 mutually-blocked pair in one
