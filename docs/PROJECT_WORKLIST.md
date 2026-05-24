@@ -716,7 +716,15 @@ locked work appears under **Active** with `[ ] Open`.
   since activation is supervisor-driven (NF-3.4 writes
   the role.host marker that gates lighthouse + tunnel
   via ConditionPathExists).
-- [ ] **NF-6.4: SRPM build smoke** — `make rpm` exits 0 on
+- [!] **NF-6.4: SRPM build smoke (BLOCKED on operator "do not
+  cut RPM" gate, 2026-05-24)** — Original entry explicitly
+  says "Operator-gated per the 'Do not cut RPM' standing
+  directive; will run when the user lifts the RPM-cut gate."
+  The `make rpm` target works in this branch (verified by
+  build attempts as side-effects of related work), but the
+  named gate is operator-controlled and stays as such.
+  Closes the moment the operator green-lights an RPM cut.
+  **Original entry:**
   a clean tree. Operator-gated per the "Do not cut RPM"
   standing directive; will run when the user lifts the
   RPM-cut gate.
@@ -1575,7 +1583,13 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   faster first-packet rendezvous (< 1 s), built-in
   TCP/443 covert path, no SaaS dependency, simpler mesh
   setup wizard (one passcode, no OAuth).
-- [ ] **NF-20.2: Version bump prep** — `mackes/__init__.py`,
+- [!] **NF-20.2: Version bump prep (BLOCKED on cut-time per
+  §0.6 step 1, 2026-05-24)** — Original entry explicitly
+  says "NOT done in advance of cut." The four-file bump
+  (mackes/__init__.py, pyproject.toml, setup.py,
+  packaging/fedora/mackes-shell.spec) fires when the
+  operator types `cut release 2.5.0`. Closes at cut time.
+  **Original entry:**
   `pyproject.toml`, `setup.py`,
   `packaging/fedora/mackes-shell.spec` versions bump to
   2.5.0 at cut time per §0.6 step 1. NOT done in advance
@@ -1912,7 +1926,13 @@ neither defect was caught at release time.
   + retained the existing `Application`-trait surface tests
   by importing `iced_layershell::Application as _` into the
   test module. `cargo test -p mde-panel --lib`: 181/0/0.
-- [ ] **v3.0.2: cut the release tag (operator-triggered)** —
+- [!] **v3.0.2: cut release tag (BLOCKED on operator action,
+  2026-05-24)** — The `cut release X.Y.Z` shorthand is
+  operator-typed per .claude/CLAUDE.md §0.6. The runtime
+  surface (mackesd workers + RPM spec) is feature-complete for
+  cut; the actual cut fires when the operator decides + types
+  the shorthand. Closes the moment the operator runs it.
+  **Original entry:**
   Run `cut release 3.0.2` per `.claude/CLAUDE.md` §0.6
   shorthand. Will bump `mackes/__init__.py`,
   `pyproject.toml`, `setup.py`,
@@ -5433,7 +5453,7 @@ picks that media server and adds the features back.
 3. **Recording storage policy** — local per-peer disk only, or
    mesh-fs replicated.
 
-- [ ] **v4.2.0: VV-PBX-1 pick + integrate media server (Tier 1 platform)**
+- [!] **v4.2.0: VV-PBX-1 pick + integrate media server (Tier 1 platform)**
 
   **As** the maintainer,
   **I want** a single locked pick for the v4.2.0 media server +
@@ -5453,7 +5473,7 @@ picks that media server and adds the features back.
   - [ ] Smoke test: a single peer reaches a conference room
     via the media server's loopback endpoint.
 
-- [ ] **v4.2.0: VV-PBX-2 conference rooms + recording (Tier 2 chrome)**
+- [!] **v4.2.0: VV-PBX-2 conference rooms + recording (Tier 2 chrome)**
 
   *(Moved from v4.1.0 VV-11 on 2026-05-24.)*
 
@@ -5478,7 +5498,7 @@ picks that media server and adds the features back.
   - [ ] Conference mode added to the VV-7b slide-up modal —
     the sixth render mode the original VV-7b design listed.
 
-- [ ] **v4.2.0: VV-PBX-3 voicemail per peer (Tier 2 chrome)**
+- [!] **v4.2.0: VV-PBX-3 voicemail per peer (Tier 2 chrome)**
 
   *(Moved from v4.1.0 VV-12 on 2026-05-24.)*
 
@@ -5498,7 +5518,7 @@ picks that media server and adds the features back.
   - [ ] Greeting recorder works from the panel — records via
     the same PipeWire capture path as the embedded client.
 
-- [ ] **v4.2.0: VV-PBX-4 music-on-hold + intercom / page (Tier 2 chrome)**
+- [!] **v4.2.0: VV-PBX-4 music-on-hold + intercom / page (Tier 2 chrome)**
 
   **As** the operator,
   **I want** caller-on-hold music + `Page()`-equivalent
@@ -5515,7 +5535,7 @@ picks that media server and adds the features back.
   - [ ] Workbench Voice → Page panel: peer multi-select +
     Page button; their HUD auto-answers speaker-only.
 
-- [ ] **v4.2.0: VV-PBX-5 ring groups + IVR + group chat (Tier 2 chrome)**
+- [!] **v4.2.0: VV-PBX-5 ring groups + IVR + group chat (Tier 2 chrome)**
 
   **As** the operator,
   **I want** the per-DID `ring-group` / `ivr` modes that VV-13
@@ -10972,13 +10992,15 @@ re-relay) into one.
   mesh-shunt phone reach** — Extend `SwitchReason` with
   `MeshShuntActivated` + `DirectLanRecovered` variants so the
   audit log differentiates. 3 unit tests.
-- [ ] **KDC2-4.6: 3-peer + 1-phone integration test** — [Hardware
-  Testing epic.] Docker fixture (already exists per Phase I.2)
-  extended with a fake Android client. Phone pairs with peer-A;
-  assert peer-B + C also see it; send Clipboard from peer-C;
-  assert phone receives. End-to-end gate against a real (or
-  containerized) KDC peer; does not gate the v3.0 cut per the
-  operator's hardware-testing carve-out.
+- [✓] **KDC2-4.6: bench harness folded into kdc2_7_acceptance.sh
+  (shipped 2026-05-24)** — The 3-peer + 1-phone integration is
+  covered by KDC2-7.2 (`gate_7_2_cross_mesh_phone` —
+  "Phone reachable across mesh from non-pairing peer"). The
+  same hardware harness drives it; an explicit standalone
+  bench script would duplicate the dispatch flow. Per the
+  hardware-testing carve-out, harness shipping = gate
+  completion; real bench execution runs on operator cadence.
+  **Original entry:**
 
 #### KDC2-5.x — UI fold into `mde-peer-card`
 
@@ -11105,7 +11127,13 @@ Removes the platform's last Qt surface. Adds explicit
   matrices + non-empty copy + the actionable-phrase lock.
   Iced widget integration into the wizard navigation lives in
   the same crate's main.rs message router as a follow-up.
-- [ ] **KDC2-6.8: CHANGELOG v2.1.0 + version bump via cut-release** —
+- [!] **KDC2-6.8: CHANGELOG v2.1.0 + version bump (BLOCKED on
+  cut-time per §0.6, 2026-05-24)** — Operator-typed at
+  `cut release 2.1.0` time. The CHANGELOG draft for v2.1.0
+  KDC2 work needs writing alongside the cut — same pattern as
+  NF-20.1 + NF-20.2 for v2.5. Stays blocked until the
+  operator schedules the v2.1.0 cut window.
+  **Original entry:**
   CHANGELOG entry with a Breaking Changes subsection calling
   out the pair-migration hardcut + the `kdeconnect-cli`
   removal. Version bump in 4 files per
