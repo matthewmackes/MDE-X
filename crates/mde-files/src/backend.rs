@@ -23,7 +23,11 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use crate::dbus_backend::DBusBackend;
-use crate::model::{FileRow, LocalPin, Mime, Peer, PinIcon, SelfNode, Transfer};
+#[cfg(feature = "dbus")]
+use crate::mesh_backend::{
+    GlusterMount, GlusterStatus, MeshBackend, MeshPeer, NebulaStatus,
+};
+use crate::model::{FileRow, LocalPin, Mime, Peer, PeerKind, PeerStatus, PinIcon, SelfNode, Transfer};
 
 /// Stable identifier for a long-running transfer operation. Iced
 /// renders the transfer drawer keyed by this.
@@ -105,6 +109,22 @@ pub trait Backend {
     /// Roll back a completed operation (Phase 2.7). Returns the
     /// new audit row's op id.
     fn rollback(&mut self, op_id: OpId) -> Result<OpId, BackendError>;
+    /// v4.x AF-mesh (2026-05-24) — live Nebula overlay status,
+    /// or `None` when the backend has no mesh source (Demo,
+    /// LocalFs) or mackesd isn't reachable. Default impl returns
+    /// `None` so non-mesh backends compile unchanged.
+    fn mesh_overlay(&self) -> Option<MeshOverlayBadge> {
+        None
+    }
+    /// v4.x AF-mesh — live Gluster volume snapshot. Same
+    /// degradation semantics as `mesh_overlay`.
+    fn mesh_volume(&self) -> Option<MeshVolumeBadge> {
+        None
+    }
+    /// v4.x AF-mesh — live Gluster FUSE mount snapshot.
+    fn mesh_mount(&self) -> Option<MeshMountBadge> {
+        None
+    }
 }
 
 /// Backend-surface errors. Surfaced to the UI as toasts.
@@ -152,6 +172,58 @@ pub struct BackendSnapshot {
     pub local_pins: Vec<LocalPin>,
     pub local_recent: Vec<FileRow>,
     pub recent_transfers: Vec<Transfer>,
+    /// v4.x AF-mesh (2026-05-24) — live Nebula overlay snapshot
+    /// pulled from `dev.mackes.MDE.Nebula.Status::Status` at
+    /// capture time. `None` when mackesd isn't running OR the
+    /// backend isn't a `RealBackend`; views read this through
+    /// `mesh_overlay()` so they degrade cleanly to the
+    /// "no-mesh" rendering.
+    pub mesh_overlay: Option<MeshOverlayBadge>,
+    /// v4.x AF-mesh — live Gluster volume snapshot pulled from
+    /// `dev.mackes.MDE.Gluster.Status::Status` at capture time.
+    /// `None` when mackesd isn't running OR the volume hasn't
+    /// been bootstrapped yet.
+    pub mesh_volume: Option<MeshVolumeBadge>,
+    /// v4.x AF-mesh — live Gluster FUSE mount snapshot. `None`
+    /// when mackesd isn't running. `is_mounted=false` means the
+    /// volume exists but no peer FUSE-mounted it yet, so the
+    /// shared XDG dirs are still local-FS-backed.
+    pub mesh_mount: Option<MeshMountBadge>,
+}
+
+/// Lightweight, UI-friendly projection of `dev.mackes.MDE.
+/// Nebula.Status::Status`. Stripped to the fields the file
+/// manager actually renders (titlebar pill + mesh-overview
+/// banner) so the sidebar code doesn't have to know the
+/// full wire schema.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MeshOverlayBadge {
+    pub is_lighthouse: bool,
+    pub ca_epoch: i64,
+    pub mesh_id: String,
+    pub peer_count: usize,
+    pub active_transport: String,
+}
+
+/// Lightweight projection of the Gluster volume snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MeshVolumeBadge {
+    pub volume_name: String,
+    pub bricks_count: usize,
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub free_bytes: u64,
+    pub heal_pending_count: usize,
+    pub conflict_count: usize,
+    pub volume_online: bool,
+}
+
+/// Lightweight projection of the Gluster mount snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MeshMountBadge {
+    pub is_mounted: bool,
+    pub mount_point: String,
+    pub since_unix_s: u64,
 }
 
 impl BackendSnapshot {
@@ -195,6 +267,9 @@ impl BackendSnapshot {
                 age: String::new(),
             })
             .collect();
+        let mesh_overlay = backend.mesh_overlay();
+        let mesh_volume = backend.mesh_volume();
+        let mesh_mount = backend.mesh_mount();
         Self {
             self_node,
             peers,
@@ -203,6 +278,9 @@ impl BackendSnapshot {
             local_pins,
             local_recent,
             recent_transfers,
+            mesh_overlay,
+            mesh_volume,
+            mesh_mount,
         }
     }
 }
@@ -545,11 +623,24 @@ impl Backend for LocalFsBackend {
 /// + the `peers()` call route through DBus; everything else hits
 /// the local FS. If DBus is unreachable the mesh surface comes
 /// back empty (no panic, no fallback to demo data).
+///
+/// v4.x AF-mesh (2026-05-24) — adds the `MeshBackend` companion
+/// that reads from `dev.mackes.MDE.Nebula.Status` +
+/// `dev.mackes.MDE.Gluster.Status` (the surfaces shipped today).
+/// When `MeshBackend` is connectable, the cached peer list comes
+/// from the merged Nebula/Gluster view (real reachability + live
+/// brick free-space) instead of the older Fleet.Files reads. The
+/// Fleet.Files `DBusBackend` is retained for the
+/// audit/transfer/list_peer surface that still ships from there.
 pub struct RealBackend {
     local: LocalFsBackend,
     dbus: Option<DBusBackend>,
+    mesh: Option<MeshBackend>,
     cached_self_node: SelfNode,
     cached_peers: Vec<Peer>,
+    cached_mesh_overlay: Option<MeshOverlayBadge>,
+    cached_mesh_volume: Option<MeshVolumeBadge>,
+    cached_mesh_mount: Option<MeshMountBadge>,
 }
 
 impl RealBackend {
@@ -557,25 +648,62 @@ impl RealBackend {
     pub fn new() -> Self {
         let local = LocalFsBackend::new();
         let dbus = DBusBackend::connect_with_timeout(Duration::from_millis(800)).ok();
-        let cached_self_node = match dbus.as_ref().and_then(|d| d.self_node().ok()) {
-            Some(s) => s,
-            None => local.self_node(),
+        let mesh = MeshBackend::connect_with_timeout(Duration::from_millis(800)).ok();
+
+        let cached_self_node = match mesh.as_ref().and_then(|m| m.nebula_self_node().ok()) {
+            Some(n) => SelfNode {
+                id: n.node_id,
+                host: n.host,
+                label: "this node".into(),
+                addr: n.overlay_ip,
+                files: 0,
+                shared: 0,
+            },
+            None => match dbus.as_ref().and_then(|d| d.self_node().ok()) {
+                Some(s) => s,
+                None => local.self_node(),
+            },
         };
-        let cached_peers = dbus
+
+        // Prefer mesh-merged peers (real Nebula reachability +
+        // Gluster brick state). Fall back to Fleet.Files-cached
+        // peers, then to an empty list.
+        let cached_peers = match mesh.as_ref().and_then(|m| m.mesh_peers().ok()) {
+            Some(merged) => merged.into_iter().map(mesh_peer_to_peer).collect(),
+            None => dbus
+                .as_ref()
+                .and_then(|d| d.peers().ok())
+                .unwrap_or_default(),
+        };
+
+        let cached_mesh_overlay = mesh
             .as_ref()
-            .and_then(|d| d.peers().ok())
-            .unwrap_or_default();
+            .and_then(|m| m.nebula_status().ok())
+            .map(nebula_status_to_badge);
+        let cached_mesh_volume = mesh
+            .as_ref()
+            .and_then(|m| m.gluster_status().ok())
+            .map(gluster_status_to_badge);
+        let cached_mesh_mount = mesh
+            .as_ref()
+            .and_then(|m| m.gluster_mount_status().ok())
+            .map(gluster_mount_to_badge);
+
         Self {
             local,
             dbus,
+            mesh,
             cached_self_node,
             cached_peers,
+            cached_mesh_overlay,
+            cached_mesh_volume,
+            cached_mesh_mount,
         }
     }
 
     #[must_use]
     pub fn has_mesh(&self) -> bool {
-        self.dbus.is_some()
+        self.mesh.is_some() || self.dbus.is_some()
     }
 }
 
@@ -628,6 +756,98 @@ impl Backend for RealBackend {
 
     fn rollback(&mut self, op_id: OpId) -> Result<OpId, BackendError> {
         self.local.rollback(op_id)
+    }
+
+    fn mesh_overlay(&self) -> Option<MeshOverlayBadge> {
+        self.cached_mesh_overlay.clone()
+    }
+
+    fn mesh_volume(&self) -> Option<MeshVolumeBadge> {
+        self.cached_mesh_volume.clone()
+    }
+
+    fn mesh_mount(&self) -> Option<MeshMountBadge> {
+        self.cached_mesh_mount.clone()
+    }
+}
+
+// ----- mesh → existing-model bridges --------------------------
+
+/// Convert a `MeshPeer` (Nebula/Gluster merged shape) into the
+/// existing `Peer` model the sidebar + cards already render.
+/// Preserves the overlay IP as `addr`, the merged reachability
+/// as `status`, and the Gluster brick state as the `shared`
+/// magnitude (size of brick free-space in MB, capped at u32) so
+/// the existing per-row count chip carries operator-useful info.
+#[cfg(feature = "dbus")]
+pub fn mesh_peer_to_peer(mp: MeshPeer) -> Peer {
+    let status = match mp.reachable.as_str() {
+        "online" | "healthy" => PeerStatus::Online,
+        "idle" | "degraded" => PeerStatus::Idle,
+        _ => PeerStatus::Offline,
+    };
+    // Brick free in MB (rounded), capped at u32::MAX; the sidebar
+    // chip is 3-4 chars so the cap is in practice unreachable.
+    const MB: u64 = 1024 * 1024;
+    let shared_mb = (mp.brick_free_bytes / MB).min(u64::from(u32::MAX)) as u32;
+    Peer {
+        id: if mp.node_id.is_empty() {
+            mp.host.clone()
+        } else {
+            mp.node_id.clone()
+        },
+        host: if mp.overlay_ip.is_empty() {
+            mp.host.clone()
+        } else {
+            format!("{} · {}", mp.host, mp.overlay_ip)
+        },
+        label: mp.host,
+        kind: PeerKind::Desktop,
+        addr: mp.overlay_ip,
+        status,
+        latency: None,
+        files: 0,
+        shared: shared_mb,
+        last: String::new(),
+        derp: if mp.gluster_state.is_empty() {
+            String::new()
+        } else {
+            mp.gluster_state
+        },
+    }
+}
+
+#[cfg(feature = "dbus")]
+fn nebula_status_to_badge(s: NebulaStatus) -> MeshOverlayBadge {
+    MeshOverlayBadge {
+        is_lighthouse: s.is_lighthouse,
+        ca_epoch: s.ca_epoch,
+        mesh_id: s.mesh_id,
+        peer_count: s.peer_count,
+        active_transport: s.active_transport,
+    }
+}
+
+#[cfg(feature = "dbus")]
+fn gluster_status_to_badge(s: GlusterStatus) -> MeshVolumeBadge {
+    MeshVolumeBadge {
+        volume_name: s.volume_name,
+        bricks_count: s.bricks_count,
+        total_bytes: s.total_bytes,
+        used_bytes: s.used_bytes,
+        free_bytes: s.free_bytes,
+        heal_pending_count: s.heal_pending_count,
+        conflict_count: s.conflict_count,
+        volume_online: s.volume_online,
+    }
+}
+
+#[cfg(feature = "dbus")]
+fn gluster_mount_to_badge(m: GlusterMount) -> MeshMountBadge {
+    MeshMountBadge {
+        is_mounted: m.is_mounted,
+        mount_point: m.mount_point,
+        since_unix_s: m.since_unix_s,
     }
 }
 

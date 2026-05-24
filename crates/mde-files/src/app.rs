@@ -460,7 +460,13 @@ impl MdeFiles {
             .count();
         let total = snap.peers.len();
 
-        container(column![views::titlebar(online, total), body].spacing(0))
+        container(
+            column![
+                views::titlebar_with_status(online, total, snap.mesh_volume.as_ref()),
+                body
+            ]
+            .spacing(0),
+        )
             .width(Length::Fill)
             .height(Length::Fill)
             .style(|_| container::Style {

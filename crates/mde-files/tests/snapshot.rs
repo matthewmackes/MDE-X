@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use mde_files::demo_data::{self, PEERS, SELF_NODE};
+use mde_files::demo_data;
 
 /// Resolve the snapshot file path for a given test name.
 fn snap_path(name: &str) -> PathBuf {
@@ -52,7 +52,7 @@ fn assert_snapshot(name: &str, actual: &str) {
 fn demo_peers_snapshot() {
     let mut buf = String::new();
     buf.push_str("demo_peers\n");
-    for p in PEERS {
+    for p in demo_data::peers() {
         buf.push_str(&format!(
             "  {} | status={:?} | files={} | shared={}\n",
             p.label, p.status, p.files, p.shared
@@ -63,9 +63,10 @@ fn demo_peers_snapshot() {
 
 #[test]
 fn demo_self_node_snapshot() {
+    let self_node = demo_data::self_node();
     let buf = format!(
         "self_node\n  label={}\n  host={}\n  files={}\n  shared={}\n",
-        SELF_NODE.label, SELF_NODE.host, SELF_NODE.files, SELF_NODE.shared
+        self_node.label, self_node.host, self_node.files, self_node.shared
     );
     assert_snapshot("self_node", &buf);
 }

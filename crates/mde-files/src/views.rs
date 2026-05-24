@@ -6,7 +6,7 @@ use iced::{Background, Border, Color, Element, Length, Padding, Theme};
 
 use crate::a11y_labels::{self, A11yAction};
 use crate::app::{Crumb, Message};
-use crate::backend::BackendSnapshot;
+use crate::backend::{BackendSnapshot, MeshVolumeBadge};
 use crate::grid;
 use crate::icons;
 use crate::model::{fmt_count, FileRow, Layout, LocalPin, Peer, PeerStatus, SelfNode, View};
@@ -19,13 +19,58 @@ use crate::widgets::{
 
 // ─── Titlebar ──────────────────────────────────────────────────────────────
 
+/// Pre-mesh-aware titlebar that callers without a live snapshot
+/// can still use (tests + the panel-boot smoke gate). The
+/// production app uses `titlebar_with_status` so the operator
+/// sees the live Gluster volume state next to the peer count.
 pub fn titlebar(online: usize, total: usize) -> Element<'static, Message> {
+    titlebar_inner(online, total, None)
+}
+
+/// Titlebar carrying a live Gluster snapshot. When `volume` is
+/// `Some`, the status pill reads
+/// `mesh up · N/M peers · <vol> · K healing` (the volume name,
+/// heal-queue depth + conflict count surface inline when
+/// non-zero); when `None`, falls back to the older
+/// `mesh up · N/M peers` shape so the panel still renders if
+/// mackesd hasn't started yet.
+pub fn titlebar_with_status<'a>(
+    online: usize,
+    total: usize,
+    volume: Option<&'a MeshVolumeBadge>,
+) -> Element<'a, Message> {
+    titlebar_inner(online, total, volume)
+}
+
+fn titlebar_inner<'a>(
+    online: usize,
+    total: usize,
+    volume: Option<&'a MeshVolumeBadge>,
+) -> Element<'a, Message> {
+    let mesh_text = match volume {
+        Some(v) if v.volume_online => {
+            let mut parts = vec![
+                format!("mesh up · {online}/{total} peers"),
+                v.volume_name.clone(),
+            ];
+            if v.heal_pending_count > 0 {
+                parts.push(format!("{} healing", v.heal_pending_count));
+            }
+            if v.conflict_count > 0 {
+                parts.push(format!("⚠ {} conflict", v.conflict_count));
+            }
+            parts.join(" · ")
+        }
+        Some(_) => format!(
+            "mesh up · {online}/{total} peers · volume offline"
+        ),
+        None => format!("mesh up · {online}/{total} peers"),
+    };
+
     let title = row![
         text("Artifact Manager").size(12).color(t::FG),
         Space::with_width(Length::Fixed(6.0)),
-        text(format!("mesh up · {online}/{total} peers"))
-            .size(11)
-            .color(t::FG_FAINT),
+        text(mesh_text).size(11).color(t::FG_FAINT),
     ]
     .align_y(iced::alignment::Vertical::Center);
 
@@ -283,9 +328,17 @@ pub fn sidebar<'a>(
             ..container::Style::default()
         });
 
+    let foot_text = match snap.mesh_overlay.as_ref() {
+        Some(o) if !o.mesh_id.is_empty() => {
+            let role = if o.is_lighthouse { "lighthouse" } else { "peer" };
+            format!("{} · {} · CA #{}", o.mesh_id, role, o.ca_epoch)
+        }
+        Some(_) => "nebula · enrolled".into(),
+        None => "nebula offline".into(),
+    };
     let foot = container(
         row![
-            text("tailnet · 10.0.7.0/24").size(11).color(t::FG_FAINT),
+            text(foot_text).size(11).color(t::FG_FAINT),
             Space::with_width(Length::Fill),
             button(
                 row![
