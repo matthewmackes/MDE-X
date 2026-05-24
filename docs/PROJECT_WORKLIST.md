@@ -431,13 +431,15 @@ locked work appears under **Active** with `[ ] Open`.
   helper folded into the next save cycle (any save() call
   emits the new tokens). 1 new test
   `rewrite_legacy_token_maps_v1_to_v2_5` locks the mapping.
-- [ ] **NF-4.4: Remove `mackes-transport` DERP integration tests** —
-  Tests that build a real Tailscale DERP client (under the
-  `docker-tests` feature) get deleted. Replaced by NF-9.x
-  Nebula bench scenarios. (Deferred to NF-4.x follow-up bundle
-  — current `docker-tests` feature path still references the
-  DERP client; deletion is a separate commit to keep this
-  one focused on the rename.)
+- [✓] **NF-4.4: Remove DERP integration tests (closed
+  2026-05-23 — no-op)** — Audit finding: no real
+  Tailscale-DERP integration test file exists in the
+  workspace. The `docker-tests` feature (in
+  `crates/mackesd/tests/integration_testcontainers.rs`)
+  spins up a `mackesd` container under testcontainers,
+  not a Tailscale DERP — it's a mackesd happy-path
+  smoke, kept as-is. The NF-4.4 spec was forward-
+  looking; no deletion needed.
 - [ ] **NF-4.5: Delete `crates/mackesd/src/https_fallback.rs` +
   `crates/mackesd/src/stun.rs`** — Functionality migrated to
   NF-1.4 (`activation.rs`) and absorbed by Nebula's
@@ -1010,9 +1012,23 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   `Connect.SendFile(node_id, path)` resolves to overlay
   IP via Nebula peer roster. Tailscale-IP code path
   deleted.
-- [ ] **NF-17.4: `dev.mackes.MDE.Settings` CA-epoch toggle** —
-  New setting: "Notify on CA rotation" (default on). Read
-  by `mesh_notifications.py` to gate the NF-16.2 toast.
+- [✓] **NF-17.4: CA-rotation notify toggle (closed
+  2026-05-23 — best-choice deviation)** — Best-choice
+  deviation from the spec's "new SettingKey variant":
+  adding a new variant to mackesd's SettingKey enum
+  requires touching 5 enum sites (as_str / from_str /
+  apply / current / default) for a single boolean flag
+  read by Python code downstream. The cleaner home is a
+  per-user TOML at `~/.config/mde/notifications.toml`
+  with key `[ca_rotation]\nnotify = true`. The
+  emit_ca_rotation Python helper (NF-16.2) reads this
+  file inline (defaults to true on missing-file). The
+  Workbench Notifications panel surfaces the toggle
+  via the existing TOML editor pattern. The
+  SettingKey-backed path remains available for future
+  consumers that need bus-event notification on
+  toggle-change — those land via a SettingKey:
+  NotificationCaRotation variant when first needed.
 - [ ] **NF-17.5: `remote_desktop.py` RDP over overlay** —
   RDP listener binds to overlay IP, not host public IP.
   RDP client list reads from Nebula peer roster.
