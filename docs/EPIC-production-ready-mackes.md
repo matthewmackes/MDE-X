@@ -69,16 +69,17 @@ gaps.
 
 **Stories**
 
-- Always-on roles in birthright — Headscale binary, NATS, DERP relay,
-  mDNS responder installed (not necessarily running)
-- Auto-elect role on demand — promote a peer to control plane /
-  NATS broker / DERP relay automatically based on availability
+- Always-on roles in birthright — Nebula binary + lighthouse role,
+  NATS, mDNS responder installed (not necessarily running)
+- Auto-elect role on demand — promote a peer to lighthouse /
+  NATS broker / NF-1 TCP-443 relay automatically based on availability
 - Onboarding wizards package — `mackes/wizard/onboarding/` with concrete
-  wizards for: Headscale public hostname, Guacamole admin password,
+  wizards for: lighthouse public hostname, Guacamole admin password,
   mesh-shared media credentials
-- QR-scan discovery — webcam → mesh join (`zbar-tools` + capture surface)
-- DERP rotation in auto-heal — manual relay cycle in the 3-retry chain
-  after a confirmed map-update failure
+- QR-scan discovery — webcam → mesh join (`zbar-tools` + capture surface
+  scanning the v2.5 `mesh:<id>@<lighthouse>:<port>#<bearer>` token)
+- Lighthouse rotation in auto-heal — manual relay cycle in the 3-retry
+  chain after a confirmed lighthouse-unreachable failure
 
 ---
 
@@ -124,10 +125,12 @@ Today `ci.yml` fails on every push (pre-existing).
 
 - Multiple control endpoints — pick the closest (RTT-based) when mDNS
   finds 2+.
-- Identity rotation — `tailscale logout` + re-redeem flow when a peer
-  has been offline > 14 days.
-- ACL editor in Advanced — Headscale ACL JSON as a structured editor
-  with template ACLs.
+- Identity rotation — `mackesd ca revoke <node-id>` + re-enroll flow
+  when a peer has been offline > 14 days.
+- Open-mesh stays the lock — Nebula's group-based ACL surface is
+  available but the v2.5 directive is flat-trust across all enrolled
+  peers (NF-* open-mesh lock 2026-05-23). Revisit only on operator
+  request.
 - Mesh capacity status — visible in Conky as the mesh approaches
   `MESH_CAP` (16 peers).
 

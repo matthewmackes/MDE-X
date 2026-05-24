@@ -121,6 +121,16 @@ scan FORBIDDEN-TEST \
     'placeholder/test default values shipping in production' \
     '--include=*.rs --include=*.py --include=*.desktop'
 
+# NF-20.5 (v2.5 Nebula fabric) — Tailscale / Headscale / DERP are
+# v1.x vocabulary. User-visible strings mentioning them are a
+# v2.5-cut regression. Pattern requires the term to be inside a
+# double-quoted string literal so retraction notes in code
+# comments (// or //!) don't false-positive.
+scan FORBIDDEN-LEGACY-MESH \
+    '"[^"]*\b(Tailscale|Headscale|DERP)\b[^"]*"' \
+    'pre-v2.5 mesh vocabulary leaked into user-visible copy' \
+    '--include=*.rs --include=*.desktop'
+
 # ──────────────────────────────────────────────────────────────
 # Verb discipline (locked §Verb discipline)
 # Targets clear button-label-shape strings only: capitalized

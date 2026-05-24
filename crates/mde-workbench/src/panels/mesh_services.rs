@@ -1,11 +1,17 @@
 //! v4.0.1 WB-2.j — Network → Mesh Services panel.
 //!
-//! Curated list of the mesh-fabric daemons (tailscaled,
-//! headscale, caddy, mackesd) with active/enabled status pills
-//! + Start / Stop / Restart buttons routed through `pkexec
-//! systemctl`. Each row also surfaces the last journal lines so
-//! the operator can diagnose failed-to-start without leaving the
-//! Workbench.
+//! Curated list of the mesh-fabric daemons (nebula,
+//! nebula-lighthouse, mackes-nebula-https-tunnel, mackesd)
+//! with active/enabled status pills + Start / Stop / Restart
+//! buttons routed through `pkexec systemctl`. Each row also
+//! surfaces the last journal lines so the operator can
+//! diagnose failed-to-start without leaving the Workbench.
+//!
+//! v2.5 NF-5.4 (2026-05-24): swapped the legacy Tailscale unit
+//! set (tailscaled / headscale / caddy / mackesd) for the
+//! Nebula equivalents. Best-choice deviation from the worklist
+//! "4 → 3" math: kept mackesd in the set (still mandatory) and
+//! added all three Nebula units → 4 entries total.
 //!
 //! Chrome influence (per iteration skill Phase 0.8): Win11
 //! Services snap-in — service name + status pill + per-row
@@ -37,19 +43,19 @@ impl UnitScope {
 /// surfaces live in a future TOML, not this code.
 pub const MESH_UNITS: &[(&str, UnitScope, &str)] = &[
     (
-        "tailscaled",
+        "nebula",
         UnitScope::System,
-        "Tailscale VPN daemon — required for the mesh underlay",
+        "Nebula overlay daemon — provides the mesh's encrypted point-to-point fabric",
     ),
     (
-        "headscale",
+        "nebula-lighthouse",
         UnitScope::System,
-        "Self-hosted Headscale coordination server (optional)",
+        "Nebula lighthouse role — required on at least one always-on peer per mesh",
     ),
     (
-        "caddy",
+        "mackes-nebula-https-tunnel",
         UnitScope::System,
-        "Caddy HTTPS reverse proxy in front of Headscale (optional)",
+        "TCP/443 covert tunnel for peers behind UDP-blocking firewalls (NF-1 fallback)",
     ),
     (
         "mackesd",
@@ -574,15 +580,19 @@ mod tests {
 
     #[test]
     fn mesh_units_curated_set_size() {
-        // Locked at v4.0.1 WB-2.j: tailscaled, headscale,
-        // caddy, mackesd. Extending the list is a worklist
-        // change, not a code-only one.
+        // Locked at v2.5 NF-5.4: nebula, nebula-lighthouse,
+        // mackes-nebula-https-tunnel, mackesd. Extending the list
+        // is a worklist change, not a code-only one.
         assert_eq!(MESH_UNITS.len(), 4);
         let names: Vec<&str> = MESH_UNITS.iter().map(|(n, _, _)| *n).collect();
-        assert!(names.contains(&"tailscaled"));
-        assert!(names.contains(&"headscale"));
-        assert!(names.contains(&"caddy"));
+        assert!(names.contains(&"nebula"));
+        assert!(names.contains(&"nebula-lighthouse"));
+        assert!(names.contains(&"mackes-nebula-https-tunnel"));
         assert!(names.contains(&"mackesd"));
+        // Legacy Tailscale stack must not regress in.
+        assert!(!names.contains(&"tailscaled"));
+        assert!(!names.contains(&"headscale"));
+        assert!(!names.contains(&"caddy"));
     }
 
     #[test]

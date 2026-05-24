@@ -607,7 +607,7 @@ pub fn mesh_overview<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
         icons::MESH_HUB,
         format!("Mesh is up · {online} of {total} peers reachable"),
         format!(
-            "tailnet · {host} ({addr}) · DERP fra · {shared} of {files} files shared by this node",
+            "overlay · {host} ({addr}) · {shared} of {files} files shared by this node",
             host = self_node.host,
             addr = self_node.addr,
             shared = self_node.shared,
