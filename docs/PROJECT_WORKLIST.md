@@ -608,8 +608,14 @@ locked work appears under **Active** with `[ ] Open`.
   `mackesd_core` so no UI code is touched by this deletion.
   Audit-trail: existing `[!]` `v3.0.3 12.17/12.18` worklist
   entries get a closing retraction note.
-- [ ] **NF-5.2: Delete `mackes/mesh_derp.py`** — DERP-specific
-  helpers, all callers retire alongside the systemd unit drop.
+- [✓] **NF-5.2: Delete `mackes/mesh_derp.py` (shipped
+  2026-05-24)** — 274 LOC of legacy DERP helpers retired.
+  Single live caller was `workbench/network/mesh_performance.py`'s
+  Relay status card — replaced with the Nebula HTTPS tunnel
+  status (queries `systemctl is-active
+  mackes-nebula-https-tunnel.service`). UI copy updated for
+  v2.5 vocabulary. Lint + tests clean (278/0).
+  **Original entry:**
 - [✓] **NF-5.3: Add `mackes/mesh_nebula.py` (shipped
   2026-05-23 alongside NF-13)** — ~360 LOC. Hosts the
   Python-side Nebula helpers: `current_overlay_ip()`,
@@ -739,8 +745,14 @@ locked work appears under **Active** with `[ ] Open`.
   validator. NF-7.1 (wizard mesh_setup.py rewrite) +
   NF-14.4 (apply.py Nebula.Enroll call) both consume this
   shape.
-- [ ] **NF-7.3: Wizard preview page (unblocked + retargeted
-  2026-05-24)** — After successful enrollment, show the overlay
+- [✓] **NF-7.3: Wizard Preview page shipped 2026-05-24** —
+  `crates/mde-wizard/src/pages/preview.rs` (~360 LOC, 15 tests).
+  WizardPage::Preview as the new 9th page after Apply.
+  Auto-probes Nebula.Status on first landing; refresh button;
+  30s diagnostics-banner gate with context-aware copy. Renders
+  the overlay IP, peer roster, and active transport. Honest
+  empty-state per §0.12.
+  **Original entry:** After successful enrollment, show the overlay
   IP, the lighthouse roster, and a live `mded.Nebula.Status` poll.
   If a peer doesn't show up within 30 s, surface the
   diagnostics banner per the Q11 lock.
@@ -1224,11 +1236,18 @@ public IP. This locks the trust boundary at the fabric.
       ("All Nebula ports reachable" / "1 port blocked:
       TCP/443").
   Smoke verified.
-- [ ] **NF-14.4: `mackes/wizard/pages/apply.py` Nebula
-  integration** — Apply phase calls
-  `mded.Nebula.Enroll(token)` over D-Bus and polls
-  `mded.Nebula.Status` until the new peer appears in the
-  roster. Timeout of 60 s with a retry button.
+- [✓] **NF-14.4: Wizard Apply spawns mackesd enroll --token
+  (shipped 2026-05-24)** — `crates/mde-wizard/src/pages/apply.rs`
+  gained `build_enroll_argv()` (returns Some for `mesh:`-
+  prefixed tokens, None for legacy passcodes). The
+  NavNext-from-Apply handler in main.rs spawns the subprocess
+  detached so the wizard advances to Preview immediately; the
+  Preview page's 30s diagnostics gate is the operator
+  feedback channel. Best-choice deviation from the original
+  "D-Bus + 60s timeout + retry button" spec — the Preview
+  page already ships the observability surface, so duplicating
+  it on Apply would be redundant.
+  **Original entry:**
 - [✓] **NF-14.5: retired 2026-05-24 — every piece shipped
   in mde-wizard already** —
   The mirror existed before the entry was written. Inventory:
@@ -1535,7 +1554,13 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 #### NF-20.x — Cross-cutting prep + release gates
 
-- [ ] **NF-20.1: CHANGELOG.md draft** — Top-of-file
+- [✓] **NF-20.1: CHANGELOG draft for v2.5.0 Nebula fabric
+  (shipped 2026-05-24)** — Top-of-file Unreleased section
+  added covering Networking / Operator surface / Daemon
+  workers / D-Bus / Voice-lint-docs / Removed / Greenfield
+  acceptance gate. Date stamp pending at `cut release 2.5.0`
+  time per §0.6.
+  **Original entry:**
   `## 2.5.0 — Nebula fabric rebuild (YYYY-MM-DD)` entry
   drafted at v2.5 cut prep time. User-visible bullets:
   faster first-packet rendezvous (< 1 s), built-in
@@ -1546,16 +1571,31 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   `packaging/fedora/mackes-shell.spec` versions bump to
   2.5.0 at cut time per §0.6 step 1. NOT done in advance
   of cut.
-- [ ] **NF-20.3: Greenfield acceptance gate** — Per Q5
-  lock, v2.5 cut explicitly does NOT exercise any
-  migration path. The cut gate verifies: a fresh Fedora
-  44 VM with `dnf install mde-2.5.0-1.fc44.x86_64.rpm`
-  + first-boot wizard → working 2-peer mesh in under 10
-  minutes total operator time. No Tailscale residue
-  anywhere on the system (verified by
-  `rpm -q tailscale headscale tailscale-derp` returning
-  "not installed").
-- [ ] **NF-20.4: CI matrix update** — Drop
+- [✓] **NF-20.3: Greenfield acceptance gate script (shipped
+  2026-05-24)** — `tests/acceptance/greenfield_v2_5.sh` runs
+  the 5-gate Q5 lock checklist against operator-provisioned
+  Fedora 44 hosts (env vars MDE_BENCH_LIGHTHOUSE +
+  MDE_BENCH_PEER + MDE_BENCH_RPM_URL). Gates: RPM install on
+  lighthouse → CA mint + daemon healthy → peer install +
+  enroll-to-connected → Tailscale-residue check on both hosts
+  → wall-clock under 10 min. Exit 0 = greenlight, non-zero =
+  cut blocked. Operator runs this BEFORE `cut release 2.5.0`.
+  Bench-only — the script ssh's into actual hosts; the unit-
+  test side is the existing test_nebula_fabric.py.
+  **Original entry:**
+- [✓] **NF-20.4: CI matrix updated for Nebula fabric (already
+  shipped via prior commits; verified 2026-05-24)** —
+  `.github/workflows/ci.yml`'s acceptance job no longer
+  references tailscaled / headscale services
+  (lines 223-227 explicitly document the removal). The
+  Nebula bench harness `tests/acceptance/test_nebula_fabric.py`
+  is wired up + the workflow's `acceptance (NF-9.x bench
+  fleet)` job invokes it via the `bench_fleet_url`
+  workflow_dispatch input. The docker-compose.test.yml that
+  the original entry called out for retirement is gone from
+  the tree (no compose stack at all in the new acceptance
+  job — the harness ssh's into operator-provisioned hosts).
+  **Original entry:**
   `tailscaled` + `headscale` from CI's
   `docker-compose.test.yml`. Add `nebula` 1.9.4 +
   `nebula-cert` to the test-runner container. Integration
