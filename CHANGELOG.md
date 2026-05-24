@@ -97,6 +97,40 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-1.3.b: glusterd binds to the Nebula overlay
+
+New `mackesd_core::gluster::bind` module rewrites
+`/etc/glusterfs/glusterd.vol` so glusterd listens on the
+local peer's Nebula overlay IP rather than `0.0.0.0`.
+Idempotent + defensive: refuses to edit any file whose
+`volume management ... end-volume` markers are missing, treats
+a missing file as a no-op (safe before `glusterfs-server` is
+installed), and only triggers `systemctl reload glusterd` when
+the file's bytes actually change.
+
+Wired from `nebula_supervisor::refresh_config` so glusterd's
+bind tracks the live Nebula address: every time the supervisor
+materializes a new Nebula config, it also publishes the
+overlay-ip file (GF-1.3.a) AND rewrites glusterd.vol +
+reloads glusterd if the address changed.
+
+Closes the v5.0.0 lock from Q3 — "Nebula overlay only;
+plaintext glusterd inside the tunnel, no second TLS layer."
+Without this, GF-2.x volume bootstrap on Fedora-shipped
+glusterd would bind on the underlay too.
+
+14 new unit tests: insert / replace / unchanged / format-
+refuse (header missing / footer missing) / unrelated-options-
+preserved / trailing-newline-convention (present + absent) +
+5 apply_bind I/O tests for missing-file / write-on-change /
+idempotent-second-call / no-tempfile-on-success / format-
+refuse-leaves-file-untouched.
+
+Deviates from the original "glusterd.vol.d/10-nebula-bind.vol"
+drop-in spec because F44's glusterd doesn't honor drop-in
+includes; we edit the main glusterd.vol in place. Decision
+documented in the worklist's GF-1.3.b entry.
+
 ## Unreleased — GF-3.1: birthright pins primary account to uid 1000
 
 New `apply_uid_normalize(_preset)` step in

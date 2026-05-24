@@ -26,6 +26,7 @@ pub mod enrollment;
 pub mod events;
 pub mod fleet;
 pub mod health;
+pub mod gluster;
 pub mod identity;
 pub mod leader;
 pub mod legacy_inventory;
