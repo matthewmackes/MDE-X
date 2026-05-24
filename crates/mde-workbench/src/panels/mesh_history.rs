@@ -24,6 +24,41 @@ pub struct EventRow {
     pub hash: String,
 }
 
+/// NF-11.4 (v2.5) — the canonical set of Nebula-specific
+/// event kinds the history panel highlights. Any payload
+/// containing one of these substrings renders with the
+/// "fabric event" badge styling.
+pub const NEBULA_EVENT_KINDS: &[&str] = &[
+    "nebula_ca_rotated",
+    "nebula_peer_cert_issued",
+    "nebula_peer_cert_revoked",
+    "nebula_lighthouse_promoted",
+    "nebula_lighthouse_demoted",
+];
+
+/// NF-11.4 — pure helper. True when the event payload
+/// mentions any [`NEBULA_EVENT_KINDS`] token. The history
+/// panel uses this to apply the "fabric event"
+/// chronological styling alongside the existing
+/// lifecycle-event styling.
+#[must_use]
+pub fn is_nebula_event(payload: &str) -> bool {
+    NEBULA_EVENT_KINDS.iter().any(|k| payload.contains(k))
+}
+
+/// NF-11.4 — pure helper. Filter a row slice down to just
+/// the Nebula events, preserving order. Used by the
+/// "Show fabric events only" toggle the panel surfaces
+/// when the operator wants to scan CA + lighthouse
+/// activity without the rest of the audit log noise.
+#[must_use]
+pub fn filter_nebula(rows: &[EventRow]) -> Vec<EventRow> {
+    rows.iter()
+        .filter(|r| is_nebula_event(&r.payload))
+        .cloned()
+        .collect()
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MeshHistoryPanel {
     pub rows: Vec<EventRow>,
@@ -371,5 +406,58 @@ mod tests {
         let _ = panel.update(Message::Error("mded not on PATH".into()));
         assert_eq!(panel.status, "mded not on PATH");
         assert!(!panel.busy);
+    }
+
+    // ─────────────────────────────────────────────────────
+    // NF-11.4 — Nebula event filter
+    // ─────────────────────────────────────────────────────
+
+    #[test]
+    fn nebula_event_kinds_locked() {
+        // Lock the curated set so a future edit that adds
+        // a new kind also adds a test row covering it.
+        assert!(NEBULA_EVENT_KINDS.contains(&"nebula_ca_rotated"));
+        assert!(NEBULA_EVENT_KINDS.contains(&"nebula_peer_cert_issued"));
+        assert!(NEBULA_EVENT_KINDS.contains(&"nebula_peer_cert_revoked"));
+        assert!(NEBULA_EVENT_KINDS.contains(&"nebula_lighthouse_promoted"));
+        assert!(NEBULA_EVENT_KINDS.contains(&"nebula_lighthouse_demoted"));
+    }
+
+    #[test]
+    fn is_nebula_event_matches_substring() {
+        assert!(is_nebula_event("kind=nebula_ca_rotated mesh=m1"));
+        assert!(is_nebula_event(r#"{"kind":"nebula_lighthouse_promoted","node":"peer:lh1"}"#));
+        assert!(!is_nebula_event("kind=heartbeat node=peer:alpha"));
+        assert!(!is_nebula_event(""));
+    }
+
+    #[test]
+    fn filter_nebula_keeps_only_fabric_events_in_order() {
+        let rows = vec![
+            EventRow {
+                event_id: 1,
+                payload: "kind=heartbeat".into(),
+                ..Default::default()
+            },
+            EventRow {
+                event_id: 2,
+                payload: "kind=nebula_ca_rotated".into(),
+                ..Default::default()
+            },
+            EventRow {
+                event_id: 3,
+                payload: "kind=settings_changed".into(),
+                ..Default::default()
+            },
+            EventRow {
+                event_id: 4,
+                payload: "kind=nebula_peer_cert_issued".into(),
+                ..Default::default()
+            },
+        ];
+        let filtered = filter_nebula(&rows);
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].event_id, 2);
+        assert_eq!(filtered[1].event_id, 4);
     }
 }

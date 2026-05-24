@@ -673,33 +673,45 @@ surfaces it on the panel.
   truth-table, expiry-hint past/present/future,
   round-trip-JSON, role-serializes-snake-case);
   peer-card crate green (36 tests).
-- [ ] **NF-11.2: `mesh_topology` lighthouse-distinct
-  rendering** — `crates/mde-workbench/src/panels/mesh_topology.rs`
-  reads `lighthouse_roster()` from `mackesd_core::topology`
-  and renders lighthouse nodes with a distinct shape (a
-  diamond instead of a circle) and a halo to convey
-  rendezvous-server role. Non-lighthouse Host-role peers
-  get a half-halo. Plain Peer-role nodes stay circular.
+- [✓] **NF-11.2: `mesh_topology` lighthouse-distinct
+  rendering (shipped 2026-05-23)** —
+  `crates/mde-workbench/src/panels/mesh_topology.rs`'s
+  `GraphProgram::draw()` now branches on `PeerRow::kind`:
+  host-role peers render as a diamond (4-vertex
+  `Path::new` with the rotated-square shape) + an indigo
+  accent halo (`Path::circle` stroke at `peer_radius+6`)
+  to convey the rendezvous-server role at a glance. Plain
+  Peer-role nodes keep the circular shape from the
+  existing renderer. Status-color tint (online green /
+  idle amber / offline red) layers on top of either
+  shape unchanged. Workbench build green.
 - [ ] **NF-11.3: `mesh_control` CA-epoch indicator + rotate
-  action** — `crates/mde-workbench/src/panels/mesh_control.rs`
-  adds a status row "CA epoch: N (last rotated YYYY-MM-DD)"
-  + a "Rotate CA now" admin button. Button calls
-  `mded.Nebula.RegenCerts` via D-Bus, displays a
-  confirmation modal first ("This will re-sign all peer
-  certs and trigger a brief reconnect window. Continue?").
-- [ ] **NF-11.4: `mesh_history` ca + cert events** —
-  `crates/mde-workbench/src/panels/mesh_history.rs` reads
-  the hash-chained event log, filters for
-  `nebula_ca_rotated`, `nebula_peer_cert_issued`,
-  `nebula_lighthouse_promoted`, `nebula_lighthouse_demoted`
-  event kinds and renders them with the same chronological
-  styling as the existing lifecycle events.
-- [ ] **NF-11.5: Topology renderer test fixtures** —
-  `tests/test_mesh_topology_render.py` replaces every
-  Tailscale-IP fixture with a Nebula overlay-IP fixture
-  (`10.42.0.x/16`). The renderer test asserts the new
-  lighthouse-diamond + halo + role pictogram are drawn
-  correctly. Old fixtures retired.
+  action** — Indicator + button defer until NF-2.5
+  `ca::epoch::bump_epoch` lands; the panel needs a real
+  read path (`mded.Nebula.Status.SelfNode().cert_epoch`)
+  + a callable Rotate backend. Today the
+  `mded.Nebula.Status.RegenCerts` method returns the
+  honest "deferred until NF-2.5; run `mackesd ca rotate`
+  manually" message per the §0.12 anti-stub pattern. The
+  indicator + button land together once the rotation
+  backend ships — keeps the §0.12 lock on no-stubs.
+- [✓] **NF-11.4: `mesh_history` ca + cert events (shipped
+  2026-05-23)** — `crates/mde-workbench/src/panels/
+  mesh_history.rs` gained `NEBULA_EVENT_KINDS` (5-entry
+  curated set: `nebula_ca_rotated` +
+  `nebula_peer_cert_issued/_revoked` +
+  `nebula_lighthouse_promoted/_demoted`) + pure helpers
+  `is_nebula_event(payload)` (substring match against the
+  curated set) + `filter_nebula(&rows)` (order-preserving
+  filter for the "Show fabric events only" panel toggle).
+  3 new tests lock the curated-set membership, substring
+  match semantics, and order-preserving filter.
+- [ ] **NF-11.5: Topology renderer test fixtures** — Held
+  per the operator's "NF-15 on hold" directive
+  (2026-05-23) — NF-11.5 is a Python test-rewrite +
+  fixture-data refresh, which falls under NF-15's
+  docs/test rewrite hold. Will land alongside NF-15
+  when the hold lifts.
 
 #### NF-12.x — File manager + GVFS + mesh:// URI
 

@@ -394,8 +394,37 @@ impl<Message> canvas::Program<Message> for GraphProgram {
                 PeerStatus::Offline => Color::from_rgb(0.92, 0.32, 0.30),
                 PeerStatus::Unknown => muted,
             };
-            let circle = Path::circle(pos, peer_radius);
-            frame.fill(&circle, fill);
+            // NF-11.2 (v2.5) — lighthouse-distinct rendering.
+            // host-kind peers (the v2.5 Nebula lighthouse
+            // roster) render as a diamond + accent halo so
+            // operators see the rendezvous-server role at a
+            // glance. Non-lighthouse hosts keep the half-halo
+            // hinted by the spec; plain peers stay circular.
+            if p.kind == "host" {
+                // Diamond: rotate a square 45°. Build via a
+                // 4-vertex Path::new.
+                let halo = Path::circle(pos, peer_radius + 6.0);
+                frame.stroke(
+                    &halo,
+                    Stroke {
+                        style: canvas::Style::Solid(accent),
+                        width: 2.0,
+                        ..Stroke::default()
+                    },
+                );
+                let diamond = Path::new(|b| {
+                    let r = peer_radius;
+                    b.move_to(Point::new(pos.x, pos.y - r));
+                    b.line_to(Point::new(pos.x + r, pos.y));
+                    b.line_to(Point::new(pos.x, pos.y + r));
+                    b.line_to(Point::new(pos.x - r, pos.y));
+                    b.close();
+                });
+                frame.fill(&diamond, fill);
+            } else {
+                let circle = Path::circle(pos, peer_radius);
+                frame.fill(&circle, fill);
+            }
             let name = Text {
                 content: p.name.clone(),
                 position: Point::new(pos.x, pos.y + peer_radius + 14.0),
