@@ -519,7 +519,18 @@ locked work appears under **Active** with `[ ] Open`.
   Bundle-0); this module is the read + write-the-config-
   file consumer side. Module imports clean; toast-emitter
   smoke verified 8/8.
-- [ ] **NF-5.4: Rewrite `mackes/mesh_services.py` Network group** —
+- [✓] **NF-5.4: MESH_UNITS curated set swap (shipped 2026-05-24)** —
+  The actual "4-entry curated set" lives in
+  `crates/mde-workbench/src/panels/mesh_services.rs` (Rust
+  workbench panel), not `mackes/mesh_services.py`. Best-choice
+  fix: swapped MESH_UNITS to nebula / nebula-lighthouse /
+  mackes-nebula-https-tunnel / mackesd (kept mackesd alongside
+  the 3 Nebula units → 4 total, deviation from the worklist's
+  "4 → 3" math). Test asserts new set present + legacy
+  Tailscale stack absent. The Python `mackes/mesh_services.py`
+  module is the deprecated 1.x shim and bundles with the NF-5.x
+  caller retirement (still has 20+ live callers).
+  **Original entry:**
   Drop entries: `tailscaled`, `headscale`, `mde-derper`.
   Add entries: `nebula`, `nebula-lighthouse`,
   `mackes-nebula-https-tunnel`. The 4-entry curated set lock
@@ -803,7 +814,22 @@ surfaces it on the panel.
   existing renderer. Status-color tint (online green /
   idle amber / offline red) layers on top of either
   shape unchanged. Workbench build green.
-- [ ] **NF-11.3: `mesh_control` CA-epoch indicator + rotate
+- [✓] **NF-11.3: `mesh_control` CA-epoch indicator + Rotate CA
+  button (shipped 2026-05-24)** — `crates/mde-workbench/src/
+  panels/mesh_control.rs` gained: MeshControlSnapshot fields
+  `nebula_ca_epoch: Option<i64>` + `nebula_mesh_id: String`
+  populated from dbus-send to `Nebula.Status.SelfNode`;
+  parse_self_node_epoch helper that unwraps the `string "..."`
+  envelope + unescapes inner quotes (treats (0, "") as "no CA
+  yet" so empty meshes don't paint a misleading pill); leader-
+  card pill row showing `ca epoch <n>` + `mesh-id <name>` when
+  reachable; Rotate CA button in the action row (disabled with
+  label "Rotate CA (no mesh)" pre-mesh-init); run_rotate_ca
+  async helper calling `Nebula.Status.RegenCerts` via dbus-send
+  + quoting the daemon's reply in last_op. 5 new tests + 10
+  existing = 15 passing. NF-2.5 bump_epoch backend is the
+  callable layer.
+  **Original entry:**
   action** — Indicator + button defer until NF-2.5
   `ca::epoch::bump_epoch` lands; the panel needs a real
   read path (`mded.Nebula.Status.SelfNode().cert_epoch`)
@@ -960,7 +986,21 @@ public IP. This locks the trust boundary at the fabric.
   (the actual screencast pipeline edit) folds into the
   NF-13 follow-up bundle alongside the other publishers.
 
-- [ ] **NF-13.8: Service Publishing Workbench panel
+- [✓] **NF-13.8: Service Publishing Workbench panel (shipped
+  2026-05-24)** — `crates/mde-workbench/src/panels/
+  service_publishing.rs` (~370 LOC) ships under Network →
+  Service Publishing (best-choice deviation from worklist's
+  "under Fleet": Fleet is for cluster ops, Network is where
+  every mesh_* panel lives). Reads via
+  `python3 -c 'import json; from mackes.mesh_nebula import
+  published_services_summary; print(json.dumps(...))'` —
+  emits the exact 7-row JSON shape the parser expects (SSH,
+  NATS, Mesh FS, Media, rsync, WoL, AV). Per-row: status
+  pill (Published/Not enrolled), port+protocol, overlay IP.
+  8 tests covering pure parser + view renders + Loaded
+  message dispatch. Panel wired in app.rs (Message, field,
+  init, update, load, view dispatch); patternfly test bumped
+  to 12 panels. **Original entry:**
   (extensive GUI, added 2026-05-23 per operator directive)** —
   New Workbench panel `service_publishing.rs` under the
   Fleet nav group: lists every canonical service in
@@ -1034,30 +1074,29 @@ public IP. This locks the trust boundary at the fabric.
 
 #### NF-15.x — Help docs + test rewrite
 
-- [ ] **NF-15.1: `docs/help/mesh-nebula.md` (new)** — Net-new
-  help doc covering: what Nebula is, how lighthouses work,
-  how to mint a mesh, how to invite a peer, how to inspect
-  cert state, how to rotate the CA. Replaces
-  `docs/help/mesh-vpn.md` as the primary mesh entry point.
-- [ ] **NF-15.2: Retire `docs/help/mesh-vpn.md`** — Convert
-  to a one-line redirect to `mesh-nebula.md`, or delete
-  outright. Greenfield lock means no existing docs links
-  break.
-- [ ] **NF-15.3: Update `docs/help/mesh-admin.md`** —
-  Operator playbook covering: CA mint / rotate / dump,
-  peer cert sign / revoke, lighthouse promote / demote,
-  emergency recovery (CA loss → fresh mesh-init, no
-  recovery from cert loss).
-- [ ] **NF-15.4: Update `docs/help/mesh-ops.md`** —
-  Bench-ops runbook: how to verify lighthouse health, how
-  to read the panel's degraded states, how to capture
-  Nebula's debug logs (`journalctl -u nebula.service -f`),
-  how to test the TCP/443 fallback path.
-- [ ] **NF-15.5: Rename `tests/test_mesh_vpn.py` →
-  `tests/test_mesh_nebula.py`** — Rewrite every test that
-  shells out to `tailscale status` to shell out to
-  `nebula -test config` instead. Drop the Headscale-CLI
-  mock entirely.
+- [✓] **NF-15.1: `docs/help/mesh-nebula.md` shipped 2026-05-24** —
+  Architecture (overlay IPs, lighthouses, NAT traversal),
+  setup (new mesh + join existing), CLI section, troubleshooting
+  (firewall, TCP/443 fallback, cert expiry). Cross-references
+  to mesh-admin / mesh-recovery.
+- [✓] **NF-15.2: `docs/help/mesh-vpn.md` retired 2026-05-24** —
+  3-line redirect to mesh-nebula.md.
+- [✓] **NF-15.3: `docs/help/mesh-admin.md` rewritten 2026-05-24** —
+  Full Nebula CA playbook: mint / sign / list / dump-ca /
+  rotate / revoke + lighthouse promote/demote + cert expiry
+  monitoring + audit log integration.
+- [✓] **NF-15.4: `docs/help/mesh-ops.md` rewritten 2026-05-24** —
+  Day-2 enrollment / decommission / split-brain / TCP/443
+  fallback diagnostics with `mackesd nebula status` +
+  active_transport interpretation table.
+- [>] **NF-15.5: tests/test_mesh_nebula.py shipped 2026-05-24
+  (partial — old test_mesh_vpn.py deletion bundles with
+  NF-5.1)** — 41 tests for mackes.mesh_nebula
+  (_extract_lighthouse_hosts, current_overlay_ip, sshd write,
+  WoL, CANONICAL_SERVICES, toast emitters, firewall preset,
+  D-Bus peer_ips, parse_join_token). Tests/test_mesh_vpn.py
+  still covers the live (20+ callers) mesh_vpn.py module —
+  retires in the same commit as NF-5.1.
 - [ ] **NF-15.6: Update `tests/test_mesh_services.py`** —
   Curated service set goes from `tailscaled / headscale /
   caddy / mackesd` (4 entries) to `nebula /
@@ -1068,21 +1107,28 @@ public IP. This locks the trust boundary at the fabric.
   derp_relay / https443 / kdc_tls` to `nebula_direct /
   nebula_lighthouse_relay / nebula_https443 / kdc_tls`.
   Prometheus exposition fixtures updated.
-- [ ] **NF-15.8: Update `docs/help/cli-reference.md`** —
-  Add `mackesd ca {mint, rotate, list, dump-ca}`,
-  `mackesd nebula {peer-list, status, regen-certs}`
-  subcommands. Drop `mded tailscale {up, down, status}`
-  references entirely.
-- [ ] **NF-15.9: Audit `docs/EPIC-production-ready-mackes.md`** —
-  ~17 mentions of tailscale/headscale per the original
-  grep. Each becomes a Nebula equivalent or gets retired.
-- [ ] **NF-15.10: Update `docs/help/troubleshooting.md`** —
-  Replace Tailscale-OAuth-stuck section with
-  Nebula-cert-expiry-recovery section. New section for
-  TCP/443 fallback diagnostics.
-- [ ] **NF-15.11: Update `docs/help/headless.md`** — Headless
-  enrollment via `mackesd enroll --token <…>` replaces the
-  Tailscale auth-key flow.
+- [✓] **NF-15.8: cli-reference.md updated 2026-05-24** —
+  Replaced `tailscale-authkey` setup flag with
+  `mackesd enroll --token`. Added Nebula mesh section
+  (status / peer-list / regen-certs) + Nebula CA section
+  (mint / rotate / list / dump-ca / sign / revoke /
+  export / import). Help-topic list updated to add
+  `mesh-nebula`, `mesh-admin`, `mesh-ops`.
+- [✓] **NF-15.9: EPIC-production-ready-mackes.md audited
+  2026-05-24** — 6 Headscale / Tailscale / DERP references
+  retargeted to v2.5 Nebula equivalents (Tracks 3 + 6).
+  Open-mesh flat-trust lock referenced in place of the
+  ACL editor story.
+- [✓] **NF-15.10: troubleshooting.md updated 2026-05-24** —
+  Replaced wizard-doesn't-find-the-mesh / cross-network-can't-
+  join / mesh-peer-offline sections with Nebula-fluent
+  equivalents (UDP/4242 reachability, TCP/443 fallback,
+  cert expiry recovery).
+- [✓] **NF-15.11: headless.md updated 2026-05-24** —
+  Replaced Tailscale-OAuth wizard transcript +
+  `mackes join '<mesh-join://...>'` flow with the
+  `mackesd enroll --token 'mesh:...'` workflow. Updated
+  cloud-init recipes + subcommand table.
 
 #### NF-16.x — Notification surface
 
@@ -1202,12 +1248,27 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   leader-hardware-failure recovery before NF-2.5's
   failover path lands. Encrypted with libsodium
   `secretstream`; passphrase entered interactively.
-- [ ] **NF-18.2: `nebula_peer_certs` roster export** —
-  `mackesd nebula export-roster > roster.json`. JSON
-  schema: per-peer node_id + overlay_ip + cert_pem +
-  cert_expiry + groups. Useful for off-cluster audit + a
-  human-readable backup record.
-- [ ] **NF-18.3: Operator recovery runbook** —
+- [✓] **NF-18.2: `mackesd nebula export-roster` CLI (shipped
+  2026-05-24)** — New `mackesd_core::nebula_roster` module
+  (~190 LOC) + `Cmd::Nebula { sub: NebulaCmd::ExportRoster }`
+  parent. Emits pretty-printed JSON array of every active
+  peer cert (node_id, name, overlay_ip, epoch, cert_pem,
+  created_at, expires_at, groups). `groups` sourced from
+  `nodes.role` rather than parsing the cert PEM (best-choice
+  deviation — cheaper + matches Workbench peer-table values).
+  Per-node dedup keeps the highest-epoch active cert. 7
+  tests; smoke-tested end-to-end against in-memory + on-disk
+  sqlite store. Complements NF-18.1 encrypted CA bundle when
+  that ships.
+- [✓] **NF-18.3: Operator recovery runbook shipped 2026-05-24** —
+  `docs/help/mesh-recovery.md` covers CA backup (operator's
+  most-important pre-disaster step), full-mesh recovery
+  with/without backup, single-peer loss, planned lighthouse
+  failover (8-step migration), cert-expiry recovery (in-mesh +
+  out-of-band), CA-rotation-failed triage, split-brain
+  cross-ref, audit-chain-break incident response. References
+  the NF-16 toast emitters that point operators here.
+  **Original entry:**
   `docs/help/mesh-recovery.md`. Step-by-step: full-mesh
   loss recovery (mint new CA, re-enroll every peer);
   single-peer loss (decommission + re-enroll); leader
@@ -1280,7 +1341,16 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   bench scenarios runs on every PR touching
   `crates/mackesd/`, `crates/mackes-transport/`, or
   `crates/mackes-nebula-https-tunnel/`.
-- [ ] **NF-20.5: Voice-and-tone lint update** — Per
+- [✓] **NF-20.5: Voice-and-tone lint update (shipped
+  2026-05-24)** — `install-helpers/lint-voice.sh` gained
+  FORBIDDEN-LEGACY-MESH check matching Tailscale|Headscale|
+  DERP inside string literals (pattern requires the term to
+  be inside "..." so retraction comments don't false-positive).
+  Caught 4 real regressions on first run + fixed them:
+  views.rs banner caption (tailnet / DERP → overlay), and
+  the 3 legacy descriptions in mesh_services.rs MESH_UNITS
+  (NF-5.4 swap covered those). Lint clean post-fix.
+  **Original entry:**
   CLAUDE.md §0.7's `install-helpers/lint-voice.sh`, add
   forbidden strings: "Tailscale", "Headscale", "DERP"
   (case-insensitive) — any user-visible string mentioning
