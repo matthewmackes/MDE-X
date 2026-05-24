@@ -188,7 +188,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### FUSE size cap + stub placeholders
 
-- [ ] **GF-4.1: Ship systemd user unit `mde-mesh-mount@.service`** that FUSE-mounts `mesh-home` at `%I` (Documents/Pictures/Music/Videos/Downloads).
+- [✓] **GF-4.1: systemd user unit `mde-mesh-mount@.service` ships** *(shipped 2026-05-24 — `data/systemd/mde-mesh-mount@.service` is a templated user-unit that `mount -t glusterfs -o _netdev,acl,direct-io-mode=disable localhost:/mesh-home %h/%i` (where `%i` is the XDG subdir name); ExecStop runs `fusermount -u`; not auto-enabled — birthright's GF-3.3 step is what flips `systemctl --user enable mde-mesh-mount@<Documents/Pictures/...>.service` once the operator is on uid 1000:1000 (GF-3.1) AND glusterd has bootstrapped the volume (GF-2.x). Until GF-3.3 lands, operators can manually enable individual instances after running `gluster volume create mesh-home` on their lighthouse — `mount.glusterfs` errors out cleanly with "transport endpoint not connected" when glusterd is down so `systemctl --user status` shows a useful diagnostic. RPM spec installs to `%{_userunitdir}/mde-mesh-mount@.service` + ships in the `%files` block; `rpmspec -P` preprocess clean.)*
 - [ ] **GF-4.2: Write-watcher in `gluster_worker` — 5 GB size cap** — files exceeding 5 GB become a `.mesh-stub` containing `{origin_host, size, sha256, gfid}`. mde-files renders these as placeholders.
 - [ ] **GF-4.3: New CLI subcommand `mackesd gluster fetch-stub <path>`** — pulls the real bytes from the origin host over Nebula on demand.
 

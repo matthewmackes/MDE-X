@@ -97,6 +97,30 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-4.1: per-user mesh-home FUSE mount unit
+
+New `data/systemd/mde-mesh-mount@.service` templated user
+unit FUSE-mounts the local glusterd-served `mesh-home`
+volume at `$HOME/%i` (where `%i` is the XDG subdir name —
+Documents / Pictures / Music / Videos / Downloads).
+
+Not auto-enabled by RPM install — birthright's GF-3.3
+`apply_xdg_mesh_mount` step (still ahead) flips
+`systemctl --user enable mde-mesh-mount@<Documents/...>`
+once the operator is on uid:gid 1000:1000 (GF-3.1) and
+glusterd has bootstrapped the volume (GF-2.x). Until then,
+operators can manually enable individual instances after
+running `gluster volume create mesh-home` on their
+lighthouse; `mount.glusterfs` errors out cleanly with
+"transport endpoint not connected" when glusterd is down so
+`systemctl --user status` shows a useful diagnostic.
+
+Mount options: `_netdev` so the mount survives network
+blips with a reconnect, `acl` so cross-peer chown/chmod
+surface correctly. Lands under `%{_userunitdir}/` per the
+existing mde-session.service pattern; rpmspec preprocess
+clean.
+
 ## Unreleased — GF-9.3: `mackesd state-restore` CLI
 
 New subcommand `mackesd state-restore <bundle>

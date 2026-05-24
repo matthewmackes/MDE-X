@@ -523,6 +523,12 @@ install -d -m 0755 %{buildroot}/etc/rtpengine-mde
 install -d %{buildroot}%{_userunitdir}
 # v2.0.0 Phase D.6 — mde-session user unit (Wayland orchestrator).
 install -m 0644 data/systemd/mde-session.service             %{buildroot}%{_userunitdir}/
+# GF-4.1 (v5.0.0) — per-user mesh-home FUSE mount template.
+# Operators enable via `systemctl --user enable
+# mde-mesh-mount@<xdg-dir>.service` once GF-2.x has
+# bootstrapped the volume; the GF-3.3 birthright step will
+# automate the enable when it ships.
+install -m 0644 data/systemd/mde-mesh-mount@.service        %{buildroot}%{_userunitdir}/
 # Sudoers drop-in (v1.4.1) — grants NOPASSWD on Mackes-managed commands
 install -D -m 0440 data/sudoers.d/mackes-shell               %{buildroot}/etc/sudoers.d/mackes-shell
 install -D -m 0755 bin/mackes-wm                              %{buildroot}%{_bindir}/mackes-wm
@@ -1077,6 +1083,9 @@ fi
 # v2.0.0 Phase D.6 mde-session.service ships as the user-session
 # orchestrator (replaces mackes-enforce-session on the v2.0.0 line).
 %{_userunitdir}/mde-session.service
+# GF-4.1 (v5.0.0) — mesh-home FUSE mount template (one
+# instance per XDG dir; operator/birthright enables them).
+%{_userunitdir}/mde-mesh-mount@.service
 %{_prefix}/lib/systemd/user-preset/90-mackes.preset
 # CB-3.6 + CB-2.1 — v2.0.0 user preset + Wayland-session entry.
 %{_prefix}/lib/systemd/user-preset/90-mde.preset
