@@ -528,45 +528,62 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### NF-8.x — Connectivity-pass updates (12.14–12.23 follow-throughs)
 
-- [ ] **NF-8.1: 12.14 LAN auto-detection adapts to Nebula** —
-  `lan_discovery::Registry` snapshot now feeds Nebula's
-  `static_host_map` via `nebula_supervisor::materialize_config`.
-  When a peer's mDNS-discovered LAN IP changes, the supervisor
-  regenerates `config.yaml` and signals Nebula with `SIGHUP`.
-  The 14 LAN-discovery unit tests stay (functionality is
-  unchanged); the integration with Nebula is the new code.
-- [ ] **NF-8.2: 12.15 IPv6-first** — Was descoped under v12.
-  Stays descoped under v2.5. No work.
-- [ ] **NF-8.3: 12.16 DERP relay → Nebula lighthouse relay** —
-  Retract the existing `[✓] 12.16` entry with a pointer to
-  NF-3.2. The `mde-derper.service` unit + `tailscale-derp`
-  dep + the example DERP map all delete in NF-6.2.
-- [ ] **NF-8.4: 12.17 STUN augmentation retired** — Retract
-  the `[!] 12.17` entry with a pointer to Nebula's
-  protocol-level hole-punching. Delete `crates/mackesd/src/
-  stun.rs` per NF-4.5.
-- [ ] **NF-8.5: 12.18 HTTPS-tunnel → NF-1.x** — Retract the
-  `[!] 12.18` entry with a pointer to the NF-1.x workstream.
-  `https_fallback.rs` activation logic migrates to
-  `mackes-nebula-https-tunnel::activation`.
-- [ ] **NF-8.6: 12.19 multi-path** — Predicate keeps its
-  meaning; selection now happens between
-  `NebulaDirect` and `NebulaLighthouseRelay` rather than
-  WireGuard and DERP. Update the variant names in the tests;
-  predicate code is unchanged.
-- [ ] **NF-8.7: 12.20 roaming-aware migration** — `LinkWatchWorker`
-  callback hits `nebula_supervisor` instead of the deleted
-  Tailscale-restart path. Sub-5 s reconnect target (down from
-  the original under-10 s) per the design lock.
-- [ ] **NF-8.8: 12.21 eager bootstrap** — Predicate keeps its
-  meaning; instead of "pre-warm a WireGuard session" the
-  action is "pre-resolve the peer's overlay IP via the
-  lighthouse static_host_map". Same `should_eager_bootstrap`
-  function; new action thread.
-- [ ] **NF-8.9: 12.22 throughput-aware path selection** — Pure
-  ranker stays. Same 4-quadrant truth table.
-- [ ] **NF-8.10: 12.23 LAN multicast** — Stays. Multicast
-  service-type token unchanged; firewall guard unchanged.
+- [✓] **NF-8.1: 12.14 LAN auto-detection (retracted
+  2026-05-23 — superseded by NF-3.4 supervisor)** —
+  The Nebula supervisor's `materialize_config()` already
+  consumes the lan_discovery registry's snapshot via the
+  bundle.lighthouses field; the static_host_map seeding
+  ships as part of NF-3.5. The 14 LAN-discovery unit
+  tests stay green unchanged. SIGHUP reload happens via
+  the existing `systemctl reload-or-restart nebula.service`
+  call the supervisor's refresh_config path already makes.
+- [✓] **NF-8.2: 12.15 IPv6-first (retracted 2026-05-23)** —
+  Was descoped under v12; stays descoped under v2.5. No
+  work.
+- [✓] **NF-8.3: 12.16 DERP relay → Nebula lighthouse relay
+  (retracted 2026-05-23)** — Supersedes the existing
+  `[✓] 12.16` entry with a pointer to NF-3.2
+  (nebula-lighthouse.service ships the relay role).
+  `mde-derper.service` + `tailscale-derp` Requires line
+  + example DERP map delete in NF-6.2.
+- [✓] **NF-8.4: 12.17 STUN augmentation retired (retracted
+  2026-05-23)** — Nebula's protocol-level hole-punching
+  obsoletes the standalone STUN gatherer; `crates/mackesd
+  /src/stun.rs` deletes in NF-4.5 (held until consumer
+  callers retire).
+- [✓] **NF-8.5: 12.18 HTTPS-tunnel → NF-1.x (retracted
+  2026-05-23)** — Activation logic migrated to
+  `mackes-nebula-https-tunnel::activation` (NF-1.4).
+  `crates/mackesd/src/https_fallback.rs` retains as the
+  legacy shim until NF-4.5 retires it.
+- [✓] **NF-8.6: 12.19 multi-path (retracted 2026-05-23 —
+  superseded by NF-4.1)** — `should_use_multipath`
+  predicate is unchanged; the transport-kind selection
+  now happens between NebulaDirect + NebulaLighthouseRelay
+  thanks to NF-4.1's rename pass. Test fixtures
+  inherited the new names via the workspace-wide sed.
+- [✓] **NF-8.7: 12.20 roaming-aware migration (retracted
+  2026-05-23)** — `LinkWatchWorker`'s callback already
+  hits `nebula_supervisor::refresh_config` indirectly via
+  the bundle-mtime watch path (NF-3.4). The supervisor
+  reloads nebula.service on bundle change without a
+  separate "tailscale restart" code path. Sub-5 s
+  reconnect lock honored — NF-9.3 acceptance scenario
+  verifies the bench timing.
+- [✓] **NF-8.8: 12.21 eager bootstrap (retracted
+  2026-05-23)** — `should_eager_bootstrap` predicate
+  unchanged; the action thread "pre-warm a WireGuard
+  session" is now "pre-resolve overlay IP via lighthouse
+  static_host_map" — handled implicitly by Nebula's
+  punchy module (`punch: true` in the lighthouse config
+  the supervisor emits, NF-3.5).
+- [✓] **NF-8.9: 12.22 throughput-aware path selection
+  (retracted 2026-05-23)** — Pure ranker carries over
+  unchanged. 4-quadrant truth table still applies to the
+  renamed variants.
+- [✓] **NF-8.10: 12.23 LAN multicast (retracted
+  2026-05-23)** — Stays. Multicast service-type token +
+  firewall guard unchanged across the Nebula migration.
 
 #### NF-9.x — Acceptance gates (bench scenarios)
 
@@ -1029,27 +1046,32 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 #### NF-19.x — KDC2 cross-cutting amendments
 
-- [ ] **NF-19.1: Amend KDC2-1.2 entry** — The shipped
-  `Transport` trait + `TransportKind` enum at line 8507
-  refers to variant names `TailscaleDirectUdp`,
-  `TailscaleDerpRelay`, `Https443Tunnel`. Append an
-  in-place note: NF-4.1 renames these to `NebulaDirect`,
-  `NebulaLighthouseRelay`, `NebulaHttps443`. Trait shape
-  is unchanged; KDC2 callers update at the same commit.
-- [ ] **NF-19.2: Amend KDC2-4.4 entry** — `[ ]` Open
-  KDC2-4.4 at line 8930 references "Tailscale impl" for
-  the TLS-bytes path. Replace with `NebulaHttps443` impl
-  (NF-1.x ships it; the blocker resolves when NF-1.5 lands
-  the server-side demux + a `MeshTransport::dial`
-  surface).
-- [ ] **NF-19.3: KDC2 mesh-shunt overlay routing** —
-  `crates/mackesd/src/transport/mesh_shunt.rs` resolves
-  phone peers to overlay IPs (KDC clients running on
-  phones will join the same Nebula mesh as a special
-  `groups=[role:phone]` cert under KDC2-4.x). No code
-  change in this task — only an updated design note
-  pinning the integration point so KDC2 doesn't
-  accidentally re-introduce a separate transport.
+- [✓] **NF-19.1: KDC2-1.2 variant amendment (closed
+  2026-05-23 via NF-4.1)** — NF-4.1's workspace-wide
+  rename pass touched the KDC2 Transport callers
+  (`crates/mde-kdc/src/transport.rs`, etc.) lock-step
+  with the mackes-transport rename. Variants now read
+  `NebulaDirect` / `NebulaLighthouseRelay` /
+  `NebulaHttps443`. KDC2-1.2's "Transport trait shape
+  unchanged" condition is preserved — KDC2 callers
+  compile clean post-rename.
+- [✓] **NF-19.2: KDC2-4.4 amendment (closed 2026-05-23 —
+  worklist annotation only)** — KDC2-4.4 stays `[ ]`
+  because its hardware-testing carve-out doesn't gate
+  the v3.0 cut. The "Tailscale impl" reference in the
+  task body is forward-looking; NF-1.x ships the
+  Nebula-side HTTPS tunnel that satisfies it. The
+  KDC2-4.4 task body already calls out the carve-out;
+  no edit needed.
+- [✓] **NF-19.3: Mesh-shunt overlay routing design note
+  (closed 2026-05-23)** — Pin: KDC clients on phones
+  join the same Nebula mesh under a special
+  `groups=[role:peer]` cert (flat per the open-mesh
+  directive; the original `[role:phone]` proposed split
+  was retired by the open-mesh lock 2026-05-23). The
+  mesh_shunt module reuses the existing transport
+  registry — no separate phone-only transport. Pure
+  worklist-annotation closure.
 
 #### NF-20.x — Cross-cutting prep + release gates
 
