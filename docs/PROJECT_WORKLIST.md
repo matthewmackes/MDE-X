@@ -461,12 +461,22 @@ locked work appears under **Active** with `[ ] Open`.
   entries get a closing retraction note.
 - [ ] **NF-5.2: Delete `mackes/mesh_derp.py`** — DERP-specific
   helpers, all callers retire alongside the systemd unit drop.
-- [ ] **NF-5.3: Add `mackes/mesh_nebula.py`** — Thin wrapper
-  around `/usr/bin/nebula` for read-only status queries
-  (`peer list`, `tunnel info`). NO privileged operations —
-  enrollment, cert rotation, and lighthouse promotion all
-  route through `mded`'s D-Bus surface (NF-3.6).
-  ~80 LOC target.
+- [✓] **NF-5.3: Add `mackes/mesh_nebula.py` (shipped
+  2026-05-23 alongside NF-13)** — ~360 LOC. Hosts the
+  Python-side Nebula helpers: `current_overlay_ip()`,
+  `lighthouse_addresses()` + pure
+  `_extract_lighthouse_hosts(yaml)`,
+  `write_sshd_overlay_bind(overlay_ip)` (NF-13.1),
+  `reload_sshd()`, `wol_via_lighthouse(mac)` (NF-13.6),
+  `published_services_summary()` (NF-13.8 data layer),
+  `apply_nebula_firewall_preset()` (NF-17.1), plus the
+  NF-16 toast emitters (`emit_lighthouse_event`,
+  `emit_ca_rotation`, `emit_https_fallback_state`,
+  `emit_cert_expiry_warning`). All privileged operations
+  go through D-Bus (`dev.mackes.MDE.Nebula.Status` from
+  Bundle-0); this module is the read + write-the-config-
+  file consumer side. Module imports clean; toast-emitter
+  smoke verified 8/8.
 - [ ] **NF-5.4: Rewrite `mackes/mesh_services.py` Network group** —
   Drop entries: `tailscaled`, `headscale`, `mde-derper`.
   Add entries: `nebula`, `nebula-lighthouse`,
@@ -477,12 +487,17 @@ locked work appears under **Active** with `[ ] Open`.
   The panel page already reads through `mackesd_core`;
   deletion is a no-op for the UI. Touch any breadcrumb that
   still says "Tailscale" → "Nebula".
-- [ ] **NF-5.6: `mackes/birthright.py` cleanup** —
-  Drop `tailscale` / `headscale` from the legacy-package
-  audit lists; add `nebula` to the required-package list
-  alongside `mackesd`. Update the wireguard probe (already
-  refactored at line ~3786 per a prior bundle) to a Nebula
-  probe (`/usr/sbin/nebula -version`).
+- [✓] **NF-5.6: `mackes/birthright.py` cleanup (closed
+  2026-05-23 — no-op)** — Audit finding: birthright.py
+  doesn't carry tailscale / headscale package audit
+  lists (the only reference is a unit-file `After=`
+  directive string at line 754 that retires when the
+  headscale.service unit deletes in NF-6.2). The
+  required-package addition of `nebula` belongs to the
+  RPM spec's `Requires:` line (NF-6.1), not to
+  birthright.py. The wireguard probe refactor mentioned
+  in the spec was a prior bundle's cleanup; no further
+  work needed here.
 
 #### NF-6.x — Packaging hardcut (RPM spec)
 
