@@ -97,6 +97,47 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-9.1/9.2/9.4: state-backup tarball carries gluster topology
+
+The daily encrypted backup that NF-18.4 introduced now folds
+the local glusterd's `volume info` / `peer status` / `volume
+status` XML payloads into the same sealed tarball. Single-
+file restore of a peer's CA AND its Gluster volume topology
+is the v5.0.0 operator-recovery promise; this commit lands
+the snapshot side of that contract. (GF-9.3, the matching
+`mackesd state restore <bundle>` CLI, ships separately when
+the volume-replay logic stabilizes.)
+
+Changes:
+
+- **`crate::gluster::snapshot::collect(&SnapshotConfig)`** —
+  pure-ish helper that shells `gluster volume info --xml`,
+  `gluster peer status --xml`, and `gluster volume status all
+  clients --xml`, returns `Option<GlusterSnapshot>`. `None`
+  when `gluster` binary isn't on PATH (peer-only roles, dev
+  hosts); `Some` even when each inner XML field is `None`
+  (CLI installed but glusterd is misbehaving — itself a
+  useful diagnostic for restore).
+- **`BundlePlaintext::gluster_snapshot: Option<GlusterSnapshot>`**
+  with `#[serde(default)]` so v1 bundles (no field) round-
+  trip cleanly + v2 readers tolerate forward-compatible
+  parsing.
+- **`schema_version` bumps 1 → 2** only when the snapshot is
+  populated, so CA-only `mackesd ca export` paths stay
+  byte-identical to v4.x.
+- **`BACKUP_FILENAME` const flips from `ca-backup.enc` →
+  `state-backup.enc`** (GF-9.1). Legacy constant kept as
+  `LEGACY_BACKUP_FILENAME` for the operator runbook's upgrade
+  path. Upgrading installs see both files for one tick; the
+  legacy file can be safely `rm`'d.
+
+7 new unit tests in `gluster::snapshot::tests` (absent-binary
+/ always-failing / always-succeeding / JSON round-trip /
+legacy-shape deserialization / PATH probe present + absent),
+full 583/0 lib suite green. NF-18.4 stays `[✓]` (historical
+record) per the newer-wins-silently rule; GF-9.4 records the
+supersession in the v5.0.0 epic cluster.
+
 ## Unreleased — GF-1.3.b: glusterd binds to the Nebula overlay
 
 New `mackesd_core::gluster::bind` module rewrites

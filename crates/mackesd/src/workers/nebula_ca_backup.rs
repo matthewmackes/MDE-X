@@ -31,7 +31,21 @@ use super::{ShutdownToken, Worker};
 pub const TICK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Default backup filename under `QNM-Shared/<self>/mackesd/`.
-pub const BACKUP_FILENAME: &str = "ca-backup.enc";
+///
+/// GF-9.1 (v5.0.0) — renamed from the legacy `ca-backup.enc`.
+/// The file now carries both the Nebula CA payload (NF-18.1)
+/// and the optional GlusterFS topology snapshot (GF-9.2), so
+/// the broader name reflects what's inside. Operators who
+/// upgrade from v4.x will see the old `ca-backup.enc` sit
+/// untouched alongside the new `state-backup.enc` — manual
+/// cleanup is safe (just `rm` it; the next worker tick re-
+/// writes the new path).
+pub const BACKUP_FILENAME: &str = "state-backup.enc";
+
+/// Legacy filename retired by GF-9.1. Kept as a documented
+/// constant so the operator-runbook + restore CLI can look up
+/// the old path during the upgrade window.
+pub const LEGACY_BACKUP_FILENAME: &str = "ca-backup.enc";
 
 /// Worker handle. Cheap to construct.
 pub struct NebulaCaBackup {
@@ -175,7 +189,7 @@ impl NebulaCaBackup {
             .map_err(|e| BackupTickError::CaKeyMissing(format!("not UTF-8: {e}")))?;
         // Lock store + assemble bundle.
         let conn = self.store.lock().await;
-        let plaintext = crate::ca::backup::assemble_from_store(
+        let mut plaintext = crate::ca::backup::assemble_from_store(
             &conn, &self.mesh_id, &ca_key_pem,
         )
         .map_err(|e| BackupTickError::Assemble(e.to_string()))?;
@@ -188,6 +202,19 @@ impl NebulaCaBackup {
         // Drop the lock before doing CPU-bound Argon2 work — let
         // the rest of the daemon proceed.
         drop(conn);
+        // GF-9.2 — fold a glusterd snapshot into the bundle if
+        // the CLI is available. `collect` is best-effort and
+        // returns None on hosts without `glusterfs-server`
+        // installed (peer-only roles, dev boxes). When present,
+        // we bump the bundle schema version to 2 so the
+        // restore CLI knows to honor the new field.
+        let snapshot = crate::gluster::snapshot::collect(
+            &crate::gluster::snapshot::SnapshotConfig::default(),
+        );
+        if snapshot.is_some() {
+            plaintext.schema_version = 2;
+            plaintext.gluster_snapshot = snapshot;
+        }
         let sealed = crate::ca::backup::seal(passphrase, &plaintext)
             .map_err(|e| BackupTickError::Seal(e.to_string()))?;
         let armored = crate::ca::backup::armor(&sealed, plaintext.exported_at);
