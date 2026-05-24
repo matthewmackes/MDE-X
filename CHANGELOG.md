@@ -97,6 +97,37 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-9.3: `mackesd state-restore` CLI
+
+New subcommand `mackesd state-restore <bundle>
+[--passphrase-env MDE_BACKUP_PASSPHRASE]
+[--recovery-dir /var/lib/mackesd/restore/gluster]` decodes
+an armored `state-backup.enc` bundle and restores both the
+Nebula CA + the optional gluster topology snapshot on a bare
+peer:
+
+1. Reads + dearmors + unseals the bundle via the existing
+   `ca::backup::{dearmor, unseal}` helpers.
+2. Calls `ca::backup::restore_to_store` to INSERT-OR-REPLACE
+   CA + signed peer cert rows back into the local SQLite
+   store.
+3. When the bundle carries a `gluster_snapshot` (v2 schema
+   bumped by GF-9.2), writes the per-section XML payloads
+   (`volume-info.xml` / `peer-status.xml` /
+   `volume-status.xml`) under `--recovery-dir` for the
+   operator's manual `gluster volume create --xml-input`
+   replay.
+
+Automatic volume replay is intentionally out of scope:
+replaying a stale `volume info` against a live cluster
+requires careful peer-by-peer reconciliation that's an
+operator-driven step, not a silent CLI action. The runbook
+in `docs/help/mesh-recovery.md` (NF-18.3) is the canonical
+procedure.
+
+CA-only bundles (v1 schema, no gluster snapshot) restore
+cleanly + log "skipping gluster step" rather than failing.
+
 ## Unreleased — GF-12.2: gluster-headroom pre-flight CLI
 
 `mackesd preflight-gluster-headroom` walks the operator's

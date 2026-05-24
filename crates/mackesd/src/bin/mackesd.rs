@@ -63,6 +63,34 @@ enum Cmd {
         home: Option<std::path::PathBuf>,
     },
 
+    /// GF-9.3 (v5.0.0) — restore the Nebula CA + (when
+    /// present) the Gluster topology snapshot from an
+    /// armored `state-backup.enc` bundle. CA rows go straight
+    /// into the local SQLite store via
+    /// `ca::backup::restore_to_store`; the optional gluster
+    /// XMLs land at `<recovery-dir>/gluster/*.xml` for the
+    /// operator to apply manually with `gluster volume create
+    /// --xml-input`. Automatic volume replay is intentionally
+    /// out of scope — replaying a stale `volume info` against
+    /// a live cluster requires careful peer-by-peer
+    /// reconciliation that's an operator-driven step, not a
+    /// silent CLI action.
+    StateRestore {
+        /// Path to the armored `state-backup.enc` bundle.
+        bundle: std::path::PathBuf,
+        /// Passphrase env-var. Defaults to
+        /// `MDE_BACKUP_PASSPHRASE` (same as the daily backup
+        /// worker's env).
+        #[clap(long, default_value = "MDE_BACKUP_PASSPHRASE")]
+        passphrase_env: String,
+        /// Directory to write the gluster XML payloads into
+        /// for the operator-side manual replay. Created if
+        /// missing. Default
+        /// `/var/lib/mackesd/restore/gluster`.
+        #[clap(long, default_value = "/var/lib/mackesd/restore/gluster")]
+        recovery_dir: std::path::PathBuf,
+    },
+
     /// Generate a fresh 16-char URL-safe passcode (Phase 12.10.1).
     /// Prints the passcode and an instruction to save it to
     /// `libsecret` as `org.mackes.mesh.passcode`. Does NOT mutate
@@ -675,6 +703,80 @@ fn main() -> anyhow::Result<()> {
             // the live fields.
             let report = mackesd_core::health::HealthReport::empty();
             println!("{}", report.to_json_line()?);
+        }
+        Cmd::StateRestore { bundle, passphrase_env, recovery_dir } => {
+            // GF-9.3 — bundle decode + CA restore + gluster
+            // XML extraction. We deliberately do NOT replay
+            // the gluster volume config automatically;
+            // operator-driven `gluster volume create
+            // --xml-input` against the extracted XMLs lets the
+            // operator reconcile peer-by-peer.
+            let passphrase = std::env::var(&passphrase_env).with_context(|| {
+                format!(
+                    "passphrase env-var {passphrase_env} unset — \
+                     export it before running state restore",
+                )
+            })?;
+            let armored = std::fs::read_to_string(&bundle).with_context(|| {
+                format!("reading bundle {}", bundle.display())
+            })?;
+            let sealed = mackesd_core::ca::backup::dearmor(&armored)
+                .context("ASCII-armor decode")?;
+            let plaintext = mackesd_core::ca::backup::unseal(&passphrase, &sealed)
+                .context("AEAD unseal — wrong passphrase OR tampered bundle")?;
+
+            let conn = mackesd_core::store::open(&db_path)
+                .with_context(|| format!("opening store at {}", db_path.display()))?;
+            mackesd_core::ca::backup::restore_to_store(&conn, &plaintext)
+                .context("restoring CA + peer rows to store")?;
+            eprintln!(
+                "[state-restore] CA: {ca_n} cert(s) + {peer_n} peer cert(s) restored",
+                ca_n = plaintext.ca_certs.len(),
+                peer_n = plaintext.peer_certs.len(),
+            );
+
+            match plaintext.gluster_snapshot.as_ref() {
+                None => {
+                    eprintln!(
+                        "[state-restore] bundle has no gluster snapshot (CA-only or pre-v5.0.0) — skipping gluster step",
+                    );
+                }
+                Some(snap) => {
+                    std::fs::create_dir_all(&recovery_dir).with_context(|| {
+                        format!("mkdir {}", recovery_dir.display())
+                    })?;
+                    let mut wrote = 0usize;
+                    for (name, payload) in [
+                        ("volume-info.xml", snap.volume_info_xml.as_deref()),
+                        ("peer-status.xml", snap.peer_status_xml.as_deref()),
+                        ("volume-status.xml", snap.volume_status_xml.as_deref()),
+                    ] {
+                        if let Some(body) = payload {
+                            let path = recovery_dir.join(name);
+                            std::fs::write(&path, body).with_context(|| {
+                                format!("writing {}", path.display())
+                            })?;
+                            wrote += 1;
+                            eprintln!(
+                                "[state-restore] gluster: wrote {} ({} bytes)",
+                                path.display(),
+                                body.len(),
+                            );
+                        }
+                    }
+                    if wrote == 0 {
+                        eprintln!(
+                            "[state-restore] gluster snapshot present but every section was empty — nothing to apply",
+                        );
+                    } else {
+                        eprintln!(
+                            "[state-restore] gluster: {wrote} XML payload(s) at {dir}; replay manually with \
+                             `gluster volume create --xml-input <volume-info.xml>` (see docs/help/mesh-recovery.md)",
+                            dir = recovery_dir.display(),
+                        );
+                    }
+                }
+            }
         }
         Cmd::PreflightGlusterHeadroom { brick_dir, home } => {
             // GF-12.2 — pre-flight headroom check for the
