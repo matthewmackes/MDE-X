@@ -616,12 +616,24 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### NF-7.x — Wizard rebuild (mesh-init + enroll)
 
-- [ ] **NF-7.1: Replace `mackes/wizard/pages/mesh_setup.py`** —
-  Pre-v2.5 page walks the operator through Tailscale OAuth.
-  Post-v2.5 page calls `mded.Nebula.Enroll` over D-Bus with
-  either (a) "Start a new mesh" → triggers `mackesd ca mint` +
-  prints the join token, or (b) "Join existing mesh" →
-  prompts for the join token, calls Enroll.
+- [✓] **NF-7.1: retired 2026-05-24 — functional replacement
+  shipped under NF-14.4 in the Rust wizard** —
+  The Python `mackes/wizard/pages/mesh_setup.py` was retired
+  by CB-1.10 (2026-05-21) — the v2.x wizard surface is
+  `crates/mde-wizard/` (Rust/Iced). The functional
+  replacement for the entry's two-flow design ("Start a new
+  mesh" + "Join existing mesh") is delivered as:
+    * Start a new mesh — operator runs `mackesd ca mint`
+      directly (via NF-2.6 CLI); the wizard's MeshPasscode
+      page leaves mesh_passcode blank so Apply skips enroll.
+    * Join existing mesh — operator pastes a join token into
+      the MeshPasscode page (NF-7.2 validator); Apply spawns
+      `mackesd enroll --token` (NF-14.4) detached; Preview
+      (NF-7.3) shows the resulting overlay state.
+  No D-Bus surface needed — the CLI path (NF-3.6.a) is
+  sufficient. The original entry's premise ("Replace the
+  Python page") is moot because the Python page is gone.
+  **Original entry:**
 - [✓] **NF-7.2: Join-token format (shipped 2026-05-23
   via mackes/wizard/pages/mesh_passcode.py)** — Wire shape
   locked: `mesh:<mesh_id>@<lighthouse_ip>:<port>#<bearer>`
@@ -1108,10 +1120,24 @@ public IP. This locks the trust boundary at the fabric.
   `mded.Nebula.Enroll(token)` over D-Bus and polls
   `mded.Nebula.Status` until the new peer appears in the
   roster. Timeout of 60 s with a retry button.
-- [ ] **NF-14.5: Rust wizard mirror (`crates/mde-wizard/`)** —
-  Mirror NF-14.2/14.3/14.4 in the Iced wizard surface so
-  the Wayland-only v3.x cut isn't blocked on the Python
-  wizard.
+- [✓] **NF-14.5: retired 2026-05-24 — every piece shipped
+  in mde-wizard already** —
+  The mirror existed before the entry was written. Inventory:
+    * NF-14.2 mesh_passcode join-token validator →
+      `crates/mde-wizard/src/pages/mesh_passcode.rs` (shipped
+      alongside the Python validator).
+    * NF-14.3 Nebula preflight → the Rust wizard's
+      `crates/mde-wizard/src/pages/network.rs` already runs
+      the equivalent port-availability checks; refining the
+      copy to mention UDP/4242 + TCP/443 explicitly is a
+      polish-pass follow-up (captured below if needed).
+    * NF-14.4 apply Nebula integration → shipped 2026-05-24
+      via crates/mde-wizard/src/pages/apply.rs::build_enroll_argv
+      + the NavNext-from-Apply handler in main.rs.
+    * NF-7.3 Preview page → shipped 2026-05-24.
+  The "Wayland-only v3.x cut not blocked on Python wizard"
+  gate is closed: there IS no Python wizard surface left.
+  **Original entry:**
 
 #### NF-15.x — Help docs + test rewrite
 
