@@ -4533,96 +4533,162 @@ Every actionable item lifted from `docs/design/` + the still-open
 items from the prior worklist. Grouped by area for readability;
 all are equally tracked.
 
-### v4.1.0 Voice & Video epic (locked 2026-05-23)
+### v4.1.0 Voice & Video epic (re-locked 2026-05-24 after Asterisk→Kamailio swap)
 
-**Plan source:** `docs/design/v4.1-voice-video.md` (full
-architecture + 2-question lock survey 2026-05-23). Brings real-
-time voice + video + presence + chat + PSTN to the mesh.
-Architecture: per-host Asterisk 21 (`asterisk-mde.service`) +
-embedded PJSIP client (new `crates/mde-voice-*` crates) + per-
-peer Vitelity SIP-trunk integration + mesh transit-routing
-(B2BUA bridge through best-path peer). Two new policy kinds
-(`voice_mesh`, `voice_public`) drop into the existing Phase-12
-draft → validated → approved → applied → verified lifecycle —
-the "dual plan" the operator asked for is literal: two JSON
-schemas, two review queues, one lifecycle. Target release:
-**v4.1.0** (rides whatever the next operator-authorized cut
-becomes; per the standing "no new RPM until directed"
-constraint, work lands on `main` first via the parity-overlay
-machinery).
+**Plan source:** `docs/design/v4.1-voice-video.md` (rewritten
+2026-05-24). Brings real-time voice + video + presence + 1:1
+chat + PSTN to the mesh.
 
-**Scope locks (2-question survey 2026-05-23):**
+**Architecture (post-swap):** per-host **Kamailio 5.8**
+(`kamailio-mde.service`) for SIP routing / proxy / registrar,
+per-host **RTPengine** (`rtpengine-mde.service`) for SRTP
+relay, embedded **PJSIP** client (unchanged Rust FFI plan),
+per-peer Vitelity SIP-trunk integration via Kamailio's `uac`
+module, mesh transit via Kamailio record-route + transit
+RTPengine. Two new policy kinds (`voice_mesh`, `voice_public`)
+drop into the existing Phase-12 draft → validated → approved
+→ applied → verified lifecycle. Target release: **v4.1.0**
+(rides whatever the next operator-authorized cut becomes; per
+the standing "no new RPM until directed" constraint, work
+lands on `main` first via the parity-overlay machinery).
 
-1. Embedded SIP/video stack: **PJSIP (libpjproject) via Rust
-   FFI** — same protocol surface as chan_pjsip on the host
-   side; one library covers SIP + SRTP + video + SIMPLE
-   presence + MESSAGE.
-2. Vitelity trunk topology: **per-peer sub-accounts** — every
-   peer is its own PSTN edge, owns its DIDs, owns its CID,
-   survives any other peer's outage. Trades a higher
-   Vitelity bill for full mesh-style resilience.
+**Scope locks (4-question survey 2026-05-24, supersedes the
+2026-05-23 Asterisk lock):**
 
-**Acceptance (epic-level, 9 concrete drills — see design doc
-§12 for the full list).** Two-peer mesh call, three-peer
-transit call, PSTN outbound, PSTN inbound, presence
-propagation, chat persistence, 4-way ConfBridge with
-recording, Vitelity outage drill (mesh unaffected), single-
-peer `voice_public` deploy without rewriting other peers'
-configs.
+1. **Signaling daemon: Kamailio** (replaces Asterisk). Motivation:
+   lighter / SIP-routing focus — Kamailio is a fast SIP
+   proxy/registrar (~30k cps even on Pi-class peers) vs
+   Asterisk's PBX-with-media engine. Trade ConfBridge /
+   voicemail / MoH richness for a smaller, more focused
+   signaling plane.
+2. **Media plane: RTPengine relay only** — no transcoding, no
+   mixing, no recording. Opus end-to-end mesh-to-mesh; PCMU
+   end-to-end if a peer talks to Vitelity (the embedded PJSIP
+   client negotiates PCMU when dialing PSTN). Simplest stack.
+3. **PBX features (ConfBridge / voicemail / MoH / ring groups)
+   — dropped from v4.1.0** and re-cued under a new v4.2.0
+   "Voice PBX" epic that picks a media server first. v4.1.0
+   ships 1:1 calls + PSTN + presence + 1:1 chat only.
+4. **Embedded client: PJSIP via Rust FFI** (unchanged). PJSIP is
+   the C SIP UA stack; the *server* swap from Asterisk to
+   Kamailio doesn't affect it. The embedded client speaks SIP
+   to its local Kamailio just as cleanly.
 
-- [>] **v4.1.0: VV-1 per-host Asterisk daemon (Tier 1 platform)**
+**Carryover locks (from the 2026-05-23 / 2026-05-24 cycle):**
+
+- Vitelity trunk topology: **per-peer sub-accounts** — every
+  peer is its own PSTN edge, owns its DIDs, owns its CID.
+- Mesh interface name: `nebula1` (Nebula's default tun device
+  on Linux; the v2.5 NF-* sweep retired the v1.x WireGuard
+  transport).
+- Voice chrome split: **VV-7a** (`mde-voice-workbench`)
+  backend admin + **VV-7b** (`mde-voice-hud`) system-wide
+  slide-from-bottom modal client (Rust + wlr-layer-shell +
+  modal input capture).
+- Naming: **per-component** — `kamailio-mde.service` +
+  `rtpengine-mde.service`, separate dedicated users
+  (`_kamailio_mde`, `_rtpengine_mde`) for defense-in-depth.
+
+**Acceptance (epic-level, 8 concrete drills — see design doc
+§13 for the full list).** Two-peer mesh call (Opus
+end-to-end), three-peer transit call (record-route +
+transit RTPengine), PSTN outbound (PCMU end-to-end), PSTN
+inbound, presence propagation, chat persistence (incl. `msilo`
+offline-delivery), Vitelity outage drill, single-peer
+`voice_public` deploy. *(The 4-way ConfBridge drill moves to
+the v4.2.0 epic with the rest of the PBX feature set.)*
+
+- [>] **v4.1.0: VV-1 per-host Kamailio daemon (Tier 1 platform)**
 
   **As** the operator,
-  **I want** every MDE peer to run its own Asterisk 21 instance
-  bound to `lo` + the WireGuard mesh interface as
-  `asterisk-mde.service`,
-  **so that** voice / video / presence / chat / voicemail are
+  **I want** every MDE peer to run its own Kamailio 5.8 instance
+  bound to `127.0.0.1:5060` (loopback for the embedded PJSIP
+  client) + `nebula1:5061` TLS (mesh) as
+  `kamailio-mde.service`,
+  **so that** SIP signaling, registrar, and dialplan are
   available locally without depending on a centralized PBX, and
   the call signaling never touches a public interface.
 
   **Acceptance** (each bench-observable):
-  - [ ] `dnf install` of the v4.1.0 RPM pulls in `asterisk`
-    21.x from F44.
-  - [ ] `systemctl status asterisk-mde.service` shows `active
+  - [ ] `dnf install` of the v4.1.0 RPM pulls in `kamailio`
+    5.8.x from F44's official repo.
+  - [ ] `systemctl status kamailio-mde.service` shows `active
     (running)` after first boot.
-  - [ ] `ss -tlnp | grep asterisk` shows listeners on `127.0.0.1`
-    + `nebula1` (the live Nebula tun device — wg-mesh was the
-    stale v1.x plan; corrected 2026-05-24) ONLY — no public-
-    interface bind.
-  - [ ] Runs as a dedicated `_asterisk_mde` UID; data root at
-    `/var/lib/asterisk-mde/`; does not clobber a pre-existing
-    upstream `asterisk.service` install.
+  - [ ] `ss -tlnp | grep kamailio` shows listeners on
+    `127.0.0.1:5060` + `nebula1:5061` ONLY — no public-interface
+    bind.
+  - [ ] Runs as a dedicated `_kamailio_mde` UID; data root at
+    `/var/lib/kamailio-mde/`; does not clobber a pre-existing
+    upstream `kamailio.service` install.
+  - [ ] `kamcmd -s /var/run/kamailio-mde/kamcmd.sock core.version`
+    returns a sensible value.
 
   **Implementation notes:**
-  - New systemd unit: `data/systemd/asterisk-mde.service`.
+  - New systemd unit: `data/systemd/kamailio-mde.service`.
   - Spec changes: `packaging/fedora/mackes-shell.spec` adds
-    `Requires: asterisk >= 21.0` and the `useradd` /
+    `Requires: kamailio >= 5.8` and the `useradd` /
     `mkdir -p` scriptlets.
   - Carbon glyph for the panel tray entry: `phone`.
+
+- [ ] **v4.1.0: VV-1.5 per-host RTPengine daemon (Tier 1 platform)**
+
+  **As** the operator,
+  **I want** every MDE peer to run its own RTPengine instance
+  for SRTP relay only (no transcoding) as
+  `rtpengine-mde.service`, bound to `127.0.0.1` + `nebula1` with
+  an RTP port range of `30000-40000/udp`,
+  **so that** Kamailio (VV-1) has a media plane to hand RTP
+  flows to without exposing any RTP port on a public interface
+  and without paying transcoding CPU.
+
+  **Acceptance** (each bench-observable):
+  - [ ] `dnf install` of the v4.1.0 RPM pulls in `rtpengine`
+    11.x from F44.
+  - [ ] `systemctl status rtpengine-mde.service` shows `active
+    (running)` after first boot.
+  - [ ] NG control socket at `/var/run/rtpengine-mde/ng.sock`,
+    owned by `_rtpengine_mde:_kamailio_mde` so the Kamailio
+    process can drive it via the `rtpengine` module.
+  - [ ] RTP port range bound to `nebula1` + `127.0.0.1` ONLY —
+    not the public interface (confirm via `ss -unlp`).
+  - [ ] Runs as a dedicated `_rtpengine_mde` UID; data root at
+    `/var/lib/rtpengine-mde/`.
+
+  **Implementation notes:**
+  - New systemd unit: `data/systemd/rtpengine-mde.service`.
+  - Spec changes: `packaging/fedora/mackes-shell.spec` adds
+    `Requires: rtpengine` and the `useradd` / `mkdir -p`
+    scriptlets. Adds `_kamailio_mde` to the `_rtpengine_mde`
+    group so Kamailio can write to the NG socket.
+  - User-space relay only — no kernel module — until VV-15's
+    hardware perf bench (deferred to v4.1.x).
 
 - [ ] **v4.1.0: VV-2 config generator crate `mde-voice-config` (Tier 1 platform)**
 
   **As** the operator,
-  **I want** `mackesd` to generate `pjsip.conf`,
-  `extensions.conf`, `confbridge.conf`, `voicemail.conf`, and
-  `musiconhold.conf` from the desired voice policies as a pure
+  **I want** `mackesd` to generate the four authoritative
+  configs (`kamailio.cfg`, `dispatcher.list`, `uacreg.list`,
+  `rtpengine.conf`) from the desired voice policies as a pure
   function (input → file set, no I/O),
-  **so that** every Asterisk config is reproducible, snapshot-
-  testable, and never operator-hand-edited.
+  **so that** every config is reproducible, snapshot-testable,
+  and never operator-hand-edited.
 
   **Acceptance:**
   - [ ] New crate `crates/mde-voice-config/` with a public
     `generate(desired: &VoiceDesired) -> ConfigSet` fn.
   - [ ] Golden-fixture tests under
     `crates/mde-voice-config/tests/fixtures/` — 3 canonical
-    desired-configs produce expected `.conf` output via
-    `insta` snapshot diffs.
+    desired-configs produce expected output via `insta`
+    snapshot diffs (one snapshot per generated file × 3
+    fixtures = 12 snapshot assertions).
   - [ ] Wired into `mackesd::workers::` as a new
     `voice_config_writer` worker (mirrors the existing
-    `media_sync.rs` pattern); writes are atomic (`write` + `rename`).
-  - [ ] On apply, `asterisk-mde reload` runs and the
-    reconciler reads back `ENDPOINT_REGISTERED` events to
-    flip Applied → Verified.
+    `media_sync.rs` pattern); writes are atomic
+    (`write` + `rename`).
+  - [ ] On apply, `kamcmd dispatcher.reload` + `kamcmd
+    uac.reg_reload` + `kill -HUP rtpengine-mde` run; the
+    reconciler reads back successful reload events to flip
+    Applied → Verified.
 
   **Implementation notes:**
   - Pure-function contract per
@@ -4631,6 +4697,9 @@ configs.
   - Generator owns extension-number assignment (lexicographic
     `node_id` → `1NNN`); operator can override via the
     `voice_mesh` policy.
+  - `kamailio.cfg` is the single procedural cfg the daemon
+    consumes; `dispatcher.list` + `uacreg.list` are the two
+    text databases Kamailio reloads without a daemon restart.
 
 - [ ] **v4.1.0: VV-3 policy kinds `voice_mesh` + `voice_public` (Tier 1 platform)**
 
@@ -4651,8 +4720,8 @@ configs.
     + `voice_public.json`; well-formed accepts + malformed
     rejects covered in `tests/policy/voice_*_schema.rs`.
   - [ ] Dispatcher arms in `policy_dispatch::dispatch()`
-    accumulate Asterisk config-fragment intent into
-    `ReconcileContext` — no direct I/O.
+    accumulate Kamailio + RTPengine config-fragment intent
+    into `ReconcileContext` — no direct I/O.
   - [ ] Conflict tests pass: a `voice_mesh` revision that
     reassigns extension `1003` to two peers raises
     `PolicyConflict` at validate-time.
@@ -4662,13 +4731,13 @@ configs.
     `docs/design/v12.0-enterprise-mesh-dev.md § Example —
     a hypothetical allow_east_west policy`.
 
-- [ ] **v4.1.0: VV-4 mesh dialplan + transit routing (Tier 1 platform)**
+- [ ] **v4.1.0: VV-4 mesh routing + transit (Tier 1 platform)**
 
   **As** the operator,
-  **I want** the dialplan generated by VV-2 to consult
-  `mackesd_core::voice::best_path()` on every dial, route
-  reachable peers direct over WireGuard, and B2BUA-bridge
-  through a chosen transit peer when direct reach is blocked,
+  **I want** the Kamailio cfg generated by VV-2 to consult
+  `mackesd_core::voice::best_path()` on every INVITE, route
+  reachable peers direct over Nebula, and record-route through
+  a chosen transit peer when direct reach is blocked,
   **so that** any peer in the mesh can call any other peer
   even when their networks can't see each other.
 
@@ -4677,13 +4746,15 @@ configs.
     Path` returning `Path::Direct(via)` or
     `Path::Transit(via_node)`; rejects candidates with
     RTT > 80 ms OR loss > 5%.
-  - [ ] AGI helper `/usr/libexec/mde-voice/mesh_lookup.py`
-    (or a Rust binary if FFI proves cleaner) called from the
-    generated `[mde-mesh]` context.
+  - [ ] `dispatcher.list` rows generated by VV-2 carry the
+    transit weighting from `best_path`; on reload the new
+    weights take effect within 1 s (`kamcmd
+    dispatcher.reload`).
   - [ ] Three-peer integration test: with `iptables -A INPUT
-    -i nebula1 -s <peer-C-nebula-ip> -j DROP` on peer A, dialing
-    `1003` from A succeeds via B2BUA on peer B; one direct
-    leg A→B, one direct leg B→C, audio bidirectional.
+    -i nebula1 -s <peer-C-nebula-ip> -j DROP` on peer A,
+    dialing `1003` from A succeeds via record-route through
+    peer B; B's RTPengine relays the SRTP; audio
+    bidirectional.
 
   **Implementation notes:**
   - Voice-router heuristic favors latency over throughput —
@@ -4691,6 +4762,10 @@ configs.
     (throughput-wins). Voice flows are bounded by 24 kbps
     Opus / 600 kbps VP8, so RTT dominates the quality
     function.
+  - Kamailio doesn't B2BUA natively (vs the original Asterisk
+    plan); record-route + transit RTPengine is the
+    Kamailio-idiomatic approach. Net result: same operator
+    semantics, simpler dialog accounting, no CDR doubling.
 
 - [ ] **v4.1.0: VV-5 PJSIP FFI crate `mde-voice-pjsip-sys` (Tier 1 platform)**
 
@@ -4731,9 +4806,9 @@ configs.
     callback posts a `VoiceEvent` into a `tokio::sync::mpsc`.
   - [ ] Loopback test in `tests/loopback.rs`: two `Account`
     instances on the same process register to the local
-    Asterisk, place a call, exchange a 1 s sine wave,
-    teardown. Runs in CI against a `docker compose`-spawned
-    Asterisk fixture.
+    Kamailio, place a call (relayed by the local RTPengine),
+    exchange a 1 s sine wave, teardown. Runs in CI against a
+    `docker compose`-spawned Kamailio + RTPengine fixture.
   - [ ] `cargo clippy -- -D warnings` is clean.
 
 - [ ] **v4.1.0: VV-7a Workbench Voice — backend management surface (Tier 1 chrome)**
@@ -4747,10 +4822,9 @@ configs.
 
   **As** the operator,
   **I want** a "Voice" group in the Workbench sidebar that
-  surfaces the asterisk-mde backend health, endpoint
-  registrations, Vitelity sub-account configuration, owned
-  DIDs + inbound rules, ConfBridge room definitions, voicemail
-  inboxes, recordings, and call history,
+  surfaces the kamailio-mde + rtpengine-mde backend health,
+  registered AORs, dispatcher state, Vitelity sub-account
+  configuration, owned DIDs + inbound rules, and call history,
   **so that** I administer the voice stack from the same
   chrome I already use for the rest of MDE — separate from
   the live call/video client (VV-7b).
@@ -4761,25 +4835,26 @@ configs.
     + `_page_title` + `_page_subtitle` + `_section_title`).
   - [ ] Sidebar nav adds a "Voice" group with the Carbon
     `phone` glyph.
-  - [ ] **Backend panel** (new vs. original VV-7) — surfaces
-    `systemctl is-active asterisk-mde`, last reload timestamp,
-    endpoint-registration table (one row per generated AOR +
-    the Vitelity trunk), restart / reload buttons gated on
-    polkit, recent CLI output buffer (`asterisk -rx 'pjsip
-    show endpoints'` and friends).
+  - [ ] **Backend panel** — surfaces `systemctl is-active`
+    for both `kamailio-mde` and `rtpengine-mde`, last reload
+    timestamp, registered-AOR table (from `kamcmd ul.dump`),
+    dispatcher destinations table (from `kamcmd
+    dispatcher.list`), `uac.reg_dump` table, RTPengine session
+    count (from `kamcmd rtpengine.show all`), restart /
+    reload buttons gated on polkit, recent CLI output buffer.
   - [ ] **Vitelity panel** — sub-account credentials, owned
-    DIDs, per-DID inbound rule editor, outbound digit-pattern
-    rules, verified-CID picker, REGISTER status.
-  - [ ] **Rooms panel** — ConfBridge room definitions + live
-    attendee list pulled from `asterisk -rx 'confbridge show
-    bridges'`.
-  - [ ] **Voicemail panel** — per-peer mailbox list, play /
-    delete / mark-read.
-  - [ ] **History panel** — CDR-derived call log; filter by
-    direction / peer / date.
-  - [ ] **Recordings panel** — list of files under
-    `~/.local/share/mde/voice/recordings/` + a per-file play
-    / delete control row.
+    DIDs, per-DID inbound rule editor (`ring-self` /
+    `ring-extn` only in v4.1.0; the richer ring-group /
+    voicemail / confbridge / ivr modes wait for v4.2.0),
+    outbound digit-pattern rules, verified-CID picker,
+    REGISTER status pulled from `kamcmd uac.reg_dump`.
+  - [ ] **History panel** — CDR-derived call log (from
+    Kamailio's `acc` text log); filter by direction / peer /
+    date.
+
+  *(Rooms / Voicemail / Recordings panels move to a future
+  `mde-voice-workbench-pbx` extension that lands with the
+  v4.2.0 PBX epic.)*
 
   **Implementation notes:**
   - Carbon glyphs per the 2026-05-23 iconography lock — bake
@@ -4789,7 +4864,7 @@ configs.
     that connects this peer to Vitelity Communications" ask.
   - Every operator action that mutates state submits a
     `voice_mesh` or `voice_public` policy revision through the
-    Phase-12 lifecycle; the panel never writes Asterisk config
+    Phase-12 lifecycle; the panel never writes Kamailio cfg
     directly.
 
 - [ ] **v4.1.0: VV-7b Voice/Video Client — slide-from-bottom HUD (Tier 1 chrome)**
@@ -4838,8 +4913,8 @@ configs.
     - **In-call (video)** — same controls plus remote-video
       pane + local-camera self-view pip; uses XDG camera
       portal per VV-8.
-    - **Conference** — ConfBridge attendee tiles with per-
-      attendee mute icons; recording state pill.
+    *(Conference mode moves to v4.2.0 with the rest of the
+    PBX feature set — VV-7b ships five modes in v4.1.0.)*
   - [ ] Operator never has to launch a separate softphone
     app; HUD survives logout/login (autostarted in the user
     session).
@@ -4882,15 +4957,18 @@ configs.
 - [ ] **v4.1.0: VV-9 presence subscription mesh (Tier 1 platform)**
 
   **As** the operator,
-  **I want** every peer to PJSIP SUBSCRIBE to every other
-  peer's `mde-local` endpoint and publish `available` /
-  `on-call` / `away` / `dnd` / `offline`,
+  **I want** every peer's embedded PJSIP client to PUBLISH
+  presence to its local Kamailio + SUBSCRIBE to every other
+  peer's AOR via Kamailio's `presence` + `presence_xml`
+  modules, exposing `available` / `on-call` / `away` / `dnd` /
+  `offline`,
   **so that** the Peer Card + Workbench Contacts panel always
   reflect who's reachable for a call without polling.
 
   **Acceptance:**
-  - [ ] Endpoint config generated by VV-2 includes the SIMPLE
-    presence module + subscription rules for every other peer.
+  - [ ] `kamailio.cfg` generated by VV-2 loads the `presence`
+    + `presence_xml` modules with the SIMPLE event packages
+    `presence` + `dialog`.
   - [ ] 16-peer mesh simulator (Docker-compose fixture) shows
     240 active SUBSCRIBE dialogs (16×15); presence-state
     changes propagate within 5 s.
@@ -4912,49 +4990,23 @@ configs.
 
   **Acceptance:**
   - [ ] Per-peer 1:1 chat round-trips within 1 s on a LAN-
-    direct pair.
+    direct pair via Kamailio's MESSAGE-forwarding route.
+  - [ ] Offline delivery via Kamailio's `msilo` module —
+    peer A sends MESSAGE to offline peer B; B comes online;
+    `msilo` delivers on next REGISTER.
   - [ ] History survives reboot; pagination on long threads.
-  - [ ] Group chat via `[mde-room-NNN]` ConfBridge MESSAGE-
-    only attendees (no audio leg).
-  - [ ] Voice + chat coexist in the same call window — the
-    Iced surface stacks the chat pane next to the video.
+  - [ ] Voice + chat coexist in the slide-up modal client —
+    the Iced surface stacks the chat pane next to the video.
 
-- [ ] **v4.1.0: VV-11 ConfBridge rooms + recording (Tier 2 chrome)**
+  *(Group chat moves to v4.2.0 with the rest of the PBX
+  feature set — Kamailio has no native group-message
+  broadcast that doesn't require a back-end like Matrix or a
+  media server.)*
 
-  **As** the operator,
-  **I want** named conference rooms (`*81 all-hands`, `*82
-  huddle-1`, …) with attendee list, mute / unmute, and
-  recording-to-WAV,
-  **so that** 3+ peers can talk together without each pair
-  setting up its own call, and I have an audio record of the
-  all-hands.
-
-  **Acceptance:**
-  - [ ] Workbench Voice → Rooms panel lists rooms defined in
-    `voice_mesh`; click to join.
-  - [ ] 4-peer ConfBridge stays bidirectional for 5 min;
-    recording lands at `~/.local/share/mde/voice/recordings/
-    <room>-<ISO8601>.wav`.
-  - [ ] Per-attendee mute / unmute from the attendee list.
-  - [ ] Configurable PIN per room; PIN entry IVR prompt on
-    join.
-
-- [ ] **v4.1.0: VV-12 voicemail per peer (Tier 2 chrome)**
-
-  **As** the operator,
-  **I want** a per-peer voicemail box reachable by callers when
-  I don't answer, with playback / delete / mark-read from the
-  Workbench Voicemail panel,
-  **so that** missed calls don't go silently away — including
-  inbound PSTN calls hitting a peer that's `offline`.
-
-  **Acceptance:**
-  - [ ] Asterisk `app_voicemail` configured per peer via VV-2;
-    mailbox `1NNN@mde-default`.
-  - [ ] Workbench Voicemail panel lists messages with sender,
-    timestamp, duration, listened/unread flag.
-  - [ ] Greeting recorder works from the panel — records via
-    the same PipeWire capture path as the embedded client.
+*(VV-11 ConfBridge + VV-12 voicemail moved to the new v4.2.0
+Voice PBX epic on 2026-05-24 — see the next section. Both
+require a media-server pick that's deliberately deferred so
+v4.1.0 can ship Kamailio + RTPengine + 1:1 calls cleanly.)*
 
 - [ ] **v4.1.0: VV-13 Vitelity sub-account + DID configuration UI (Tier 1 chrome)**
 
@@ -4986,24 +5038,27 @@ configs.
   - [ ] All changes go through the existing pending-changes
     inbox before applying.
 
-- [ ] **v4.1.0: VV-14 Vitelity REGISTER + inbound / outbound dialplan (Tier 1 platform)**
+- [ ] **v4.1.0: VV-14 Vitelity REGISTER + inbound / outbound routes (Tier 1 platform)**
 
   **As** the operator,
-  **I want** each peer's Asterisk to maintain an outbound TLS
-  REGISTER session to `out.vitelity.net:5061` using the
-  credentials from the VV-13 panel, route inbound INVITEs per
-  the per-DID rule, and route outbound `9NXX…` dials through
-  the trunk with the operator-selected CID,
+  **I want** each peer's Kamailio to maintain an outbound TLS
+  REGISTER session to `out.vitelity.net:5061` via the `uac`
+  module using the credentials from the VV-13 panel, route
+  inbound INVITEs per the per-DID rule via
+  `route[VITELITY_IN]`, and route outbound `9NXX…` dials
+  through the trunk with the operator-selected CID via
+  `route[VITELITY_OUT]`,
   **so that** PSTN calls work end-to-end with no other
   configuration.
 
   **Acceptance:**
   - [ ] PSTN outbound drill: peer A dials `915551234567`; the
     called PSTN endpoint shows A's verified Vitelity CID;
-    audio bidirectional PCMU.
+    audio bidirectional PCMU end-to-end (no transcoding —
+    embedded PJSIP negotiates PCMU on its outbound offer).
   - [ ] PSTN inbound drill: caller dials A's owned DID; A's
     embedded client rings within 3 s; audio bidirectional
-    with PCMU↔Opus transcode at the trunk boundary.
+    PCMU (no transcoding boundary).
   - [ ] Vitelity outage drill: `iptables -A OUTPUT -d
     out.vitelity.net -j DROP` on peer A; A's
     `voice_public` flips to `Unavailable` within 60 s; no
@@ -5011,16 +5066,24 @@ configs.
     continue unaffected; REGISTER retries on 5 s → 5 min
     exponential backoff (matches v12 Q13).
   - [ ] Outbound never falls through to a non-Vitelity path —
-    if the trunk is down, the call fails with a clear
-    "PSTN unavailable" announcement.
+    if the trunk is down, the call fails with `503 Vitelity
+    unreachable`.
+
+  **Implementation notes:**
+  - Kamailio's `uac` module owns the outbound REGISTER state
+    machine; `uacreg.list` (generated by VV-2) carries the
+    per-peer credentials. `kamcmd uac.reg_dump` surfaces
+    state to VV-7a's Backend panel + the status-cluster
+    chip.
 
 - [ ] **v4.1.0: VV-15 acceptance drill harness + 16-peer Docker fixture (Tier 2 testing)**
 
   **As** the maintainer,
   **I want** a `make voice-acceptance` target that spins up a
   16-peer Docker-compose mesh (each container running
-  `asterisk-mde` + a headless `mde-voice-client` test driver)
-  and runs the 9 acceptance drills from design doc §12,
+  `kamailio-mde` + `rtpengine-mde` + a headless
+  `mde-voice-client` test driver) and runs the 8 acceptance
+  drills from design doc §13,
   **so that** every PR touching `crates/mde-voice*` /
   `mde-voice-config` / `policy/voice_*` proves no regression
   against the locked acceptance set.
@@ -5028,11 +5091,133 @@ configs.
   **Acceptance:**
   - [ ] `make voice-acceptance` exits 0 on a freshly-cloned
     tree on a developer host.
-  - [ ] All 9 drills (mesh call, transit call, PSTN out,
-    PSTN in, presence, chat, ConfBridge with recording,
-    Vitelity outage, single-peer policy deploy) pass.
+  - [ ] All 8 drills (mesh call, transit call, PSTN out,
+    PSTN in, presence, chat, Vitelity outage, single-peer
+    policy deploy) pass.
   - [ ] CI gate: `.github/workflows/ci.yml` adds a
     `voice-acceptance` job gated on changed paths.
+
+### v4.2.0 Voice PBX epic (locked 2026-05-24)
+
+**Plan source:** spun out of the v4.1.0 epic on 2026-05-24 when
+the operator locked Kamailio + RTPengine + RTPengine-without-
+transcoding as the v4.1.0 architecture. PBX features
+(conferencing, voicemail, MoH, ring groups, IVR, recording,
+group chat) need a media server (transcoding + mixing +
+recording), which v4.1.0 deliberately doesn't ship. v4.2.0
+picks that media server and adds the features back.
+
+**Open lock survey (defer until v4.1.0 ships):**
+
+1. **Media server pick** — FreeSWITCH (full SBC + media engine,
+   battle-tested, heavy), Janus (smaller, WebRTC-focused, less
+   PBX-native), or a different choice. Drives every other v4.2
+   task.
+2. **Conference signaling model** — keep Kamailio as the
+   ingress for conference dial-ins and bridge to the media
+   server's conferencing API, or let the media server own the
+   SIP endpoint for `*81 all-hands` etc.
+3. **Recording storage policy** — local per-peer disk only, or
+   mesh-fs replicated.
+
+- [ ] **v4.2.0: VV-PBX-1 pick + integrate media server (Tier 1 platform)**
+
+  **As** the maintainer,
+  **I want** a single locked pick for the v4.2.0 media server +
+  the supporting Kamailio cfg glue (rtpengine offload off,
+  proxy-to-media-server route, registered SIP endpoints for
+  conference rooms),
+  **so that** every subsequent v4.2 task has a fixed integration
+  surface to build against.
+
+  **Acceptance:**
+  - [ ] Lock-survey writeup at
+    `docs/design/v4.2-voice-pbx.md` with the FreeSWITCH /
+    Janus / other decision rationale.
+  - [ ] New systemd unit + RPM Requires for the chosen daemon.
+  - [ ] `kamailio.cfg` route block forwarding the relevant
+    URIs to the media server's SIP socket.
+  - [ ] Smoke test: a single peer reaches a conference room
+    via the media server's loopback endpoint.
+
+- [ ] **v4.2.0: VV-PBX-2 conference rooms + recording (Tier 2 chrome)**
+
+  *(Moved from v4.1.0 VV-11 on 2026-05-24.)*
+
+  **As** the operator,
+  **I want** named conference rooms (`*81 all-hands`, `*82
+  huddle-1`, …) with attendee list, mute / unmute, and
+  recording-to-WAV,
+  **so that** 3+ peers can talk together without each pair
+  setting up its own call, and I have an audio record of the
+  all-hands.
+
+  **Acceptance:**
+  - [ ] Workbench Voice → Rooms panel (via
+    `mde-voice-workbench-pbx`) lists rooms defined in
+    `voice_mesh`; click to join.
+  - [ ] 4-peer conference stays bidirectional for 5 min;
+    recording lands at `~/.local/share/mde/voice/recordings/
+    <room>-<ISO8601>.wav`.
+  - [ ] Per-attendee mute / unmute from the attendee list.
+  - [ ] Configurable PIN per room; PIN entry IVR prompt on
+    join.
+  - [ ] Conference mode added to the VV-7b slide-up modal —
+    the sixth render mode the original VV-7b design listed.
+
+- [ ] **v4.2.0: VV-PBX-3 voicemail per peer (Tier 2 chrome)**
+
+  *(Moved from v4.1.0 VV-12 on 2026-05-24.)*
+
+  **As** the operator,
+  **I want** a per-peer voicemail box reachable by callers when
+  I don't answer, with playback / delete / mark-read from the
+  Workbench Voicemail panel,
+  **so that** missed calls don't go silently away — including
+  inbound PSTN calls hitting a peer that's `offline`.
+
+  **Acceptance:**
+  - [ ] Media-server voicemail app configured per peer via
+    VV-2; mailbox `1NNN@mde-default`.
+  - [ ] Workbench Voicemail panel (in
+    `mde-voice-workbench-pbx`) lists messages with sender,
+    timestamp, duration, listened/unread flag.
+  - [ ] Greeting recorder works from the panel — records via
+    the same PipeWire capture path as the embedded client.
+
+- [ ] **v4.2.0: VV-PBX-4 music-on-hold + intercom / page (Tier 2 chrome)**
+
+  **As** the operator,
+  **I want** caller-on-hold music + `Page()`-equivalent
+  intercom that auto-answers in speaker mode on a peer
+  selection,
+  **so that** the operator surface matches a typical PBX feel
+  (no silent holds, announcement-only audio for "lunch is in
+  10 minutes" pages).
+
+  **Acceptance:**
+  - [ ] Drop audio files at
+    `~/.local/share/mde/voice/moh/`; media server picks them
+    up via Kamailio config generated by VV-2.
+  - [ ] Workbench Voice → Page panel: peer multi-select +
+    Page button; their HUD auto-answers speaker-only.
+
+- [ ] **v4.2.0: VV-PBX-5 ring groups + IVR + group chat (Tier 2 chrome)**
+
+  **As** the operator,
+  **I want** the per-DID `ring-group` / `ivr` modes that VV-13
+  exposes in v4.1.0 (currently disabled in the dropdown) and
+  group-chat rooms via the media server's MESSAGE broadcast,
+  **so that** the Vitelity panel's full feature set works and
+  multi-party chat exists alongside multi-party voice.
+
+  **Acceptance:**
+  - [ ] `ring-group` simultaneous-ring works against a list of
+    mesh extensions; first to answer wins.
+  - [ ] IVR builder (a tiny graph of "press 1 for X" prompts)
+    in `mde-voice-workbench-pbx`.
+  - [ ] Group-chat rooms surfaced in the slide-up modal's
+    Contacts mode; every room member receives every MESSAGE.
 
 ### Peer Connection Card (new — mesh-peer hero modal, locked 2026-05-21)
 
