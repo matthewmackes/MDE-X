@@ -1307,6 +1307,81 @@ def apply_uid_normalize(_preset: Preset) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# GF-3.2 (v5.0.0) — gluster bootstrap status step. Per the
+# v5.0.0 25-Q lock, the gluster_worker daemon (GF-2.x) owns
+# the actual volume bootstrap; this birthright step is the
+# operator-visible probe that confirms the substrate is in
+# place + reports what the worker will do on its next tick.
+# No worker invocation here — the wholesale-Python-retire
+# directive moved daemon work to mackesd, not Python.
+# ---------------------------------------------------------------------------
+
+
+def apply_gluster_bootstrap(_preset: Preset) -> List[str]:
+    """GF-3.2: Confirm the v5.0.0 gluster substrate is in place.
+
+    Probes whether the `glusterd` service is reachable + whether
+    `gluster pool list` succeeds. Reports the state via the
+    wizard's apply rail. Does NOT bootstrap the mesh-home
+    volume itself — that's the `mackesd::workers::gluster_worker`
+    daemon's job (GF-2.4 genesis path); this step gives the
+    operator confidence the daemon will succeed when it runs.
+
+    Idempotent + safe to re-run. Returns a clean log when:
+      - gluster CLI not installed (operator on a v4.x install
+        without the v5.0.0 substrate; not an error)
+      - glusterd reachable + mesh-home volume already exists
+        (gluster_worker has bootstrapped successfully)
+      - glusterd reachable + mesh-home volume missing
+        (gluster_worker will bootstrap on its next tick)
+    """
+    actions: List[str] = []
+
+    if shutil.which("gluster") is None:
+        actions.append(
+            "gluster: CLI not installed — v5.0.0 substrate inactive. "
+            "Install glusterfs-server (RPM `Requires:` pulls it in on next install)."
+        )
+        log_action(actions[-1])
+        return actions
+
+    rc, out = _run(["systemctl", "is-active", "glusterd.service"], timeout=10)
+    if rc != 0 or "active" not in out:
+        actions.append(
+            "gluster: glusterd.service not active. "
+            "Try `systemctl enable --now glusterd.service` (the RPM %post does this on install)."
+        )
+        log_action(actions[-1])
+        return actions
+
+    rc, out = _run(["gluster", "pool", "list"], timeout=15)
+    if rc != 0:
+        last = out.strip().splitlines()[-1] if out.strip() else f"rc={rc}"
+        actions.append(f"gluster: pool list failed: {last}")
+        log_action(actions[-1])
+        return actions
+    actions.append("gluster: glusterd reachable; pool list ok")
+
+    rc, out = _run(["gluster", "volume", "info", "mesh-home"], timeout=15)
+    if rc == 0:
+        actions.append(
+            "gluster: mesh-home volume already exists "
+            "(gluster_worker bootstrapped it on a previous tick)"
+        )
+    else:
+        actions.append(
+            "gluster: mesh-home volume not yet created — "
+            "mackesd's gluster_worker will bootstrap it on the next tick "
+            "(needs the Nebula overlay-ip publish file at "
+            "/var/lib/mackesd/nebula/overlay-ip, written by nebula_supervisor "
+            "after first peer enrollment)."
+        )
+    for line in actions:
+        log_action(line)
+    return actions
+
+
+# ---------------------------------------------------------------------------
 # 15. LightDM greeter — promoted from apply_appearance (v1.6.0 birthright)
 # ---------------------------------------------------------------------------
 

@@ -47,10 +47,10 @@ from gi.repository import GLib, Gtk  # noqa: E402
 from mackes.logging import log_action
 from mackes.birthright import (
     apply_apps, apply_clipboard_daemon, apply_dnf_update, apply_drawer,
-    apply_enforce_i3, apply_flathub, apply_fleet, apply_fonts, apply_hotkey,
-    apply_lightdm, apply_media_clients, apply_panel_archive,
-    apply_panel_layout, apply_panel_swap, apply_plymouth, apply_qnm,
-    apply_remote_desktop, apply_themes, apply_third_party_repos,
+    apply_enforce_i3, apply_flathub, apply_fleet, apply_fonts,
+    apply_gluster_bootstrap, apply_hotkey, apply_lightdm, apply_media_clients,
+    apply_panel_archive, apply_panel_layout, apply_panel_swap, apply_plymouth,
+    apply_qnm, apply_remote_desktop, apply_themes, apply_third_party_repos,
     apply_thunar_autostart, apply_uid_normalize, apply_uninstall_legacy_xfce,
     apply_uninstall_legacy_xsessions, apply_user_dirs,
 )
@@ -372,6 +372,12 @@ class ApplyPage(Gtk.Box):
             # remaining GF-3.x steps (gluster bootstrap + XDG
             # mesh mount) wire in as they ship.
             _Step("Normalize UID",     lambda: apply_uid_normalize(merged)),
+            # GF-3.2 (v5.0.0) — confirm the v5.0.0 gluster
+            # substrate is in place; report what the
+            # gluster_worker daemon will do on its next tick.
+            # Does NOT bootstrap the volume itself — the daemon
+            # owns that per GF-2.4.
+            _Step("Gluster substrate", lambda: apply_gluster_bootstrap(merged)),
             _Step("XDG user dirs",     lambda: apply_user_dirs(merged)),
             _Step("Super+M hotkey",    lambda: apply_hotkey(merged)),
             # Phase 10.6.1-4: archive the user's pre-1.0 xfce4-panel state,
