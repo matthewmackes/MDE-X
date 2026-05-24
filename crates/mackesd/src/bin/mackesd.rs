@@ -438,6 +438,47 @@ enum CaCmd {
         #[arg(long, value_name = "MESH_ID")]
         mesh_id: Option<String>,
     },
+
+    /// NF-3.6.b (v2.5) — sign a peer's pending-enroll CSR.
+    /// Reads `QNM-Shared/<peer-id>/mackesd/pending-enroll.json`,
+    /// signs the cert under the active CA, writes the
+    /// `nebula-bundle.json` back so the peer's nebula_supervisor
+    /// can materialize `/etc/nebula/`. Idempotent — re-running
+    /// re-signs at the current epoch + allocates a fresh
+    /// overlay IP.
+    SignCsr {
+        /// Peer's stable node-id (e.g. `peer:anvil`). Must match
+        /// a pending-enroll.json under QNM-Shared.
+        node_id: String,
+        /// Override QNM-Shared root (defaults to
+        /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`).
+        #[arg(long, env = "QNM_SHARED_ROOT")]
+        qnm_root: Option<PathBuf>,
+        /// Mesh id (defaults to `mesh-<hostname>`).
+        #[arg(long, value_name = "MESH_ID")]
+        mesh_id: Option<String>,
+        /// CA cert path (defaults to `/etc/nebula/ca.crt`).
+        #[arg(long, value_name = "PATH")]
+        ca_crt: Option<PathBuf>,
+        /// Sealed CA key path (defaults to
+        /// `/var/lib/mackesd/nebula-ca/ca.key`).
+        #[arg(long, value_name = "PATH")]
+        ca_key: Option<PathBuf>,
+        /// Scratch dir for intermediate peer cert/key files
+        /// (defaults to `/var/lib/mackesd/nebula-ca/scratch`).
+        #[arg(long, value_name = "PATH")]
+        scratch_dir: Option<PathBuf>,
+        /// Lighthouse public reachable address baked into the
+        /// bundle's roster (form `host:port`). Defaults to
+        /// `<hostname>:4242`; operators on multi-NIC or
+        /// public-IP-different-from-hostname boxes should
+        /// override.
+        #[arg(long, value_name = "HOST:PORT")]
+        lighthouse_addr: Option<String>,
+        /// Cert lifetime in days (default 365).
+        #[arg(long, default_value_t = 365)]
+        cert_lifetime_days: u32,
+    },
 }
 
 /// NF-18.x — `mackesd nebula <sub>` subcommands.
@@ -1090,6 +1131,81 @@ fn main() -> anyhow::Result<()> {
                         }
                         Err(e) => {
                             return Err(anyhow::anyhow!("dump-ca: {e}"));
+                        }
+                    }
+                }
+                CaCmd::SignCsr {
+                    node_id,
+                    qnm_root,
+                    mesh_id,
+                    ca_crt,
+                    ca_key,
+                    scratch_dir,
+                    lighthouse_addr,
+                    cert_lifetime_days,
+                } => {
+                    // NF-3.6.b — sign the peer's pending-enroll
+                    // CSR + write the bundle back to QNM-Shared.
+                    let qnm_root = qnm_root
+                        .unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                    let mesh = mesh_id.unwrap_or(default_mesh);
+                    let mut paths =
+                        mackesd_core::nebula_enroll::SignCsrPaths::production_defaults();
+                    if let Some(p) = ca_crt {
+                        paths.ca_crt = p;
+                    }
+                    if let Some(p) = ca_key {
+                        paths.ca_key = p;
+                    }
+                    if let Some(p) = scratch_dir {
+                        paths.scratch_dir = p;
+                    }
+                    let lh_addr = lighthouse_addr.unwrap_or_else(|| {
+                        let host = std::fs::read_to_string("/etc/hostname")
+                            .ok()
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or_else(|| default_node_id());
+                        format!("{host}:4242")
+                    });
+                    // Self-roster: the lighthouse running this
+                    // CLI is the only entry. Multi-lighthouse
+                    // setups can re-sign with a different roster
+                    // via a future --lighthouse flag set.
+                    let local_id = default_node_id();
+                    let lighthouses = vec![mackesd_core::ca::bundle::LighthouseEntry {
+                        node_id: local_id.clone(),
+                        // Best-choice: until the lighthouse knows
+                        // its own overlay IP (it gets one only
+                        // after it self-enrolls), advertise the
+                        // conventional first-host address. Operator
+                        // can override by re-signing post-mint or
+                        // by editing the bundle directly.
+                        overlay_ip: "10.42.0.1".to_string(),
+                        external_addr: lh_addr,
+                    }];
+                    match mackesd_core::nebula_enroll::sign_pending_csr(
+                        &mackesd_core::ca::SubprocessBackend,
+                        &conn,
+                        &qnm_root,
+                        &node_id,
+                        &mesh,
+                        &paths,
+                        lighthouses,
+                        cert_lifetime_days,
+                    ) {
+                        Ok(outcome) => {
+                            println!(
+                                "signed {} into mesh '{}' at epoch {} (overlay {}); bundle at {}.",
+                                outcome.peer_id,
+                                mesh,
+                                outcome.epoch,
+                                outcome.overlay_ip,
+                                outcome.bundle_path.display(),
+                            );
+                        }
+                        Err(e) => {
+                            return Err(anyhow::anyhow!("sign-csr: {e}"));
                         }
                     }
                 }

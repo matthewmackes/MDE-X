@@ -378,6 +378,242 @@ pub fn build_pending(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// NF-3.6.b — lighthouse-side signing flow.
+// ─────────────────────────────────────────────────────────────────
+
+/// Paths the lighthouse provides for the sign-csr flow. The
+/// defaults mirror the v2.5 Nebula on-disk convention but every
+/// field is overridable so tests + non-standard deployments can
+/// redirect.
+#[derive(Debug, Clone)]
+pub struct SignCsrPaths {
+    /// Public CA cert (PEM). Default `/etc/nebula/ca.crt`.
+    pub ca_crt: PathBuf,
+    /// Sealed CA private key. Default
+    /// `/var/lib/mackesd/nebula-ca/ca.key`.
+    pub ca_key: PathBuf,
+    /// Scratch dir for the peer cert/key intermediate files.
+    /// The unsealed PEM bytes get read back + embedded in the
+    /// bundle; the on-disk files can be cleaned up by the caller
+    /// after the bundle lands.
+    pub scratch_dir: PathBuf,
+}
+
+impl SignCsrPaths {
+    /// Production defaults — `/etc/nebula/ca.crt`,
+    /// `/var/lib/mackesd/nebula-ca/ca.key`,
+    /// `/var/lib/mackesd/nebula-ca/scratch/`.
+    #[must_use]
+    pub fn production_defaults() -> Self {
+        Self {
+            ca_crt: PathBuf::from("/etc/nebula/ca.crt"),
+            ca_key: PathBuf::from("/var/lib/mackesd/nebula-ca/ca.key"),
+            scratch_dir: PathBuf::from("/var/lib/mackesd/nebula-ca/scratch"),
+        }
+    }
+}
+
+/// Outcome of a successful lighthouse-side signing.
+#[derive(Debug, Clone)]
+pub struct SignOutcome {
+    /// Peer that was signed.
+    pub peer_id: String,
+    /// Allocated overlay IP.
+    pub overlay_ip: String,
+    /// CA epoch the cert was signed under.
+    pub epoch: i64,
+    /// Path the bundle was written to under QNM-Shared.
+    pub bundle_path: PathBuf,
+}
+
+/// Errors the lighthouse-side signing can hit. Distinct from
+/// [`EnrollError`] (peer-side) so the CLI can render
+/// lighthouse-specific copy without mixing in peer hints.
+#[derive(Debug)]
+pub enum SignCsrError {
+    /// No pending-enroll CSR for the named peer.
+    CsrMissing {
+        /// Path the lighthouse looked at.
+        path: PathBuf,
+    },
+    /// CSR file existed but didn't deserialize. Likely a
+    /// version-mismatched peer.
+    CsrCorrupt {
+        /// Underlying parser error.
+        reason: String,
+    },
+    /// Cert signing itself failed (nebula-cert missing, no
+    /// active CA, permission denied on a path).
+    SignFailed {
+        /// Underlying CaError message.
+        reason: String,
+    },
+    /// Bundle write to QNM-Shared failed.
+    BundleWriteFailed {
+        /// Underlying I/O error.
+        reason: String,
+    },
+    /// Reading the peer key bytes back from the sealed file
+    /// failed (uid mismatch, mode drift, etc.).
+    KeyReadFailed {
+        /// Underlying CaError message.
+        reason: String,
+    },
+}
+
+impl std::fmt::Display for SignCsrError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CsrMissing { path } => write!(
+                f,
+                "no pending-enroll CSR at {}. Has the peer \
+                 actually run `mackesd enroll --token`?",
+                path.display(),
+            ),
+            Self::CsrCorrupt { reason } => write!(
+                f,
+                "pending-enroll CSR didn't parse: {reason}. \
+                 Confirm both peers are on the same MDE release.",
+            ),
+            Self::SignFailed { reason } => write!(
+                f,
+                "cert signing failed: {reason}. Likely no active \
+                 CA (run `mackesd ca mint` first) or nebula-cert \
+                 missing from PATH.",
+            ),
+            Self::BundleWriteFailed { reason } => write!(
+                f,
+                "bundle write to QNM-Shared failed: {reason}. \
+                 Confirm the QNM-Shared mount is writable.",
+            ),
+            Self::KeyReadFailed { reason } => write!(
+                f,
+                "could not read signed peer key for bundle: \
+                 {reason}. Check ownership on the scratch dir.",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SignCsrError {}
+
+/// Lighthouse-side helper that turns a pending-enroll CSR into
+/// a signed bundle the peer can materialize. End-to-end:
+///
+///   1. Read PendingEnrollment from
+///      `qnm_root/<peer_id>/mackesd/pending-enroll.json`.
+///   2. Call `ca::sign::sign_peer_cert` with `PeerRole::Peer`
+///      under the active CA epoch (allocates overlay IP).
+///   3. Read the unsealed peer key bytes back from the sealed
+///      file (seal just enforces 0600 + uid match — the bytes
+///      are the raw PEM).
+///   4. Build a [`crate::ca::bundle::NebulaBundle`] containing
+///      the signed cert + key + CA cert + lighthouse roster.
+///   5. Write the bundle to
+///      `qnm_root/<peer_id>/mackesd/nebula-bundle.json` via
+///      [`crate::ca::bundle::write_bundle`].
+///   6. Return [`SignOutcome`] for the CLI to display.
+///
+/// The lighthouse roster passed via `lighthouses` is whatever
+/// the caller decides — typically the single self-lighthouse +
+/// any failover hosts. Empty rosters are accepted but produce a
+/// bundle the peer's nebula_supervisor will warn about.
+///
+/// # Errors
+///
+/// Per [`SignCsrError`].
+#[allow(clippy::too_many_arguments)]
+pub fn sign_pending_csr<B: crate::ca::NebulaCertBackend>(
+    backend: &B,
+    conn: &rusqlite::Connection,
+    qnm_root: &Path,
+    peer_id: &str,
+    mesh_id: &str,
+    paths: &SignCsrPaths,
+    lighthouses: Vec<crate::ca::bundle::LighthouseEntry>,
+    cert_lifetime_days: u32,
+) -> Result<SignOutcome, SignCsrError> {
+    let csr_path = pending_enroll_path(qnm_root, peer_id);
+    if !csr_path.exists() {
+        return Err(SignCsrError::CsrMissing { path: csr_path });
+    }
+    let csr_bytes = std::fs::read(&csr_path).map_err(|e| SignCsrError::CsrCorrupt {
+        reason: format!("read {}: {e}", csr_path.display()),
+    })?;
+    let csr: PendingEnrollment =
+        serde_json::from_slice(&csr_bytes).map_err(|e| SignCsrError::CsrCorrupt {
+            reason: e.to_string(),
+        })?;
+    // Hand-off to the underlying ca::sign machinery. Output
+    // paths go into the scratch dir keyed by node_id so multiple
+    // concurrent signings don't trample each other.
+    std::fs::create_dir_all(&paths.scratch_dir).map_err(|e| {
+        SignCsrError::SignFailed {
+            reason: format!("mkdir {}: {e}", paths.scratch_dir.display()),
+        }
+    })?;
+    let crt_out = paths.scratch_dir.join(format!("{}.crt", csr.node_id));
+    let key_out = paths.scratch_dir.join(format!("{}.key", csr.node_id));
+    let signed = crate::ca::sign::sign_peer_cert(
+        backend,
+        conn,
+        mesh_id,
+        &csr.node_id,
+        crate::ca::sign::PeerRole::Peer,
+        &paths.ca_crt,
+        &paths.ca_key,
+        &crt_out,
+        &key_out,
+        cert_lifetime_days,
+    )
+    .map_err(|e| SignCsrError::SignFailed { reason: e.to_string() })?;
+    // Read the unsealed key bytes for the bundle. seal::read_sealed
+    // only enforces 0600 + uid match; the bytes are the raw PEM.
+    let peer_key_pem_bytes = crate::ca::seal::read_sealed(&key_out)
+        .map_err(|e| SignCsrError::KeyReadFailed { reason: e.to_string() })?;
+    let peer_key_pem = String::from_utf8(peer_key_pem_bytes).map_err(|e| {
+        SignCsrError::KeyReadFailed {
+            reason: format!("peer key isn't UTF-8: {e}"),
+        }
+    })?;
+    // Read the CA cert PEM for the bundle.
+    let ca_cert_pem = std::fs::read_to_string(&paths.ca_crt).map_err(|e| {
+        SignCsrError::SignFailed {
+            reason: format!("read CA cert {}: {e}", paths.ca_crt.display()),
+        }
+    })?;
+    // Look up the active epoch + assemble the bundle.
+    let active_epoch = crate::ca::sign::active_epoch(conn, mesh_id)
+        .map_err(|e| SignCsrError::SignFailed { reason: e.to_string() })?
+        .unwrap_or(0);
+    let created_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let bundle = crate::ca::bundle::NebulaBundle {
+        mesh_id: mesh_id.to_string(),
+        epoch: active_epoch,
+        ca_cert_pem,
+        peer_cert_pem: signed.cert_pem,
+        peer_key_pem,
+        overlay_ip: signed.overlay_ip.clone(),
+        mesh_cidr: format!("{}/16", crate::ca::sign::DEFAULT_MESH_CIDR_BASE),
+        lighthouses,
+        created_at,
+    };
+    let bundle_path = crate::ca::bundle::bundle_path(qnm_root, peer_id);
+    crate::ca::bundle::write_bundle(&bundle_path, &bundle).map_err(|e| {
+        SignCsrError::BundleWriteFailed { reason: e.to_string() }
+    })?;
+    Ok(SignOutcome {
+        peer_id: csr.node_id,
+        overlay_ip: signed.overlay_ip,
+        epoch: active_epoch,
+        bundle_path,
+    })
+}
+
 fn hex_bytes(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -617,5 +853,212 @@ mod tests {
         let tmp = tempdir().expect("tempdir");
         let r = enroll_with_token(tmp.path(), "peer:anvil", "anvil", "not a token");
         assert!(matches!(r, Err(EnrollError::InvalidToken { .. })));
+    }
+
+    // ---- sign_pending_csr (lighthouse side) -----------------
+
+    use crate::ca::{mint, MockBackend};
+
+    fn fresh_store() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().expect("memory db");
+        crate::store::migrate(&conn).expect("migrate");
+        conn
+    }
+
+    /// Mint a CA + return paths to the CA cert/key in the
+    /// per-test scratch dir. The CA exists at epoch 0 for the
+    /// mesh "test-mesh" after this returns.
+    fn make_test_ca(tmp_dir: &Path, conn: &rusqlite::Connection) -> (PathBuf, PathBuf) {
+        let ca_crt = tmp_dir.join("ca.crt");
+        let ca_key = tmp_dir.join("ca.key");
+        mint::mint_ca(
+            &MockBackend,
+            conn,
+            "test-mesh",
+            Some(&ca_crt),
+            Some(&ca_key),
+        )
+        .expect("mint");
+        (ca_crt, ca_key)
+    }
+
+    /// Write a pending-enroll CSR under qnm_root/peer_id/mackesd/.
+    fn place_csr(qnm_root: &Path, peer_id: &str) -> PendingEnrollment {
+        let identity = build_identity();
+        let token = parse_join_token("mesh:test-mesh@10.0.0.5:4242#bearer").unwrap();
+        let pending = build_pending(&identity, peer_id, "anvil", token);
+        publish_enrollment_request(qnm_root, peer_id, &pending).expect("publish");
+        pending
+    }
+
+    #[test]
+    fn sign_csr_errors_when_pending_missing() {
+        let tmp = tempdir().expect("tempdir");
+        let conn = fresh_store();
+        let (ca_crt, ca_key) = make_test_ca(tmp.path(), &conn);
+        let paths = SignCsrPaths {
+            ca_crt,
+            ca_key,
+            scratch_dir: tmp.path().join("scratch"),
+        };
+        let r = sign_pending_csr(
+            &MockBackend,
+            &conn,
+            tmp.path(),
+            "peer:absent",
+            "test-mesh",
+            &paths,
+            Vec::new(),
+            365,
+        );
+        match r {
+            Err(SignCsrError::CsrMissing { path }) => {
+                assert!(path.ends_with("peer:absent/mackesd/pending-enroll.json"));
+            }
+            other => panic!("expected CsrMissing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sign_csr_happy_path_writes_bundle_with_signed_cert() {
+        let tmp = tempdir().expect("tempdir");
+        let conn = fresh_store();
+        let (ca_crt, ca_key) = make_test_ca(tmp.path(), &conn);
+        let pending = place_csr(tmp.path(), "peer:anvil");
+        let paths = SignCsrPaths {
+            ca_crt: ca_crt.clone(),
+            ca_key,
+            scratch_dir: tmp.path().join("scratch"),
+        };
+        let lighthouses = vec![crate::ca::bundle::LighthouseEntry {
+            node_id: "peer:lh".into(),
+            overlay_ip: "10.42.0.1".into(),
+            external_addr: "lh.example:4242".into(),
+        }];
+        let outcome = sign_pending_csr(
+            &MockBackend,
+            &conn,
+            tmp.path(),
+            "peer:anvil",
+            "test-mesh",
+            &paths,
+            lighthouses.clone(),
+            365,
+        )
+        .expect("sign");
+        assert_eq!(outcome.peer_id, "peer:anvil");
+        assert!(outcome.overlay_ip.starts_with("10.42."));
+        assert_eq!(outcome.epoch, 0);
+        assert!(outcome.bundle_path.exists());
+        // Bundle parses + contains the signed cert + the CA PEM
+        // we just minted + the lighthouse roster we passed.
+        let bundle = crate::ca::bundle::read_bundle(&outcome.bundle_path).expect("read");
+        assert_eq!(bundle.mesh_id, "test-mesh");
+        assert_eq!(bundle.overlay_ip, outcome.overlay_ip);
+        assert_eq!(bundle.lighthouses, lighthouses);
+        assert!(bundle.peer_cert_pem.contains("NEBULA"));
+        assert!(bundle.ca_cert_pem.contains("NEBULA CA"));
+        assert!(!bundle.peer_key_pem.is_empty());
+        // Confirms the dropped CSR data round-tripped to the
+        // bundle: same node_id is in nebula_peer_certs after
+        // sign_peer_cert ran.
+        let row_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM nebula_peer_certs WHERE node_id = ?1",
+                [&pending.node_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(row_count, 1);
+    }
+
+    #[test]
+    fn sign_csr_errors_when_csr_is_garbage() {
+        let tmp = tempdir().expect("tempdir");
+        let conn = fresh_store();
+        let (ca_crt, ca_key) = make_test_ca(tmp.path(), &conn);
+        // Place a malformed CSR (raw bytes that don't parse).
+        let csr_path = pending_enroll_path(tmp.path(), "peer:anvil");
+        std::fs::create_dir_all(csr_path.parent().unwrap()).unwrap();
+        std::fs::write(&csr_path, "{not valid json").unwrap();
+        let paths = SignCsrPaths {
+            ca_crt,
+            ca_key,
+            scratch_dir: tmp.path().join("scratch"),
+        };
+        let r = sign_pending_csr(
+            &MockBackend,
+            &conn,
+            tmp.path(),
+            "peer:anvil",
+            "test-mesh",
+            &paths,
+            Vec::new(),
+            365,
+        );
+        assert!(matches!(r, Err(SignCsrError::CsrCorrupt { .. })));
+    }
+
+    #[test]
+    fn sign_csr_errors_when_no_active_ca() {
+        let tmp = tempdir().expect("tempdir");
+        let conn = fresh_store(); // no mint_ca
+        place_csr(tmp.path(), "peer:anvil");
+        // Need SOMETHING at ca_crt path for the seal::read path
+        // not to crash, but no SQL row means sign_peer_cert
+        // refuses with "no active CA".
+        let ca_crt = tmp.path().join("ca.crt");
+        let ca_key = tmp.path().join("ca.key");
+        std::fs::write(&ca_crt, "FAKE CA").unwrap();
+        std::fs::write(&ca_key, "FAKE KEY").unwrap();
+        let paths = SignCsrPaths {
+            ca_crt,
+            ca_key,
+            scratch_dir: tmp.path().join("scratch"),
+        };
+        let r = sign_pending_csr(
+            &MockBackend,
+            &conn,
+            tmp.path(),
+            "peer:anvil",
+            "test-mesh",
+            &paths,
+            Vec::new(),
+            365,
+        );
+        match r {
+            Err(SignCsrError::SignFailed { reason }) => {
+                assert!(reason.contains("no active CA"), "reason: {reason}");
+            }
+            other => panic!("expected SignFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sign_outcome_error_messages_are_actionable() {
+        let m = SignCsrError::CsrMissing {
+            path: PathBuf::from("/qnm/peer:x/mackesd/pending-enroll.json"),
+        }
+        .to_string();
+        assert!(m.contains("no pending-enroll CSR"));
+        assert!(m.contains("mackesd enroll --token"));
+        let s = SignCsrError::SignFailed { reason: "x".into() }.to_string();
+        assert!(s.contains("`mackesd ca mint`"));
+        let bw = SignCsrError::BundleWriteFailed {
+            reason: "permission denied".into(),
+        }
+        .to_string();
+        assert!(bw.contains("QNM-Shared mount"));
+    }
+
+    #[test]
+    fn production_defaults_are_locked_paths() {
+        let p = SignCsrPaths::production_defaults();
+        assert_eq!(p.ca_crt, PathBuf::from("/etc/nebula/ca.crt"));
+        assert_eq!(p.ca_key, PathBuf::from("/var/lib/mackesd/nebula-ca/ca.key"));
+        assert_eq!(
+            p.scratch_dir,
+            PathBuf::from("/var/lib/mackesd/nebula-ca/scratch")
+        );
     }
 }
