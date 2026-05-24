@@ -232,7 +232,29 @@ def is_client_available() -> bool:
 
 
 def _control_url() -> str:
-    """NATS connect URL — points at the mesh's control peer."""
+    """NATS connect URL — points at the mesh's control peer.
+
+    NF-13.2 (v2.5, 2026-05-23): prefers Nebula overlay IPs via
+    ``mackes.mesh_nebula.nebula_peer_ips`` (which calls
+    ``dev.mackes.MDE.Nebula.Status.ListPeers``); falls back
+    to the legacy headscale_list_peers path during the
+    migration window when mackesd isn't reachable.
+    """
+    # NF-13.2 — Nebula path first.
+    try:
+        from mackes.mesh_nebula import nebula_peer_ips
+        from mackes.mesh_vpn import MeshState
+        state = MeshState.load()
+        cid = state.control_peer_id
+        if cid:
+            for name, ip in nebula_peer_ips():
+                if name == cid:
+                    return f"nats://{ip}:{NATS_PORT}"
+    except Exception:  # noqa: BLE001
+        pass
+    # Legacy fallback — kept for back-compat during the
+    # migration window. Retires alongside NF-5.1 (mesh_vpn.py
+    # deletion).
     try:
         from mackes.mesh_vpn import MeshState, headscale_list_peers
         state = MeshState.load()
@@ -245,7 +267,7 @@ def _control_url() -> str:
                         return f"nats://{ip}:{NATS_PORT}"
     except Exception:  # noqa: BLE001
         pass
-    # Fallback: connect to localhost (we ARE the control peer)
+    # Final fallback: connect to localhost (we ARE the control peer)
     return f"nats://127.0.0.1:{NATS_PORT}"
 
 

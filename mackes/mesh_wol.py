@@ -168,7 +168,17 @@ def cache_peer_macs() -> int:
                     cache[cols[0]] = cols[3]
     except OSError:
         pass
-    # Mesh peers — also map peer_name → mac so we don't need IP first
+    # Mesh peers — also map peer_name → mac so we don't need IP first.
+    # NF-13.6 (v2.5, 2026-05-23): prefer Nebula overlay roster via
+    # mackes.mesh_nebula.nebula_peer_ips; fall back to the legacy
+    # tailscale path during the migration window.
+    try:
+        from mackes.mesh_nebula import nebula_peer_ips
+        for name, mip in nebula_peer_ips():
+            if mip and mip in cache and name:
+                cache[name.split(".", 1)[0]] = cache[mip]
+    except Exception:  # noqa: BLE001
+        pass
     try:
         from mackes.mesh_vpn import tailscale_status
         for p in (tailscale_status().get("peers") or []):
