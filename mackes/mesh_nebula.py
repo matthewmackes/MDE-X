@@ -412,6 +412,88 @@ def apply_nebula_firewall_preset() -> int:
     return rc
 
 
+# ─────────────────────────────────────────────────────────────────
+# NF-13.2..13.7 peer-IP enumeration
+# ─────────────────────────────────────────────────────────────────
+#
+# Canonical replacement for `tailscale status --json` parsing.
+# Every NF-13 service publisher (mesh_nats, mesh_fs, mesh_media,
+# mesh_sync, mesh_av) needs the (hostname, overlay-ip) tuple set
+# to know which peers to broadcast / mount / serve to. This
+# helper consults mded.Nebula.Status.ListPeers() via dbus-send
+# subprocess + falls back to an empty list when the daemon isn't
+# reachable.
+
+
+def nebula_peer_ips() -> list[tuple[str, str]]:
+    """NF-13.2..13.7 — return (hostname, overlay_ip) pairs for
+    every reachable Nebula peer (excluding self).
+
+    Implementation: shells out to `dbus-send` to call
+    org.mackes.mackesd
+    /dev/mackes/MDE/Nebula/Status
+    dev.mackes.MDE.Nebula.Status.ListPeers() and parses the JSON
+    reply. On any failure (dbus-send missing, daemon offline,
+    JSON parse error) returns an empty list so callers fall
+    back to their legacy enumeration path during the migration
+    window.
+    """
+    if shutil.which("dbus-send") is None:
+        return []
+    try:
+        out = subprocess.run(
+            [
+                "dbus-send", "--session", "--print-reply=literal",
+                "--dest=org.mackes.mackesd",
+                "/dev/mackes/MDE/Nebula/Status",
+                "dev.mackes.MDE.Nebula.Status.ListPeers",
+            ],
+            capture_output=True, text=True, timeout=2, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if out.returncode != 0:
+        return []
+    # dbus-send --print-reply=literal emits the JSON as a single
+    # string with whitespace; locate the array.
+    raw = out.stdout.strip()
+    if not raw:
+        return []
+    # Strip any leading `string "` wrapper dbus-send may add.
+    if raw.startswith('string "'):
+        raw = raw[len('string "'):]
+        if raw.endswith('"'):
+            raw = raw[:-1]
+    raw = raw.encode("latin-1").decode("unicode_escape", errors="ignore")
+    try:
+        peers = json.loads(raw)
+    except (ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(peers, list):
+        return []
+    out_pairs: list[tuple[str, str]] = []
+    for p in peers:
+        if not isinstance(p, dict):
+            continue
+        name = p.get("name") or p.get("node_id")
+        ip = p.get("overlay_ip")
+        if isinstance(name, str) and isinstance(ip, str) and name and ip:
+            out_pairs.append((name, ip))
+    return out_pairs
+
+
+def bind_target_for(service_id: str) -> str | None:
+    """NF-13.2..13.7 — return the overlay IP this peer should bind
+    `<service>` to, or None when no overlay IP exists yet (the
+    service stays unbound until enrollment completes). Same
+    behavior for every service today; future-proofed via the
+    service_id parameter so per-service overrides can land
+    without touching the consumer.
+    """
+    _ = service_id  # reserved for future per-service overrides
+    return current_overlay_ip()
+
+
 __all__ = [
     "CANONICAL_SERVICES",
     "CONFIG_DIR",
@@ -433,4 +515,6 @@ __all__ = [
     "_extract_lighthouse_hosts",
     "NEBULA_FIREWALL_PORTS",
     "apply_nebula_firewall_preset",
+    "bind_target_for",
+    "nebula_peer_ips",
 ]

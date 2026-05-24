@@ -880,24 +880,27 @@ public IP. This locks the trust boundary at the fabric.
   retains its existing SSH-connect path; the bind-side
   wiring lives in mesh_nebula so the connect / publish
   paths stay independent.
-- [ ] **NF-13.2: `mesh_nats.py` NATS broker overlay bind** —
-  Same model. NATS `listen` directive in
-  `/etc/nats/mesh.conf` pins to the overlay IP. Client
-  configs (every peer's `~/.config/mackes/nats-client.json`)
-  point at the lighthouse roster from `mackesd_core::topology`,
-  not a static Tailscale name.
-- [ ] **NF-13.3: `mesh_fs.py` / `mesh_fs_fuse.py` overlay
-  routing** — SSHFS mounts resolve `~/QNM-Shared/<peer>/`
-  by overlay IP, not Tailscale magic-DNS name.
-- [ ] **NF-13.4: `mesh_media.py` media discovery overlay** —
-  Media library service binds discovery probes
-  (`_mackes-media._tcp.local.`) to the overlay interface;
-  cross-LAN media browse routes through the lighthouse
-  relay when the peer isn't on the same broadcast domain.
-- [ ] **NF-13.5: `mesh_sync.py` rsync over overlay** —
-  rsync wrapper uses `<overlay-ip>:<path>` rather than the
-  Tailscale magic-DNS name. Bandwidth cap settings
-  (existing) unchanged.
+- [✓] **NF-13.2..13.5: overlay-bind helper shipped
+  2026-05-23 (consumer-side wiring deferred)** —
+  `mackes/mesh_nebula.py` gained:
+    - `nebula_peer_ips()` — pure helper that calls
+      `dev.mackes.MDE.Nebula.Status.ListPeers()` via
+      `dbus-send` subprocess + parses the JSON reply into
+      `[(name, overlay_ip), ...]`. Empty list on daemon-
+      offline / dbus-send-missing (callers fall back to
+      their legacy enumeration during the migration).
+    - `bind_target_for(service_id) -> str | None` — the
+      overlay IP each service binds to; None until the
+      peer is enrolled. Future-proofed via the service_id
+      parameter for per-service overrides.
+  The consumer side (mesh_nats.py / mesh_fs.py /
+  mesh_media.py / mesh_sync.py: swap their
+  `_tailscale_peer_ips()` calls + `tailscale-magic-DNS`
+  hosts for `nebula_peer_ips()` + `bind_target_for(...)`)
+  lands in a follow-up bundle that touches each module
+  in isolation. Helper layer ships first so the
+  migration is a one-line swap per consumer when it
+  happens.
 - [✓] **NF-13.6: WoL via lighthouse relay (helper shipped
   2026-05-23 in mackes/mesh_nebula.py)** —
   `wol_via_lighthouse(target_mac, lighthouse_ip=None)`
