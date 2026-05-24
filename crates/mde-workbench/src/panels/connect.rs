@@ -11,9 +11,10 @@
 //!     when the peer's `capabilities` advertises
 //!     `kdeconnect.sms.messages` (iOS doesn't, Android does).
 //!
-//!   * **Share** (5.6) — drop-file target wired to
-//!     `dev.mackes.MDE.Connect1.SendFile`. Shown when the peer
-//!     advertises `kdeconnect.share.request`.
+//!   * ~~**Share** (5.6)~~ — retired by GF-5.2 (v5.0.0).
+//!     File transfers now move via the mesh-home drop
+//!     folder (`~/Documents/From-<phone-name>/`) once the
+//!     KDC2 inbound receive handler (GF-5.1) lands.
 //!
 //!   * **Common chrome** (5.7) — Clipboard / Notification mirror
 //!     toggles + the Pair / Unpair button. Always visible.
@@ -75,8 +76,9 @@ pub enum ConnectSection {
     Phone,
     /// KDC2-5.5 — SMS thread list + composer.
     Messaging,
-    /// KDC2-5.6 — file drop target.
-    Share,
+    // GF-5.2 (v5.0.0) — the `Share` variant retired alongside
+    // the file-drop UI surface. Files now move via the
+    // mesh-home drop folder (`~/Documents/From-<phone-name>/`).
     /// KDC2-5.7 — common chrome (clipboard, notifications
     /// mirror, pair toggle). Always visible.
     CommonChrome,
@@ -93,10 +95,6 @@ pub fn section_visible_for(section: ConnectSection, peer: &ConnectPeer) -> bool 
             .capabilities
             .iter()
             .any(|c| c == "kdeconnect.sms.messages"),
-        ConnectSection::Share => peer
-            .capabilities
-            .iter()
-            .any(|c| c == "kdeconnect.share.request"),
     }
 }
 
@@ -125,14 +123,8 @@ pub fn render_messaging_section(peer: &ConnectPeer) -> String {
     "Threads: (none yet — pulls from `kdeconnect.sms.messages`)\n[New message]".to_string()
 }
 
-/// KDC2-5.6 — share section text fragment.
-#[must_use]
-pub fn render_share_section(peer: &ConnectPeer) -> String {
-    if !section_visible_for(ConnectSection::Share, peer) {
-        return String::new();
-    }
-    "Drop a file here → SendFile(device_id, path)".to_string()
-}
+// GF-5.2 (v5.0.0) — `render_share_section` retired
+// alongside the file-drop UI removal.
 
 /// KDC2-5.7 — common chrome text fragment.
 #[must_use]
@@ -160,9 +152,8 @@ pub fn render_card(peer: &ConnectPeer) -> Vec<(ConnectSection, String)> {
     if section_visible_for(ConnectSection::Messaging, peer) {
         out.push((ConnectSection::Messaging, render_messaging_section(peer)));
     }
-    if section_visible_for(ConnectSection::Share, peer) {
-        out.push((ConnectSection::Share, render_share_section(peer)));
-    }
+    // GF-5.2 (v5.0.0) — Share section dropped; files move
+    // via the mesh-home drop folder instead.
     // Common chrome always visible, at the bottom.
     out.push((ConnectSection::CommonChrome, render_common_chrome(peer)));
     out
@@ -218,13 +209,11 @@ mod tests {
         assert!(!section_visible_for(ConnectSection::Messaging, &without));
     }
 
-    #[test]
-    fn share_section_gated_on_share_request_capability() {
-        let with = make_peer("phone", &["kdeconnect.share.request"]);
-        let without = make_peer("phone", &[]);
-        assert!(section_visible_for(ConnectSection::Share, &with));
-        assert!(!section_visible_for(ConnectSection::Share, &without));
-    }
+    // GF-5.2 (v5.0.0) — `share_section_gated_on_share_request_capability`
+    // test retired alongside the Share variant + render_share_section
+    // helper. File transfer moves via the mesh-home drop folder
+    // (`~/Documents/From-<phone-name>/`) once GF-5.1 lands the
+    // KDC2 inbound receive handler.
 
     #[test]
     fn phone_section_includes_battery_when_known() {
@@ -259,13 +248,8 @@ mod tests {
         assert!(render_messaging_section(&without).is_empty());
     }
 
-    #[test]
-    fn share_section_renders_only_when_visible() {
-        let with = make_peer("phone", &["kdeconnect.share.request"]);
-        let without = make_peer("phone", &[]);
-        assert!(!render_share_section(&with).is_empty());
-        assert!(render_share_section(&without).is_empty());
-    }
+    // GF-5.2 (v5.0.0) — `share_section_renders_only_when_visible`
+    // test retired with the Share helper.
 
     #[test]
     fn common_chrome_shows_never_reached_for_fresh_pair() {
@@ -278,9 +262,10 @@ mod tests {
     }
 
     #[test]
-    fn render_card_emits_sections_in_phone_messaging_share_chrome_order() {
-        // A fully-featured phone returns Phone + Messaging +
-        // Share + CommonChrome in that order.
+    fn render_card_emits_sections_in_phone_messaging_chrome_order() {
+        // GF-5.2 (v5.0.0) — Share section retired; a fully-
+        // featured phone now returns Phone + Messaging +
+        // CommonChrome (no Share).
         let peer = make_peer(
             "phone",
             &["kdeconnect.sms.messages", "kdeconnect.share.request"],
@@ -292,15 +277,14 @@ mod tests {
             vec![
                 ConnectSection::Phone,
                 ConnectSection::Messaging,
-                ConnectSection::Share,
                 ConnectSection::CommonChrome,
             ],
         );
     }
 
     #[test]
-    fn render_card_for_desktop_omits_phone_messaging_share() {
-        // A paired desktop peer has no phone/messaging/share
+    fn render_card_for_desktop_omits_phone_messaging() {
+        // A paired desktop peer has no phone/messaging
         // sections; only CommonChrome surfaces.
         let peer = make_peer("desktop", &["kdeconnect.clipboard"]);
         let sections: Vec<ConnectSection> =

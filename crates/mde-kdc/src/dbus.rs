@@ -4,8 +4,12 @@
 //! session bus at `/dev/mackes/MDE/Connect`. Concrete methods
 //! land in KDC2-3.4 (`ListDevices` + `GetDevice`), 3.5
 //! (`PairDevice` + `UnpairDevice`), 3.6 (`RingDevice` +
-//! `SendSms` + `SendFile`), 3.9 (`DeviceAdded` / `Removed` /
-//! `Updated` signals).
+//! `SendSms`), 3.9 (`DeviceAdded` / `Removed` / `Updated`
+//! signals). The original 3.6 also shipped `SendFile`; GF-5.2
+//! (v5.0.0) retired that method when KDC2's file-transfer
+//! UI surface retired — files now move via the mesh-home
+//! drop folder (`~/Documents/From-<phone-name>/`) once the
+//! KDC2 inbound receive handler (GF-5.1) lands.
 //!
 //! Single-instance guard via the standard zbus name-request
 //! flow: the bus refuses the name if another mde-kdc instance
@@ -289,21 +293,16 @@ impl ConnectInterface {
         Ok(())
     }
 
-    /// KDC2-3.6 — initiate a file send to the paired device.
-    /// `path` is a local filesystem path the network worker
-    /// will stream once the share handshake completes. Errors
-    /// with `NoSuchDevice` if the id isn't paired.
-    async fn send_file(&self, device_id: String, path: String) -> zbus::fdo::Result<()> {
-        ensure_paired(&self.pairing_store, &device_id)?;
-        self.outbound.push(OutboundSend {
-            device_id,
-            packet: build_packet(
-                "kdeconnect.share.request",
-                serde_json::json!({ "filename": path }),
-            ),
-        });
-        Ok(())
-    }
+    // GF-5.2 (v5.0.0) — `SendFile` D-Bus method retired
+    // alongside the KDC2 file-share UI removal. Files now
+    // move via the mesh-home drop folder
+    // (`~/Documents/From-<phone-name>/`) once the KDC2
+    // inbound receive handler (GF-5.1) lands. The
+    // `kdeconnect.share.request` packet kind stays in the
+    // outbound queue's vocabulary (build_packet test
+    // exercises it) since the GF-5.1 inbound handler may
+    // emit it as part of an acknowledgement; only the
+    // operator-facing OUTBOUND surface is gone.
 
     /// KDC2-3.5 — unpair a device. Removes the record from
     /// `devices.toml`. Errors with

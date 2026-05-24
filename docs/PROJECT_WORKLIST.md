@@ -195,7 +195,7 @@ locked work appears under **Active** with `[ ] Open`.
 #### KDC2 phone-bridge rewrite (breaking change for v5.0.0)
 
 - [ ] **GF-5.1: Rewrite KDC2 file-transfer destination in `crates/mde-kdc/src/` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs the KDC2 inbound file-handler infrastructure (no `kdeconnect.share.request` dispatch path in `crates/mde-kdc/src/dispatch.rs` yet — only outbound packet builders exist) + a paired Android phone for end-to-end verification. Doesn't gate the cut.)* — received files land in `~/Documents/From-<phone-name>/` (folder created idempotently on first receive). Mesh replicates from there to every peer.
-- [ ] **GF-5.2: Remove every KDC2 file-share UI surface** (share / upload / pull buttons) from `crates/mde-kdc/`. The mesh drop folder is the only surface.
+- [✓] **GF-5.2: Remove every KDC2 file-share UI surface** *(shipped 2026-05-24 — `send_file` D-Bus method retired from `crates/mde-kdc/src/dbus.rs:296`; top-level doc comment updated to flag the GF-5.2 retire alongside the `SendFile` mention in the KDC2-3.6 list. mde-workbench's connect panel (`crates/mde-workbench/src/panels/connect.rs`) drops the `ConnectSection::Share` enum variant + `render_share_section` helper + visibility predicate arm + render-card branch + the 3 unit tests targeting them; 13/13 remaining connect tests pass, 71/71 mde-kdc tests stay green. The `kdeconnect.share.request` packet kind stays in `build_packet`'s vocabulary since the GF-5.1 inbound receive handler (HW-carve-out) may emit it as an acknowledgement; only the OUTBOUND operator-typed surface retired.)*
 
 #### mde-files UI (Iced)
 

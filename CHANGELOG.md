@@ -97,6 +97,45 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-5.2: retire KDC2 file-share UI surface
+
+The KDC2 outbound file-share affordance retires per the v5.0.0
+mesh-home design: files now move between peers via the
+`~/Documents/From-<phone-name>/` mesh-home drop folder once
+GF-5.1's inbound receive handler lands.
+
+mde-kdc changes:
+
+- `send_file` D-Bus method retired from
+  `dev.mackes.MDE.Connect` (was `crates/mde-kdc/src/dbus.rs:296`).
+  Operator-facing comment block flags the GF-5.2 retire +
+  the path-forward (mesh-home drop folder via GF-5.1).
+- Top-level doc comment updated to drop the `SendFile`
+  mention in the KDC2-3.6 method list.
+- `kdeconnect.share.request` packet kind stays in
+  `build_packet`'s vocabulary since the GF-5.1 inbound
+  receive handler (HW-carve-out) may emit it as an
+  acknowledgement; only the OUTBOUND operator-typed surface
+  retired.
+
+mde-workbench `connect` panel changes:
+
+- `ConnectSection::Share` variant retired.
+- `render_share_section` helper retired.
+- `section_visible_for` drops the `Share` arm.
+- `render_card` drops the Share section emission; phone +
+  messaging + chrome remain.
+- 3 share-targeting tests retired
+  (share_section_gated_on_share_request_capability /
+  share_section_renders_only_when_visible /
+  render_card_emits_sections_in_phone_messaging_share_chrome_order).
+- 2 retained tests renamed to reflect the new order
+  (render_card_emits_sections_in_phone_messaging_chrome_order
+  / render_card_for_desktop_omits_phone_messaging).
+
+71/71 mde-kdc tests + 13/13 connect-panel tests pass. Full
+workspace build under `--features async-services` stays clean.
+
 ## Unreleased — MON-1.a: Netdata substrate (RPM dep + birthright baseline)
 
 First commit of the v2.6 monitoring epic. Splits MON-1 into
