@@ -117,6 +117,11 @@ pub struct NebulaStatusService {
     node_id: String,
     host: String,
     role_marker_path: std::path::PathBuf,
+    /// NF-2.5 wire-up (v2.5) — mesh_id passed at
+    /// construction so RegenCerts() knows which mesh's CA
+    /// to rotate. Defaults to "mesh-<node_id>" when the
+    /// supervisor hasn't set the MDE_MESH_ID env var.
+    mesh_id: String,
 }
 
 impl NebulaStatusService {
@@ -128,12 +133,23 @@ impl NebulaStatusService {
         node_id: impl Into<String>,
         host: impl Into<String>,
     ) -> Self {
+        let nid: String = node_id.into();
+        let default_mesh = format!("mesh-{nid}");
         Self {
             store,
-            node_id: node_id.into(),
+            node_id: nid,
             host: host.into(),
             role_marker_path: std::path::PathBuf::from(DEFAULT_ROLE_HOST_MARKER),
+            mesh_id: std::env::var("MDE_MESH_ID").unwrap_or(default_mesh),
         }
+    }
+
+    /// Override the mesh_id — used by tests that need a
+    /// deterministic value.
+    #[must_use]
+    pub fn with_mesh_id(mut self, mesh_id: impl Into<String>) -> Self {
+        self.mesh_id = mesh_id.into();
+        self
     }
 
     /// Override the marker path — used by tests that can't
@@ -247,18 +263,41 @@ impl NebulaStatusService {
     /// status string the wizard's confirmation modal can
     /// display verbatim.
     ///
-    /// Today: the underlying `ca::epoch::bump_epoch` lands
-    /// in NF-2.5; until then this returns a clear "deferred"
-    /// message rather than silently no-op'ing.
+    /// NF-2.5 wired (2026-05-23): the underlying
+    /// `ca::epoch::bump_epoch` ships; this method calls it
+    /// in-line and surfaces the resulting RotationOutcome.
+    /// BinaryMissing (nebula-cert not on PATH) maps to a
+    /// human-readable "install the Fedora nebula package"
+    /// hint rather than a raw subprocess error.
     async fn regen_certs(&self) -> zbus::fdo::Result<String> {
-        // NF-2.5 will replace this body with a real call.
-        // Honest-empty per the §0.12 + AF-5 pattern: surface
-        // the deferred-status text instead of stubbing
-        // "Phase X" jargon.
-        Ok("CA rotation request received. Live rotation lands \
-            in NF-2.5; for now the operator must run \
-            `mackesd ca rotate` manually."
-            .to_string())
+        use crate::ca::epoch;
+        use crate::ca::{CaError, SubprocessBackend};
+        let mesh_id = self.mesh_id.clone();
+        let mut conn = self.store.lock().await;
+        let outcome = epoch::bump_epoch(
+            &SubprocessBackend,
+            &mut *conn,
+            &mesh_id,
+            None,
+            None,
+            365,
+        );
+        match outcome {
+            Ok(o) => Ok(format!(
+                "CA rotated to epoch {} (retired {}); {} peer certs re-signed.",
+                o.new_epoch,
+                o.retired_epoch
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                o.re_signed,
+            )),
+            Err(CaError::BinaryMissing) => Ok(
+                "CA rotation skipped: nebula-cert not on PATH. \
+                 Install the Fedora `nebula` package + retry."
+                    .to_string(),
+            ),
+            Err(e) => Err(zbus::fdo::Error::Failed(format!("rotation: {e}"))),
+        }
     }
 }
 
@@ -497,10 +536,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn regen_certs_returns_deferred_message_until_nf_2_5() {
+    async fn regen_certs_handles_binary_missing_gracefully() {
+        // On a dev box without `nebula-cert` installed (the
+        // dominant case in CI / local dev), the rotation
+        // surfaces a human-readable hint rather than a raw
+        // subprocess error.
         let svc = NebulaStatusService::new(fresh_store(), "peer:local", "host");
         let msg = svc.regen_certs().await.expect("ok");
-        assert!(msg.contains("NF-2.5"));
-        assert!(msg.contains("mackesd ca rotate"));
+        // Either the rotation succeeded (rare — only on a
+        // bench host with nebula installed + writable
+        // /var/lib/mackesd) or surfaced the install hint.
+        // Both are valid outcomes.
+        assert!(
+            msg.contains("nebula-cert not on PATH")
+                || msg.contains("CA rotated to epoch"),
+            "unexpected regen-certs reply: {msg}",
+        );
     }
 }
