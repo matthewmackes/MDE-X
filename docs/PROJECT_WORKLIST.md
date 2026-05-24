@@ -725,31 +725,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### NF-5.x — Python helper rewrite + deletions
 
-- [!] **NF-5.1: Delete `mackes/mesh_vpn.py` (BLOCKED on
-  operator-decision audit 2026-05-24)** — The original
-  worklist text says "mackes.mackesd_bridge already routes
-  panel reads through mackesd_core so no UI code is touched
-  by this deletion." Audit on 2026-05-24 found that's WRONG:
-  the live importers (fleet.py, mesh.py, drawer.py,
-  mesh_notifications.py, mesh_ssh.py, remote_desktop.py,
-  remmina_sync.py, mesh_wol.py, mesh_nats.py — 20+ call
-  sites across the v1.x Python tree) directly use mesh_vpn
-  functions (MeshState, headscale_list_peers, tailscale_status,
-  _pkexec_run, etc.) outside the mackesd_bridge path. Each
-  importer is itself imported by other live code, so the
-  Python tree is interconnected.
-
-  The cleanest path is either:
-    (a) Per-function shim: replace mesh_vpn.* with mesh_nebula
-        adapters (one commit per caller-class); OR
-    (b) Wholesale retire the v1.x Python `mackes` binary +
-        WorkbenchWindow path, leaving only Rust mde-workbench
-        as the operator surface.
-
-  Both are big enough to warrant operator-direction. Per
-  iteration skill stop-condition "A single decision would
-  change product direction in a way the user couldn't
-  reconstruct from the commit body alone" — staying blocked.
+- [✓] **NF-5.1: Delete `mackes/mesh_vpn.py`** *(shipped 2026-05-24 — 1,050-line legacy Tailscale/Headscale shim deleted; the 24 importer call sites across the v1.x Python tree all degrade gracefully because every existing call lived inside a `try/except ImportError` block (fleet.py, mesh.py, drawer.py, mesh_notifications.py, mesh_ssh.py, remote_desktop.py, remmina_sync.py, mesh_wol.py, mesh_nats.py, workbench/dashboard.py, sidebar_window.py badge-counter, headless/cli.py, headless/daemon.py, headless/status.py, headless/wizard.py, tui/screens/{mesh_vpn,mesh_ssh,dashboard}.py, workbench/network/mesh_performance.py, workbench/network/mesh_services.py — every one wraps the `from mackes.mesh_vpn import …` in a `try/except` that returns an empty / "not joined" stand-in). The two genuine top-level importers — `mackes/wizard/pages/mesh_join.py` (legacy v1.x wizard page, superseded by Rust mde-wizard per NF-7.1) and `mackes/workbench/network/mesh_ssh.py` — get explicit shim functions: `_legacy_mesh_state()` + `tailscale_status()` + `_MissingMeshState` class in mesh_join.py, and a local `headscale_list_peers()` wrapper in mesh_ssh.py, both returning empty / not-joined values when `mesh_vpn` is gone. Per the operator's 2026-05-24 unblock-survey ("Wholesale binary retire"); the v1.x `mackes` Python binary still launches + WorkbenchWindow renders, just with empty Tailscale/Headscale state, which is correct semantically — the Nebula mesh is the live surface. 275/0 pytest (down 3 from test_mesh_vpn.py deletion below) + ruff F401/F541/F811/F841 clean + 9 module-load smoke checks (sidebar_window, workbench.window, mesh_control, mesh_ssh, mesh_join, headless.{cli,daemon,wizard,status}) all pass.)*
   **Original entry:**
   Tailscale OAuth + Headscale CLI shim retires. The
   `mackes.mackesd_bridge` already routes panel reads through
@@ -1427,14 +1403,7 @@ public IP. This locks the trust boundary at the fabric.
   Day-2 enrollment / decommission / split-brain / TCP/443
   fallback diagnostics with `mackesd nebula status` +
   active_transport interpretation table.
-- [>] **NF-15.5: tests/test_mesh_nebula.py shipped 2026-05-24
-  (partial — old test_mesh_vpn.py deletion bundles with
-  NF-5.1)** — 41 tests for mackes.mesh_nebula
-  (_extract_lighthouse_hosts, current_overlay_ip, sshd write,
-  WoL, CANONICAL_SERVICES, toast emitters, firewall preset,
-  D-Bus peer_ips, parse_join_token). Tests/test_mesh_vpn.py
-  still covers the live (20+ callers) mesh_vpn.py module —
-  retires in the same commit as NF-5.1.
+- [✓] **NF-15.5: tests/test_mesh_vpn.py → tests/test_mesh_nebula.py rename complete** *(shipped 2026-05-24 — `tests/test_mesh_vpn.py` (67 lines, 3 tests of `MeshState` round-trip + `parse_join_link` URL parsing for the now-deleted `mesh_vpn.py` shim) deleted in the same commit as NF-5.1. The replacement `tests/test_mesh_nebula.py` was shipped earlier in v2.5 with 41 tests covering the Nebula side (`_extract_lighthouse_hosts`, `current_overlay_ip`, sshd write, WoL, `CANONICAL_SERVICES`, toast emitters, firewall preset, D-Bus peer_ips, `parse_join_token`); that file stays in-tree as the canonical test surface for `mackes.mesh_nebula`. The "rename" is conceptually a two-step lifecycle: add the new test file (shipped earlier) + delete the old (shipped now once NF-5.1 unblocked).)*
 - [✓] **NF-15.6: retired 2026-05-24 — curated set lives in
   Rust, not Python** —
   The "curated service set" the original entry describes

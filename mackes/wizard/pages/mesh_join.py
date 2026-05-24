@@ -57,9 +57,56 @@ from gi.repository import GdkPixbuf, GLib, Gtk  # noqa: E402
 
 from mackes.admin_session import AdminSession
 from mackes.logging import log_action
-from mackes.mesh_vpn import (
-    MeshState, TAILSCALE_BIN, tailscale_status,
-)
+
+# NF-5.1 (v2.5 Nebula fabric): `mackes.mesh_vpn` retired with
+# the Tailscale/Headscale stack. This v1.x wizard page is
+# itself superseded by the Rust `mde-wizard` crate (NF-7.1)
+# and only stays in-tree because `mackes/workbench/network/
+# mesh_join.py` still wraps it for the legacy WorkbenchWindow
+# launch path. We import the dead-stack symbols lazily through
+# the shim below so module load survives `mesh_vpn.py`
+# deletion; if an operator does click through to this page,
+# the probes return "not ready" and the page surfaces the
+# Rust wizard as the recommended entry point.
+TAILSCALE_BIN = "tailscale"  # legacy CLI name; probes below
+                              # check `_which` before invoking
+
+
+def _legacy_mesh_state():  # type: ignore[no-untyped-def]
+    """Lazy-load MeshState. Falls back to `_MissingMeshState`
+    (a "not joined" stand-in) when mesh_vpn is gone."""
+    try:
+        from mackes.mesh_vpn import MeshState
+    except ImportError:
+        return _MissingMeshState
+    return MeshState
+
+
+def tailscale_status():  # type: ignore[no-untyped-def]
+    """Lazy probe shim. Returns an empty status dict when the
+    legacy `tailscale` CLI is gone (the v2.5 Nebula fabric
+    doesn't need it)."""
+    try:
+        from mackes.mesh_vpn import tailscale_status as _ts
+    except ImportError:
+        return {}
+    return _ts()
+
+
+class _MissingMeshState:
+    """Stand-in for MeshState when mesh_vpn is gone. Every
+    method returns the zero / 'not joined' state so probes on
+    this page render the Rust-wizard recommendation rather
+    than crashing."""
+
+    mesh_id = ""
+    is_control = False
+    control_peer_id = ""
+    peer_count = 0
+
+    @classmethod
+    def load(cls):
+        return cls()
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +298,7 @@ def _probe_tailscale_authed() -> Tuple[str, str]:
         return _STATE_OK, f"online · mesh IP {ip} · {peers} peer(s) visible"
     # Check whether MeshState says we *should* be joined — that tells the
     # user "needs auth" vs "never joined".
-    st = MeshState.load()
+    st = _legacy_mesh_state().load()
     if st.mesh_id:
         return _STATE_MISSING, (
             f"mesh state present (mesh-id {st.mesh_id[:8]}) but tailscale "
@@ -262,7 +309,7 @@ def _probe_tailscale_authed() -> Tuple[str, str]:
 
 def _probe_control_reachable() -> Tuple[str, str]:
     """Can we hit the control node's /health?"""
-    st = MeshState.load()
+    st = _legacy_mesh_state().load()
     target = (st.headscale_listen or "").rstrip("/")
     if not target:
         return _STATE_MISSING, "no control node recorded yet"
@@ -846,7 +893,7 @@ class MeshJoinPage(Gtk.Box):
         lines: List[str] = []
         if not _which(TAILSCALE_BIN):
             return ["tailscale CLI not installed"]
-        st = MeshState.load()
+        st = _legacy_mesh_state().load()
         control = (st.headscale_listen or "").rstrip("/")
         cmd: List[str] = [TAILSCALE_BIN, "up", "--accept-routes=true",
                           "--accept-dns=true", "--ssh=true", "--reset"]

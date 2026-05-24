@@ -97,6 +97,44 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — NF-5.1 + NF-15.5: retire mesh_vpn.py core + its test file
+
+Third commit of the wholesale Python-tree retire (after
+NF-14.1, NF-5.5). The 1,050-line legacy Tailscale/Headscale
+shim `mackes/mesh_vpn.py` is gone, along with its test file
+`tests/test_mesh_vpn.py` (67 lines, 3 tests of MeshState
+round-trip + parse_join_link — the Nebula replacement
+`tests/test_mesh_nebula.py` shipped earlier in v2.5 with 41
+tests).
+
+Cleanup approach: the 24 importer call sites across the v1.x
+Python tree all degrade gracefully because every existing
+call lived inside a `try/except ImportError` block. The two
+top-level importers got explicit shim layers:
+
+- `mackes/wizard/pages/mesh_join.py`: new `_legacy_mesh_state()`
+  + `tailscale_status()` + `_MissingMeshState` class provide
+  zero / "not joined" stand-ins so the legacy v1.x wizard page
+  still loads (the Rust mde-wizard from NF-7.1 is the live
+  surface — this page is dormant unless an operator click-
+  throughs from the workbench).
+- `mackes/workbench/network/mesh_ssh.py`: local
+  `headscale_list_peers()` wrapper returns an empty roster
+  when mesh_vpn is missing, so the v1.x SSH panel renders a
+  clean empty state.
+
+Operator-visible: the v1.x `mackes` Python binary still
+launches + WorkbenchWindow renders, just with empty Tailscale/
+Headscale state — which is correct semantically since the
+Nebula mesh has been the live surface since v2.5. Cluster
+state surfaces in the Mesh Health + Mesh Topology panels
+(NF-11.x's Nebula rewrite).
+
+275/0 pytest (down 3 from test_mesh_vpn.py deletion) + ruff
+F401/F541/F811/F841 clean + 9 module-load smoke checks
+(sidebar_window, workbench.window, mesh_control, mesh_ssh,
+mesh_join, headless.{cli,daemon,wizard,status}) all green.
+
 ## Unreleased — NF-5.5: retire mackes/workbench/network/mesh_vpn.py
 
 Second commit of the operator-authorized wholesale Python-tree

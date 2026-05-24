@@ -28,7 +28,28 @@ from mackes.carbon import (
 from mackes.mesh_ssh import (
     MESH_KEYS_DIR, load_policy_yaml, save_policy_yaml, read_audit,
 )
-from mackes.mesh_vpn import headscale_list_peers
+# NF-5.1 (v2.5 Nebula fabric): the legacy `headscale_list_peers`
+# import is gone with `mackes/mesh_vpn.py`. The off-main-thread
+# probe in `_load_peers` (~line 96) now resolves via the helper
+# below, which returns an empty roster when mesh_vpn is missing
+# AND when its Nebula replacement (`mackes.mesh_nebula`) doesn't
+# expose a peer-list surface yet. The v1.x SSH panel still works
+# — operators just see an empty roster row until the GF-2.x
+# gluster_worker + the existing Nebula peer roster surface
+# converge in mde-workbench.
+
+
+def headscale_list_peers():  # type: ignore[no-untyped-def]
+    """Best-effort peer-list shim for the retired
+    `mackes.mesh_vpn.headscale_list_peers` import. Returns an
+    empty list when no Nebula peer roster is reachable, so the
+    SSH panel renders a clean empty state rather than crashing
+    on a missing import."""
+    try:
+        from mackes.mesh_vpn import headscale_list_peers as _hsp
+    except ImportError:
+        return []
+    return _hsp()
 
 
 def _page_title(text: str) -> Gtk.Widget:
