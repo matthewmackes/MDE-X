@@ -38,6 +38,14 @@ pub struct MeshControlSnapshot {
     pub healthz_raw: String,
     /// One-line summary parsed out of `healthz_raw`.
     pub healthz_summary: String,
+    /// NF-11.3 — Active Nebula CA epoch this peer's cert was
+    /// signed under. `None` when no CA exists yet, or the
+    /// daemon's D-Bus surface is unreachable.
+    pub nebula_ca_epoch: Option<i64>,
+    /// NF-11.3 — Mesh-id from the SelfNode reply. Empty when no
+    /// CA exists. Surfaced next to the epoch pill so operators
+    /// can confirm which mesh's CA they're about to rotate.
+    pub nebula_mesh_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +68,9 @@ pub enum Message {
     Loaded(MeshControlSnapshot),
     RefreshClicked,
     ForceTakeoverClicked,
+    /// NF-11.3 — Operator clicked the "Rotate CA" button. Fires
+    /// `Nebula.Status.RegenCerts` via dbus-send and refreshes.
+    RotateCaClicked,
     OpFinished { op: String, success: bool, output: String },
 }
 
@@ -95,6 +106,23 @@ impl MeshControlPanel {
                     async {
                         let (ok, output) = run_take_leadership_force().await;
                         ("take-leadership --force".to_string(), ok, output)
+                    },
+                    |(op, success, output)| {
+                        crate::Message::MeshControl(Message::OpFinished {
+                            op,
+                            success,
+                            output,
+                        })
+                    },
+                )
+            }
+            Message::RotateCaClicked => {
+                self.busy = true;
+                self.last_op = "rotating CA epoch…".into();
+                Task::perform(
+                    async {
+                        let (ok, output) = run_rotate_ca().await;
+                        ("rotate CA".to_string(), ok, output)
                     },
                     |(op, success, output)| {
                         crate::Message::MeshControl(Message::OpFinished {
@@ -183,38 +211,59 @@ impl MeshControlPanel {
         let leader_card = leader_card_view(&self.snapshot, palette);
         let healthz_card = healthz_card_view(&self.snapshot, palette);
 
+        let ghost_btn_style = {
+            let border = palette.border.into_iced_color();
+            let text_main = palette.text.into_iced_color();
+            move |_t: &Theme, status: iced::widget::button::Status| {
+                let bg = match status {
+                    iced::widget::button::Status::Hovered => Color {
+                        r: 0.20,
+                        g: 0.20,
+                        b: 0.22,
+                        a: 1.0,
+                    },
+                    _ => Color::TRANSPARENT,
+                };
+                iced::widget::button::Style {
+                    background: Some(Background::Color(bg)),
+                    text_color: text_main,
+                    border: Border {
+                        color: border,
+                        width: 1.0,
+                        radius: 5.0.into(),
+                    },
+                    shadow: iced::Shadow::default(),
+                }
+            }
+        };
+
         let force_btn = button(text("Force takeover").size(12).color(palette.text.into_iced_color()))
             .padding(Padding::from([5u16, 14u16]))
-            .style({
-                let border = palette.border.into_iced_color();
-                let text_main = palette.text.into_iced_color();
-                move |_t: &Theme, status: iced::widget::button::Status| {
-                    let bg = match status {
-                        iced::widget::button::Status::Hovered => Color {
-                            r: 0.20,
-                            g: 0.20,
-                            b: 0.22,
-                            a: 1.0,
-                        },
-                        _ => Color::TRANSPARENT,
-                    };
-                    iced::widget::button::Style {
-                        background: Some(Background::Color(bg)),
-                        text_color: text_main,
-                        border: Border {
-                            color: border,
-                            width: 1.0,
-                            radius: 5.0.into(),
-                        },
-                        shadow: iced::Shadow::default(),
-                    }
-                }
-            })
+            .style(ghost_btn_style)
             .on_press(crate::Message::MeshControl(Message::ForceTakeoverClicked));
+
+        // NF-11.3 — Rotate CA button. Disabled when there's no
+        // active CA epoch (mesh hasn't been minted yet) so the
+        // operator isn't offered an action that can't succeed.
+        let rotate_label = text(if self.snapshot.nebula_ca_epoch.is_some() {
+            "Rotate CA"
+        } else {
+            "Rotate CA (no mesh)"
+        })
+        .size(12)
+        .color(palette.text.into_iced_color());
+        let mut rotate_btn = button(rotate_label)
+            .padding(Padding::from([5u16, 14u16]))
+            .style(ghost_btn_style);
+        if self.snapshot.nebula_ca_epoch.is_some() {
+            rotate_btn = rotate_btn
+                .on_press(crate::Message::MeshControl(Message::RotateCaClicked));
+        }
 
         let action_row = row![
             text("Actions:").size(11).color(palette.text_muted.into_iced_color()),
             force_btn,
+            rotate_btn,
         ]
         .spacing(8)
         .align_y(iced::alignment::Vertical::Center);
@@ -311,6 +360,24 @@ fn leader_card_view<'a>(snap: &'a MeshControlSnapshot, palette: Palette) -> Elem
                     snap.self_node_id.clone(),
                     palette,
                 ),
+            ]
+            .spacing(6),
+        );
+    }
+    // NF-11.3 — CA epoch + mesh-id pills. Surface when we have
+    // a real CA reading (the SelfNode D-Bus call returned a
+    // value); skip the pills when the mesh isn't minted yet so
+    // the row doesn't display "ca_epoch: —" placeholder noise.
+    if let Some(epoch) = snap.nebula_ca_epoch {
+        let mesh_label = if snap.nebula_mesh_id.is_empty() {
+            "—".to_string()
+        } else {
+            snap.nebula_mesh_id.clone()
+        };
+        details_col = details_col.push(
+            row![
+                kv_pill("ca epoch", epoch.to_string(), palette),
+                kv_pill("mesh-id", mesh_label, palette),
             ]
             .spacing(6),
         );
@@ -432,12 +499,16 @@ pub fn probe_cluster() -> MeshControlSnapshot {
         .unwrap_or(false);
     let healthz_raw = run_mackesd_healthz();
     let healthz_summary = summarise_healthz(&healthz_raw);
+    let self_node_json = read_nebula_self_node();
+    let (nebula_ca_epoch, nebula_mesh_id) = parse_self_node_epoch(&self_node_json);
     MeshControlSnapshot {
         lease,
         self_is_leader,
         self_node_id,
         healthz_raw,
         healthz_summary,
+        nebula_ca_epoch,
+        nebula_mesh_id,
     }
 }
 
@@ -545,6 +616,114 @@ pub async fn run_take_leadership_force() -> (bool, String) {
     }
 }
 
+/// NF-11.3 — Synchronously shell out to `dbus-send` for the
+/// `dev.mackes.MDE.Nebula.Status.SelfNode` method. Returns the
+/// raw JSON-string reply (the daemon serializes
+/// `SelfNodeSnapshot` as JSON); empty string when dbus-send is
+/// missing or the call fails.
+#[must_use]
+pub fn read_nebula_self_node() -> String {
+    let out = std::process::Command::new("dbus-send")
+        .args([
+            "--session",
+            "--print-reply=literal",
+            "--dest=org.mackes.mackesd",
+            "/dev/mackes/MDE/Nebula/Status",
+            "dev.mackes.MDE.Nebula.Status.SelfNode",
+        ])
+        .output();
+    let Ok(out) = out else {
+        return String::new();
+    };
+    if !out.status.success() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// NF-11.3 — Parse the SelfNode reply for the cert epoch +
+/// mesh-id pair. `dbus-send --print-reply=literal` emits the
+/// JSON string with a `string "..."` wrapper that we strip
+/// before parsing. Returns `(None, "")` on any parse failure
+/// (treated as "no CA yet").
+#[must_use]
+pub fn parse_self_node_epoch(raw: &str) -> (Option<i64>, String) {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return (None, String::new());
+    }
+    // Strip the dbus-send `string "..."` wrapper when present.
+    let unwrapped = if let Some(rest) = trimmed.strip_prefix("string \"") {
+        rest.strip_suffix('"').unwrap_or(rest)
+    } else {
+        trimmed
+    };
+    // dbus-send escapes inner quotes as \" — unescape for the
+    // JSON parser.
+    let payload = unwrapped.replace("\\\"", "\"").replace("\\\\", "\\");
+    match serde_json::from_str::<serde_json::Value>(&payload) {
+        Ok(v) => {
+            let epoch = v.get("cert_epoch").and_then(|e| e.as_i64());
+            let mesh_id = v
+                .get("mesh_id")
+                .and_then(|m| m.as_str())
+                .unwrap_or("")
+                .to_string();
+            // cert_epoch == 0 means "no CA exists yet" per the
+            // NebulaStatusService::build_self_node fallback.
+            // Surface that as None so the panel doesn't paint
+            // a "ca epoch: 0" pill against a mesh that hasn't
+            // been minted.
+            match epoch {
+                Some(0) if mesh_id.is_empty() => (None, String::new()),
+                Some(n) => (Some(n), mesh_id),
+                None => (None, mesh_id),
+            }
+        }
+        Err(_) => (None, String::new()),
+    }
+}
+
+/// NF-11.3 — Async shell-out to `dbus-send` for the
+/// `dev.mackes.MDE.Nebula.Status.RegenCerts` method. Returns
+/// `(success, human-readable message)` so the panel's
+/// `last_op` field can quote the daemon's reply verbatim.
+pub async fn run_rotate_ca() -> (bool, String) {
+    use tokio::process::Command;
+    let out = Command::new("dbus-send")
+        .args([
+            "--session",
+            "--print-reply=literal",
+            "--dest=org.mackes.mackesd",
+            "/dev/mackes/MDE/Nebula/Status",
+            "dev.mackes.MDE.Nebula.Status.RegenCerts",
+        ])
+        .output()
+        .await;
+    match out {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            if o.status.success() {
+                let msg = stdout
+                    .strip_prefix("string \"")
+                    .and_then(|s| s.strip_suffix('"'))
+                    .map(|s| s.to_string())
+                    .unwrap_or(stdout);
+                (true, msg)
+            } else {
+                let msg = if stderr.is_empty() {
+                    format!("dbus-send exit {}", o.status)
+                } else {
+                    stderr
+                };
+                (false, msg)
+            }
+        }
+        Err(e) => (false, format!("dbus-send exec failed: {e}")),
+    }
+}
+
 fn fmt_age(t: SystemTime) -> String {
     let Ok(elapsed) = t.elapsed() else {
         return "—".into();
@@ -642,6 +821,82 @@ mod tests {
             self_node_id: "peer:anvil".into(),
             healthz_raw: r#"{"node_id":"peer:anvil","ok":true}"#.into(),
             healthz_summary: "peer:anvil · ok".into(),
+            nebula_ca_epoch: Some(3),
+            nebula_mesh_id: "mesh-anvil".into(),
+        };
+        let _ = p.view();
+    }
+
+    // NF-11.3 — parser + view coverage for the CA-epoch indicator.
+
+    #[test]
+    fn parse_self_node_epoch_handles_empty_input() {
+        assert_eq!(parse_self_node_epoch(""), (None, String::new()));
+        assert_eq!(parse_self_node_epoch("   "), (None, String::new()));
+    }
+
+    #[test]
+    fn parse_self_node_epoch_decodes_dbus_string_wrapper() {
+        // dbus-send --print-reply=literal wraps the string reply
+        // with `string "…"` and escapes inner quotes.
+        let raw = r#"string "{\"node_id\":\"peer:anvil\",\"host\":\"anvil\",\"role\":\"host\",\"cert_epoch\":3,\"cert_expires_at\":9999,\"overlay_ip\":\"10.42.0.1\",\"mesh_id\":\"mesh-anvil\"}""#;
+        let (epoch, mesh_id) = parse_self_node_epoch(raw);
+        assert_eq!(epoch, Some(3));
+        assert_eq!(mesh_id, "mesh-anvil");
+    }
+
+    #[test]
+    fn parse_self_node_epoch_decodes_bare_json() {
+        // When dbus-send isn't used (e.g. test fixtures), the
+        // parser also accepts raw JSON.
+        let raw = r#"{"cert_epoch":7,"mesh_id":"m1"}"#;
+        let (epoch, mesh_id) = parse_self_node_epoch(raw);
+        assert_eq!(epoch, Some(7));
+        assert_eq!(mesh_id, "m1");
+    }
+
+    #[test]
+    fn parse_self_node_epoch_treats_zero_with_empty_mesh_as_no_ca() {
+        // The NebulaStatusService::build_self_node returns
+        // (cert_epoch: 0, mesh_id: "") when no CA exists; the
+        // panel reads that as "mesh not minted".
+        let raw = r#"{"cert_epoch":0,"mesh_id":""}"#;
+        let (epoch, mesh_id) = parse_self_node_epoch(raw);
+        assert_eq!(epoch, None);
+        assert_eq!(mesh_id, "");
+    }
+
+    #[test]
+    fn parse_self_node_epoch_preserves_nonzero_epoch_with_empty_mesh() {
+        // A non-zero epoch with empty mesh_id is degenerate but
+        // the parser surfaces it rather than silently dropping —
+        // the operator should see something is off.
+        let raw = r#"{"cert_epoch":2,"mesh_id":""}"#;
+        let (epoch, mesh_id) = parse_self_node_epoch(raw);
+        assert_eq!(epoch, Some(2));
+        assert_eq!(mesh_id, "");
+    }
+
+    #[test]
+    fn parse_self_node_epoch_returns_none_for_garbage() {
+        let (epoch, mesh_id) = parse_self_node_epoch("not json");
+        assert_eq!(epoch, None);
+        assert_eq!(mesh_id, "");
+    }
+
+    #[test]
+    fn view_renders_with_no_ca_epoch_without_panic() {
+        // Pre-mesh-init state — no CA yet. The Rotate CA button
+        // appears disabled (no on_press); the pills row hides.
+        let mut p = MeshControlPanel::new();
+        p.snapshot = MeshControlSnapshot {
+            lease: None,
+            self_is_leader: false,
+            self_node_id: "peer:anvil".into(),
+            healthz_raw: String::new(),
+            healthz_summary: String::new(),
+            nebula_ca_epoch: None,
+            nebula_mesh_id: String::new(),
         };
         let _ = p.view();
     }
