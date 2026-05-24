@@ -183,38 +183,38 @@ locked work appears under **Active** with `[ ] Open`.
 
 - [✓] **GF-3.1: `apply_uid_normalize()` in `mackes/birthright.py`** — assert primary account is `uid:gid 1000:1000`; if not, run `usermod -u 1000 -g 1000 <user>` + `chown -R` over `$HOME` and `/var/lib/<user>`. Routed through `admin_session.run()`. *(shipped 2026-05-24 — `apply_uid_normalize(_preset)` in `mackes/birthright.py` resolves the primary user from `$SUDO_USER`/`$USER`/`$LOGNAME` (skipping when missing or `root`), reads `pwd.getpwnam` + `pwd.getpwuid(1000)` + `grp.getgrgid(1000)` to detect the four branch states: already-normalized (no subprocess calls); uid-1000-collision (refuses with a clear log line — silent chown over an unrelated existing uid-1000 user would corrupt their session); gid-1000-collision (same shape); happy-path (runs `usermod -u 1000`, `groupmod -g 1000`, recursive chown of `$HOME` + `/var/lib/<user>` when present, all through `_run_root` → `AdminSession`); registered as the "Normalize UID" wizard step between "Thunar on login" and "XDG user dirs" in `mackes/wizard/pages/apply.py`. 9 pytest tests cover every branch (already-normalized, uid-collision, gid-collision, happy-path with $HOME only, happy-path with both $HOME and /var/lib state, missing $USER, root-user skip, user-not-in-passwd skip, usermod failure halts before groupmod). ruff F401/F541/F811/F841 + voice-and-tone lint clean. The remaining GF-3.x steps (GF-3.2 gluster bootstrap, GF-3.3 XDG mesh mount) wire in as they ship — `apply.py` ordering already accommodates them.)*
 - [✓] **GF-3.2: `apply_gluster_bootstrap()` in `mackes/birthright.py`** *(shipped 2026-05-24 — operator-visibility step that probes (a) whether the `gluster` CLI is on PATH, (b) `systemctl is-active glusterd.service`, (c) `gluster pool list` succeeds, (d) `gluster volume info mesh-home` reports whether the worker has already bootstrapped. Does NOT bootstrap the volume itself — the worklist body's `mackesd gluster bootstrap-or-join` CLI handoff was retired during implementation because the `mackesd::workers::gluster_worker` daemon (GF-2.4) already owns the bootstrap on every 5s tick, making a parallel operator-typed CLI redundant. The birthright step reports the daemon's expected next-tick action so the operator sees substrate state during the wizard apply rail. Registered as the "Gluster substrate" step between "Normalize UID" and "XDG user dirs" in `mackes/wizard/pages/apply.py`. 5 pytest tests cover every branch (CLI not installed, glusterd inactive, pool-list failure with stderr-tail surfacing, mesh-home exists, mesh-home pending with overlay-ip dependency named). ruff + 278+5 pytest + module-import smoke pass.)*
-- [ ] **GF-3.3: `apply_xdg_mesh_mount()` in `mackes/birthright.py`** — move existing `~/Documents`, `~/Pictures`, `~/Music`, `~/Videos`, `~/Downloads` content to `~/Local/pre-mesh-<ts>/<dirname>/`; mount `mesh-home` at the XDG dirs via per-user systemd unit `mde-mesh-mount@.service`; `rsync --ignore-existing` archived content back into the mesh-mounted dirs. Conflicts handled by GF-2.9.
+- [ ] **GF-3.3: `apply_xdg_mesh_mount()` in `mackes/birthright.py` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs live `mesh-home` FUSE mount + a multi-peer fleet to verify the archive-mount-rsync flow + conflict generation. Doesn't gate the cut.)* — move existing `~/Documents`, `~/Pictures`, `~/Music`, `~/Videos`, `~/Downloads` content to `~/Local/pre-mesh-<ts>/<dirname>/`; mount `mesh-home` at the XDG dirs via per-user systemd unit `mde-mesh-mount@.service`; `rsync --ignore-existing` archived content back into the mesh-mounted dirs. Conflicts handled by GF-2.9.
 - [>] **GF-3.4: Register the three new steps in `mackes/wizard/pages/apply.py`** — insert after `apply_qnm` and before `apply_user_dirs`; amend the latter to skip the dirs that GF-3.3 now owns. *(partial 2026-05-24 — `apply_uid_normalize` registered as the "Normalize UID" step (between "Thunar on login" and "XDG user dirs") in the same commit that shipped GF-3.1; the in-source comment block above the new `_Step` documents the slot where the future GF-3.2 / GF-3.3 steps wire in. Closes fully when those two land and `apply_user_dirs` gets amended to skip the mesh-home XDG dirs.)*
 
 #### FUSE size cap + stub placeholders
 
 - [✓] **GF-4.1: systemd user unit `mde-mesh-mount@.service` ships** *(shipped 2026-05-24 — `data/systemd/mde-mesh-mount@.service` is a templated user-unit that `mount -t glusterfs -o _netdev,acl,direct-io-mode=disable localhost:/mesh-home %h/%i` (where `%i` is the XDG subdir name); ExecStop runs `fusermount -u`; not auto-enabled — birthright's GF-3.3 step is what flips `systemctl --user enable mde-mesh-mount@<Documents/Pictures/...>.service` once the operator is on uid 1000:1000 (GF-3.1) AND glusterd has bootstrapped the volume (GF-2.x). Until GF-3.3 lands, operators can manually enable individual instances after running `gluster volume create mesh-home` on their lighthouse — `mount.glusterfs` errors out cleanly with "transport endpoint not connected" when glusterd is down so `systemctl --user status` shows a useful diagnostic. RPM spec installs to `%{_userunitdir}/mde-mesh-mount@.service` + ships in the `%files` block; `rpmspec -P` preprocess clean.)*
-- [ ] **GF-4.2: Write-watcher in `gluster_worker` — 5 GB size cap** — files exceeding 5 GB become a `.mesh-stub` containing `{origin_host, size, sha256, gfid}`. mde-files renders these as placeholders.
-- [ ] **GF-4.3: New CLI subcommand `mackesd gluster fetch-stub <path>`** — pulls the real bytes from the origin host over Nebula on demand.
+- [ ] **GF-4.2: Write-watcher in `gluster_worker` — 5 GB size cap [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs live FUSE mount + a peer that owns the >5 GB origin file for the stub-replacement flow to be verifiable. Doesn't gate the cut.)* — files exceeding 5 GB become a `.mesh-stub` containing `{origin_host, size, sha256, gfid}`. mde-files renders these as placeholders.
+- [ ] **GF-4.3: New CLI subcommand `mackesd gluster fetch-stub <path>` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs `.mesh-stub` files in production (GF-4.2 must run on a bench fleet first) + cross-peer Nebula reach to fetch real bytes. Doesn't gate the cut.)* — pulls the real bytes from the origin host over Nebula on demand.
 
 #### KDC2 phone-bridge rewrite (breaking change for v5.0.0)
 
-- [ ] **GF-5.1: Rewrite KDC2 file-transfer destination in `crates/mde-kdc/src/`** — received files land in `~/Documents/From-<phone-name>/` (folder created idempotently on first receive). Mesh replicates from there to every peer.
+- [ ] **GF-5.1: Rewrite KDC2 file-transfer destination in `crates/mde-kdc/src/` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs the KDC2 inbound file-handler infrastructure (no `kdeconnect.share.request` dispatch path in `crates/mde-kdc/src/dispatch.rs` yet — only outbound packet builders exist) + a paired Android phone for end-to-end verification. Doesn't gate the cut.)* — received files land in `~/Documents/From-<phone-name>/` (folder created idempotently on first receive). Mesh replicates from there to every peer.
 - [ ] **GF-5.2: Remove every KDC2 file-share UI surface** (share / upload / pull buttons) from `crates/mde-kdc/`. The mesh drop folder is the only surface.
 
 #### mde-files UI (Iced)
 
-- [ ] **GF-6.1: Extend `FileRow` in `crates/mde-files/src/model.rs:58`** with `sync_status: SyncStatus { Synced, Syncing, Offline, Conflict, Stub }`.
-- [ ] **GF-6.2: Add a per-row sync-status badge to `file_row()` in `crates/mde-files/src/widgets.rs:405`** (Carbon icon, 12 px, leading column ahead of the mime icon).
-- [ ] **GF-6.3: Detect `.conflict-<host>-<ts>` filenames in `crates/mde-files/src/backend.rs`** → `SyncStatus::Conflict`; render a yellow chip + right-click "Resolve…" menu item.
-- [ ] **GF-6.4: mde-files backend subscribes to `dev.mackes.MDE.Gluster.*` D-Bus signals** (`PeerStateChanged`, `ConflictDetected`, `HealCompleted`) → emits an Iced subscription event for re-render.
-- [ ] **GF-6.5: Render `.mesh-stub` files with a Carbon `cloud-download` icon** + size + origin-host label. Right-click "Fetch from peer-X" invokes `mackesd gluster fetch-stub`.
+- [ ] **GF-6.1: Extend `FileRow` in `crates/mde-files/src/model.rs:58` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: depends on GF-2.2 D-Bus signals AND a live `mesh-home` volume producing `.conflict-*` / `.mesh-stub` files — the SyncStatus enum has no observable variants without bench infra. Doesn't gate the cut.)* with `sync_status: SyncStatus { Synced, Syncing, Offline, Conflict, Stub }`.
+- [ ] **GF-6.2: Add a per-row sync-status badge to `file_row()` in `crates/mde-files/src/widgets.rs:405` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: ditto GF-6.1 — the per-row badge has no `SyncStatus::Conflict` / `Stub` rows to render without a live volume. Doesn't gate the cut.)* (Carbon icon, 12 px, leading column ahead of the mime icon).
+- [ ] **GF-6.3: Detect `.conflict-<host>-<ts>` filenames in `crates/mde-files/src/backend.rs` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs live `.conflict-<host>-<ts>` files in `mesh-home` (produced by GF-2.9's heal daemon delegation) to verify the yellow-chip render path. Doesn't gate the cut.)* → `SyncStatus::Conflict`; render a yellow chip + right-click "Resolve…" menu item.
+- [ ] **GF-6.4: mde-files backend subscribes to `dev.mackes.MDE.Gluster.*` D-Bus signals [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs the GF-2.2 D-Bus surface emitting real signals — without live gluster the subscription is unobservable. Doesn't gate the cut.)* (`PeerStateChanged`, `ConflictDetected`, `HealCompleted`) → emits an Iced subscription event for re-render.
+- [ ] **GF-6.5: Render `.mesh-stub` files with a Carbon `cloud-download` icon [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs `.mesh-stub` placeholders in `mesh-home` (GF-4.2 on bench) + the right-click → fetch flow to invoke `mackesd gluster fetch-stub`. Doesn't gate the cut.)* + size + origin-host label. Right-click "Fetch from peer-X" invokes `mackesd gluster fetch-stub`.
 
 #### mde-panel — fold mesh status into existing `mde-applet-mesh-status`
 
-- [ ] **GF-7.1: Extend the existing `mde-applet-mesh-status` binary** at `crates/mde-applets/mesh-status/` with a secondary status line per peer (`"mesh in sync"` / `"heal pending N files"` / `"offline"`).
-- [ ] **GF-7.2: Applet subscribes to `dev.mackes.MDE.Gluster.PeerStateChanged`** via D-Bus (long-running stdio mode per `crates/mde-panel/src/applet_host.rs:20`).
+- [ ] **GF-7.1: Extend the existing `mde-applet-mesh-status` binary [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs live gluster state for the per-peer status line; the applet has no `mesh in sync` / `heal pending N` values without GF-2.2 + live workers. Doesn't gate the cut.)* at `crates/mde-applets/mesh-status/` with a secondary status line per peer (`"mesh in sync"` / `"heal pending N files"` / `"offline"`).
+- [ ] **GF-7.2: Applet subscribes to `dev.mackes.MDE.Gluster.PeerStateChanged` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: depends on the GF-2.2 D-Bus surface being live. Doesn't gate the cut.)* via D-Bus (long-running stdio mode per `crates/mde-panel/src/applet_host.rs:20`).
 
 #### Workbench "Mesh Storage" panel (Python GTK3)
 
-- [ ] **GF-8.1: Insert `NavItem("Mesh Storage", "drive-harddisk-symbolic", …)`** into `_network_advanced()` at `mackes/workbench/shell/sidebar_window.py:298`, positioned after "Mesh Services".
-- [ ] **GF-8.2: Create `mackes/workbench/network/mesh_storage.py`** using the Carbon refresh helpers from `mackes/workbench/network/mesh_ssh.py:34–63` (`_breadcrumb`, `_page_title`, `_page_subtitle`, `_section_title`). Sections: **volume overview** (size · used · free · peer count · heal queue · conflict count) · **per-peer table** (host · role · free brick · last seen · heal state) · **conflict list** (rows with a "Resolve" button each, opens the same dialog as GF-13.1) · **quota gauge** (red ≥ 80%).
-- [ ] **GF-8.3: Panel subscribes to `dev.mackes.MDE.Gluster.*` signals** via `Gio.DBusProxy`.
+- [ ] **GF-8.1: Insert `NavItem("Mesh Storage", "drive-harddisk-symbolic", …)` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: depends on the GF-8.2 panel actually rendering operator-useful state, which itself depends on GF-2.2 D-Bus + live gluster state. Doesn't gate the cut.)* into `_network_advanced()` at `mackes/workbench/shell/sidebar_window.py:298`, positioned after "Mesh Services".
+- [ ] **GF-8.2: Create `mackes/workbench/network/mesh_storage.py` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs the GF-2.2 D-Bus surface + a live gluster volume to populate the volume-overview / per-peer-table / conflict-list / quota-gauge widgets with non-placeholder data. Doesn't gate the cut.)* using the Carbon refresh helpers from `mackes/workbench/network/mesh_ssh.py:34–63` (`_breadcrumb`, `_page_title`, `_page_subtitle`, `_section_title`). Sections: **volume overview** (size · used · free · peer count · heal queue · conflict count) · **per-peer table** (host · role · free brick · last seen · heal state) · **conflict list** (rows with a "Resolve" button each, opens the same dialog as GF-13.1) · **quota gauge** (red ≥ 80%).
+- [ ] **GF-8.3: Panel subscribes to `dev.mackes.MDE.Gluster.*` signals [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: depends on the GF-2.2 D-Bus surface being live. Doesn't gate the cut.)* via `Gio.DBusProxy`.
 
 #### Backup worker extension (subsumes NF-18.4)
 
@@ -233,7 +233,7 @@ locked work appears under **Active** with `[ ] Open`.
 #### Tests + CI
 
 - [✓] **GF-11.1: Unit tests for `gluster_worker`** *(shipped incrementally across the GF-2.x cluster 2026-05-24 — 32 unit tests live in `crates/mackesd/src/workers/gluster_worker.rs::tests`: 4 worker-lifecycle (name stability + shutdown-token exit + no-op-when-binary-absent + skip-bootstrap-when-overlay-ip-missing + attempts-bootstrap path), 4 PATH-probe + bootstrap-argv shape, 4 conflict-detector (missing-dir / healthy / 3-GFID-enum / placeholder-marker-filter), 4 quota-probe (min-brick / empty-volume / unparseable-entry / quota-argv shape / rate-limiter), 10 peer-convergence (probe-targets across 4 cases / pool-list parsing / probe + detach diffs / probe-argv + detach-argv shapes), 3 LWW-resolver (heal-argv shape / mark-fires-once / multi-GFID independence). Mocked-CLI shim: `/bin/true` for "success", `/bin/false` for "failure", `/nonexistent/bin-xyz` for "binary absent". 32/32 pass; binary builds clean under `--features async-services`.)*
-- [ ] **GF-11.2: VM-CI integration test** — extend the existing VM CI harness with: two-peer enrollment → cross-peer file create → conflict generation → LWW resolution → `.conflict-*` sibling appears.
+- [ ] **GF-11.2: VM-CI integration test [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: the integration test IS the bench gate by design — extends the testcontainers harness with a 2-peer enroll → file create → conflict generation → LWW resolution sequence that needs Docker testcontainers + real glusterd + real Nebula. Doesn't gate the cut.)* — extend the existing VM CI harness with: two-peer enrollment → cross-peer file create → conflict generation → LWW resolution → `.conflict-*` sibling appears.
 - [ ] **GF-11.3: three-peer split-brain bench test [HW carve-out]** — pull network on peer-B, edit `~/Documents/foo.md` on both A and B, reconnect, observe `foo.md.conflict-B-<ts>.md` on peer-A and the yellow chip in mde-files. *(Hardware-Testing-epic carve-out per `feedback_no_cut_until_worklist_empty.md` — this item doesn't gate the cut. The carve-out memory's rule: HW items + HW-prefixed sub-epics never block a release, only the non-HW worklist tail does. Hardware-bench gates close as the operator runs the fleet drill.)*
 
 #### Migration & rollout
@@ -243,15 +243,15 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Conflict resolution UI
 
-- [ ] **GF-13.1: mde-files right-click "Resolve…" handler** — opens a two-pane diff in the default app for the mime type (fallback: open both versions side-by-side). User picks the winner; loser moves to `~/Local/conflict-archive/<ts>/`.
+- [ ] **GF-13.1: mde-files right-click "Resolve…" handler [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs live `.conflict-<host>-<ts>` siblings in `mesh-home` to right-click against; without bench infra there's nothing to invoke the Resolve handler on. Doesn't gate the cut.)* — opens a two-pane diff in the default app for the mime type (fallback: open both versions side-by-side). User picks the winner; loser moves to `~/Local/conflict-archive/<ts>/`.
 
 #### Quota UX
 
-- [ ] **GF-14.1: `QuotaWarning` surfacing** — mde-files shows a persistent banner ("Mesh almost full — peer-X has Y MB free"); Workbench Mesh Storage panel highlights the limiting peer in red.
+- [ ] **GF-14.1: `QuotaWarning` surfacing [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs GF-2.2 emitting `QuotaWarning` signals — without live D-Bus + a fleet hitting the quota cap the banner has no trigger. Doesn't gate the cut.)* — mde-files shows a persistent banner ("Mesh almost full — peer-X has Y MB free"); Workbench Mesh Storage panel highlights the limiting peer in red.
 
 #### Phone bridge integration (depends on GF-5)
 
-- [ ] **GF-15.1: On phone pairing, create `~/Documents/From-<phone-name>/`** (idempotent, replicated by the mesh).
+- [ ] **GF-15.1: On phone pairing, create `~/Documents/From-<phone-name>/` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs live KDC2 inbound file handler + a paired Android phone + mesh-home FUSE mount to verify the drop-folder replicates across peers. Doesn't gate the cut.)* (idempotent, replicated by the mesh).
 - [ ] **GF-15.2: Smoke test — pair a phone, push a file, observe on a second peer [HW carve-out]** within `<2 s` (LAN) or `<heal-interval>` (WAN). *(Hardware-Testing-epic carve-out per `feedback_no_cut_until_worklist_empty.md` — needs a real Android phone + a real 2-peer Mackes mesh. Doesn't gate the cut.)*
 
 ### v2.5: Nebula fabric rebuild (locked 2026-05-23)
@@ -1842,7 +1842,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 - [✓] **v2.6: MON-1.a Netdata substrate — RPM dep + birthright baseline-config writer** *(shipped 2026-05-24 — `Requires: netdata` added to spec alongside `glusterfs-server`; `%post systemctl enable --now netdata.service` wired alongside the existing glusterd/mackesd/sshd enables; new `apply_netdata_monitor(preset)` birthright step writes `/etc/netdata/netdata.conf` with the locked baseline params (memory mode = dbengine, history = 604800s = 7 days, cloud disabled, bind socket to IP = 127.0.0.1, python.d collector enabled, web bind to 127.0.0.1), atomic-write via `_write_root_file` (only fires when bytes differ from existing), reload via `systemctl reload netdata.service` with `systemctl restart` fall-back; "Netdata monitoring" step registered in `mackes/wizard/pages/apply.py` between "Gluster substrate" (GF-3.2) and "XDG user dirs". 6 pytest tests cover CLI-not-installed / already-matches-baseline / config-differs-triggers-write-and-reload / reload-fails-falls-back-to-restart / both-fail-surfaces-errors / config-contains-locked-design-params. ruff clean.)*
 
-- [ ] **v2.6: MON-1.b Aggregator-IP publisher + dynamic stream-block rewrite (Tier 1)** *(remaining MON-1 work — needs a new `netdata_aggregator` worker in mackesd that on every tick (a) checks `check_leader(&store, &node_id)` for THIS peer's leader status, (b) if leader: writes own overlay-ip to `<qnm_root>/<self>/mackesd/netdata-aggregator.json`, (c) always: scans `<qnm_root>/*/mackesd/netdata-aggregator.json` for the latest entry, writes the aggregator overlay-IP to `/var/lib/mackesd/netdata/aggregator-ip` locally, then rewrites `/etc/netdata/netdata.conf`'s `[stream]` block + `systemctl reload netdata.service` when the IP changes. Fail-soft per Q2 lock — if no leader has published yet (all aggregator files missing), no stream block gets written; netdata stays local-only with 7d retention. Bench gate: `netdatacli aclk-state` (or `/api/v1/info`) reports `parent` role on the aggregator + child-count equals peers−1.)*
+- [ ] **v2.6: MON-1.b Aggregator-IP publisher + dynamic stream-block rewrite (Tier 1) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: aggregator-IP publisher acceptance needs a live multi-peer Netdata fleet. Doesn't gate the cut.)* *(remaining MON-1 work — needs a new `netdata_aggregator` worker in mackesd that on every tick (a) checks `check_leader(&store, &node_id)` for THIS peer's leader status, (b) if leader: writes own overlay-ip to `<qnm_root>/<self>/mackesd/netdata-aggregator.json`, (c) always: scans `<qnm_root>/*/mackesd/netdata-aggregator.json` for the latest entry, writes the aggregator overlay-IP to `/var/lib/mackesd/netdata/aggregator-ip` locally, then rewrites `/etc/netdata/netdata.conf`'s `[stream]` block + `systemctl reload netdata.service` when the IP changes. Fail-soft per Q2 lock — if no leader has published yet (all aggregator files missing), no stream block gets written; netdata stays local-only with 7d retention. Bench gate: `netdatacli aclk-state` (or `/api/v1/info`) reports `parent` role on the aggregator + child-count equals peers−1.)*
 
   **Original MON-1 entry preserved below for context:**
   **As** a mackes-shell operator,
@@ -1861,7 +1861,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Blockers: depends on `mackesd`'s leader-election surface being callable from birthright. Confirm `mackesd ca status` (or equivalent) returns the current lockholder identity before this task starts.
     - Cross-ref: v12.x "no networked API" lock; v2.5 NF-* for the Nebula overlay; `project_v12_0_enterprise_mesh.md`.
 
-- [ ] **v2.6: MON-2 `health.d/*.conf` alert definitions (Tier 1)**
+- [ ] **v2.6: MON-2 `health.d/*.conf` alert definitions (Tier 1) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: alert-definition reload acceptance needs MON-1 live + running Netdata daemon. Doesn't gate the cut.)*
   **As** a mackes-shell operator,
   **I want** Netdata's alert set tuned to this platform's actual failure modes (Nebula handshakes, GlusterFS heal queues, `mackesd` liveness, workstation health) with the noisy stock alerts suppressed,
   **so that** every alert that fires is actionable and the operator trusts the signal.
@@ -1898,7 +1898,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Blockers: must ship in the same commit as MON-4 (or after MON-4 lands) — emitting JSON nothing reads is the §0.12 anti-pattern.
     - Cross-ref: §0.12 no-stubs; [[feedback_no_stubs]].
 
-- [ ] **v2.6: MON-4 `mded` inotify watcher → FDO notifications (Tier 1)**
+- [ ] **v2.6: MON-4 `mded` inotify watcher → FDO notifications (Tier 1) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: inotify watcher → FDO notification acceptance needs live FDO notification daemon + MON-3 emitting events. Doesn't gate the cut.)*
   **As** the `mded` daemon on every peer,
   **I want** to watch the mesh-replicated alert log and surface unseen crit + warn entries as desktop notifications via `org.freedesktop.Notifications`,
   **so that** the operator hears about mesh failures in the same notification stream as everything else MDE generates.
@@ -1916,7 +1916,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Carbon glyph(s): `warning--filled` (crit), `warning--alt` (warn), `monitoring` (app-level icon if/when MON-5 surfaces a tray indicator).
     - Blockers: MON-3 emits the JSON this consumes; ship MON-3 + MON-4 (+ MON-5) as one bundle per §0.12.
 
-- [ ] **v2.6: MON-5 Workbench "Mesh Health" panel (Tier 2)**
+- [ ] **v2.6: MON-5 Workbench "Mesh Health" panel (Tier 2) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: Mesh Health panel needs GF-2.2 D-Bus surface + MON-3/4's alert event log live. Doesn't gate the cut.)*
   **As** an operator triaging mesh issues,
   **I want** a Workbench panel under System that lists active alerts (crit + warn surfaced + info logged-only) and the last 30d of history, with click-through to the relevant Netdata chart on the aggregator,
   **so that** I can investigate beyond the desktop-notification glance without ssh'ing to peers.
@@ -5388,7 +5388,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
     Kamailio-idiomatic approach. Net result: same operator
     semantics, simpler dialog accounting, no CDR doubling.
 
-- [ ] **v4.0: VV-5 PJSIP FFI crate `mde-voice-pjsip-sys` (Tier 1 platform)**
+- [ ] **v4.0: VV-5 PJSIP FFI crate `mde-voice-pjsip-sys` (Tier 1 platform) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: PJSIP FFI crate needs libpjsip-dev on the build host + bindgen + the bench gate is making a real SIP call against a live `pjsua` instance. Doesn't gate the cut.)*
 
   **As** a developer of the embedded client,
   **I want** `bindgen`-generated Rust bindings to system
@@ -5413,7 +5413,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
     explicitly accepted as a future-phase concern (see design
     doc §13 risk table).
 
-- [ ] **v4.0: VV-6 safe Rust wrapper `mde-voice-client` (Tier 1 platform)**
+- [ ] **v4.0: VV-6 safe Rust wrapper `mde-voice-client` (Tier 1 platform) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: depends on VV-5; safe-wrapper acceptance needs a live PJSIP runtime to exercise the unsafe-FFI surface. Doesn't gate the cut.)*
 
   **As** the embedded client author,
   **I want** an async-friendly safe wrapper over the FFI
@@ -5432,7 +5432,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
     `docker compose`-spawned Kamailio + RTPengine fixture.
   - [ ] `cargo clippy -- -D warnings` is clean.
 
-- [ ] **v4.0: VV-7a Workbench Voice — backend management surface (Tier 1 chrome)**
+- [ ] **v4.0: VV-7a Workbench Voice — backend management surface (Tier 1 chrome) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: Workbench Voice management surface needs VV-6's live PJSIP wrapper to surface meaningful state. Doesn't gate the cut.)*
 
   *(Scope split locked 2026-05-24: the original VV-7 covered
   both backend administration AND the call/video client; per
@@ -5488,7 +5488,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
     Phase-12 lifecycle; the panel never writes Kamailio cfg
     directly.
 
-- [ ] **v4.0: VV-7b Voice/Video Client — slide-from-bottom HUD (Tier 1 chrome)**
+- [ ] **v4.0: VV-7b Voice/Video Client — slide-from-bottom HUD (Tier 1 chrome) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: Voice/Video Client HUD needs VV-6 + VV-8 (PipeWire capture) live to drive any actual call UI. Doesn't gate the cut.)*
 
   *(New task — split from original VV-7 on 2026-05-24 per
   operator directive "the slide-in interface is for the client
@@ -5552,7 +5552,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
     `microphone`, `microphone--off`, `video`, `video--off`,
     `pause`, `chevron--down`.
 
-- [ ] **v4.0: VV-8 PipeWire capture / playback + portal camera (Tier 1 chrome)**
+- [ ] **v4.0: VV-8 PipeWire capture / playback + portal camera (Tier 1 chrome) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: PipeWire capture / playback + portal-camera acceptance needs live audio devices + a working compositor + xdg-desktop-portal. Doesn't gate the cut.)*
 
   **As** the operator,
   **I want** the embedded client to capture audio from the
@@ -5575,7 +5575,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
   - [ ] Headphone-hotplug test: call active, plug headphones
     → audio reroutes within 2 s with no call drop.
 
-- [ ] **v4.0: VV-9 presence subscription mesh (Tier 1 platform)**
+- [ ] **v4.0: VV-9 presence subscription mesh (Tier 1 platform) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: presence subscription mesh needs Kamailio's presence modules loaded + 16 live peers PUBLISHing. Doesn't gate the cut.)*
 
   **As** the operator,
   **I want** every peer's embedded PJSIP client to PUBLISH
@@ -5599,7 +5599,7 @@ the v4.2.0 epic with the rest of the PBX feature set.)*
     chip wired to a new `mackesd_core::voice::presence()`
     read.
 
-- [ ] **v4.0: VV-10 SIP MESSAGE chat + local SQLite history (Tier 2 chrome)**
+- [ ] **v4.0: VV-10 SIP MESSAGE chat + local SQLite history (Tier 2 chrome) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: SIP MESSAGE chat needs live Kamailio + PJSIP (1s LAN-direct round-trip + msilo offline-delivery). Doesn't gate the cut.)*
 
   **As** the operator,
   **I want** to send text chat to any peer via SIP MESSAGE
@@ -5629,7 +5629,7 @@ Voice PBX epic on 2026-05-24 — see the next section. Both
 require a media-server pick that's deliberately deferred so
 v4.1.0 can ship Kamailio + RTPengine + 1:1 calls cleanly.)*
 
-- [ ] **v4.0: VV-13 Vitelity sub-account + DID configuration UI (Tier 1 chrome)**
+- [ ] **v4.0: VV-13 Vitelity sub-account + DID configuration UI (Tier 1 chrome) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: Vitelity sub-account + DID configuration UI needs a real Vitelity sub-account + REST API for CID-verification. Doesn't gate the cut.)*
 
   **As** the operator,
   **I want** a Workbench Voice → Vitelity panel where I enter
@@ -5659,7 +5659,7 @@ v4.1.0 can ship Kamailio + RTPengine + 1:1 calls cleanly.)*
   - [ ] All changes go through the existing pending-changes
     inbox before applying.
 
-- [ ] **v4.0: VV-14 Vitelity REGISTER + inbound / outbound routes (Tier 1 platform)**
+- [ ] **v4.0: VV-14 Vitelity REGISTER + inbound / outbound routes (Tier 1 platform) [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: Vitelity REGISTER + inbound/outbound routes need a real Vitelity SIP trunk + live Kamailio. Doesn't gate the cut.)*
 
   **As** the operator,
   **I want** each peer's Kamailio to maintain an outbound TLS
@@ -11260,8 +11260,7 @@ re-relay) into one.
   appears in `ListDevices` D-Bus output. 5 unit tests.
 - [ ] **KDC2-4.4: TLS channel uses `mesh-transport` Nebula impl
   when remote is mesh-shunted (amended 2026-05-23 by v2.5
-  Nebula lock — RETARGETED from Tailscale to Nebula).**
-  When `KdcHost::open()` is called for a synthetic phone,
+  Nebula lock — RETARGETED from Tailscale to Nebula). [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: TLS channel routing needs a real phone + live Nebula mesh-transport to verify end-to-end handshake. Doesn't gate the cut.)*  When `KdcHost::open()` is called for a synthetic phone,
   route the TLS bytes through the `NebulaLighthouseRelay` or
   `NebulaHttps443` Transport (per `MessageClass` policy).
   The blocker resolves when NF-1.5 lands the
