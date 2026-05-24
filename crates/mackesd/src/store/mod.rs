@@ -32,6 +32,13 @@ const MIGRATIONS: &[Migration] = &[
         version: 2,
         sql: include_str!("../../migrations/0002_settings_session.sql"),
     },
+    // NF-2.1 (v2.5) — Nebula CA + per-peer cert tables.
+    // Versioned 11 per the design doc's "m0011" naming.
+    // Strictly additive — no existing table changes.
+    Migration {
+        version: 11,
+        sql: include_str!("../../migrations/0011_nebula_ca.sql"),
+    },
 ];
 
 /// Open the store at `path`, creating its parent directory if needed

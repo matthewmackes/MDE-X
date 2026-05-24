@@ -105,6 +105,17 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 # Filesystem locking for the leader-election lockfile (12.A.5).
 fs2 = "0.4"
 
+# NF-2.4 seal — safe running-uid lookup (rustix avoids the
+# `unsafe { libc::getuid() }` path that the workspace's
+# `unsafe_code = "forbid"` lint rejects).
+rustix = { version = "0.38", features = ["process"] }
+
+# NF-2 CA module — error-derive macro used across the
+# ca::{mint,sign,seal,bundle} modules. tokio-rustls already
+# pulls thiserror transitively; declaring it here makes the
+# direct usage explicit.
+thiserror = "1"
+
 # Error context. We surface failures as structured errors, never
 # unwrap. anyhow is the canonical Rust ergonomic-error crate.
 anyhow = "1"

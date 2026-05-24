@@ -11,6 +11,12 @@
 #![warn(missing_docs)]
 
 pub mod audit;
+// NF-2 (v2.5) — Nebula CA module. Owns mint / sign / seal /
+// bundle. Reachable from `bin/mackesd.rs::run_serve` via the
+// upcoming NF-3.4 supervisor and from the CLI's `mackesd ca`
+// subcommand (NF-2.6). The whole module lands together per
+// §0.12; no scaffold-only commit.
+pub mod ca;
 // v2.0.0 Phase 12.1.2 — fleet deploy layer reservation. When Phase G
 // submodules (push, rollback, ansible_pull orchestration) actually
 // ship with real code, `pub mod deploy;` + `crates/mackesd/src/deploy/`

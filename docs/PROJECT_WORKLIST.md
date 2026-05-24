@@ -252,37 +252,48 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### NF-2.x — `mackesd::ca` module + SQL table (Q3 PKI)
 
-- [ ] **NF-2.1: SQL migration `m0011_nebula_ca.sql`** —
-  Tables: `nebula_ca` (mesh_id, epoch, ca_cert_pem, created_at,
-  retired_at), `nebula_peer_certs` (node_id, epoch, cert_pem,
-  overlay_ip, created_at, expires_at, revoked_at).
-  PK: `(mesh_id, epoch)` and `(node_id, epoch)`. Migration
-  shipped per the additive-only policy locked at 12.2.4.
-- [ ] **NF-2.2: `ca/mint.rs::mint_ca()`** — Generate a fresh
-  Curve25519 CA keypair via `nebula-cert ca` (subprocess to the
-  Fedora `nebula` package's CLI — keeps the crypto under
-  upstream audit). Self-sign with mesh-id + epoch=0. Seal the
-  private key at `/var/lib/mackesd/nebula-ca/ca.key` (mode 0600,
-  root:root). Write public cert at `ca.crt` (mode 0644).
-  Insert row into `nebula_ca` SQL table. 6 unit tests: round-trip
-  via tempdir, sealed-mode bits, SQL row presence, idempotency
-  on re-mint, epoch=0 invariant, error on missing nebula-cert
-  binary.
-- [ ] **NF-2.3: `ca/sign.rs::sign_peer_cert()`** — Verify the
-  Ed25519-signed `EnrollmentRequest` (existing
-  `mackesd_core::identity`), allocate an overlay IP from the
-  mesh CIDR (`10.42.0.0/16` default) avoiding collisions via
-  `nebula_peer_certs` table query, build a peer cert with
-  `groups=[role:host|peer]` + `name=<node_id>`, sign via
-  `nebula-cert sign` subprocess against the sealed CA key,
-  insert row into `nebula_peer_certs`. Return the signed cert
-  bytes for the caller to drop into the QNM bundle.
-- [ ] **NF-2.4: `ca/seal.rs`** — On-disk seal/unseal helpers.
-  Strictly mode-0600 enforcement on read (Errors:
-  `Error::InsecurePermissions` if the file is group/world
-  readable). Owner-check: read only succeeds if the file is
-  owned by the running uid. 4 unit tests cover permission
-  errors and owner mismatch.
+- [✓] **NF-2.1: SQL migration `m0011_nebula_ca.sql`
+  (shipped 2026-05-23)** — `crates/mackesd/migrations/
+  0011_nebula_ca.sql` ships the two tables: `nebula_ca`
+  (mesh_id + epoch PK, ca_cert_pem, retired_at NULL = current)
+  + `nebula_peer_certs` (node_id + epoch PK, cert_pem,
+  overlay_ip, expires_at, revoked_at NULL = active). Index
+  `nebula_ca_active` for "current CA" lookups and
+  `nebula_peer_certs_overlay_ip` (unique) for overlay-IP
+  collision detection. Registered as Migration { version:
+  11, ... } in store::MIGRATIONS.
+- [✓] **NF-2.2: `ca/mint.rs::mint_ca()` (shipped 2026-05-23)** —
+  Idempotent CA minting via the `NebulaCertBackend` trait
+  (default `SubprocessBackend` shells out to nebula-cert;
+  `MockBackend` for tests). Re-mint on an existing mesh
+  returns the active row's PEM unchanged. Private key
+  re-sealed at mode 0600 via NF-2.4 helpers after the
+  subprocess writes it (defends against subprocess umask
+  drift). 4 unit tests cover write-and-insert,
+  idempotency, no-active-CA fallback, mode-0600 seal lock.
+- [✓] **NF-2.3: `ca/sign.rs::sign_peer_cert()` (shipped
+  2026-05-23)** — Per-peer cert signing under the active
+  CA. Overlay-IP allocator walks 10.42.0.1..10.42.255.254
+  sequentially, skipping every IP already in
+  `nebula_peer_certs` for the active epoch — `.0` and
+  `.255` on each /24 are skipped for human-readability.
+  Per the open-mesh directive (2026-05-23), groups are
+  flattened to `["role:host"]` / `["role:peer"]` only; no
+  per-service or per-resource ACL groups. Returns a
+  `SignedPeer { node_id, overlay_ip, cert_pem, cert_path,
+  key_path }` struct the bundle writer (NF-2.7) consumes.
+  6 unit tests cover allocator-starts-at-.1, allocator-
+  skips-taken, sign-writes-pem-+-inserts-row, host-role-
+  group, no-active-CA error, peer-key-sealed-at-0600.
+- [✓] **NF-2.4: `ca/seal.rs` (shipped 2026-05-23)** —
+  `write_sealed(path, bytes)` creates parent dirs +
+  writes + chmod 0600. `read_sealed(path)` enforces
+  mode-0600 + owner-matches-current-uid (via
+  rustix::process::getuid — kept under the workspace's
+  `unsafe_code = "forbid"` lint). 5 unit tests cover
+  write-then-read round-trip, world-readable rejection,
+  group-readable rejection, missing-file Io error,
+  create-missing-parent-dir.
 - [ ] **NF-2.5: `ca/epoch.rs::bump_epoch()` + rotation on
   promotion** — Called from `leader.rs` when this node wins
   the lease and the previous leader's last-heartbeat is older
@@ -296,12 +307,20 @@ locked work appears under **Active** with `[ ] Open`.
   subcommands** — Operator surface. `dump-ca` writes the public
   CA cert to stdout for manual peer bootstrap (the wizard
   also calls this path internally).
-- [ ] **NF-2.7: Bundle writer** — `mackesd_core::enrollment`
-  extends `EnrollmentResponse` with a `nebula_bundle: NebulaBundle`
-  field (CA cert, signed peer cert, signed peer key, overlay IP,
-  lighthouse roster, mesh CIDR). Written atomically to
-  `~/QNM-Shared/<peer>/mackesd/nebula-bundle.json` next to the
-  existing `heartbeat.json`.
+- [✓] **NF-2.7: Bundle writer (shipped 2026-05-23)** —
+  `ca/bundle.rs` ships `NebulaBundle` (mesh_id, epoch,
+  ca_cert_pem, peer_cert_pem, peer_key_pem, overlay_ip,
+  mesh_cidr, lighthouses, created_at) + `LighthouseEntry`
+  (node_id, overlay_ip, external_addr). `write_bundle` is
+  atomic (tempfile + rename); `read_bundle` round-trips
+  through serde-json. Default location follows the
+  existing heartbeat.json convention: `~/QNM-Shared/
+  <peer>/mackesd/nebula-bundle.json`. 5 unit tests cover
+  round-trip, missing-parent-creates, path-convention,
+  missing-file Io, malformed-json Sql, atomic-rename
+  cleanup. The `mackesd_core::enrollment::EnrollmentResponse`
+  extension (adding `nebula_bundle: NebulaBundle` field)
+  lands in NF-7.x where the wizard wires the import side.
 
 #### NF-3.x — `nebula_supervisor` worker + systemd units (Q1+Q2)
 
