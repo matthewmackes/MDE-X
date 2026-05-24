@@ -97,6 +97,68 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-2.5 + GF-2.6: gluster_worker peer convergence (polling)
+
+Adds the sixth tick step to `gluster_worker::tick_once`:
+polling-based peer-probe + peer-detach against the local
+glusterd's pool, sourced from the QNM-Shared bundle scan.
+Replaces the worklist's original event-bus subscription
+sketch (`nebula_supervisor::EnrollmentCompleted` + `ca_revoke`)
+with a polling shape that matches the rest of the worker's
+5s tick + doesn't require new event-bus infrastructure.
+
+GF-2.5 — peer-probe path:
+
+- `peer_probe_targets(qnm_root, self_node_id)` scans
+  `<qnm_root>/*/mackesd/nebula-bundle.json`, parses each
+  bundle's `overlay_ip`, returns a sorted Vec of
+  `ProbeTarget { node_id, overlay_ip }`. Skips self.
+- `current_gluster_peers(binary)` shells `gluster pool list`
+  + parses via `parse_gluster_pool_list(text)` (pure-fn,
+  skips the `localhost` row).
+- `peers_to_probe(desired, current)` returns
+  `(node_id, overlay_ip)` pairs missing from the pool.
+- `peer_probe_argv(binary, overlay_ip)` =
+  `gluster peer probe <overlay-ip>`.
+
+GF-2.6 — peer-detach path:
+
+- `peers_to_detach(desired, current)` returns every IP in
+  the gluster pool whose bundle has disappeared from
+  QNM-Shared (operator ran `mackesd ca revoke` →
+  revoked-peer's bundle file removed from
+  `<qnm_root>/<peer-id>/mackesd/`).
+- `peer_detach_argv(binary, overlay_ip)` =
+  `gluster peer detach <ip> force` (force flag because the
+  detached peer may still own a brick contributing to the
+  volume — auto-shrink per Q15).
+
+Worker opts in via `with_qnm_peer_discovery(qnm_root,
+self_node_id)`, called from `run_serve`. Without the
+opt-in the step is a silent no-op.
+
+10 new unit tests (29 total):
+
+- missing-qnm-root → empty targets
+- skips self
+- sort-determinism (3 peers)
+- skips dirs without bundle
+- parse_gluster_pool_list: 3-peer + localhost row
+- parse_gluster_pool_list: empty output
+- peers_to_probe: missing-only diff
+- peers_to_detach: stale-pool diff
+- peer_probe_argv shape
+- peer_detach_argv uses force
+
+29/29 gluster_worker tests pass. Binary builds clean under
+--features async-services. lint-legacy-mesh.sh stays clean.
+
+The deviation from the worklist body (poll instead of
+event-subscribe) is documented in the source-block comment;
+follows §0.12 best-choice authorization (event-bus would
+have been net-new infrastructure for an effect the 5s tick
+already achieves).
+
 ## Unreleased — GF-2.8: gluster_worker conflict detector
 
 Extends `gluster_worker::tick_once` with a fifth step that

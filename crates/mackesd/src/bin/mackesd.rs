@@ -2313,7 +2313,8 @@ fn run_serve(
             Ok(conn) => {
                 let gluster_store = Arc::new(tokio::sync::Mutex::new(conn));
                 sup.spawn(Spawn::new(
-                    mackesd_core::workers::gluster_worker::GlusterWorker::new(gluster_store),
+                    mackesd_core::workers::gluster_worker::GlusterWorker::new(gluster_store)
+                        .with_qnm_peer_discovery(qnm_root.clone(), node_id.clone()),
                     RestartPolicy::Always,
                 ));
                 worker_names

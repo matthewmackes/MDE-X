@@ -78,6 +78,16 @@ pub struct GlusterWorker {
     overlay_ip_path: PathBuf,
     brick_path: PathBuf,
     gluster_binary: String,
+    /// GF-2.5 + GF-2.6 — QNM-Shared root for the polling-
+    /// based peer-probe / peer-detach discovery. Each
+    /// `<qnm_root>/<peer-id>/mackesd/nebula-bundle.json` is a
+    /// peer that the local glusterd should be in a pool
+    /// with. None means "skip peer convergence" (used by the
+    /// default constructor + by tests that don't care).
+    qnm_root: Option<PathBuf>,
+    /// GF-2.5 — this peer's own node-id so the probe logic
+    /// can skip itself.
+    self_node_id: Option<String>,
     /// GF-2.7 — last-fire wall-clock seconds (relative to
     /// startup) of the hourly quota probe. `None` until the
     /// first probe runs.
@@ -97,8 +107,21 @@ impl GlusterWorker {
             overlay_ip_path: PathBuf::from(DEFAULT_OVERLAY_IP_PATH),
             brick_path: PathBuf::from(BRICK_PATH),
             gluster_binary: DEFAULT_GLUSTER_BINARY.to_owned(),
+            qnm_root: None,
+            self_node_id: None,
             last_quota_probe: std::sync::Mutex::new(None),
         }
+    }
+
+    /// GF-2.5 + GF-2.6 — opt into polling-based peer
+    /// convergence. Both args must be supplied or the worker
+    /// skips the peer-probe / peer-detach step entirely
+    /// (silent no-op).
+    #[must_use]
+    pub fn with_qnm_peer_discovery(mut self, qnm_root: PathBuf, self_node_id: String) -> Self {
+        self.qnm_root = Some(qnm_root);
+        self.self_node_id = Some(self_node_id);
+        self
     }
 
     /// Override the tick cadence. Tests use shorter values.
@@ -217,6 +240,42 @@ impl GlusterWorker {
                 brick = %self.brick_path.display(),
                 "ConflictDetected: pending heal entry in xattrop index",
             );
+        }
+        // 6. GF-2.5 + GF-2.6 — peer convergence. Scans
+        //    `<qnm_root>/*/mackesd/nebula-bundle.json` for
+        //    every peer the Nebula lighthouse has signed +
+        //    diffs against `gluster pool list`. Missing peers
+        //    get probed + their brick added (GF-2.5 auto-
+        //    join). Peers in the pool whose bundle file has
+        //    disappeared from QNM-Shared (a polling-based
+        //    proxy for the `ca_revoke` signal the original
+        //    GF-2.6 spec sketched) get detached. Skips when
+        //    either qnm_root or self_node_id wasn't supplied
+        //    via `with_qnm_peer_discovery`.
+        if let (Some(qnm_root), Some(self_id)) = (self.qnm_root.as_ref(), self.self_node_id.as_ref()) {
+            let desired = peer_probe_targets(qnm_root, self_id);
+            let current = current_gluster_peers(&self.gluster_binary);
+            for (probe_target, probe_ip) in peers_to_probe(&desired, &current) {
+                let argv = peer_probe_argv(&self.gluster_binary, &probe_ip);
+                tracing::info!(
+                    target: "mackesd::gluster_worker",
+                    peer = %probe_target,
+                    ip = %probe_ip,
+                    argv = ?argv,
+                    "peer-probe: adding peer to mesh-home pool",
+                );
+                let _ = run_argv(&argv);
+            }
+            for stale_ip in peers_to_detach(&desired, &current) {
+                let argv = peer_detach_argv(&self.gluster_binary, &stale_ip);
+                tracing::info!(
+                    target: "mackesd::gluster_worker",
+                    ip = %stale_ip,
+                    argv = ?argv,
+                    "peer-detach: removing peer (bundle missing from QNM-Shared)",
+                );
+                let _ = run_argv(&argv);
+            }
         }
     }
 
@@ -359,6 +418,159 @@ pub fn min_brick_free_bytes(xml: &str) -> Option<u64> {
         rest = &after_open[close..];
     }
     min
+}
+
+/// GF-2.5 — one peer-probe target. Pulled from the QNM-Shared
+/// bundle scan so the caller can build the argv + skip
+/// already-pooled peers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeTarget {
+    /// Stable peer node-id (the QNM-Shared dir name).
+    pub node_id: String,
+    /// Overlay IP from that peer's signed Nebula bundle.
+    pub overlay_ip: String,
+}
+
+/// GF-2.5 — scan `<qnm_root>/*/mackesd/nebula-bundle.json` to
+/// discover every peer the local Nebula lighthouse has
+/// signed. The bundle's `overlay_ip` field becomes the
+/// probe target. Skips the local peer (matched by
+/// `self_node_id`). Skips dirs that don't contain a bundle
+/// (peer hasn't enrolled yet) or whose bundle JSON doesn't
+/// parse (corrupt — log + retry next tick).
+///
+/// Returns a deduplicated, sorted-by-node_id `Vec` so
+/// downstream diff logic is deterministic.
+#[must_use]
+pub fn peer_probe_targets(qnm_root: &std::path::Path, self_node_id: &str) -> Vec<ProbeTarget> {
+    let entries = match std::fs::read_dir(qnm_root) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    let mut out: Vec<ProbeTarget> = Vec::new();
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(|s| s.to_owned()) else {
+            continue;
+        };
+        if name == self_node_id {
+            continue;
+        }
+        let bundle_path = entry.path().join("mackesd").join("nebula-bundle.json");
+        let Ok(bytes) = std::fs::read(&bundle_path) else { continue };
+        let Ok(bundle) = serde_json::from_slice::<crate::ca::bundle::NebulaBundle>(&bytes) else {
+            continue;
+        };
+        out.push(ProbeTarget {
+            node_id: name,
+            overlay_ip: bundle.overlay_ip,
+        });
+    }
+    out.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+    out
+}
+
+/// GF-2.5 — list the overlay IPs the local glusterd currently
+/// considers peers. Shells `gluster pool list` + parses the
+/// space-separated table; line shape (Fedora glusterfs 11.x):
+///
+/// ```
+/// UUID                                    Hostname            State
+/// 5c3...                                  10.42.0.5           Connected
+/// 7a8...                                  10.42.0.7           Connected
+/// 4f2...                                  localhost           Connected
+/// ```
+///
+/// Returns the `Hostname` column (excluding "localhost"
+/// since the local peer doesn't probe itself).
+#[must_use]
+pub fn current_gluster_peers(binary: &str) -> Vec<String> {
+    let Ok(out) = Command::new(binary).args(["pool", "list"]).output() else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    parse_gluster_pool_list(&text)
+}
+
+/// GF-2.5 — pure parser for `gluster pool list` output.
+/// Exposed for testing without shelling.
+#[must_use]
+pub fn parse_gluster_pool_list(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        // Skip the header line.
+        if i == 0 && line.contains("UUID") {
+            continue;
+        }
+        // Each data line is whitespace-separated:
+        // <uuid> <hostname> <state>
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 3 {
+            continue;
+        }
+        let hostname = cols[1];
+        // Skip the local peer's own "localhost" entry.
+        if hostname == "localhost" {
+            continue;
+        }
+        out.push(hostname.to_owned());
+    }
+    out.sort();
+    out
+}
+
+/// GF-2.5 — diff `desired` (from QNM-Shared bundle scan)
+/// against `current` (from `gluster pool list`); return every
+/// `(node_id, overlay_ip)` pair whose IP isn't in the current
+/// pool. Pure function; exposed for testing.
+#[must_use]
+pub fn peers_to_probe(desired: &[ProbeTarget], current: &[String]) -> Vec<(String, String)> {
+    desired
+        .iter()
+        .filter(|t| !current.iter().any(|ip| ip == &t.overlay_ip))
+        .map(|t| (t.node_id.clone(), t.overlay_ip.clone()))
+        .collect()
+}
+
+/// GF-2.6 — diff `current` against `desired`; return every
+/// IP in the pool that no longer has a bundle in QNM-Shared
+/// (polling proxy for the `ca_revoke` event the original
+/// spec sketched). Pure function; exposed for testing.
+#[must_use]
+pub fn peers_to_detach(desired: &[ProbeTarget], current: &[String]) -> Vec<String> {
+    current
+        .iter()
+        .filter(|ip| !desired.iter().any(|t| &t.overlay_ip == *ip))
+        .cloned()
+        .collect()
+}
+
+/// GF-2.5 — `gluster peer probe <overlay-ip>` argv.
+#[must_use]
+pub fn peer_probe_argv(binary: &str, overlay_ip: &str) -> Vec<String> {
+    vec![
+        binary.to_owned(),
+        "peer".into(),
+        "probe".into(),
+        overlay_ip.to_owned(),
+    ]
+}
+
+/// GF-2.6 — `gluster peer detach <overlay-ip> force` argv.
+/// `force` is required because the peer may still have a brick
+/// contributing to the volume; the detach + volume rebalance
+/// is the operator's intent per Q15.
+#[must_use]
+pub fn peer_detach_argv(binary: &str, overlay_ip: &str) -> Vec<String> {
+    vec![
+        binary.to_owned(),
+        "peer".into(),
+        "detach".into(),
+        overlay_ip.to_owned(),
+        "force".into(),
+    ]
 }
 
 /// GF-2.8 — list every entry in the brick's
@@ -713,6 +925,133 @@ mod tests {
         // Immediate second call is rate-limited (the 1-hour
         // gate hasn't elapsed).
         assert!(!w.quota_probe_due());
+    }
+
+    // GF-2.5 + GF-2.6 — peer convergence.
+
+    fn write_bundle(qnm: &std::path::Path, node_id: &str, overlay_ip: &str) {
+        let dir = qnm.join(node_id).join("mackesd");
+        std::fs::create_dir_all(&dir).expect("mkdir bundle dir");
+        let bundle = crate::ca::bundle::NebulaBundle {
+            mesh_id: "test-mesh".into(),
+            epoch: 1,
+            ca_cert_pem: "ca".into(),
+            peer_cert_pem: "p".into(),
+            peer_key_pem: "k".into(),
+            overlay_ip: overlay_ip.into(),
+            mesh_cidr: "10.42.0.0/16".into(),
+            lighthouses: vec![],
+            created_at: 1_700_000_000,
+        };
+        let body = serde_json::to_vec_pretty(&bundle).expect("encode");
+        std::fs::write(dir.join("nebula-bundle.json"), &body).expect("write bundle");
+    }
+
+    #[test]
+    fn peer_probe_targets_returns_empty_for_missing_qnm_root() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let missing = tmp.path().join("does-not-exist");
+        assert_eq!(peer_probe_targets(&missing, "peer:self"), Vec::<ProbeTarget>::new());
+    }
+
+    #[test]
+    fn peer_probe_targets_skips_self_node_id() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let qnm = tmp.path().to_path_buf();
+        write_bundle(&qnm, "peer:self", "10.42.0.5");
+        write_bundle(&qnm, "peer:alice", "10.42.0.7");
+        let targets = peer_probe_targets(&qnm, "peer:self");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].node_id, "peer:alice");
+        assert_eq!(targets[0].overlay_ip, "10.42.0.7");
+    }
+
+    #[test]
+    fn peer_probe_targets_sorts_deterministically() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let qnm = tmp.path().to_path_buf();
+        write_bundle(&qnm, "peer:zebra", "10.42.0.9");
+        write_bundle(&qnm, "peer:alice", "10.42.0.7");
+        write_bundle(&qnm, "peer:mike", "10.42.0.8");
+        let targets = peer_probe_targets(&qnm, "peer:self");
+        let ids: Vec<_> = targets.iter().map(|t| t.node_id.clone()).collect();
+        assert_eq!(ids, vec!["peer:alice", "peer:mike", "peer:zebra"]);
+    }
+
+    #[test]
+    fn peer_probe_targets_skips_dirs_without_bundle() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let qnm = tmp.path().to_path_buf();
+        // Create a peer dir but no bundle file inside.
+        std::fs::create_dir_all(qnm.join("peer:halfopen").join("mackesd")).expect("mkdir");
+        write_bundle(&qnm, "peer:alice", "10.42.0.7");
+        let targets = peer_probe_targets(&qnm, "peer:self");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].node_id, "peer:alice");
+    }
+
+    #[test]
+    fn parse_gluster_pool_list_extracts_overlay_ips_skipping_localhost() {
+        let text = "\
+            UUID                                    Hostname    State\n\
+            5c3aaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa    10.42.0.5   Connected\n\
+            7a8bbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb    10.42.0.7   Connected\n\
+            4f2ccccc-cccc-cccc-cccc-cccccccccccc    localhost   Connected\n\
+        ";
+        let peers = parse_gluster_pool_list(text);
+        assert_eq!(peers, vec!["10.42.0.5", "10.42.0.7"]);
+    }
+
+    #[test]
+    fn parse_gluster_pool_list_handles_empty_output() {
+        assert_eq!(parse_gluster_pool_list(""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn peers_to_probe_returns_missing_targets_only() {
+        let desired = vec![
+            ProbeTarget { node_id: "peer:alice".into(), overlay_ip: "10.42.0.7".into() },
+            ProbeTarget { node_id: "peer:bob".into(), overlay_ip: "10.42.0.8".into() },
+            ProbeTarget { node_id: "peer:carol".into(), overlay_ip: "10.42.0.9".into() },
+        ];
+        let current = vec!["10.42.0.7".to_string()]; // only alice is in the pool
+        let to_probe = peers_to_probe(&desired, &current);
+        assert_eq!(to_probe, vec![
+            ("peer:bob".to_string(), "10.42.0.8".to_string()),
+            ("peer:carol".to_string(), "10.42.0.9".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn peers_to_detach_returns_stale_pool_ips() {
+        let desired = vec![
+            ProbeTarget { node_id: "peer:alice".into(), overlay_ip: "10.42.0.7".into() },
+        ];
+        let current = vec![
+            "10.42.0.7".to_string(),
+            "10.42.0.8".to_string(), // bob — bundle deleted
+            "10.42.0.9".to_string(), // carol — bundle deleted
+        ];
+        let to_detach = peers_to_detach(&desired, &current);
+        let mut got = to_detach.clone();
+        got.sort();
+        assert_eq!(got, vec!["10.42.0.8".to_string(), "10.42.0.9".to_string()]);
+    }
+
+    #[test]
+    fn peer_probe_argv_matches_design_doc_command_shape() {
+        assert_eq!(
+            peer_probe_argv("gluster", "10.42.0.7"),
+            vec!["gluster", "peer", "probe", "10.42.0.7"]
+        );
+    }
+
+    #[test]
+    fn peer_detach_argv_uses_force_for_brick_owners() {
+        assert_eq!(
+            peer_detach_argv("gluster", "10.42.0.9"),
+            vec!["gluster", "peer", "detach", "10.42.0.9", "force"]
+        );
     }
 
     #[tokio::test]
