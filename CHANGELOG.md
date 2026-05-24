@@ -97,6 +97,40 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — NF-5.5: retire mackes/workbench/network/mesh_vpn.py
+
+Second commit of the operator-authorized wholesale Python-tree
+retire (after NF-14.1). The 410-line v1.x `MeshVpnPanel` is
+gone, and the four reference sites are cleaned up:
+
+- `mackes/workbench/shell/sidebar_window.py`: `_mesh_vpn`
+  builder + `_f_meshvpn` builder + the "Mesh VPN" entry in
+  the network-advanced sub-nav are removed.
+- `mackes/workbench/window.py`: `_network_tab` no longer
+  imports `MeshVpnPanel`; the "Mesh VPN" tab is dropped from
+  the Network notebook + the `mesh_vpn` deep-link alias in
+  `_TAB_INDEX` is retired.
+- `mackes/workbench/network/mesh_control.py`: `TABS` const
+  drops the "VPN" tab (9 → 8 tabs).
+
+The two surviving try/except mesh_vpn imports in
+sidebar_window's badge-counter (lines 862 + 1008) are left
+alone — they silently swallow ImportError so once NF-5.1
+retires `mesh_vpn.py` the badge returns mesh_online=0
+cleanly. Explicit removal lands as part of NF-5.1's broader
+cleanup of the v1.x Python tree's 24 `mesh_vpn` importers.
+
+Operator-visible: anyone still launching the v1.x `mackes`
+binary loses the "Mesh VPN" entry in both the sidebar nav
+and the Network notebook. Equivalent mesh state has been
+in the Mesh Health + Mesh Topology surfaces (NF-11.x's
+Nebula rewrite) since v2.5; the legacy Tailscale/Headscale
+panel was already showing stale data.
+
+ruff F401/F541/F811/F841 lint clean; 278/0 pytest suite
+stays green; module-import smoke for sidebar_window,
+workbench.window, and mesh_control all pass.
+
 ## Unreleased — NF-14.1: retire mackes/wizard/headscale_setup.py
 
 First commit of the operator-authorized wholesale Python-tree

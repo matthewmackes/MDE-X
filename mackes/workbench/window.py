@@ -78,14 +78,16 @@ def _network_tab() -> Gtk.Widget:
     from mackes.workbench.network.vpn import VpnPanel
     from mackes.workbench.network.qnm import QnmPanel
     from mackes.workbench.network.firewall import FirewallPanel
-    from mackes.workbench.network.mesh_vpn import MeshVpnPanel
+    # NF-5.5 (v2.5 Nebula fabric): MeshVpnPanel retired with
+    # the underlying Tailscale/Headscale Python tree. Operators
+    # reach Nebula mesh state via `mesh_control` in the primary
+    # Network nav (rewritten by NF-11.x for the Nebula CA epoch).
     from mackes.workbench.network.mesh_ssh import MeshSshPanel
     from mackes.workbench.network.mesh_services import MeshServicesPanel
     return _build_tab([
         ("wifi", "Wi-Fi & Ethernet", WifiPanel()),
         ("vpn", "VPN", VpnPanel()),
         ("qnm", "Quick Network Mesh", QnmPanel()),
-        ("mesh_vpn", "Mesh VPN", MeshVpnPanel()),
         ("mesh_ssh", "Mesh SSH", MeshSshPanel()),
         ("mesh_services", "Mesh Services", MeshServicesPanel()),
         ("firewall", "Firewall", FirewallPanel()),
@@ -233,7 +235,10 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
         "devices": 2, "display": (2, "display"), "keyboard": (2, "keyboard"),
         "mouse": (2, "mouse"), "sound": (2, "sound"), "power": (2, "power"),
         "network": 3, "wifi": (3, "wifi"), "vpn": (3, "vpn"),
-        "qnm": (3, "qnm"), "mesh_vpn": (3, "mesh_vpn"),
+        "qnm": (3, "qnm"),
+        # NF-5.5: mesh_vpn alias removed; operators looking
+        # for mesh state use the `mesh_control` route in
+        # sidebar_window.py.
         "mesh_ssh": (3, "mesh_ssh"), "mesh_services": (3, "mesh_services"),
         "firewall": (3, "firewall"),
         "system": 4, "wm": (4, "wm"), "workspaces": (4, "workspaces"),

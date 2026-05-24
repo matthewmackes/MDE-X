@@ -247,9 +247,11 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         from mackes.workbench.network.mesh_performance import MeshPerformancePanel
         return _wrap_in_scroller(MeshPerformancePanel())
 
-    def _mesh_vpn():
-        from mackes.workbench.network.mesh_vpn import MeshVpnPanel
-        return _wrap_in_scroller(MeshVpnPanel())
+    # NF-5.5 (v2.5 Nebula fabric): MeshVpnPanel retired with
+    # the underlying Tailscale/Headscale Python tree. Mesh
+    # state lives in `mesh_control` (which got its Nebula
+    # rewrite in NF-11.x) — operators reach it via the
+    # primary Network nav rather than the legacy sub-page.
 
     def _mesh_ssh():
         from mackes.workbench.network.mesh_ssh import MeshSshPanel
@@ -283,9 +285,9 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         def _f_perf():
             from mackes.workbench.network.mesh_performance import MeshPerformancePanel
             return MeshPerformancePanel()
-        def _f_meshvpn():
-            from mackes.workbench.network.mesh_vpn import MeshVpnPanel
-            return MeshVpnPanel()
+        # NF-5.5 (v2.5): _f_meshvpn retired — the underlying
+        # MeshVpnPanel + its Tailscale/Headscale dependencies
+        # retire as part of the wholesale v1.x-Python sweep.
         def _f_meshssh():
             from mackes.workbench.network.mesh_ssh import MeshSshPanel
             return MeshSshPanel()
@@ -298,7 +300,6 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         return _build_subnav_container([
             ("mesh_health",      "Mesh Health",      _f_health),
             ("mesh_performance", "Mesh Performance", _f_perf),
-            ("mesh_vpn",         "Mesh VPN",         _f_meshvpn),
             ("mesh_ssh",         "Mesh SSH",         _f_meshssh),
             ("mesh_services",    "Mesh Services",    _f_services),
             ("firewall",         "Firewall",         _f_firewall),

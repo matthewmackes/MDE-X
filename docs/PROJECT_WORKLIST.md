@@ -797,15 +797,7 @@ locked work appears under **Active** with `[ ] Open`.
   `mackes-nebula-https-tunnel`. The 4-entry curated set lock
   becomes a 3-entry set (Q-MX-style lock bump captured in
   the design doc).
-- [!] **NF-5.5: workbench/network/mesh_vpn.py deletion (BLOCKED
-  on NF-5.1 + operator decision)** — 3 importers
-  (workbench/window.py, workbench/network/mesh_control.py,
-  workbench/shell/sidebar_window.py) + a nav-registration tuple
-  in mesh_control.py. Retiring the panel cascades to dropping
-  the "VPN" tab from the v1.x Python WorkbenchWindow — operator-
-  facing change for anyone still launching via the `mackes`
-  binary (kept as a transitional alias per troubleshooting.md).
-  Chains on NF-5.1 since the panel's body imports mesh_vpn.
+- [✓] **NF-5.5: workbench/network/mesh_vpn.py deletion** *(shipped 2026-05-24 — 410-line `MeshVpnPanel` deleted; the 3 importer sites + the mesh_control tab registration all cleaned up: sidebar_window.py's `_mesh_vpn` builder + the network-advanced `_f_meshvpn` builder + the "Mesh VPN" entry in `_build_subnav_container`'s tab list all removed (with NF-5.5 comment block citing the rationale); window.py's `_network_tab` notebook builder no longer imports `MeshVpnPanel` and the "Mesh VPN" tab is dropped from the v1.x WorkbenchWindow Network notebook; window.py's `_TAB_INDEX` deep-link map drops the `mesh_vpn` alias; mesh_control.py's `TABS` constant goes 9 → 8 (the legacy "VPN" tab retired). The two surviving try/except mesh_vpn imports in sidebar_window's badge-counter (lines 862 + 1008) are intentionally left alone — they silently swallow ImportError, so once NF-5.1 retires mesh_vpn.py they return mesh_online=0 cleanly; explicitly removing them is part of NF-5.1's cascade. ruff + 278/0 pytest + module-import smoke for sidebar_window, workbench.window, and mesh_control all green.)*
   **Original entry:**
   The panel page already reads through `mackesd_core`;
   deletion is a no-op for the UI. Touch any breadcrumb that

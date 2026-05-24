@@ -31,7 +31,10 @@ TABS: list[tuple[str, str, str, str]] = [
     ("health",       "Health",        "mackes.workbench.network.mesh_health",       "MeshHealthPanel"),
     ("topology",     "Topology",      "mackes.workbench.network.mesh_topology",     "MeshTopologyPanel"),
     ("services",     "Services",      "mackes.workbench.network.mesh_services",     "MeshServicesPanel"),
-    ("vpn",          "VPN",           "mackes.workbench.network.mesh_vpn",          "MeshVpnPanel"),
+    # NF-5.5 (v2.5 Nebula fabric): "VPN" tab dropped along
+    # with mackes/workbench/network/mesh_vpn.py. Mesh state
+    # surfaces in the Health + Topology tabs (rewritten for
+    # Nebula by NF-11.x).
     ("ssh",          "SSH",           "mackes.workbench.network.mesh_ssh",          "MeshSshPanel"),
     ("performance",  "Performance",   "mackes.workbench.network.mesh_performance",  "MeshPerformancePanel"),
     ("join",         "Join",          "mackes.workbench.network.mesh_join",         "MeshJoinPanel"),
