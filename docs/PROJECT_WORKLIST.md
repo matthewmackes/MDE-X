@@ -234,7 +234,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Migration & rollout
 
-- [ ] **GF-12.1: Document the in-place upgrade path from v4.0.x to v5.0.0** — what happens to existing `~/Documents` content (auto-archived to `~/Local/pre-mesh-<ts>/`). Lands in `docs/help/mesh-storage.md` (GF-10.1).
+- [✓] **GF-12.1: Document the in-place upgrade path from v4.0.x to v5.0.0** — what happens to existing `~/Documents` content (auto-archived to `~/Local/pre-mesh-<ts>/`). Lands in `docs/help/mesh-storage.md` (GF-10.1). *(shipped 2026-05-24 as part of GF-10.1 — `docs/help/mesh-storage.md` § "Migrating existing files" walks through the 3-step birthright archive-mount-rsync sequence + the `~/Local/pre-mesh-<ts>/` archive path + the `--ignore-existing` conflict semantics; the design doc (GF-10.2) carries the matching § 8 "Migration from v4.0.x" with the RPM-upgrade + paired-phone + pre-flight-checker rollup. Both documents cross-link so operators reading either reach the migration path.)*
 - [ ] **GF-12.2: Pre-flight checker in `mde-workbench`** — warn (don't block) if `/var/lib/gluster/bricks` has less than `1.5 × sizeof(~/Documents + ~/Pictures + ~/Music + ~/Videos + ~/Downloads)`.
 
 #### Conflict resolution UI
