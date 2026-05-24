@@ -60,6 +60,16 @@ pub const DEFAULT_OVERLAY_IP_PATH: &str = "/var/lib/mackesd/nebula/overlay-ip";
 /// recording wrapper).
 pub const DEFAULT_GLUSTER_BINARY: &str = "gluster";
 
+/// Quota multiplier locked by Q16 of the 25-Q survey: the
+/// fleet quota cap is `0.8 × min(free brick across peers)`.
+pub const QUOTA_MULTIPLIER: f64 = 0.8;
+
+/// How often the quota probe runs. The genesis-path probe
+/// fires every tick (5s); the quota probe is rate-limited to
+/// once per hour because re-running `gluster volume quota`
+/// on every 5s tick would spam glusterd's transaction log.
+pub const QUOTA_PROBE_INTERVAL: Duration = Duration::from_secs(3600);
+
 /// Worker handle. Cheap to construct + clone is forbidden
 /// (mirrors `nebula_supervisor`).
 pub struct GlusterWorker {
@@ -68,6 +78,10 @@ pub struct GlusterWorker {
     overlay_ip_path: PathBuf,
     brick_path: PathBuf,
     gluster_binary: String,
+    /// GF-2.7 — last-fire wall-clock seconds (relative to
+    /// startup) of the hourly quota probe. `None` until the
+    /// first probe runs.
+    last_quota_probe: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 impl GlusterWorker {
@@ -83,6 +97,7 @@ impl GlusterWorker {
             overlay_ip_path: PathBuf::from(DEFAULT_OVERLAY_IP_PATH),
             brick_path: PathBuf::from(BRICK_PATH),
             gluster_binary: DEFAULT_GLUSTER_BINARY.to_owned(),
+            last_quota_probe: std::sync::Mutex::new(None),
         }
     }
 
@@ -176,6 +191,76 @@ impl GlusterWorker {
                 );
             }
         }
+        // 4. GF-2.7 — hourly quota probe. Gated on
+        //    `last_quota_probe` so the heavy `gluster volume
+        //    info --xml` + `volume quota` round-trip only
+        //    fires once per hour, not every 5s tick.
+        if self.quota_probe_due() {
+            self.run_quota_probe();
+        }
+    }
+
+    /// GF-2.7 — `true` when QUOTA_PROBE_INTERVAL has elapsed
+    /// since the last probe (or the worker has never probed
+    /// yet). Mutex-guarded so concurrent tick callers can't
+    /// double-fire.
+    fn quota_probe_due(&self) -> bool {
+        let mut guard = self.last_quota_probe.lock().expect("last_quota_probe mutex");
+        let now = std::time::Instant::now();
+        let due = match *guard {
+            None => true,
+            Some(last) => now.duration_since(last) >= QUOTA_PROBE_INTERVAL,
+        };
+        if due {
+            *guard = Some(now);
+        }
+        due
+    }
+
+    /// GF-2.7 — query `gluster volume info mesh-home --xml`,
+    /// parse the brick free-bytes column, compute `0.8 ×
+    /// min(free brick)`, push it back as the volume quota
+    /// limit. Best-effort — every failure step logs at warn
+    /// and the next tick retries.
+    fn run_quota_probe(&self) {
+        let xml = match Command::new(&self.gluster_binary)
+            .args(["volume", "info", VOLUME_NAME, "--xml"])
+            .output()
+        {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+            Ok(o) => {
+                tracing::warn!(
+                    target: "mackesd::gluster_worker",
+                    status = ?o.status,
+                    "volume-info quota probe exited non-zero",
+                );
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "mackesd::gluster_worker",
+                    error = %e,
+                    "volume-info quota probe failed to launch",
+                );
+                return;
+            }
+        };
+        let Some(min_free) = min_brick_free_bytes(&xml) else {
+            tracing::debug!(
+                target: "mackesd::gluster_worker",
+                "no brick free-space columns in volume-info; skipping quota set",
+            );
+            return;
+        };
+        let cap_bytes = (min_free as f64 * QUOTA_MULTIPLIER) as u64;
+        let argv = quota_set_argv(&self.gluster_binary, cap_bytes);
+        tracing::info!(
+            target: "mackesd::gluster_worker",
+            min_free_bytes = min_free,
+            cap_bytes,
+            "setting mesh-home quota to 0.8 × min(free brick)",
+        );
+        let _ = run_argv(&argv);
     }
 }
 
@@ -209,6 +294,66 @@ fn volume_exists(binary: &str, volume: &str) -> Option<bool> {
         return None;
     }
     Some(true)
+}
+
+/// GF-2.7 — extract the smallest `sizeFree` value from a
+/// `gluster volume info --xml` payload. Returns `None` when
+/// the XML has no brick entries OR no parseable size field
+/// — gives the caller a clean "skip this tick" signal.
+///
+/// XML shape (Fedora glusterfs 11.x):
+///
+/// ```xml
+/// <cliOutput>
+///   <volInfo>
+///     <volumes>
+///       <volume>
+///         <bricks>
+///           <brick uuid="..."><name>...</name>
+///             <sizeFree>123456789</sizeFree>
+///           </brick>
+///         </bricks>
+///       </volume>
+///     </volumes>
+///   </volInfo>
+/// </cliOutput>
+/// ```
+///
+/// We do a tiny regex-free scan rather than pulling in an
+/// XML crate: locate every `<sizeFree>NNN</sizeFree>`,
+/// parse the integer, take the min.
+#[must_use]
+pub fn min_brick_free_bytes(xml: &str) -> Option<u64> {
+    let mut min: Option<u64> = None;
+    let mut rest = xml;
+    while let Some(open) = rest.find("<sizeFree>") {
+        let after_open = &rest[open + "<sizeFree>".len()..];
+        let close = after_open.find("</sizeFree>")?;
+        let body = after_open[..close].trim();
+        if let Ok(n) = body.parse::<u64>() {
+            min = Some(match min {
+                None => n,
+                Some(prev) => prev.min(n),
+            });
+        }
+        rest = &after_open[close..];
+    }
+    min
+}
+
+/// GF-2.7 — `gluster volume quota mesh-home limit-usage / <bytes>`
+/// argv. Exposed for testing.
+#[must_use]
+pub fn quota_set_argv(binary: &str, cap_bytes: u64) -> Vec<String> {
+    vec![
+        binary.to_owned(),
+        "volume".into(),
+        "quota".into(),
+        VOLUME_NAME.to_owned(),
+        "limit-usage".into(),
+        "/".into(),
+        cap_bytes.to_string(),
+    ]
 }
 
 /// Pure helper — build the `gluster volume create` argv for
@@ -391,6 +536,68 @@ mod tests {
     #[test]
     fn binary_on_path_rejects_nonexistent_relative_name() {
         assert!(!binary_on_path("definitely-not-on-path-xyz"));
+    }
+
+    // GF-2.7 — quota probe helpers.
+
+    #[test]
+    fn min_brick_free_bytes_picks_smallest_brick() {
+        let xml = r#"
+            <cliOutput>
+              <volume>
+                <bricks>
+                  <brick><name>peer-a:/brick</name><sizeFree>1000000000</sizeFree></brick>
+                  <brick><name>peer-b:/brick</name><sizeFree>500000000</sizeFree></brick>
+                  <brick><name>peer-c:/brick</name><sizeFree>2000000000</sizeFree></brick>
+                </bricks>
+              </volume>
+            </cliOutput>
+        "#;
+        assert_eq!(min_brick_free_bytes(xml), Some(500_000_000));
+    }
+
+    #[test]
+    fn min_brick_free_bytes_returns_none_for_empty_volume() {
+        let xml = "<cliOutput><volume><bricks/></volume></cliOutput>";
+        assert_eq!(min_brick_free_bytes(xml), None);
+    }
+
+    #[test]
+    fn min_brick_free_bytes_skips_unparseable_entries() {
+        let xml = r#"
+            <cliOutput><volume><bricks>
+              <brick><sizeFree>not-a-number</sizeFree></brick>
+              <brick><sizeFree>42</sizeFree></brick>
+            </bricks></volume></cliOutput>
+        "#;
+        assert_eq!(min_brick_free_bytes(xml), Some(42));
+    }
+
+    #[test]
+    fn quota_set_argv_matches_design_doc_command_shape() {
+        let argv = quota_set_argv("gluster", 800_000_000_000);
+        assert_eq!(
+            argv,
+            vec![
+                "gluster",
+                "volume",
+                "quota",
+                "mesh-home",
+                "limit-usage",
+                "/",
+                "800000000000",
+            ]
+        );
+    }
+
+    #[test]
+    fn quota_probe_due_fires_on_first_call_then_rate_limits() {
+        let w = GlusterWorker::new(fresh_store());
+        // First call always fires.
+        assert!(w.quota_probe_due());
+        // Immediate second call is rate-limited (the 1-hour
+        // gate hasn't elapsed).
+        assert!(!w.quota_probe_due());
     }
 
     #[tokio::test]

@@ -97,6 +97,40 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-2.7: gluster_worker hourly quota probe + cap
+
+Extends `gluster_worker::tick_once` with a once-per-hour
+free-space probe that pushes the locked Q16 quota
+(`0.8 × min(free brick across peers)`) into the volume:
+
+1. `quota_probe_due()` Mutex-guards a last-fire Instant
+   against `QUOTA_PROBE_INTERVAL = 3600s` so the heavy
+   `gluster volume info --xml` round-trip only fires once
+   per hour, not every 5s tick.
+2. `run_quota_probe()` shells the volume-info XML, walks
+   every `<sizeFree>NNN</sizeFree>` element via the
+   pure-function `min_brick_free_bytes(xml)` (regex-free
+   scan, integer-parse-tolerant), takes the min, computes
+   the 0.8× cap.
+3. `quota_set_argv(binary, bytes)` builds the
+   `gluster volume quota mesh-home limit-usage / <bytes>`
+   argv per the design-doc § 3.4 spec.
+
+Best-effort: every failure step logs at warn + retries on
+the next hourly window.
+
+5 new unit tests:
+- min_brick_free_bytes picks smallest of 3 bricks
+- min_brick_free_bytes returns None for empty volume
+- min_brick_free_bytes skips unparseable entries (`not-a-number`)
+- quota_set_argv command shape matches design doc
+- quota_probe_due fires on first call, rate-limits the
+  immediate second
+
+The `QuotaWarning` D-Bus signal emission defers to GF-2.2
+(the gluster D-Bus service); the tracing info-log at
+quota-set carries the same payload until that ships.
+
 ## Unreleased — GF-2.1 + GF-2.3 + GF-2.4: gluster_worker ships + bootstraps mesh-home
 
 New `mackesd_core::workers::gluster_worker::GlusterWorker`

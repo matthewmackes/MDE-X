@@ -175,7 +175,7 @@ locked work appears under **Active** with `[ ] Open`.
 - [✓] **GF-2.4: Genesis path — bootstrap `mesh-home` on first tick** *(shipped 2026-05-24 — `tick_once()` probes `gluster volume info mesh-home`; on `does not exist` stderr, runs the genesis argv: `gluster volume create mesh-home replica 1 transport tcp <overlay-ip>:<brick-path> force` per design doc § 3.4. Idempotent — once the volume exists every tick is a no-op for this step. Bench-observable: after one tick on a peer with glusterd live + the GF-1.3.a overlay-ip file populated, `gluster volume list` shows `mesh-home`. The peer-probe + add-brick paths (subsequent peers joining the existing volume) defer to GF-2.5 (the `nebula_supervisor::EnrollmentCompleted` subscription that knows when a new peer is reachable to probe).)*
 - [ ] **GF-2.5: Subscribe `gluster_worker` to `nebula_supervisor::EnrollmentCompleted`** → call `gluster_worker::add_peer(node_id)` (single-passcode auto-join per `project_open_mesh_directive`).
 - [ ] **GF-2.6: Subscribe `gluster_worker` to `ca_revoke`** (or equivalent CA-revocation signal) → unconditional `gluster peer detach` (auto-shrink per Q15).
-- [ ] **GF-2.7: Hourly free-space probe** — set `gluster volume quota mesh-home limit-usage / <bytes>` to `0.8 × min(free brick across peers)`. Emit `QuotaWarning` at the cap.
+- [✓] **GF-2.7: Hourly free-space probe + quota cap** *(shipped 2026-05-24 — gluster_worker tick now ends with a `quota_probe_due()` gate (Mutex-guarded last-fire Instant + `QUOTA_PROBE_INTERVAL = 3600s`); when the gate fires, `run_quota_probe()` shells `gluster volume info mesh-home --xml`, parses every `<sizeFree>` element via `min_brick_free_bytes(xml)` (regex-free scan, integer-parse-tolerant), computes `0.8 × min(free brick)` per Q16, and pushes the cap via `gluster volume quota mesh-home limit-usage / <bytes>` (pure-fn `quota_set_argv`). 5 new unit tests cover smallest-brick pick / empty-volume / unparseable-entry skip / quota-argv command shape / rate-limiter behavior. `QuotaWarning` D-Bus emission defers to GF-2.2; the tracing info-log at quota-set carries the payload until that ships.)*
 - [ ] **GF-2.8: Conflict detector** — walk brick `.glusterfs/indices/xattrop/` for split-brain entries; emit `ConflictDetected{path, peers}`.
 - [ ] **GF-2.9: Conflict resolver — last-write-wins by `mtime`** — rename loser to `<file>.conflict-<hostname>-<ts>`; emit `HealCompleted`.
 
@@ -1771,6 +1771,165 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 - [✓] **RD-3: `mackes/birthright.py::apply_remote_desktop` rewrite** *(shipped 2026-05-24 — `apply_remote_desktop` retired the `x11vnc@.service` template and now ships `mde-wayvnc@.service` (a templated system unit, instance name = primary user). The unit's `ExecStart` reads `/var/lib/mackesd/nebula/overlay-ip` (GF-1.3.a publish file) at start time and binds wayvnc to the overlay IP — never the underlay. `User=` + `Group=` directives mean the wayvnc binary runs as the operator's uid-1000 account (GF-3.1 makes that pin authoritative) so wlroots screencopy can attach to the live sway compositor. Section 7's enable list flips `x11vnc@:0.service` → `mde-wayvnc@<primary-user>.service` (primary-user resolved from `$SUDO_USER` / `$USER` / `$LOGNAME`, fallback "mackes"). Belt-and-suspenders cleanup disables the legacy `x11vnc@:0.service` + removes the stale unit file when upgrading from pre-v2.6 installs so two VNC servers don't fight over port 5900. Doc-string updated to lock the RD-2+3 reasoning + reference the design doc + flag RD-4 as the Ed25519 follow-up. 275/0 pytest + ruff lint clean + module import smoke pass.)*
 - [✓] **RD-4: Auth wiring — reuse Nebula's X.509 PKI as wayvnc's TLS identity** *(shipped 2026-05-24 — operator-locked via in-session AskUserQuestion 2026-05-24: the original Ed25519 sketch turned out to be incompatible with wayvnc 0.9.1's actual auth surface (wayvnc speaks TLS via libtls, not Ed25519 RFB). Pivoted per operator pick to "Nebula X.509 TLS": `apply_remote_desktop` now writes `/etc/wayvnc/config` pointing `private_key_file=/etc/nebula/host.key` + `certificate_file=/etc/nebula/host.crt` + `enable_pam=false`. The `mde-wayvnc@.service` unit gains `ConditionPathExists=/etc/nebula/host.crt` + `host.key` checks (so the unit cleanly fails before any peer enrolls), drops the `--unauthenticated` flag, and references `/etc/wayvnc/config` via `--config=`. Trust chain = the mesh's existing Nebula trust chain; an unenrolled host on the overlay can't present a Nebula-CA-signed cert + so can't complete the wayvnc TLS handshake. Revocation runs via `mackesd ca revoke <node-id>` — the revoked peer's cert stops validating on the next CA-epoch roll. Design doc § 3.3 + the user help doc both rewritten to lock the Nebula-TLS path instead of the (incompatible-with-upstream) Ed25519 sketch. No parallel key tree. 275/0 pytest + ruff + module-import smoke clean.)*
 - [✓] **RD-5: Help doc + capability list update** *(shipped 2026-05-24 — new `docs/help/remote-desktop.md` operator-facing primer covering all three remote-desktop daemons each peer ships (wayvnc + xrdp + Guacamole), the per-protocol auth model, the Nebula-overlay-only bind, and 3 common questions; mesh-services.md gets a "See also" cross-link pointing to it; the v2.6 CHANGELOG header was already added by the RD-1+2+3 commit so no further append needed. The worklist's pre-supposed cleanup targets — `mesh-services.md`'s "X11-only caveat for VNC", `mesh-ssh.md`'s cross-link, `MACKES_SHELL_SPEC.md` §0's capability list — turned out not to exist (grep confirms no VNC mentions in any of those files); per the iteration-skill standing-authorization #4 the literal targets were re-interpreted as "deliver an operator-facing help doc that closes the remote-desktop documentation gap end-to-end." voice-and-tone lint clean (the 2 surviving hits are pre-existing in unrelated `crates/mde-workbench/src/panels/home.rs` operator-side WIP, not introduced by this commit).)*
+
+### MON-1..MON-5: v2.6 — Mesh monitoring & alerting (Netdata + MDE notification routing, locked 2026-05-24)
+
+> **Gap:** the mesh has no built-in observability. The operator
+> can't tell at a glance whether Nebula handshakes are succeeding,
+> GlusterFS heal queues are growing, `mackesd`'s leader election is
+> flapping, or a peer has fallen off the overlay until something
+> user-visible breaks. The v12.x connectivity-pass locks ("no new
+> monitoring") explicitly scoped this out of the v1.x→v2.x rebuild,
+> but the v2.6 cut now has both the Nebula fabric (v2.5 NF-*) and
+> the GlusterFS mesh-home (v5.0.0 GF-*) landing, which makes
+> "monitor these two layers" the natural next step. Surfaced
+> during the 2026-05-24 monitoring-platform survey.
+>
+> **Lock (operator picked 2026-05-24 via in-session AskUserQuestion):**
+>
+> - **Platform: Netdata** — single agent per peer, parent/child
+>   streaming maps cleanly onto the mesh topology, self-hosted
+>   (`[cloud] enabled = no` per the v12.x "no networked API" lock),
+>   no separate TSDB to operate. Nebula visibility is free via the
+>   tun interface + the prometheus collector pointed at Nebula's
+>   built-in `:4244/metrics` endpoint.
+> - **Aggregator placement: rides `mackesd`'s QNM-Shared leader-
+>   election lock** — no new election surface; the peer that holds
+>   the lock runs Netdata as the streaming parent, every other peer
+>   streams to it. Aggregator follows the lock on flap; if the lock
+>   moves, so does the parent role.
+> - **Notification routing: GlusterFS-replicated alert log.** The
+>   aggregator writes alert events to
+>   `~/.local/share/mde/alerts/<ulid>.json` on the mesh-home
+>   volume; each peer's `mded` watches the dir via inotify and
+>   surfaces unseen entries as FDO notifications. ULID filenames
+>   give global clock-skew-safe ordering; the `seen_by` array makes
+>   surfacing idempotent across peers; recovery is a follow-up
+>   record (`severity: "clear"`) that updates the existing
+>   notification rather than firing a new one. Works in single-peer
+>   local-dir mode until GF-1.x lands, then auto-replicates when
+>   `~/.local/share` becomes a GlusterFS bind mount per the v5.0.0
+>   "XDG dirs ARE the mesh" lock.
+> - **Severity floor for notifications: crit + warn.** Info-tier
+>   alerts write to the same JSON store but never surface; they're
+>   browsable in the Workbench panel (MON-5).
+> - **Suppress these Netdata defaults**: `1m_received_packets_storm`,
+>   `1m_sent_packets_storm`, `tcp_retransmits`, `tcp_orphans`, all
+>   `ml_*` anomaly alerts, `inbound_packets_dropped_ratio`, default
+>   `*_pressure_*` defaults (replaced by workstation-tuned variants
+>   in MON-2). Stock Netdata is tuned for general server fleets and
+>   is noisy on a 16-peer Wayland workstation mesh — suppression is
+>   load-bearing or operators train themselves to ignore alerts.
+>
+> **Target: v2.6** (sibling of RD-*; sized for one bundled commit
+> per §0.12 — every sub-task here ships fully wired or doesn't
+> ship). MON-3 + MON-4 + MON-5 in particular must land together —
+> the alert-emit binary writing JSON nothing reads is exactly the
+> "ship the data layer, wire it later" anti-pattern §0.12 refuses.
+> MON-1 + MON-2 can ship as a first commit (Netdata-only — alerts
+> fire to the local journal until MON-3..5 land); the second commit
+> brings the MDE-side wiring.
+>
+> **Acceptance criterion (bench-observable):** on a fresh v2.6
+> install with two peers enrolled, stopping `nebula.service` on
+> peer A causes peer B's desktop to surface a "Both lighthouses
+> unreachable" notification within 10s; the same alert appears in
+> peer B's Workbench → System → Mesh Health panel; restarting
+> nebula on peer A clears the notification on peer B within 5s
+> (recovery semantics).
+
+- [ ] **v2.6: MON-1 Netdata in `mde` comps group + Birthright step (Tier 1)**
+  **As** a mackes-shell operator,
+  **I want** Netdata installed and configured automatically on every peer at install time, with the parent/child streaming role following `mackesd`'s leader-election lock,
+  **so that** the mesh has a working metrics fabric without any per-peer manual config.
+  **Acceptance** (each bench-observable):
+    - [ ] `dnf install mde` (or equivalent Kickstart path) pulls in `netdata` as a hard requirement; `rpm -q netdata` returns a version on a fresh v2.6 install.
+    - [ ] `mackes/birthright.py` step N (new) writes `/etc/netdata/netdata.conf` with `[cloud] enabled = no`, `[global] memory mode = dbengine`, retention sized to ~7d, and the stream/parent block keyed to the leader-elected aggregator's overlay IP.
+    - [ ] `mackesd` exposes the aggregator's overlay IP via a published file (e.g., `/var/lib/mackesd/netdata/aggregator-ip`) that birthright + the Netdata stream config read; on leader flap the file rewrites and `netdata` reloads.
+    - [ ] `systemctl status netdata` is green on every peer post-install; the aggregator peer reports `parent` role + child count == (peers − 1) via `netdatacli aclk-state` or the `/api/v1/info` endpoint.
+    - [ ] No new ports exposed on the host underlay — Netdata binds only to `127.0.0.1` and the Nebula overlay address.
+  **Implementation notes:**
+    - Influence reference: pop-os/cosmic deploy pattern for parent/child streaming.
+    - Birthright step uses `AdminSession` like the existing nebula + xrdp steps (no raw `pkexec`).
+    - Carbon glyph: none (no UI surface in this task).
+    - Blockers: depends on `mackesd`'s leader-election surface being callable from birthright. Confirm `mackesd ca status` (or equivalent) returns the current lockholder identity before this task starts.
+    - Cross-ref: v12.x "no networked API" lock; v2.5 NF-* for the Nebula overlay; `project_v12_0_enterprise_mesh.md`.
+
+- [ ] **v2.6: MON-2 `health.d/*.conf` alert definitions (Tier 1)**
+  **As** a mackes-shell operator,
+  **I want** Netdata's alert set tuned to this platform's actual failure modes (Nebula handshakes, GlusterFS heal queues, `mackesd` liveness, workstation health) with the noisy stock alerts suppressed,
+  **so that** every alert that fires is actionable and the operator trusts the signal.
+  **Acceptance** (each bench-observable):
+    - [ ] Five files land under `/etc/netdata/health.d/`: `nebula.conf`, `gluster.conf`, `mackesd.conf`, `workstation.conf`, `mde-suppressions.conf` (packaged via `packaging/fedora/mackes-shell.spec`).
+    - [ ] `nebula.conf` carries: `nebula_process_down` (crit, systemd unit inactive >30s), `nebula_peer_unreachable` (crit, handshake_age >5m), `nebula_relay_fallback_ratio` (warn, >25% peers on relay >10m — violates throughput-first lock), `nebula_lighthouse_unreachable` (crit, both lighthouses out >2m), `nebula_handshake_failure_rate` (warn, >5/min sustained 5m), `nebula_first_packet_latency` (warn, p95 >3s over 10m — mirrors v12.x SLO).
+    - [ ] `gluster.conf` carries: `gluster_brick_down` (crit), `gluster_heal_queue_depth` (warn, >100 files), `gluster_split_brain` (crit), `mesh_home_disk_full` (warn @85%, crit @95%), `gluster_quorum_lost` (crit).
+    - [ ] `mackesd.conf` carries: `mackesd_dbus_unresponsive` (crit, ping fails >2m), `mackesd_leader_flap` (warn, >3 transitions in 10m), `mackesd_no_leader` (crit, no QNM-Shared lockholder >60s).
+    - [ ] `workstation.conf` carries: `boot_disk_full` (warn @90%, crit @97%), `swap_thrashing` (warn), `thermal_throttle` (warn), `unattended_updates_pending` (info, >7d).
+    - [ ] `mde-suppressions.conf` disables every alert listed in the suppression list above. `netdatacli reload-health` returns success; the active-alarms count immediately post-reload reflects the new set (verify via `/api/v1/alarms`).
+    - [ ] Bench trigger: `systemctl stop nebula` raises `nebula_process_down` within 60s; `systemctl start nebula` clears it within 60s.
+  **Implementation notes:**
+    - Use Netdata's native health DSL (`alarm:` / `on:` / `lookup:` / `every:` / `warn:` / `crit:`), not the experimental YAML-ish format.
+    - The GlusterFS alerts source from Netdata's built-in `python.d/gluster` collector (verify it's enabled on aggregator + children); Nebula alerts source from the prometheus collector pointed at `https://127.0.0.1:4244/metrics`.
+    - All alert definitions cite the v2.6 source-of-truth thresholds; raising a threshold later is a worklist amendment, not a silent file edit.
+    - Carbon glyph: none (no UI surface here either).
+    - Blockers: MON-1 must be live for `health.d/` to reload cleanly.
+
+- [ ] **v2.6: MON-3 `mde-alert-emit` binary + `health_alarm_notify.conf` wiring (Tier 1)**
+  **As** the Netdata daemon on the aggregator peer,
+  **I want** a deterministic way to translate an alert state-change into a ULID-named JSON event on the mesh-replicated alert log,
+  **so that** the rest of the MDE notification fabric can consume alerts as cold data, decoupled from Netdata's lifecycle.
+  **Acceptance** (each bench-observable):
+    - [ ] New Rust crate `crates/mde-alert-emit/` produces a single binary installed at `/usr/libexec/mde/alert-emit`. ~100 LOC; depends on `ulid`, `serde_json`, `clap`.
+    - [ ] Reads Netdata's standard env vars (`NETDATA_ALARM_*`, see `health_alarm_notify.conf` reference); maps them onto the alert event schema (`id`, `ts`, `severity`, `category`, `alert`, `host`, `summary`, `value`, `threshold`, `chart_url`, `fired_by`, `seen_by: []`).
+    - [ ] Writes the JSON atomically to `~/.local/share/mde/alerts/<ulid>.json` (write to `.tmp`, fsync, rename — inotify watchers see one event, not two).
+    - [ ] Idempotent: invoking with the same Netdata-supplied alert ID twice produces a single file (ULID is derived deterministically from `NETDATA_ALARM_UNIQUE_ID + NETDATA_ALARM_WHEN`, not random).
+    - [ ] `/etc/netdata/health_alarm_notify.conf` is patched (via Birthright, owned by the MON-1 step) to route notifications via `custom_sender_email` calling `/usr/libexec/mde/alert-emit "${args}"`; the stock `email`/`slack`/`discord` recipients are explicitly disabled.
+    - [ ] Bench trigger: `mde-alert-emit --dry-run-from-env` against a synthetic env block writes a valid JSON file that parses against the documented schema; `jq` round-trip is loss-free.
+  **Implementation notes:**
+    - Schema is locked in this task's body — see the MON-* preamble above. Future schema additions are backward-compatible additions only (new optional fields).
+    - Binary lives under `/usr/libexec/mde/` (FHS-correct location for helper binaries the user never invokes directly).
+    - Carbon glyph: none (no UI surface).
+    - Blockers: must ship in the same commit as MON-4 (or after MON-4 lands) — emitting JSON nothing reads is the §0.12 anti-pattern.
+    - Cross-ref: §0.12 no-stubs; [[feedback_no_stubs]].
+
+- [ ] **v2.6: MON-4 `mded` inotify watcher → FDO notifications (Tier 1)**
+  **As** the `mded` daemon on every peer,
+  **I want** to watch the mesh-replicated alert log and surface unseen crit + warn entries as desktop notifications via `org.freedesktop.Notifications`,
+  **so that** the operator hears about mesh failures in the same notification stream as everything else MDE generates.
+  **Acceptance** (each bench-observable):
+    - [ ] New `mded` subsystem (`crates/mded/src/alerts/mod.rs` or sibling crate `crates/mde-alert-watcher/`) starts at daemon-start, watches `~/.local/share/mde/alerts/` via inotify (`IN_CREATE | IN_MOVED_TO`), and surfaces every entry whose severity ∈ {crit, warn} and where the peer's hostname is NOT already in `seen_by`.
+    - [ ] On surface, appends hostname to `seen_by` and atomically rewrites the JSON file (read → modify → write `.tmp` → rename). The append is racy-safe via an advisory `flock` on the file.
+    - [ ] FDO notification carries: severity-driven urgency (`crit` → `2 Critical`, `warn` → `1 Normal`), the alert's `summary` field as the body, "Mesh Health" as the app name, and a Carbon glyph as the app icon (`warning--filled` for crit, `warning--alt` for warn).
+    - [ ] Recovery semantics: when an alert with the same `alert` name + `host` arrives with `severity: "clear"`, the existing notification is updated in place (FDO `replaces_id`) to show the resolution, not re-fired as a new toast.
+    - [ ] Housekeeping tick: once per hour `mded` deletes alert JSONs older than 30d. Configurable via `~/.config/mde/alerts.toml` `retention_days`.
+    - [ ] Bench trigger: hand-crafting a valid alert JSON (`severity=crit`) into `~/.local/share/mde/alerts/` causes a desktop notification to surface within 1s; the file's `seen_by` array contains the peer's hostname after surfacing; a follow-up file with `severity=clear` collapses the toast into a "resolved" state.
+  **Implementation notes:**
+    - Use `notify-rust` for the FDO call (already a workspace dep — confirm via `Cargo.lock`).
+    - Inotify via `notify` crate (event-based, not polling).
+    - The Carbon glyphs `warning--filled` + `warning--alt` need to land in `assets/icons/carbon/` if not already present (audit `mde_theme::ResolvedIcon::svg_bytes()` arms before this task starts).
+    - Carbon glyph(s): `warning--filled` (crit), `warning--alt` (warn), `monitoring` (app-level icon if/when MON-5 surfaces a tray indicator).
+    - Blockers: MON-3 emits the JSON this consumes; ship MON-3 + MON-4 (+ MON-5) as one bundle per §0.12.
+
+- [ ] **v2.6: MON-5 Workbench "Mesh Health" panel (Tier 2)**
+  **As** an operator triaging mesh issues,
+  **I want** a Workbench panel under System that lists active alerts (crit + warn surfaced + info logged-only) and the last 30d of history, with click-through to the relevant Netdata chart on the aggregator,
+  **so that** I can investigate beyond the desktop-notification glance without ssh'ing to peers.
+  **Acceptance** (each bench-observable):
+    - [ ] New panel module at `crates/mde-workbench/src/panels/mesh_health.rs`, wired into the sidebar nav under System (Carbon glyph `monitoring` on the nav entry).
+    - [ ] Panel header follows the locked Carbon refresh pattern: breadcrumb, `_page_title` "Mesh Health", `_page_subtitle` "Mesh-wide alerts + history", `_section_title` for each list section.
+    - [ ] Section 1 — Active: lists every alert JSON in `~/.local/share/mde/alerts/` whose `severity ∈ {crit, warn}` and whose latest record is not `clear`. Sorted newest first.
+    - [ ] Section 2 — Recent (last 7d): all info-tier entries + resolved warns/crits. Collapsed by default; click to expand.
+    - [ ] Each row shows: severity pill (Carbon `warning--filled` / `warning--alt` / `information`), alert name, host, age ("3m ago" / "2h ago"), summary line, and a "Open chart" button.
+    - [ ] "Open chart" button shells `xdg-open <chart_url>` (the URL the aggregator stamped into the alert JSON); on a peer that isn't the aggregator, the chart loads via the overlay IP.
+    - [ ] Empty state: shows the Carbon `checkmark--filled` glyph + "All clear — no active alerts" subtext.
+    - [ ] Reads the same JSON store as MON-4 (no parallel state); inotify-driven refresh so new alerts appear without manual reload.
+    - [ ] Bench trigger: with one fired warn-level alert active, the panel renders one row in Active and zero in Recent; resolving the alert (clear record arrives) moves the row to Recent within 1s.
+  **Implementation notes:**
+    - Influence reference: Apple System Settings minimalism (per [[project_ux_polish_locks]]) — generous whitespace, no badges in the sidebar entry, severity communicated via icon color not chrome.
+    - Carbon glyphs: `monitoring` (sidebar nav + empty-state hero), `warning--filled` (crit pill), `warning--alt` (warn pill), `information` (info pill), `checkmark--filled` (empty-state confirmation), `launch` ("Open chart" button affordance).
+    - Honors UX-1..UX-23 chrome locks: Geologica display + Plex Mono numeric + Indigo `#5b6af5` accent on charcoal `#1d1d1f`.
+    - Blockers: MON-3 + MON-4 — without alert JSONs in the watch dir the panel has nothing to render. Ships in the same bundle.
+    - Cross-ref: [[project_ux_polish_locks]] for typography + accent; `docs/design/v1.1.0-carbon-refresh/` for the panel header pattern; `mackes/workbench/network/mesh_ssh.py` (legacy GTK reference) for breadcrumb shape.
 
 ### v2.0.0 monolithic cut (shipped 2026-05-20)
 
