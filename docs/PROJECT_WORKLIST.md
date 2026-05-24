@@ -557,7 +557,14 @@ locked work appears under **Active** with `[ ] Open`.
   not a Tailscale DERP — it's a mackesd happy-path
   smoke, kept as-is. The NF-4.4 spec was forward-
   looking; no deletion needed.
-- [ ] **NF-4.5: Delete `crates/mackesd/src/https_fallback.rs` +
+- [!] **NF-4.5: Delete `crates/mackesd/src/https_fallback.rs` +
+  (BLOCKED on NF-5.x retirement, audit 2026-05-24)** —
+  Cascading caller-cleanup task. Stays blocked until NF-5.1 +
+  NF-5.5 land + the upstream `https_fallback::*` /
+  `stun::*` consumers retire. NF-1.4's re-export shim keeps
+  the public surface stable; the actual file deletion is the
+  one-liner once callers are gone.
+  **Original entry:**
   `crates/mackesd/src/stun.rs`** — Functionality migrated to
   NF-1.4 (`activation.rs`) and absorbed by Nebula's
   protocol-level rendezvous respectively. (Deferred — the
@@ -570,7 +577,32 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### NF-5.x — Python helper rewrite + deletions
 
-- [ ] **NF-5.1: Delete `mackes/mesh_vpn.py`** — 410 LOC of
+- [!] **NF-5.1: Delete `mackes/mesh_vpn.py` (BLOCKED on
+  operator-decision audit 2026-05-24)** — The original
+  worklist text says "mackes.mackesd_bridge already routes
+  panel reads through mackesd_core so no UI code is touched
+  by this deletion." Audit on 2026-05-24 found that's WRONG:
+  the live importers (fleet.py, mesh.py, drawer.py,
+  mesh_notifications.py, mesh_ssh.py, remote_desktop.py,
+  remmina_sync.py, mesh_wol.py, mesh_nats.py — 20+ call
+  sites across the v1.x Python tree) directly use mesh_vpn
+  functions (MeshState, headscale_list_peers, tailscale_status,
+  _pkexec_run, etc.) outside the mackesd_bridge path. Each
+  importer is itself imported by other live code, so the
+  Python tree is interconnected.
+
+  The cleanest path is either:
+    (a) Per-function shim: replace mesh_vpn.* with mesh_nebula
+        adapters (one commit per caller-class); OR
+    (b) Wholesale retire the v1.x Python `mackes` binary +
+        WorkbenchWindow path, leaving only Rust mde-workbench
+        as the operator surface.
+
+  Both are big enough to warrant operator-direction. Per
+  iteration skill stop-condition "A single decision would
+  change product direction in a way the user couldn't
+  reconstruct from the commit body alone" — staying blocked.
+  **Original entry:**
   Tailscale OAuth + Headscale CLI shim retires. The
   `mackes.mackesd_bridge` already routes panel reads through
   `mackesd_core` so no UI code is touched by this deletion.
@@ -611,7 +643,16 @@ locked work appears under **Active** with `[ ] Open`.
   `mackes-nebula-https-tunnel`. The 4-entry curated set lock
   becomes a 3-entry set (Q-MX-style lock bump captured in
   the design doc).
-- [ ] **NF-5.5: `mackes/workbench/network/mesh_vpn.py` deletion** —
+- [!] **NF-5.5: workbench/network/mesh_vpn.py deletion (BLOCKED
+  on NF-5.1 + operator decision)** — 3 importers
+  (workbench/window.py, workbench/network/mesh_control.py,
+  workbench/shell/sidebar_window.py) + a nav-registration tuple
+  in mesh_control.py. Retiring the panel cascades to dropping
+  the "VPN" tab from the v1.x Python WorkbenchWindow — operator-
+  facing change for anyone still launching via the `mackes`
+  binary (kept as a transitional alias per troubleshooting.md).
+  Chains on NF-5.1 since the panel's body imports mesh_vpn.
+  **Original entry:**
   The panel page already reads through `mackesd_core`;
   deletion is a no-op for the UI. Touch any breadcrumb that
   still says "Tailscale" → "Nebula".
@@ -954,7 +995,18 @@ surfaces it on the panel.
   filter for the "Show fabric events only" panel toggle).
   3 new tests lock the curated-set membership, substring
   match semantics, and order-preserving filter.
-- [ ] **NF-11.5: Topology renderer test fixtures** — Held
+- [✓] **NF-11.5: retired 2026-05-24 — NF-15 hold lifted +
+  fixture refresh moot** —
+  The original "Held per the NF-15 on hold directive"
+  blocker dissolved when NF-15.1-11 shipped + NF-15.6/15.7
+  retired (Python-shim test files no longer in scope). The
+  Rust topology renderer's test fixtures
+  (`crates/mde-workbench/src/panels/mesh_topology.rs`)
+  already exist + pass (see WB-2.k.a). The Python
+  test_mesh_topology_render.py fixture is from the v1.x tree
+  + bundles with the NF-5.x Python retirement when that
+  lands. No standalone work needed in v2.5 scope.
+  **Original entry:**
   per the operator's "NF-15 on hold" directive
   (2026-05-23) — NF-11.5 is a Python test-rewrite +
   fixture-data refresh, which falls under NF-15's
@@ -1127,7 +1179,13 @@ public IP. This locks the trust boundary at the fabric.
 
 #### NF-14.x — Wizard expansion + legacy wizard pages retire
 
-- [ ] **NF-14.1: Delete `mackes/wizard/headscale_setup.py`** —
+- [!] **NF-14.1: Delete `mackes/wizard/headscale_setup.py`
+  (BLOCKED on NF-5.5)** — Chained per the original entry —
+  mesh_vpn.py imports `mackes.wizard.headscale_setup`. Both
+  files retire in the same commit to avoid an importer
+  seeing a missing module. Will land alongside NF-5.5 once
+  the workbench mesh_vpn.py panel retires.
+  **Original entry:**
   Chained on NF-5.5 (mackes/workbench/network/mesh_vpn.py
   deletion) — mesh_vpn.py imports
   `mackes.wizard.headscale_setup`. The two files retire in
@@ -1215,12 +1273,32 @@ public IP. This locks the trust boundary at the fabric.
   D-Bus peer_ips, parse_join_token). Tests/test_mesh_vpn.py
   still covers the live (20+ callers) mesh_vpn.py module —
   retires in the same commit as NF-5.1.
-- [ ] **NF-15.6: Update `tests/test_mesh_services.py`** —
+- [✓] **NF-15.6: retired 2026-05-24 — curated set lives in
+  Rust, not Python** —
+  The "curated service set" the original entry describes
+  ships in `crates/mde-workbench/src/panels/mesh_services.rs`
+  (MESH_UNITS const), updated by NF-5.4 (2026-05-24). The
+  Python `mackes/mesh_services.py` is a deprecated 1.x shim
+  with no curated-set constant; its test_mesh_services.py
+  exercises `_probe_tcp` + `load_registry` (unrelated to the
+  unit set). Test stays as-is until the Python shim retires
+  alongside NF-5.x.
+  **Original entry:**
   Curated service set goes from `tailscaled / headscale /
   caddy / mackesd` (4 entries) to `nebula /
   nebula-lighthouse / mackes-nebula-https-tunnel /
   mackesd` (4 entries). Test fixtures updated lock-step.
-- [ ] **NF-15.7: Update `tests/test_mesh_metrics.py`** —
+- [✓] **NF-15.7: retired 2026-05-24 — transport labels live
+  in mackesd-core Rust, not the deprecated Python shim** —
+  mackes/mesh_metrics.py is a deprecated 1.x compat shim that
+  emits a DeprecationWarning at import time. The
+  direct_udp/derp_relay/https443/kdc_tls → nebula_direct/...
+  transport-label change lives in mackesd-core::metrics +
+  the active_transport StatusSnapshot field
+  (NF-Bundle-0); the Python test exercises WireGuard peer
+  metrics (unrelated). Test stays as-is until the Python
+  shim retires alongside NF-5.x.
+  **Original entry:**
   Metric labels for transports change from `direct_udp /
   derp_relay / https443 / kdc_tls` to `nebula_direct /
   nebula_lighthouse_relay / nebula_https443 / kdc_tls`.
@@ -1501,7 +1579,14 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   these is a v2.5-cut regression. Lint runs on
   `crates/mde-*/src/`, `mackes/workbench/`,
   `mackes/wizard/`, `data/applications/*.desktop`.
-- [ ] **NF-20.6: Pre-commit gate updates** — Add a
+- [!] **NF-20.6: Pre-commit gate updates (BLOCKED on NF-5.x
+  retirement)** — Original entry explicitly says "post
+  NF-5.x land" — the workspace-wide grep would catch the
+  20+ live mesh_vpn.py callers + headscale_setup.py etc. as
+  false positives until they retire. Will land in the same
+  commit (or as the immediate follow-up) when NF-5.1 + 5.5 +
+  14.1 ship.
+  **Original entry:**
   workspace-wide `grep -RIn 'tailscale\|headscale\|derper'
   --include='*.{rs,py}' crates/ mackes/ tests/` check to
   the pre-commit pipeline post-NF-5.x land. Allow-list
