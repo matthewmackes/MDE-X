@@ -1086,6 +1086,138 @@ def apply_qnm(preset: Preset) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# GF-3.1 (v5.0.0) — UID/GID normalize. The mesh-home GlusterFS
+# volume needs every peer's primary account on uid:gid 1000:1000
+# so cross-peer file ownership stays consistent under FUSE
+# (locked Q11 of the v5.0.0 25-Q survey). This step asserts the
+# invariant; when the primary user is on a different uid, it runs
+# usermod / groupmod + chowns $HOME and /var/lib/<user> via
+# AdminSession. Idempotent: re-runs on an already-normalized
+# install report "already 1000:1000" and exit clean.
+#
+# The function refuses to migrate when uid 1000 (or gid 1000) is
+# already held by a DIFFERENT user — that's a collision the
+# operator must resolve manually before mesh-home will work.
+# Refusing is the safe default: silently chowning files for an
+# unrelated existing uid-1000 user would corrupt their session.
+# ---------------------------------------------------------------------------
+
+
+def apply_uid_normalize(_preset: Preset) -> List[str]:
+    """GF-3.1: Pin the primary login account to uid:gid 1000:1000.
+
+    Skips when already normalized. Refuses (with a clear log
+    line) when uid 1000 is held by a different user — that
+    collision is operator-fixable but not silently resolvable
+    here. Runs usermod + groupmod + recursive chown of $HOME
+    and /var/lib/<user> via AdminSession when migration is
+    safe.
+
+    Returns one log line per decision so the wizard's apply
+    rail surfaces what happened to the operator.
+    """
+    import grp
+    import pwd
+
+    actions: List[str] = []
+
+    user = os.environ.get("SUDO_USER") or os.environ.get("USER") or os.environ.get("LOGNAME")
+    if not user or user == "root":
+        actions.append("apply_uid_normalize: no primary user in environment; skipped")
+        return actions
+
+    try:
+        pw = pwd.getpwnam(user)
+    except KeyError:
+        actions.append(
+            f"apply_uid_normalize: user '{user}' not in /etc/passwd; skipped"
+        )
+        return actions
+
+    if pw.pw_uid == 1000 and pw.pw_gid == 1000:
+        actions.append(
+            f"apply_uid_normalize: '{user}' already uid:gid 1000:1000"
+        )
+        log_action(actions[-1])
+        return actions
+
+    if pw.pw_uid != 1000:
+        try:
+            other = pwd.getpwuid(1000)
+            if other.pw_name != user:
+                actions.append(
+                    f"apply_uid_normalize: uid 1000 is held by '{other.pw_name}' "
+                    f"(not '{user}', currently uid {pw.pw_uid}). Refusing to migrate — "
+                    "resolve the collision manually before mesh-home will work."
+                )
+                log_action(actions[-1])
+                return actions
+        except KeyError:
+            pass  # uid 1000 is free
+    if pw.pw_gid != 1000:
+        try:
+            other_g = grp.getgrgid(1000)
+            if other_g.gr_name != user:
+                actions.append(
+                    f"apply_uid_normalize: gid 1000 is held by group '{other_g.gr_name}' "
+                    f"(not '{user}', currently gid {pw.pw_gid}). Refusing to migrate — "
+                    "resolve the collision manually before mesh-home will work."
+                )
+                log_action(actions[-1])
+                return actions
+        except KeyError:
+            pass
+
+    if pw.pw_uid != 1000:
+        rc, msg = _run_root(["usermod", "-u", "1000", user])
+        last = msg.strip().splitlines()[-1] if msg.strip() else f"rc={rc}"
+        if rc != 0:
+            actions.append(
+                f"apply_uid_normalize: usermod -u 1000 {user} failed: {last}"
+            )
+            log_action(actions[-1])
+            return actions
+        actions.append(f"apply_uid_normalize: usermod -u 1000 {user} ok")
+
+    if pw.pw_gid != 1000:
+        rc, msg = _run_root(["groupmod", "-g", "1000", user])
+        last = msg.strip().splitlines()[-1] if msg.strip() else f"rc={rc}"
+        if rc != 0:
+            actions.append(
+                f"apply_uid_normalize: groupmod -g 1000 {user} failed: {last}"
+            )
+            log_action(actions[-1])
+            return actions
+        actions.append(f"apply_uid_normalize: groupmod -g 1000 {user} ok")
+
+    home = Path(pw.pw_dir)
+    if home.exists():
+        rc, msg = _run_root(["chown", "-R", "1000:1000", str(home)])
+        last = msg.strip().splitlines()[-1] if msg.strip() else f"rc={rc}"
+        if rc != 0:
+            actions.append(
+                f"apply_uid_normalize: chown -R 1000:1000 {home} failed: {last}"
+            )
+        else:
+            actions.append(f"apply_uid_normalize: chown -R 1000:1000 {home} ok")
+
+    state = Path(f"/var/lib/{user}")
+    if state.exists():
+        rc, msg = _run_root(["chown", "-R", "1000:1000", str(state)])
+        last = msg.strip().splitlines()[-1] if msg.strip() else f"rc={rc}"
+        if rc != 0:
+            actions.append(
+                f"apply_uid_normalize: chown -R 1000:1000 {state} failed: {last}"
+            )
+        else:
+            actions.append(f"apply_uid_normalize: chown -R 1000:1000 {state} ok")
+
+    for line in actions:
+        log_action(line)
+    return actions
+
+
+# ---------------------------------------------------------------------------
 # 15. LightDM greeter — promoted from apply_appearance (v1.6.0 birthright)
 # ---------------------------------------------------------------------------
 

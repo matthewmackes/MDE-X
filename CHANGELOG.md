@@ -97,6 +97,39 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — GF-3.1: birthright pins primary account to uid 1000
+
+New `apply_uid_normalize(_preset)` step in
+`mackes/birthright.py` asserts the primary login account is on
+uid:gid 1000:1000 and migrates non-1000 users via `usermod -u
+1000 / groupmod -g 1000` + recursive chown of `$HOME` and
+`/var/lib/<user>`. The migration is the prerequisite for the
+v5.0.0 mesh-home FUSE mounts to surface consistent file
+ownership across peers; without it, two peers running the
+same MDE binary against the same brick see different file
+owners and FUSE refuses operations as "wrong user."
+
+Collision-safe: refuses to migrate when uid 1000 (or gid
+1000) is already held by a different user — that's an
+operator-fixable split-tree we won't silently resolve here.
+Idempotent re-runs on an already-normalized install log
+"already uid:gid 1000:1000" and return without any
+subprocess calls.
+
+Wired into the wizard apply pipeline as the "Normalize UID"
+step between "Thunar on login" and "XDG user dirs" so the
+operator sees one progress row per decision. Routed through
+`AdminSession` for the privileged calls; collisions surface
+as visible log lines on the wizard rail rather than blocking
+the apply pass.
+
+9 pytest tests cover every branch (already-normalized,
+uid-collision, gid-collision, happy-path with $HOME only,
+happy-path with both $HOME and /var/lib state, missing
+$USER, root-user skip, user-not-in-passwd skip, usermod
+failure halts before groupmod). ruff lint + voice-and-tone
+lint clean.
+
 ## Unreleased — GF-1.3.a: nebula_supervisor publishes overlay-ip
 
 New `pub fn publish_overlay_ip(path, overlay_ip)` in

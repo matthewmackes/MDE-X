@@ -51,7 +51,7 @@ from mackes.birthright import (
     apply_lightdm, apply_media_clients, apply_panel_archive,
     apply_panel_layout, apply_panel_swap, apply_plymouth, apply_qnm,
     apply_remote_desktop, apply_themes, apply_third_party_repos,
-    apply_thunar_autostart, apply_uninstall_legacy_xfce,
+    apply_thunar_autostart, apply_uid_normalize, apply_uninstall_legacy_xfce,
     apply_uninstall_legacy_xsessions, apply_user_dirs,
 )
 from mackes.presets import (
@@ -363,6 +363,15 @@ class ApplyPage(Gtk.Box):
             _Step("Mesh clipboard",    lambda: apply_clipboard_daemon(merged)),
             _Step("Quick Network Mesh", lambda: apply_qnm(merged)),
             _Step("Thunar on login",   lambda: apply_thunar_autostart(merged)),
+            # GF-3.1 (v5.0.0) — pin the primary login account to
+            # uid:gid 1000:1000 so the future mesh-home FUSE
+            # mounts hand out consistent file ownership across
+            # peers. Idempotent + collision-safe (refuses with a
+            # log line when uid 1000 is held by a different user
+            # rather than silently chowning their data). The
+            # remaining GF-3.x steps (gluster bootstrap + XDG
+            # mesh mount) wire in as they ship.
+            _Step("Normalize UID",     lambda: apply_uid_normalize(merged)),
             _Step("XDG user dirs",     lambda: apply_user_dirs(merged)),
             _Step("Super+M hotkey",    lambda: apply_hotkey(merged)),
             # Phase 10.6.1-4: archive the user's pre-1.0 xfce4-panel state,
