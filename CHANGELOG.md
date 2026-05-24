@@ -97,6 +97,41 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — RD-4: wayvnc reuses Nebula's X.509 PKI as its TLS identity
+
+Closes the v2.6 RD epic. The original worklist body sketched a
+parallel Ed25519 keypair tree (mirroring `mesh_ssh` layer A),
+but wayvnc 0.9.1 (F44's version) doesn't actually support
+Ed25519 RFB auth — it speaks TLS via libtls. Pivoted per
+in-session operator AskUserQuestion to "Nebula X.509 TLS":
+wayvnc reuses the per-peer Nebula cert + key that mackesd's
+nebula supervisor already maintains under `/etc/nebula/`. No
+parallel key tree.
+
+Changes:
+
+- **`apply_remote_desktop` writes `/etc/wayvnc/config`** with
+  `private_key_file=/etc/nebula/host.key` +
+  `certificate_file=/etc/nebula/host.crt` +
+  `enable_pam=false`. The cert paths point at files mackesd's
+  nebula supervisor (NF-3.4) already maintains.
+- **`mde-wayvnc@.service` unit** drops the `--unauthenticated`
+  flag, references `--config=/etc/wayvnc/config`, and gains
+  `ConditionPathExists=` checks for both cert files so the
+  unit fails cleanly before any peer enrolls.
+- **Design doc § 3.3 + the user help doc** both rewritten to
+  lock the Nebula-TLS auth model.
+
+Trust chain = the mesh's existing Nebula trust chain. An
+unenrolled host on the overlay can't present a Nebula-CA-
+signed cert → wayvnc TLS handshake fails → connection
+refused. Revocation runs via `mackesd ca revoke <node-id>` —
+the revoked peer's cert stops validating on the next
+CA-epoch roll.
+
+275/0 pytest + ruff F401/F541/F811/F841 lint clean +
+birthright module-import smoke pass.
+
 ## Unreleased — RD-5: docs/help/remote-desktop.md operator primer
 
 New user-facing help doc covering all three remote-desktop

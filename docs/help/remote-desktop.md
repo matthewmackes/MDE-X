@@ -31,10 +31,16 @@ remmina -c vnc://<peer-name>.mesh:5900
 your peer's `/etc/hosts` entries — see `mesh-services.md` for
 the resolution chain.)
 
-**v2.6 status:** wayvnc runs `--unauthenticated`; the Nebula
-overlay membership IS the trust boundary. Anyone who can reach
-your peer's overlay IP can connect. A future v2.6.x update
-(worklist RD-4) adds per-peer Ed25519 authentication on top.
+**Auth (RD-4, v2.6):** wayvnc reuses Nebula's per-peer X.509
+PKI as its TLS identity. The wayvnc daemon reads
+`/etc/nebula/host.crt` + `/etc/nebula/host.key` (written by
+`mackesd`'s nebula supervisor on every config refresh) and
+requires connecting clients to present a Nebula-CA-signed
+cert. An unenrolled host on the overlay can't present a valid
+cert → TLS handshake fails → connection refused. Revocation
+runs via the existing `mackesd ca revoke <node-id>` path; the
+revoked peer's cert stops validating on the next CA-epoch
+roll.
 
 **Why not x11vnc?** x11vnc mirrors an X11 `:0` display.
 v2.0.0's hard-switch to sway (Wayland-only) removed `:0`, so
