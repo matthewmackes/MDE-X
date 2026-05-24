@@ -1490,11 +1490,41 @@ fn run_serve(
                 );
                 match mackesd_core::ipc::files::register_fleet_files(svc).await {
                     Ok(conn) => {
-                        Box::leak(Box::new(conn));
                         tracing::info!(
                             "Fleet.Files dbus surface registered at {}",
                             mackesd_core::ipc::files::FLEET_FILES_OBJECT_PATH
                         );
+                        // NF-Bundle-0 (v2.5) — hang the Nebula
+                        // status surface on the same
+                        // connection so NF-10..NF-18
+                        // consumers (applets / workbench /
+                        // mde-files / wizard) can call it
+                        // without claiming a second bus name.
+                        let nebula = mackesd_core::ipc::nebula::NebulaStatusService::new(
+                            Arc::clone(&store),
+                            node_id.clone(),
+                            host.clone(),
+                        );
+                        match mackesd_core::ipc::nebula::register_nebula_status_on(
+                            &conn, nebula,
+                        )
+                        .await
+                        {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "Nebula.Status dbus surface registered at {}",
+                                    mackesd_core::ipc::nebula::NEBULA_STATUS_OBJECT_PATH
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    error = %e,
+                                    "Nebula.Status dbus registration failed; \
+                                     NF-10..NF-18 consumers will see no peer data"
+                                );
+                            }
+                        }
+                        Box::leak(Box::new(conn));
                     }
                     Err(e) => {
                         tracing::warn!(

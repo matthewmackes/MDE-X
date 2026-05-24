@@ -29,6 +29,10 @@
 
 pub mod files;
 pub mod fleet;
+// NF-Bundle-0 (v2.5) — dev.mackes.MDE.Nebula.Status surface.
+// Foundation that NF-10..NF-18 desktop consumers chain on.
+// Reachable from run_serve at boot.
+pub mod nebula;
 pub mod notifications;
 pub mod session;
 pub mod settings;
