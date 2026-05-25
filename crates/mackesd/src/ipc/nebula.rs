@@ -219,6 +219,35 @@ impl NebulaStatusService {
         Ok(out)
     }
 
+    /// Pure async core of the D-Bus `Enroll(token)` method —
+    /// testable without a SignalEmitter. The public surface
+    /// (`enroll`) wraps this and fires `EnrollmentCompleted`.
+    pub async fn enroll_inner(&self, token: String) -> zbus::fdo::Result<String> {
+        let qnm_root = self.qnm_root.clone();
+        let node_id = self.node_id.clone();
+        let display_name = self.host.clone();
+        let outcome = tokio::task::spawn_blocking(move || {
+            crate::nebula_enroll::enroll_with_token(
+                &qnm_root,
+                &node_id,
+                &display_name,
+                &token,
+            )
+        })
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(format!("enroll task: {e}")))?;
+        match outcome {
+            Ok(o) => Ok(format!(
+                "enrolled into mesh '{}' as {} (overlay {}) after {} s.",
+                o.mesh_id,
+                self.node_id,
+                o.overlay_ip,
+                o.waited.as_secs(),
+            )),
+            Err(e) => Err(zbus::fdo::Error::Failed(e.to_string())),
+        }
+    }
+
     /// Pure helper — builds the [`SelfNodeSnapshot`] from
     /// the live SQLite state + role marker.
     pub async fn build_self_node(&self) -> Result<SelfNodeSnapshot, String> {
@@ -332,31 +361,53 @@ impl NebulaStatusService {
     /// Synchronous enroll_with_token runs inside
     /// `tokio::task::spawn_blocking` so the 30 s lighthouse-
     /// wait doesn't pin the zbus runtime.
-    async fn enroll(&self, token: String) -> zbus::fdo::Result<String> {
-        let qnm_root = self.qnm_root.clone();
-        let node_id = self.node_id.clone();
-        let display_name = self.host.clone();
-        let outcome = tokio::task::spawn_blocking(move || {
-            crate::nebula_enroll::enroll_with_token(
-                &qnm_root,
-                &node_id,
-                &display_name,
-                &token,
-            )
-        })
-        .await
-        .map_err(|e| zbus::fdo::Error::Failed(format!("enroll task: {e}")))?;
-        match outcome {
-            Ok(o) => Ok(format!(
-                "enrolled into mesh '{}' as {} (overlay {}) after {} s.",
-                o.mesh_id,
-                self.node_id,
-                o.overlay_ip,
-                o.waited.as_secs(),
-            )),
-            Err(e) => Err(zbus::fdo::Error::Failed(e.to_string())),
-        }
+    async fn enroll(
+        &self,
+        #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>,
+        token: String,
+    ) -> zbus::fdo::Result<String> {
+        let reply = self.enroll_inner(token).await?;
+        // OV-7 — fire EnrollmentCompleted so any subscriber
+        // (Workbench Overview, applets) re-probes capability
+        // status immediately rather than waiting for a poll.
+        let _ = Self::enrollment_completed(&emitter, &self.node_id).await;
+        Ok(reply)
     }
+
+    /// Signal: a peer's reachability flipped. Fired by the
+    /// reconcile worker when it observes a node's `health` row
+    /// change (online → idle, idle → offline, etc.). OV-7.a
+    /// worker-side emission lands in the same epic; this
+    /// declaration is the public surface every subscriber
+    /// pins against today.
+    #[zbus(signal)]
+    pub async fn peer_state_changed(
+        emitter: &zbus::object_server::SignalEmitter<'_>,
+        node_id: &str,
+        reachable: &str,
+    ) -> zbus::Result<()>;
+
+    /// Signal: the mesh's active transport rotated. Fired by
+    /// `mesh_router` when its selector picks a different
+    /// transport (nebula_direct → nebula_lighthouse_relay,
+    /// nebula_https443 → kdc_tls, etc.). OV-7.b router-side
+    /// emission lands in the same epic; this declaration is
+    /// the public surface every subscriber pins against today.
+    #[zbus(signal)]
+    pub async fn transport_changed(
+        emitter: &zbus::object_server::SignalEmitter<'_>,
+        active_transport: &str,
+    ) -> zbus::Result<()>;
+
+    /// Signal: a peer (this one or any other) finished
+    /// enrollment into the mesh. Fired from `enroll()` above
+    /// on the local peer's enrollment success; the leader
+    /// fires it for remote peers in OV-7.c.
+    #[zbus(signal)]
+    pub async fn enrollment_completed(
+        emitter: &zbus::object_server::SignalEmitter<'_>,
+        node_id: &str,
+    ) -> zbus::Result<()>;
 }
 
 /// Register the NebulaStatusService on an EXISTING zbus
@@ -622,7 +673,7 @@ mod tests {
         let svc = NebulaStatusService::new(fresh_store(), "peer:local", "anvil")
             .with_qnm_root(tmp.path().to_path_buf());
         let err = svc
-            .enroll("not a valid token".to_string())
+            .enroll_inner("not a valid token".to_string())
             .await
             .expect_err("invalid token");
         let s = err.to_string();

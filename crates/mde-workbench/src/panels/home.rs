@@ -1276,6 +1276,135 @@ fn extract_peer_count(row: &CapabilityRow) -> Option<u32> {
 }
 
 // ---------------------------------------------------------------------------
+// D-Bus signal subscription (OV-8)
+// ---------------------------------------------------------------------------
+
+/// Iced subscription that bridges live D-Bus signals from
+/// `dev.mackes.MDE.Nebula.Status` (PeerStateChanged /
+/// TransportChanged / EnrollmentCompleted) and
+/// `dev.mackes.MDE.Fleet` (RevisionApplied) into
+/// `Message::Home(DbusEvent(...))`. The Overview re-fires its
+/// probe fan-out on each event, so status pills flip without
+/// the operator hitting Refresh.
+///
+/// systemd1 `PropertiesChanged` for individual units is **out
+/// of scope for OV-8** — manual Refresh + the load-on-nav path
+/// cover that case; OV-8.a captures the systemd subscription
+/// as a follow-up if the Refresh button proves insufficient.
+///
+/// On connection loss (mackesd restart, bus disconnect) the
+/// loop re-establishes with a 5 s backoff so the Overview
+/// resumes live updates without a Workbench relaunch.
+pub fn dbus_subscription() -> iced::Subscription<crate::Message> {
+    use iced::stream;
+    iced::Subscription::run(|| {
+        stream::channel(32, |mut output| async move {
+            loop {
+                if let Err(e) = run_subscription(&mut output).await {
+                    tracing::warn!(
+                        target: "mde_workbench::home::dbus_subscription",
+                        "subscription dropped: {e}; reconnecting in 5s",
+                    );
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        })
+    })
+}
+
+async fn run_subscription(
+    output: &mut iced::futures::channel::mpsc::Sender<crate::Message>,
+) -> Result<(), String> {
+    use iced::futures::SinkExt;
+    use zbus::MatchRule;
+    use zbus::MessageStream;
+
+    let conn = zbus::Connection::session()
+        .await
+        .map_err(|e| format!("session bus connect: {e}"))?;
+
+    let mut rules = Vec::new();
+    for (iface, member, event) in [
+        (
+            "dev.mackes.MDE.Nebula.Status",
+            "PeerStateChanged",
+            DbusEvent::PeerChanged,
+        ),
+        (
+            "dev.mackes.MDE.Nebula.Status",
+            "TransportChanged",
+            DbusEvent::TransportChanged,
+        ),
+        (
+            "dev.mackes.MDE.Nebula.Status",
+            "EnrollmentCompleted",
+            DbusEvent::PeerChanged,
+        ),
+        (
+            "dev.mackes.MDE.Fleet",
+            "RevisionApplied",
+            DbusEvent::FleetRevisionPushed,
+        ),
+    ] {
+        let rule = MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface(iface)
+            .map_err(|e| format!("rule interface {iface}: {e}"))?
+            .member(member)
+            .map_err(|e| format!("rule member {member}: {e}"))?
+            .build();
+        zbus::fdo::DBusProxy::new(&conn)
+            .await
+            .map_err(|e| format!("DBus proxy: {e}"))?
+            .add_match_rule(rule.clone())
+            .await
+            .map_err(|e| format!("add_match_rule {iface}.{member}: {e}"))?;
+        rules.push((rule, event));
+    }
+
+    let stream = MessageStream::from(&conn);
+    use iced::futures::StreamExt;
+    let mut stream = stream;
+    while let Some(msg) = stream.next().await {
+        let msg = match msg {
+            Ok(m) => m,
+            Err(e) => return Err(format!("message stream: {e}")),
+        };
+        let header = msg.header();
+        let Some(member) = header.member() else { continue };
+        let Some(iface) = header.interface() else { continue };
+        let iface_str = iface.as_str();
+        let member_str = member.as_str();
+        for (_rule, ev) in &rules {
+            // Match by interface+member; ignore other traffic on
+            // the bus (zbus's per-rule fan-out lands here too).
+            let want_iface_member = match ev {
+                DbusEvent::PeerChanged => {
+                    iface_str == "dev.mackes.MDE.Nebula.Status"
+                        && (member_str == "PeerStateChanged"
+                            || member_str == "EnrollmentCompleted")
+                }
+                DbusEvent::TransportChanged => {
+                    iface_str == "dev.mackes.MDE.Nebula.Status"
+                        && member_str == "TransportChanged"
+                }
+                DbusEvent::FleetRevisionPushed => {
+                    iface_str == "dev.mackes.MDE.Fleet" && member_str == "RevisionApplied"
+                }
+                DbusEvent::UnitChanged(_) => false,
+            };
+            if want_iface_member {
+                let _ = output
+                    .send(crate::Message::Home(Message::DbusEvent(ev.clone())))
+                    .await;
+                break;
+            }
+        }
+    }
+    Err("message stream ended".to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

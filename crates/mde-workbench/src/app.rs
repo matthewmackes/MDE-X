@@ -597,15 +597,23 @@ impl App {
             .run()
     }
 
-    /// Iced subscription bundle — polls [`PendingFocus`] on a
-    /// 200 ms tick so any `dev.mackes.MDE.Shell.Workbench.Focus`
-    /// D-Bus call from a sibling `mde-workbench --focus <slug>`
-    /// invocation propagates into the reducer as
-    /// [`Message::FocusRequest`].
+    /// Iced subscription bundle. Two streams:
+    ///
+    /// 1. **PendingFocus poll** — 200 ms tick that drains any
+    ///    `dev.mackes.MDE.Shell.Workbench.Focus` D-Bus call from
+    ///    a sibling `mde-workbench --focus <slug>` invocation
+    ///    into [`Message::FocusRequest`].
+    /// 2. **Overview D-Bus signal bridge** — subscribes to the
+    ///    Nebula + Fleet signals mackesd emits so the Overview's
+    ///    capability cards refresh without polling
+    ///    (see `panels::home::dbus_subscription`).
     #[allow(clippy::unused_self)]
     fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(Duration::from_millis(200))
-            .map(|_| PendingFocus::drain().map_or(Message::Noop, Message::FocusRequest))
+        Subscription::batch([
+            iced::time::every(Duration::from_millis(200))
+                .map(|_| PendingFocus::drain().map_or(Message::Noop, Message::FocusRequest)),
+            home_panel::dbus_subscription(),
+        ])
     }
 
     fn title(&self) -> String {

@@ -97,6 +97,78 @@ cut): a fresh Fedora 44 VM with `dnf install mde-4.0-1.fc44
 mesh in under 10 minutes total operator time. `rpm -q tailscale
 headscale tailscale-derp` returns "not installed".
 
+## Unreleased — OV-1..OV-11: Workbench Overview tab + live capability statuses
+
+The Workbench landing page (formerly "Dashboard") becomes a
+true Overview that mirrors every cross-host mesh capability
+the platform ships. Each row carries a one-sentence
+plain-English description, a live status pill, optional
+sub-status detail, and a **Configure** jump button that
+deep-links to the panel where the operator manages that
+capability. Coming-soon capabilities render with a disabled
+"Coming soon" button so the affordance signals roadmap intent.
+
+**New surface (`crates/mde-workbench/src/panels/home.rs`):**
+
+- 11 capability cards in fixed order: Mesh Network · Peer
+  Reachability · File Sharing · SSH Across Mesh · Remote
+  Desktop (RDP) · Remote Desktop (VNC) · Media & App
+  Discovery · Phone Pairing · Voice & Video · Fleet
+  Configuration · Desktop Notifications.
+- Live status sourced from `dev.mackes.MDE.Nebula.Status` +
+  `dev.mackes.MDE.Fleet` D-Bus calls + `systemctl show`
+  shell-outs for sshd, xrdp, x11vnc, wayvnc, and the
+  curated `MESH_UNITS` set.
+- VNC row flags `Failed` with sub-text "x11vnc does not run
+  under Wayland — see RD-1..RD-5" when the operator runs
+  Wayland with x11vnc enabled, closing the audit loop that
+  surfaced the v2.6 RD-1..RD-5 epic.
+- mackesd-down banner reminds the operator when D-Bus-sourced
+  rows may be stale; systemd-sourced rows still probe.
+- Hero stat grid (peers / pending updates / snapshots /
+  drift) preserved as the header above the capability list.
+
+**Live signal-driven refresh (`home::dbus_subscription`):**
+
+- New Iced `Subscription` bridges D-Bus signals from
+  `dev.mackes.MDE.Nebula.Status` (PeerStateChanged,
+  TransportChanged, EnrollmentCompleted) + Fleet
+  (RevisionApplied) into `Message::DbusEvent`, re-firing
+  the probe fan-out without polling.
+- Reconnects on bus drop with 5 s backoff so a mackesd
+  restart doesn't require a Workbench relaunch.
+- systemd1 `PropertiesChanged` per-unit subscription is OV-8.a
+  follow-up; the manual Refresh button + load-on-nav cover
+  that case today.
+
+**`mackesd` (`crates/mackesd/src/ipc/nebula.rs`):**
+
+- Three new D-Bus signals on `dev.mackes.MDE.Nebula.Status`:
+  `PeerStateChanged(node_id, reachable)`,
+  `TransportChanged(active_transport)`,
+  `EnrollmentCompleted(node_id)`. `EnrollmentCompleted` fires
+  from `Enroll(token)` on success; per-worker emission for
+  the other two lands in OV-7.a / OV-7.b.
+- Existing `enroll_with_token` integration extracted into a
+  testable `enroll_inner(token)` core so the signal-emitting
+  D-Bus wrapper can layer cleanly on top.
+
+**Sidebar:**
+
+- `Group::Dashboard.label()` returns `"Overview"` instead of
+  `"Dashboard"`. The `Dashboard` enum variant + `"dashboard"`
+  slug stay stable so existing `mde --focus dashboard[.home]`
+  deep-links keep working.
+
+**Tests:** 21 new unit tests on the home.rs surface
+(capability status semantics, row ordering, jump-target
+correctness, sub-status parsing, view-renders-without-panic
+with and without capabilities); 3 new tests on the
+mackesd-side nebula signal interface declarations. Total
+`cargo test -p mde-workbench --lib`: 609 passing.
+`cargo test -p mackesd --features async-services --lib ipc::`:
+62 passing.
+
 ## Unreleased — GF-2.2.a: Gluster D-Bus surface (methods + signal interfaces)
 
 Closes the method-side of GF-2.2 from the v5.0.0 GlusterFS
