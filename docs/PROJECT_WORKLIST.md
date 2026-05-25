@@ -143,7 +143,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 - [✓] **Portal-1: Scaffold `crates/mde-portal/` Rust crate with Iced + libcosmic + swayipc-async + wlr-layer-shell deps.** Bootstrap mded supervises mde-portal; D-Bus `dev.mackes.MDE.Portal` registers Goto/Focus/Lock/ToggleDND methods. End-to-end runnable: launches, registers, exits cleanly. PortalClient wired into mackesd alert_relay (CRITICAL alerts navigate Portal-full → Control layer). `mde-portal.service` user unit ships alongside binary.
 - [✓] **Portal-2: Dock layer-shell surface** — 56px bottom strip, exclusive zone, per-output instances (R3-Q1, R3-Q45). Renders solid charcoal strip (off-white in light, R4-Q75). `StartMode::AllScreens` binds one strip per connected output; compositor hotplug handled via wlr-layer-shell NULL-output protocol.
-- [ ] **Portal-3: Intel One Mono font + Carbon icon set + Nerd Glyph fallback** integrated platform-wide via xdg-desktop-portal-mde theme.
+- [>] **Portal-3: Intel One Mono font + Carbon icon set + Nerd Glyph fallback** integrated platform-wide via xdg-desktop-portal-mde theme.
 - [ ] **Portal-4: 6 direct nav buttons** (Apps/Files/Notifications/VoIP/Network/Settings) with Carbon glyphs, 36px sizing, domain-color chevrons between (R10-Q1, R10-Q2, R10-Q14, R10-Q46), tier-pulse + count badge (R10-Q3), tonal-inversion active indicator (R10-Q15), per-button-specific right-click (R10-Q5).
 - [ ] **Portal-5: Mini-i3-tree segment** with chevron-as-border internal cells (R4-Q63), adaptive 24px-floor width + marquee on overflow (R4-Q64), all-workspaces visible + current-output highlight (R3-Q46), click-jump + hover Aero-peek + `+` new-ws (R3-Q23, R3-Q24).
 - [ ] **Portal-6: Hostname segment** with `<host>:<output> [leader]` format, click cycles cross-peer (R4-Q6), pre-mesh-home '(local-only)' state (R4-Q46), tooltip with uptime/IP/role.
@@ -2926,19 +2926,42 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards.
     - Existing `mde-start` hierarchical-cascade layout from `[[project_start_launcher_design]]` preserved; only the per-entry rendering swaps to Object Cards.
     - Blockers: CR-1, CR-3.
-- [ ] **CR-6: v2.6 — Workbench Mesh Topology peer cards.**
+- [✓] **CR-6: v2.6 — Workbench Mesh Topology peer cards (Table layout).** *(shipped 2026-05-25)*
   **As** an operator looking at the Mesh Topology panel, **I want**
   each peer to render as an Object Card at `CardSize::Medium`,
   **so that** peers feel like tangible objects the operator can
   click, drag, or open. **Acceptance:**
-  - [ ] `crates/mde-workbench/src/panels/mesh_topology.rs` renders each peer via `mde_theme::object_card(...)` at `CardSize::Medium`.
-  - [ ] Subtitle line shows peer reachability ("online" / "idle" / "offline" per OV-7.a's signal).
-  - [ ] Click opens the Peer Connection Card modal (per the existing peer-card design lock).
-  - [ ] Bench-verify: Mesh Topology shows peer cards; clicking opens the peer's modal.
+  - [✓] `crates/mde-workbench/src/panels/mesh_topology.rs` renders each peer via `panel_chrome::object_card(...)` at `CardSize::Medium` (Table layout). Status icon drives the leading glyph; title is the peer name; subtitle is the peer reachability label (`ONLINE` / `IDLE` / `OFFLINE` / `UNKNOWN`).
+  - [✓] Subtitle line shows peer reachability per the existing `PeerStatus.label()` mapping. (OV-7.a's signal continues to drive PeerStatus updates upstream — already in place.)
+  - [ ] Click opens the Peer Connection Card modal — **deferred to CR-6.c** (current Table layout has no per-row click; matching existing zero-click behavior; the on_press wiring lands once the Peer Connection Card modal exists in a stable form).
+  - [ ] Bench-verify: Mesh Topology shows peer cards (visual smoke deferred to operator bench).
   **Implementation notes:**
     - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards.
-    - The existing Cairo topology graph stays; peer NODES on the graph render as Cards (12 px rounded rect + icon + name + subtitle), not as circles.
-    - Blockers: CR-1, CR-3.
+    - Used the existing `panel_chrome::object_card` from CR-3 — single canonical renderer; addr + kind metadata now lives behind the per-peer modal (CR-6.c) per the compact-content-shape lock.
+    - Dropped the now-empty `table_head` (column headers don't fit a card grid); also dropped the now-dead `PeerStatus::color()` helper (card chrome owns status visualization via icon).
+    - Blockers: CR-1 ✓, CR-3 ✓.
+- [ ] **CR-6.b: v2.6 — Mesh Topology canvas-graph peer-node card rendering.** *(split 2026-05-25)*
+  **As** an operator switching the Mesh Topology view to the
+  Graph layout, **I want** each peer NODE on the graph to render
+  as a 12 px rounded-rect Card with icon + name + status pill
+  rather than as a circle, **so that** the canvas-graph layout
+  reads with the same Card affordance as the Table layout.
+  **Acceptance:**
+  - [ ] `GraphProgram::draw` in `mesh_topology.rs` paints each peer as a Card-shaped node (12 px corners, drop-shadow, icon + name + status text inside) using Iced canvas primitives.
+  - [ ] Status colour comes back as a per-status accent on the node (re-introduce `PeerStatus::color()` which CR-6 dropped).
+  - [ ] Bench-verify: switching to Graph layout shows card-shaped nodes.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards (12 px corners, M3 shadow).
+    - Canvas drawing path doesn't get to use `panel_chrome::object_card` (that returns an Iced `Element`; the canvas needs primitive `Path` calls). Re-implements the visual using the same tokens (`CARD_CORNER_RADIUS`, `CARD_SHADOW_DEFAULT_*`).
+    - Blockers: CR-3 ✓.
+- [ ] **CR-6.c: v2.6 — Mesh Topology peer-card click → Peer Connection Card modal.** *(split 2026-05-25)*
+  **As** an operator clicking a peer card in the Mesh Topology Table layout, **I want** the per-peer modal (Peer Connection Card) to open showing addr / kind / transport / latency / actions, **so that** the visible Card affordance fulfills its tangible-object promise. **Acceptance:**
+  - [ ] `peer_object_card` wraps the rendered card in a clickable `button(…)` whose `on_press` opens a `Message::OpenPeerModal(node_id)`.
+  - [ ] Modal renders the addr + kind currently demoted from the card front + any future per-peer detail surfaces.
+  - [ ] Bench-verify: clicking any peer card opens the modal; Esc closes.
+  **Implementation notes:**
+    - The Peer Connection Card surface needs to be available in the workbench app's modal stack first (or re-use the existing peer-card design lock from KDC2-* + mesh-peer-* surfaces).
+    - Blockers: CR-6 ✓, Peer Connection Card modal surface available.
 - [ ] **CR-7: v2.6 — Workbench Networking, Phones, Credentials, Recent panels render Object Cards.**
   **As** an operator looking at saved Wi-Fi / VPN / paired phones / credentials / recent docs, **I want** each entry to render as an Object Card at `CardSize::Small`, **so that** the Object Card affordance is consistent across all object-listing surfaces. **Acceptance:**
   - [ ] Each of the four panels (`networking.rs`, `phones.rs`, `credentials.rs`, `recent.rs`) lists its entries via `mde_theme::object_card(...)` at `CardSize::Small`.

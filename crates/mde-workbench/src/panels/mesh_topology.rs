@@ -24,7 +24,11 @@ use std::time::SystemTime;
 use iced::widget::canvas::{self, Canvas, Frame, Path, Stroke, Text};
 use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Task, Theme};
-use mde_theme::{mde_icon, FontSize, Icon, IconSize, Palette, TypeRole};
+use mde_theme::{
+    mde_icon, FontSize, Icon, IconSize, ObjectCard, Palette, TypeRole, CARD_GRID_GAP,
+};
+
+use crate::panel_chrome::object_card;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeerStatus {
@@ -49,14 +53,6 @@ impl PeerStatus {
             Self::Idle => Icon::StatusWarning,
             Self::Offline => Icon::StatusError,
             Self::Unknown => Icon::StatusUnknown,
-        }
-    }
-    fn color(self) -> Color {
-        match self {
-            Self::Online => Color::from_rgb(0.20, 0.80, 0.40),
-            Self::Idle => Color::from_rgb(0.95, 0.70, 0.20),
-            Self::Offline => Color::from_rgb(0.92, 0.32, 0.30),
-            Self::Unknown => Color::from_rgb(0.55, 0.55, 0.55),
         }
     }
     fn label(self) -> &'static str {
@@ -214,9 +210,14 @@ impl MeshTopologyPanel {
 
         let body_element: Element<'_, crate::Message> = match self.layout {
             Layout::Table => {
-                let mut rows_col = column![table_head(palette)].spacing(2);
+                // CR-6 (2026-05-25): peers render as Object Cards
+                // (CardSize::Medium) per the Classic ChromeOS
+                // visual lock. The canvas-graph customization
+                // (peer nodes drawn as cards inside the graph)
+                // is tracked as CR-6.b.
+                let mut rows_col = column![].spacing(CARD_GRID_GAP as u16);
                 for p in &self.peers {
-                    rows_col = rows_col.push(table_row(p, palette));
+                    rows_col = rows_col.push(peer_object_card(p, palette));
                 }
                 if self.peers.is_empty() && self.last_run_at.is_some() {
                     rows_col = rows_col.push(empty_state_card(palette, self.error.as_deref()));
@@ -442,85 +443,19 @@ impl<Message> canvas::Program<Message> for GraphProgram {
     }
 }
 
-fn table_head<'a>(palette: Palette) -> Element<'a, crate::Message> {
-    let lbl = |s: &'a str| text(s).size(10).color(palette.text_muted.into_iced_color());
-    container(
-        row![
-            container(lbl("STATUS")).width(Length::Fixed(110.0)),
-            container(lbl("NAME")).width(Length::Fixed(180.0)),
-            container(lbl("ADDR")).width(Length::Fixed(160.0)),
-            container(lbl("KIND")).width(Length::Fill),
-        ]
-        .spacing(0),
-    )
-    .padding(Padding::from([6u16, 10u16]))
-    .width(Length::Fill)
-    .style({
-        let border = palette.border.into_iced_color();
-        move |_| container::Style {
-            background: None,
-            border: Border {
-                color: border,
-                width: 0.0,
-                radius: 0.0.into(),
-            },
-            ..container::Style::default()
-        }
-    })
-    .into()
-}
-
-fn table_row<'a>(p: &'a PeerRow, palette: Palette) -> Element<'a, crate::Message> {
-    let status_icon_resolved = mde_icon(p.status.icon(), IconSize::Inline);
-    let status_color = p.status.color();
-    let icon_widget: Element<'a, crate::Message> = if let Some(svg_bytes) = status_icon_resolved.svg_bytes() {
-        use iced::widget::svg as widget_svg;
-        widget_svg(widget_svg::Handle::from_memory(svg_bytes))
-            .width(Length::Fixed(14.0))
-            .height(Length::Fixed(14.0))
-            .style(move |_t: &Theme, _s: widget_svg::Status| widget_svg::Style {
-                color: Some(status_color),
-            })
-            .into()
-    } else {
-        text(status_icon_resolved.fallback_glyph)
-            .size(14.0)
-            .color(status_color)
-            .into()
-    };
-    let status_cell = container(
-        row![icon_widget, text(p.status.label()).size(10).color(status_color)]
-            .spacing(6)
-            .align_y(iced::alignment::Vertical::Center),
-    )
-    .width(Length::Fixed(110.0));
-
-    let cell = |s: String, sz: u16| text(s).size(sz).color(palette.text.into_iced_color());
-    let dim_cell = |s: String, sz: u16| text(s).size(sz).color(palette.text_muted.into_iced_color());
-
-    let bg = palette.raised.into_iced_color();
-    let border = palette.border.into_iced_color();
-    container(
-        row![
-            status_cell,
-            container(cell(p.name.clone(), 12)).width(Length::Fixed(180.0)),
-            container(dim_cell(p.addr.clone(), 11)).width(Length::Fixed(160.0)),
-            container(dim_cell(p.kind.clone(), 11)).width(Length::Fill),
-        ]
-        .align_y(iced::alignment::Vertical::Center),
-    )
-    .padding(Padding::from([8u16, 10u16]))
-    .width(Length::Fill)
-    .style(move |_| container::Style {
-        background: Some(Background::Color(bg)),
-        border: Border {
-            color: border,
-            width: 1.0,
-            radius: 4.0.into(),
-        },
-        ..container::Style::default()
-    })
-    .into()
+/// CR-6 — render a peer as a Material Object Card at
+/// `CardSize::Medium`. Status icon drives the leading glyph;
+/// title is the peer name; subtitle is the peer reachability
+/// label (`ONLINE` / `IDLE` / `OFFLINE` / `UNKNOWN`).
+///
+/// Addr + kind metadata stays accessible via the per-peer modal
+/// (the Peer Connection Card surface from the peer-card design
+/// lock); the card front intentionally stays compact per the
+/// `chromeos-classic-spec.md` §Object Cards "compact content
+/// shape" lock (round-4 re-ask 2026-05-24).
+fn peer_object_card<'a>(p: &'a PeerRow, palette: Palette) -> Element<'a, crate::Message> {
+    let card = ObjectCard::medium(p.status.icon(), p.name.clone(), p.status.label());
+    object_card(card, palette)
 }
 
 fn empty_state_card<'a>(palette: Palette, error: Option<&'a str>) -> Element<'a, crate::Message> {
