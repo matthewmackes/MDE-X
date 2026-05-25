@@ -179,6 +179,8 @@ pub enum Message {
     NewWorkspace,
     /// User clicked the hostname segment (Portal-6; cross-peer cycling in Portal-6.b).
     HostnameClicked,
+    /// 1-second tick from the clock subscription (Portal-11).
+    ClockTick,
     /// Fire-and-forget placeholder for Task::perform callbacks that produce no message.
     Noop,
 }
@@ -196,6 +198,8 @@ pub struct DockApp {
     workspaces: Vec<WorkspaceInfo>,
     /// This machine's hostname — read from `/proc/sys/kernel/hostname` at startup.
     hostname: String,
+    /// Current wall-clock time for the clock segment (Portal-11).
+    clock_now: chrono::DateTime<chrono::Local>,
 }
 
 impl Default for DockApp {
@@ -205,6 +209,7 @@ impl Default for DockApp {
             badge_counts: [0u32; 6],
             workspaces: Vec::new(),
             hostname: String::new(),
+            clock_now: chrono::Local::now(),
         }
     }
 }
@@ -297,6 +302,9 @@ impl iced_layershell::Application for DockApp {
                 // Portal-6.b: cross-peer cycling activates when mesh-home is live.
                 // In pre-mesh-home state clicking the hostname is a no-op.
             }
+            Message::ClockTick => {
+                self.clock_now = chrono::Local::now();
+            }
             Message::Noop => {}
             // Variants injected by #[to_layer_message] (layer-shell protocol
             // actions: AnchorChange, SetInputRegion, etc.).  Not used by the
@@ -307,7 +315,10 @@ impl iced_layershell::Application for DockApp {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        crate::workspace::workspace_subscription()
+        Subscription::batch([
+            crate::workspace::workspace_subscription(),
+            clock_subscription(),
+        ])
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -317,6 +328,7 @@ impl iced_layershell::Application for DockApp {
 
         let ws_seg = build_workspace_segment(self, fg);
         let host_seg = build_hostname_segment(self, fg);
+        let clock_seg = build_clock_segment(self, fg);
         let nav_row = build_nav_row(self, fg);
 
         container(
@@ -324,6 +336,7 @@ impl iced_layershell::Application for DockApp {
                 ws_seg,
                 host_seg,
                 iced::widget::horizontal_space(),
+                clock_seg,
                 nav_row,
             ]
                 .width(Length::Fill)
@@ -345,6 +358,41 @@ impl iced_layershell::Application for DockApp {
 }
 
 // ── widget helpers ────────────────────────────────────────────────────────────
+
+/// 1-second clock tick subscription (Portal-11).
+fn clock_subscription() -> Subscription<Message> {
+    Subscription::run_with_id(
+        "mde-portal-clock",
+        async_stream::stream! {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                yield Message::ClockTick;
+            }
+        },
+    )
+}
+
+/// Build the clock segment (Portal-11): 24h time on top, date below.
+///
+/// Calendar popover on click is Portal-11.b (requires Portal-16 scratchpad surface).
+fn build_clock_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
+    use iced::widget::column;
+    let time_str = app.clock_now.format("%H:%M").to_string();
+    let date_str = app.clock_now.format("%b %d").to_string();
+
+    container(
+        column![
+            text(time_str).size(13.0).color(fg),
+            text(date_str).size(10.0).color(Color { a: 0.6, ..fg }),
+        ]
+        .align_x(iced::Alignment::Center)
+        .spacing(1),
+    )
+    .height(Length::Fill)
+    .align_y(iced::alignment::Vertical::Center)
+    .padding(Padding::from([0, 10]))
+    .into()
+}
 
 /// Build the hostname segment (Portal-6): `host:output (local-only)`.
 ///
@@ -805,6 +853,46 @@ mod tests {
         assert_eq!(output, "eDP-1");
         let label = format!("{}:{output} (local-only)", app.hostname);
         assert_eq!(label, "devbox:eDP-1 (local-only)");
+    }
+
+    // ── Portal-11 clock segment tests ─────────────────────────────────────────
+
+    #[test]
+    fn clock_now_initialized_in_default() {
+        let app = DockApp::default();
+        // clock_now should be a recent timestamp (within 5 seconds of now).
+        let diff = (chrono::Local::now() - app.clock_now).num_seconds().abs();
+        assert!(diff < 5, "clock_now should be near startup time; diff={diff}s");
+    }
+
+    #[test]
+    fn clock_tick_advances_time() {
+        let mut app = DockApp::default();
+        // Manually set a past time.
+        app.clock_now = chrono::Local::now() - chrono::Duration::seconds(60);
+        let old_time = app.clock_now;
+
+        let _ = iced_layershell::Application::update(&mut app, Message::ClockTick);
+        // After ClockTick, clock_now should be more recent than old_time.
+        assert!(app.clock_now > old_time, "ClockTick should update clock_now");
+    }
+
+    #[test]
+    fn clock_formats_time_correctly() {
+        let app = DockApp::default();
+        let formatted = app.clock_now.format("%H:%M").to_string();
+        // Format should be HH:MM — two digits, colon, two digits.
+        assert_eq!(formatted.len(), 5, "time format should be HH:MM");
+        assert_eq!(&formatted[2..3], ":", "colon at position 2");
+    }
+
+    #[test]
+    fn clock_formats_date_correctly() {
+        let app = DockApp::default();
+        let formatted = app.clock_now.format("%b %d").to_string();
+        // Format: "Jan 01" style — non-empty, has a space.
+        assert!(!formatted.is_empty());
+        assert!(formatted.contains(' '), "date format should have space: {formatted}");
     }
 
     #[test]
