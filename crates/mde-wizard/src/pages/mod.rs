@@ -12,11 +12,8 @@
 
 pub mod apply;
 pub mod legacy_import;
-pub mod mesh_passcode;
-pub mod network;
 pub mod preset;
 pub mod preview;
-pub mod re_pair;
 pub mod scan;
 pub mod snapshot;
 pub mod welcome;
