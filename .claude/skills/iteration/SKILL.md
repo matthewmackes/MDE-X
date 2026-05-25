@@ -664,53 +664,70 @@ runtime-reachability §0.8 gate 7:
   worklist (per [[mackes-worklist-management]] §1) before
   treating them as work.
 
-## Design influence locks (Phase 0.8, added 2026-05-23)
+## Design influence lock (Phase 0.8, locked 2026-05-24)
 
-Two reference designs anchor the platform's visual vocabulary
-and are invoked by the design-criteria audit (Phase 0.8) AND
-the per-loop spot-check at step 7. When the implementation
-needs visual / interaction polish past what a design doc spells
-out, the implementer draws from the appropriate reference:
+**Single reference design:** **Classic ChromeOS (pre-2022)** —
+flat surfaces, sharp 4 px corners, dense rows, no blur, hard 1 px
+dividers, accent only where needed. Applies to **every surface**
+in MDE (chrome AND content; apps AND system). Supersedes the
+prior Win11 chrome / Ableton content split per the
+newer-wins-silently rule.
+
+The full token table lives at
+[`docs/design/chromeos-classic-spec.md`](../../../docs/design/chromeos-classic-spec.md).
+Implementers consult it whenever a worklist task needs visual
+polish past what its own design doc spells out. Phase 0.8 + the
+in-loop spot-check at step 7 audit every surface against the spec
+on every iteration pass.
 
 | Surface kind | Reference | Key tokens |
 |---|---|---|
-| Chrome (window controls, panel, start menu, snap layouts, popovers) | **Windows 11** | 8 px rounded corners, Mica/acrylic surfaces, Segoe Fluent Icon outlines (1 px stroke), per-window controls top-right, centered start, 140 ms reveals |
-| Content (parameter editors, file lists, status chips, Workbench tables) | **Ableton Live default theme** | #181818 slate background, compact dense layouts, single accent per zone (Q2 indigo), IBM Plex Mono numerics, 1 px subtle dividers, 4 % bg lighten on hover |
+| All surfaces (chrome AND content) | **Classic ChromeOS pre-2022** | 4 px corners, no blur, 1 px #3c4043 dividers, 28 px row height, Roboto 13 px body, Q2 indigo single accent, Carbon icons only, 48 px Shelf, 32 px tab-strip window header |
 
-These are **influence locks**, not pixel-perfect copies — MDE's
-own brand tokens (Q2 indigo `#5b6af5`, Q3 charcoal `#1d1d1f`,
-Geologica/IBM Plex Mono per Q11/Q12, Carbon SVG icons per Q24
-/ BUG-13) always trump the reference where they conflict. The
-references define the IDIOM (where do window controls live,
-what counts as "elevated", how dense should a parameter list
-be), not the exact colors.
+**Surviving MDE locks that trump the reference where they
+conflict:**
 
-**Why this split.** Operators come to MDE with muscle memory
-from both worlds: from Windows for chrome interaction (close
-button top-right, snap layouts on maximize, centered start),
-from creative tools like Ableton for content interaction
-(dense tables, monospace numerics, single accent). Splitting
-the influence by surface role keeps each muscle-memory pattern
-intact in the surface where it applies.
+- **Accent:** Q2 indigo `#5b6af5` (single accent across all
+  surfaces).
+- **Iconography:** Carbon Icon Set only (`assets/icons/carbon/`).
+- **Voice + tone:** `docs/design/voice-and-tone.md`.
 
-**Forbidden hybrids** (caught by Phase 0.8):
+**Replaced locks (per newer-wins-silently):**
 
-- Rounded corners on a content-row in a Workbench parameter
-  table (rounded = elevated chrome; rows should be flat).
-- Per-row accent colors (multiple accents in one zone = audit
-  finding; one zone gets one accent).
-- Sans-serif numerics in a parameter readout (use IBM Plex
-  Mono per Q12).
-- Per-window controls centered on the panel (Win11 has them
-  per-window top-right — BUG-6 was a deviation that the
-  operator reversed in BUG-16).
-- **Non-Carbon icon assets in any production surface.** The
-  iconography lock below makes Carbon Icon Set the only
-  source for chrome + content icons. Lucide / Phosphor /
-  Material / Font Awesome / hicolor / Black-Sun / Orchis
-  icons appearing in production code = audit finding.
-  Unicode fallback glyphs are tolerated only as the
-  `svg_bytes() → None` safety net (BUG-13).
+- Q3 charcoal `#1d1d1f` → ChromeOS dark palette
+  (`#202124 / #2d2e30 / #3c4043 / #e8eaed / #9aa0a6`).
+- Geologica body font → Roboto.
+- IBM Plex Mono → Roboto Mono.
+- Win11 chrome / Ableton content split → Classic ChromeOS
+  everywhere.
+
+**Operator-standing directive:** mde-files keeps its existing
+layout (sidebar / list / toolbar structure unchanged); only the
+visual treatment swaps to Classic ChromeOS. The directive applies
+to any future "preserve layout, swap look" request — visual diffs
+don't restructure component trees unless explicitly told to.
+
+**Forbidden treatments** (caught by Phase 0.8):
+
+- Corner radius > 4 px on any production surface (Bento tile,
+  card, popover, dialog, toast). The Material You 8 / 12 / 16 px
+  rounding is OUT.
+- Blur / acrylic / mica materials on any surface. Classic
+  ChromeOS is flat — `backdrop-filter: blur` is an audit finding.
+- Drop shadows on cards / popovers / dialogs. Elevation is
+  communicated by 1 px borders + raised-surface fill only.
+- Per-row / per-zone accent variation. Q2 indigo is the only
+  accent; all selected / focused / primary states use it.
+- Non-Roboto body fonts on any production surface. Geologica
+  references in CSS / Iced are retrofit findings.
+- Non-Carbon icon assets in any production surface. Lucide /
+  Phosphor / Material / Font Awesome / hicolor / Black-Sun /
+  Orchis are findings. Unicode fallback glyphs are tolerated only
+  as the `svg_bytes() → None` safety net (BUG-13).
+- Hover treatments that lighten by `n%` luminance instead of
+  swapping to the surface-raised tone (`#202124 → #2d2e30`).
+- Window controls anywhere other than top-right (BUG-16 is
+  preserved; centered controls are retired).
 
 ## History
 
@@ -753,6 +770,20 @@ intact in the surface where it applies.
   system Mackes-Carbon theme); non-Carbon icons in production
   code are an audit finding. Replaces the prior one-line task
   shape going forward; existing one-liners are grandfathered.
+- 2026-05-24 — replaced the Win11 / Ableton influence split with
+  a single **Classic ChromeOS pre-2022** lock that applies to
+  every surface (chrome AND content; apps AND system). Locked via
+  a 22-question operator survey (3 + 4 + 15 questions across
+  rounds 1–3) and codified at
+  [`docs/design/chromeos-classic-spec.md`](../../../docs/design/chromeos-classic-spec.md).
+  Drops Q3 charcoal in favor of ChromeOS dark `#202124`, swaps
+  Geologica/IBM Plex Mono → Roboto/Roboto Mono, locks 28 px row
+  density, 4 px corners, no blur, hover = surface-raised tone
+  swap (not luminance lighten). Q2 indigo + Carbon icons survive
+  unchanged. Operator directive `mde-files layout does not
+  change, only the look` captured as the precedent for any future
+  "preserve layout, swap chrome" ask. Adds a worklist epic
+  (`CR-1..CR-N`) covering surface-by-surface retrofit.
 - 2026-05-23 — expanded Phase 0.7's comment-marker grep with
   the **"lands" verb family** (`lands in`, `lands when`,
   `lands later`, `lands in a follow`, `lands at`, plus

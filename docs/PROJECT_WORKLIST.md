@@ -2628,6 +2628,189 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Help doc renders inline in the Workbench help viewer (per the v2.0.0 docs/help/ rendering path).
     - Blockers: every other DM-* item — docs land in the same commit as the last wired piece (or in a docs-only follow-up if DM-7 slips to v2.8).
 
+### CR-1..CR-N: v2.6 — Classic ChromeOS visual retrofit (locked 2026-05-24 via 26-Q survey)
+
+> **Lock:** the entire platform's visual vocabulary moves to
+> **Classic ChromeOS pre-2022** + a layered **Material Design
+> Elevated Object Card** rule for apps/files/peers. Replaces the
+> prior Win11 chrome / Ableton content split, the Q3 charcoal
+> palette, and the Geologica/IBM Plex Mono typography. Q2 indigo
+> + Carbon icons + voice-tone survive. Locked via 26-Q operator
+> survey (rounds 1-4); full spec at `docs/design/chromeos-classic-spec.md`.
+> Iteration skill's Design influence locks section rewritten in
+> the same commit per newer-wins-silently.
+
+> **Standing directive:** mde-files layout does not change —
+> visual treatment swaps to Classic ChromeOS; sidebar / list /
+> toolbar structure stays.
+
+> **Carve-outs (do NOT swap to Classic ChromeOS / Object Cards):**
+> wizard pages already shipped + currently locked to PatternFly
+> stay until v2.7's `wizard-rewrite` epic touches them. Help
+> docs in `docs/help/` are markdown, not chrome — render in the
+> Workbench help viewer; the viewer chrome IS retrofitted, the
+> doc body stays markdown.
+
+- [✓] **CR-0: Design lock + canonical spec doc (shipped 2026-05-24)**
+  Captures the 26-Q survey outcomes in `docs/design/chromeos-classic-spec.md`,
+  rewrites `.claude/skills/iteration/SKILL.md`'s Design influence
+  locks section to name Classic ChromeOS as the sole reference,
+  adds `[[project_chromeos_classic_visual_lock]]` +
+  `[[project_object_card_pattern]]` memories, opens this epic.
+- [ ] **CR-1: v2.6 — Theme token swap in `mde_theme` + `data/css/tokens.css`.**
+  **As** an MDE operator, **I want** every surface to render in
+  the locked Classic ChromeOS palette + Roboto typography,
+  **so that** the platform's visual identity matches the
+  2026-05-24 lock end-to-end. **Acceptance:**
+  - [ ] `mde_theme::palette::dark()` returns the Classic ChromeOS dark tokens (`#202124 / #2d2e30 / #3c4043 / #e8eaed / #9aa0a6`).
+  - [ ] `mde_theme::palette::light()` returns the Classic ChromeOS light tokens (`#f7f7f7 / #ffffff / #dadce0 / #1d1d1f / #5f6368`).
+  - [ ] `mde_theme::typography::body()` resolves to Roboto 400 / 13 px / 18 px line; `typography::mono()` to Roboto Mono 400 / 12 px.
+  - [ ] `data/css/tokens.css` rewritten with the same tokens; lint-css.sh passes.
+  - [ ] `packaging/fedora/mackes-shell.spec` gains `Requires: google-roboto-fonts` + `google-roboto-mono-fonts`.
+  **Implementation notes:**
+    - Spec source: `docs/design/chromeos-classic-spec.md`.
+    - Icon: `Icon::Theme` (no chrome change in this task).
+    - Blockers: none — entry point for the whole epic.
+- [ ] **CR-2: v2.6 — Workbench shell retrofit (sidebar + tab-strip header + Shelf).**
+  **As** an operator opening Workbench, **I want** the sidebar to
+  hover-expand 56→256 px, the window header to render as a
+  Classic ChromeOS tab-strip with controls top-right, and the
+  Shelf to sit at 48 px with the Launcher bottom-left,
+  **so that** the system chrome reads as Classic ChromeOS the
+  moment the binary boots. **Acceptance:**
+  - [ ] `crates/mde-workbench/src/shell.rs` (or equivalent) renders the 56 px resting sidebar; hover triggers a 200 ms width transition to 256 px after 140 ms delay.
+  - [ ] Window header is 32 px tall with the active app rendered as a 4 px top-corner tab-chip; min/max/close stay top-right.
+  - [ ] Shelf is 48 px tall; Launcher button 40 × 40 px bottom-left; Status Tray 200 px wide bottom-right; clock h:mm AM/PM.
+  - [ ] Bench-verify: launching Workbench shows the new chrome before any panel content loads.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Window chrome / §Shelf / §App sidebar.
+    - Icons: `Icon::Launcher`, `Icon::Minimize`, `Icon::Maximize`, `Icon::Close` (all Carbon).
+    - Blockers: CR-1.
+- [ ] **CR-3: v2.6 — Object Card component lands in `mde_theme`.**
+  **As** a surface-author rendering apps/files/peers, **I want**
+  one canonical `object_card(...)` function that ships the
+  Material 3 Elevated card spec with S/M/L sizing,
+  **so that** every Object surface reuses the same component
+  instead of forking per-surface card implementations.
+  **Acceptance:**
+  - [ ] `mde_theme::object_card(icon, title, subtitle, size, state)` returns an `Element<Message>` rendering the M3 Elevated card per spec (12 px corners, elevation shadow, indigo ripple, hover overlay, selected border).
+  - [ ] `CardSize::{Small, Medium, Large}` enum drives sizing per spec.
+  - [ ] `CardState::{Default, Hover, Pressed, Selected, Focused, Disabled}` handles every interaction state.
+  - [ ] Unit tests verify the component renders the spec's exact tokens (shadow, corners, padding, icon size, typography).
+  - [ ] Bench-verify: a 3 × 3 grid of placeholder Object Cards renders correctly in a smoke harness.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards.
+    - Iced widget composition: stack of layers (shadow → surface-tint → content → ripple overlay → selected border).
+    - Icon: `Icon::PlaceholderCard` for the smoke harness.
+    - Blockers: CR-1.
+- [ ] **CR-4: v2.6 — mde-files visual retrofit (layout unchanged, look swapped).**
+  **As** an operator opening mde-files, **I want** the existing
+  sidebar / list / toolbar layout to stay exactly where it is
+  while the visual treatment matches Classic ChromeOS and grid
+  view renders Object Cards, **so that** muscle memory is
+  preserved while the visual identity updates per the operator
+  directive `Layout of the File manager should not change, only
+  the "look"`. **Acceptance:**
+  - [ ] No layout structure change in `crates/mde-files/src/app.rs`'s `view()` (sidebar position, list region, toolbar slot all unchanged).
+  - [ ] Sidebar adopts CR-2's 56→256 px hover-expand behavior.
+  - [ ] List view rows use Classic ChromeOS density (28 px, Roboto 13 px, sharp 1 px dividers, indigo selection).
+  - [ ] Grid view renders each file/folder via `mde_theme::object_card(...)` at `CardSize::Medium`.
+  - [ ] Toolbar buttons match the Classic ChromeOS primary/secondary/text button styles.
+  - [ ] Bench-verify: side-by-side screenshot pre/post — sidebar / list / toolbar are in identical positions; only the rendering changed.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` everywhere.
+    - Icons: existing mde-files Carbon set (no swaps).
+    - Blockers: CR-1, CR-2, CR-3.
+- [ ] **CR-5: v2.6 — mde-start retrofit (Start menu app cards).**
+  **As** an operator pressing the M button, **I want** the Start
+  menu to render application entries as Object Cards at
+  `CardSize::Large` per the design lock, **so that** the launcher
+  reads as a Material Card grid rather than a row list.
+  **Acceptance:**
+  - [ ] `crates/mde-start/src/...` renders each app entry via `mde_theme::object_card(...)` at `CardSize::Large` (200 × 140 px, top icon 48 px).
+  - [ ] Pinned / recent / current sections all use the same Card component.
+  - [ ] Click opens; right-click → context menu; multi-select via Shift/Ctrl per the Card spec.
+  - [ ] Bench-verify: opening Start menu shows the new Card grid; clicking an app card launches.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards.
+    - Existing `mde-start` hierarchical-cascade layout from `[[project_start_launcher_design]]` preserved; only the per-entry rendering swaps to Object Cards.
+    - Blockers: CR-1, CR-3.
+- [ ] **CR-6: v2.6 — Workbench Mesh Topology peer cards.**
+  **As** an operator looking at the Mesh Topology panel, **I want**
+  each peer to render as an Object Card at `CardSize::Medium`,
+  **so that** peers feel like tangible objects the operator can
+  click, drag, or open. **Acceptance:**
+  - [ ] `crates/mde-workbench/src/panels/mesh_topology.rs` renders each peer via `mde_theme::object_card(...)` at `CardSize::Medium`.
+  - [ ] Subtitle line shows peer reachability ("online" / "idle" / "offline" per OV-7.a's signal).
+  - [ ] Click opens the Peer Connection Card modal (per the existing peer-card design lock).
+  - [ ] Bench-verify: Mesh Topology shows peer cards; clicking opens the peer's modal.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards.
+    - The existing Cairo topology graph stays; peer NODES on the graph render as Cards (12 px rounded rect + icon + name + subtitle), not as circles.
+    - Blockers: CR-1, CR-3.
+- [ ] **CR-7: v2.6 — Workbench Networking, Phones, Credentials, Recent panels render Object Cards.**
+  **As** an operator looking at saved Wi-Fi / VPN / paired phones / credentials / recent docs, **I want** each entry to render as an Object Card at `CardSize::Small`, **so that** the Object Card affordance is consistent across all object-listing surfaces. **Acceptance:**
+  - [ ] Each of the four panels (`networking.rs`, `phones.rs`, `credentials.rs`, `recent.rs`) lists its entries via `mde_theme::object_card(...)` at `CardSize::Small`.
+  - [ ] Click opens / connects / launches per object semantics.
+  - [ ] Right-click context menu honors the Card spec.
+  - [ ] Bench-verify: each panel renders Cards; clicking opens the right thing.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards.
+    - Blockers: CR-1, CR-3.
+- [ ] **CR-8: v2.6 — Notifications history pane Object Cards.**
+  **As** an operator opening the notification-history pane, **I want** each historical toast to render as a small Object Card, **so that** the history reads as a stack of dismissed objects rather than a log line list. **Acceptance:**
+  - [ ] Notification-history pane renders each entry via `mde_theme::object_card(...)` at `CardSize::Small`.
+  - [ ] Click re-opens / re-actions the toast where applicable.
+  - [ ] Right-click → context menu (dismiss, view source, etc.).
+  - [ ] Bench-verify: opening history shows Card-rendered toasts.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards + §Toast (the live toast keeps its existing 4 px chip; only the history entries become Cards).
+    - Blockers: CR-1, CR-3.
+- [ ] **CR-9: v2.6 — Form controls retrofit (buttons, inputs, toggles, checkboxes, sliders, scrollbars).**
+  **As** an operator interacting with any Settings panel, **I want** every primary button, text input, toggle, checkbox, radio, slider, and scrollbar to match the Classic ChromeOS spec, **so that** every form surface reads consistently. **Acceptance:**
+  - [ ] Primary button: filled indigo, 32 px, 4 px corners, +8% luminance on hover.
+  - [ ] Text input: transparent bg, 1 px bottom border #3c4043, 2 px indigo focus.
+  - [ ] Toggle: 32 × 16 px pill, knob 12 px, 140 ms slide.
+  - [ ] Checkbox: 16 px sharp square, indigo fill + Carbon check.
+  - [ ] Radio: 16 px circle, indigo dot center.
+  - [ ] Scrollbar: 12 px always-visible, #2d2e30 track, #3c4043 thumb.
+  - [ ] Focus ring: 2 px indigo outline 1 px offset on every focusable element.
+  - [ ] Bench-verify: a sample Settings panel renders every control type per spec.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Primary button / §Text input / §Toggle/checkbox/radio / §Scrollbar / §Focus ring.
+    - Icons: `Icon::Check` (Carbon checkmark) for checkbox marks.
+    - Blockers: CR-1.
+- [ ] **CR-10: v2.6 — Right-click context menu + Dialog modal + Toast chip retrofit.**
+  **As** an operator triggering any context menu, dialog, or toast, **I want** all three overlay surfaces to match the Classic ChromeOS spec, **so that** overlays feel consistent across every app. **Acceptance:**
+  - [ ] Context menu: min 220 px wide, 4 px corners, 1 px #3c4043 border, #2d2e30 bg, 28 px rows, kbd shortcut col right-aligned 11 px muted.
+  - [ ] Dialog modal: 4 px corners, #2d2e30 bg, 60% black backdrop, 480 px default width, 48 px title row + 64 px button row, Primary right of Cancel.
+  - [ ] Toast: bottom-right above Shelf, 320 px wide, 4 px corners, auto-dismiss 5 s with 2 px bottom progress, stack newest-on-top.
+  - [ ] Bench-verify: each overlay type renders per spec in a sample harness.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Right-click context menu / §Dialog modal / §Toast.
+    - Blockers: CR-1.
+- [ ] **CR-11: v2.6 — Light mode end-to-end retrofit (XDG-driven, per-app override in Workbench Appearance).**
+  **As** an operator setting `XDG_COLOR_SCHEME=light`, **I want** every MDE surface to render the locked light-mode palette, **so that** the platform respects system preference. **Acceptance:**
+  - [ ] `mde_theme::palette::current()` reads `XDG_COLOR_SCHEME` + per-app override; returns the locked dark or light tokens.
+  - [ ] Workbench Appearance panel exposes per-app `Color scheme: System / Dark / Light` selector.
+  - [ ] Every Iced surface re-renders within 500 ms of preference change (no relaunch required).
+  - [ ] Every CSS surface (legacy GTK panels) honors the same preference (via `gtk-application-prefer-dark-theme` or equivalent).
+  - [ ] Bench-verify: toggling system preference flips every surface in real time.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Palette (light mode).
+    - Light-mode tokens already locked; only the consumer wiring needs to ship.
+    - Blockers: CR-1 through CR-10 (so the dark-mode retrofit is complete first; light-mode is the second pass over the same surfaces).
+- [ ] **CR-12: v2.6 — Phase 0.8 audit + Lint update + CHANGELOG.**
+  **As** an MDE maintainer, **I want** the design-criteria audit to enforce the Classic ChromeOS lock automatically, **so that** future PRs can't regress the visual identity by accident. **Acceptance:**
+  - [ ] `install-helpers/lint-classic-chromeos.sh` (new) greps for `#1d1d1f`, `Geologica`, `IBM Plex Mono`, `radius:.*[5-9]px`, `radius:.*1[0-9]px`, `backdrop-filter`, `box-shadow:` (outside `object_card`); each hit fails the lint. Exempts `assets/icons/carbon/`, `docs/`, retired memories.
+  - [ ] `.github/workflows/ci.yml` runs the lint in the same job as `lint-voice` + `lint-legacy-mesh`.
+  - [ ] `.claude/CLAUDE.md` §0.7 pre-commit gates section gains a new gate 8 referencing the lint.
+  - [ ] CHANGELOG entry for v2.6 calls out the Classic ChromeOS visual lock as the headline operator-visible change.
+  - [ ] Bench-verify: running the lint against a hand-crafted regression file fails as expected.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Audit hooks.
+    - Blockers: every other CR-* item — the lint goes green only when the retrofit's done.
+
 ### v2.0.0 monolithic cut (shipped 2026-05-20)
 
 - [✓] **v2.0.0 cut commit landed (tag `v2.0.0` → fa28cca,
