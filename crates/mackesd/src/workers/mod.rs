@@ -154,7 +154,6 @@ pub mod alert_relay;
 // block so netdata falls back to local-only with the 7-day
 // dbengine retention `apply_netdata_monitor` locked.
 pub mod netdata_aggregator;
-pub mod metrics_flush;
 pub mod nats;
 pub mod notification_relay;
 pub mod perf;
