@@ -232,6 +232,8 @@ pub enum Message {
     LockClicked,
     /// User clicked the Power glyph — triggers `systemctl suspend` (Portal-9.a).
     PowerClicked,
+    /// User clicked the clock segment — spawns `mde-popover clock` calendar (Portal-11.b).
+    ClockClicked,
     /// Fire-and-forget placeholder for Task::perform callbacks that produce no message.
     Noop,
 }
@@ -530,6 +532,16 @@ impl iced_layershell::Application for DockApp {
                     |_| Message::Noop,
                 );
             }
+            Message::ClockClicked => {
+                return Task::perform(
+                    async {
+                        let _ = tokio::process::Command::new("mde-popover")
+                            .arg("clock")
+                            .spawn();
+                    },
+                    |_| Message::Noop,
+                );
+            }
             Message::Noop => {}
             // Variants injected by #[to_layer_message] (layer-shell protocol
             // actions: AnchorChange, SetInputRegion, etc.).  Not used by the
@@ -694,23 +706,26 @@ fn clock_subscription() -> Subscription<Message> {
 
 /// Build the clock segment (Portal-11): 24h time on top, date below.
 ///
-/// Calendar popover on click is Portal-11.b (requires Portal-16 scratchpad surface).
+/// Click spawns `mde-popover clock` — monthly calendar overlay (Portal-11.b).
 fn build_clock_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
     use iced::widget::column;
     let time_str = app.clock_now.format("%H:%M").to_string();
     let date_str = app.clock_now.format("%b %d").to_string();
 
-    container(
-        column![
-            text(time_str).size(13.0).color(fg),
-            text(date_str).size(10.0).color(Color { a: 0.6, ..fg }),
-        ]
-        .align_x(iced::Alignment::Center)
-        .spacing(1),
+    mouse_area(
+        container(
+            column![
+                text(time_str).size(13.0).color(fg),
+                text(date_str).size(10.0).color(Color { a: 0.6, ..fg }),
+            ]
+            .align_x(iced::Alignment::Center)
+            .spacing(1),
+        )
+        .height(Length::Fill)
+        .align_y(iced::alignment::Vertical::Center)
+        .padding(Padding::from([0, 10])),
     )
-    .height(Length::Fill)
-    .align_y(iced::alignment::Vertical::Center)
-    .padding(Padding::from([0, 10]))
+    .on_press(Message::ClockClicked)
     .into()
 }
 
@@ -1604,6 +1619,15 @@ mod tests {
         // Format: "Jan 01" style — non-empty, has a space.
         assert!(!formatted.is_empty());
         assert!(formatted.contains(' '), "date format should have space: {formatted}");
+    }
+
+    #[test]
+    fn clock_clicked_fires_task_without_panic() {
+        let mut app = DockApp::default();
+        // ClockClicked spawns mde-popover clock; state itself is unchanged.
+        let _task =
+            iced_layershell::Application::update(&mut app, Message::ClockClicked);
+        assert_eq!(app.active_nav, None);
     }
 
     #[test]
