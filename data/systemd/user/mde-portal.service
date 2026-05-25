@@ -1,0 +1,38 @@
+[Unit]
+Description=MDE Portal — unified shell (Dock + Portal-compact + Portal-full + surfaces)
+Documentation=https://github.com/matthewmackes/MAP2-RELEASES
+# v6.0 Portal-1 — mde-portal is the primary graphical shell surface
+# replacing start_menu + mde-files + mde-workbench + swaylock theming.
+# PartOf graphical-session: if the session ends, the portal goes with it.
+PartOf=graphical-session.target
+After=graphical-session.target
+# mackesd must be live so Portal's workers can call the mesh D-Bus
+# surfaces (Nebula.Status, Gluster.Status, Shell.*) on startup.
+After=mackesd.service
+
+[Service]
+Type=dbus
+# The D-Bus name mde-portal registers on the session bus.
+BusName=dev.mackes.MDE.Portal
+ExecStart=/usr/bin/mde-portal
+# mde-portal is the primary shell surface — always restart on crash.
+Restart=always
+RestartSec=2
+# Reduce restart storm on rapid crash loops.
+StartLimitIntervalSec=30
+StartLimitBurst=5
+
+# Structured logging — same pattern as mde-session / mde-panel.
+StandardError=journal
+SyslogIdentifier=mde-portal
+
+# Hardening — lighter than mded since this owns the graphical session.
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=graphical-session.target

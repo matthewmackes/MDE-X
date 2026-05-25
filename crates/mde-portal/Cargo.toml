@@ -1,0 +1,79 @@
+[package]
+name        = "mde-portal"
+description = "MDE Portal — unified shell (Dock + Portal-compact + Portal-full + Lock + Theater + Mesh-wallpaper). v6.0 replacement for start_menu, mde-files, mde-workbench, and swaylock theming."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+[[bin]]
+name = "mde-portal"
+path = "src/main.rs"
+
+[dependencies]
+# v6.0 Portal-1 — same Iced + layer-shell pair as mde-panel + mde-popover.
+# `svg` for Carbon icon rendering; `image` for app thumbnails (Portal-7 Aero-peek).
+iced            = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "svg", "image", "tokio", "advanced"] }
+iced_layershell = "0.13.7"
+
+# v6.0 Portal-1 — swayipc-async for i3/sway IPC: workspace tree (Portal-5),
+# window focus events (Portal-8), output-add/remove events (Portal-2).
+swayipc-async = "3.0.0"
+
+# v6.0 Portal-1 — D-Bus surface: dev.mackes.MDE.Portal
+# {Goto, Focus, Lock, ToggleDND}. Same zbus 5 + tokio feature set as
+# mde-session / mde-workbench.
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+# Async runtime — shared with Iced + zbus + swayipc-async.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "process", "time"] }
+
+# Serialization for shell-state snapshot (Portal-29) and activity cards.
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# CLI parsing — `mde-portal [--dock | --compact | --full | --lock | --theater | --wallpaper]`
+clap = { version = "4.5", features = ["derive"] }
+
+# Ergonomic error propagation (matches mackesd / mde-session pattern).
+anyhow = "1"
+
+# XDG home + cache + state paths (matches mde-session / mde-panel / mackesd).
+dirs = "5"
+
+# Structured logging — journald reads JSON spans from stderr when the
+# user unit's StandardError=journal.
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Design-token consumer — derives charcoal/off-white palette from
+# mde_theme::Palette without hardcoding hex literals.
+mde-theme = { path = "../mde-theme", features = ["iced"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+
+[features]
+# `wayland` (default): SCTK + iced_layershell surfaces.
+# `x11`: renders as a regular Iced window (dev fallback).
+default = ["wayland"]
+wayland = []
+x11     = []
+
+[lints.rust]
+unsafe_code     = "forbid"
+unused_must_use = "deny"
+missing_docs    = "allow"
+
+[lints.clippy]
+pedantic                = { level = "allow", priority = -1 }
+nursery                 = { level = "allow", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate      = "allow"
+missing_errors_doc      = "allow"
+missing_panics_doc      = "allow"
+unwrap_used             = "warn"
+panic                   = "warn"
+todo                    = "warn"

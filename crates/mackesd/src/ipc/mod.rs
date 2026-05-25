@@ -43,6 +43,10 @@ pub mod gluster;
 // Reachable from run_serve at boot.
 pub mod nebula;
 pub mod notifications;
+// v6.0 Portal-1 — thin async client for dev.mackes.MDE.Portal.
+// mackesd callers (idle-lock, alert relay, DND sync) import
+// PortalClient::new + call .lock() / .goto() / .toggle_dnd().
+pub mod portal;
 pub mod session;
 pub mod settings;
 pub mod shell;
@@ -72,4 +76,6 @@ pub mod paths {
     pub const FLEET: &str = "/org/mackes/Fleet";
     /// `/dev/mackes/MDE/Gluster/Status` — GF-2.2 (v5.0.0).
     pub const GLUSTER_STATUS: &str = "/dev/mackes/MDE/Gluster/Status";
+    /// `/dev/mackes/MDE/Portal` — v6.0 Portal-1.
+    pub const PORTAL: &str = "/dev/mackes/MDE/Portal";
 }

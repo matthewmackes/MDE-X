@@ -141,7 +141,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Portal-* — core shell
 
-- [ ] **Portal-1: Scaffold `crates/mde-portal/` Rust crate with Iced + libcosmic + swayipc-async + wlr-layer-shell deps.** Bootstrap mded supervises mde-portal; D-Bus `dev.mackes.MDE.Portal` registers Goto/Focus/Lock/ToggleDND methods. End-to-end runnable: launches, registers, exits cleanly.
+- [>] **Portal-1: Scaffold `crates/mde-portal/` Rust crate with Iced + libcosmic + swayipc-async + wlr-layer-shell deps.** Bootstrap mded supervises mde-portal; D-Bus `dev.mackes.MDE.Portal` registers Goto/Focus/Lock/ToggleDND methods. End-to-end runnable: launches, registers, exits cleanly.
 - [ ] **Portal-2: Dock layer-shell surface** — 56px bottom strip, exclusive zone, per-output instances (R3-Q1, R3-Q45). Renders solid charcoal strip (off-white in light, R4-Q75). Bound on every output via i3 output-add events.
 - [ ] **Portal-3: Intel One Mono font + Carbon icon set + Nerd Glyph fallback** integrated platform-wide via xdg-desktop-portal-mde theme.
 - [ ] **Portal-4: 6 direct nav buttons** (Apps/Files/Notifications/VoIP/Network/Settings) with Carbon glyphs, 36px sizing, domain-color chevrons between (R10-Q1, R10-Q2, R10-Q14, R10-Q46), tier-pulse + count badge (R10-Q3), tonal-inversion active indicator (R10-Q15), per-button-specific right-click (R10-Q5).
@@ -3001,6 +3001,192 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   **Implementation notes:**
     - Spec: `docs/design/chromeos-classic-spec.md` §Audit hooks.
     - Blockers: every other CR-* item — the lint goes green only when the retrofit's done.
+
+### AIR-1..AIR-23: v6.x — `mde-music` + `mde-musicd` native Airsonic player (locked 2026-05-25 via 30-Q survey)
+
+> **Gap:** MDE has a mesh-first home directory (GlusterFS), a
+> mesh-first peer model, and a mesh-shared cred posture, but no
+> first-party music player. Operators streaming from a self-hosted
+> Airsonic server reach for browser tabs or third-party Subsonic
+> clients (Feishin, Sonixd) that don't know the mesh exists. The
+> v6.0 mde-portal lock makes "Media" a first-class shell concept —
+> Music is the headline application that proves that direction.
+>
+> **Lock (operator picked 2026-05-25 via in-session 30-Q survey):**
+>
+> - **Process model: daemon + Iced client** (Q1).
+>   `mde-musicd` is a long-running user-systemd service that owns
+>   the PipeWire pipeline + Airsonic session + MPRIS surface +
+>   mesh-cache writer + mesh-state writer. `mde-music` is the
+>   thin Iced window — closing it leaves audio playing.
+> - **Server topology: client-only, external** (Q2). MDE ships
+>   no airsonic-advanced. Operator supplies the server URL in
+>   the Workbench `Media → Music` panel.
+> - **Browse shape: 7-card library hub** (Q3 + Q30). Hub →
+>   `Albums / Artists / Playlists / Recents / Genres / Podcasts /
+>   Radio`. Each opens a card grid. Breadcrumb max 4 segments
+>   (`Library / Artists / <Artist> / <Album>`).
+> - **Auth: single mesh-shared credential** (Q4).
+>   `~/.local/share/mde/airsonic-creds.json` on GlusterFS
+>   mesh-home (per [[project_open_mesh_directive]] flat-trust).
+>   Subsonic-API token regenerated per request.
+> - **System surface: full stack + mesh handoff** (Q5).
+>   MPRIS + new `mde-applet-now-playing` panel applet +
+>   swaylock art + drawer notification + cross-peer handoff.
+> - **Audio backend: PipeWire-native** (Q6). `pipewire-rs`
+>   stream client + Symphonia decode (pure-Rust). No GStreamer.
+> - **Transcoding: pass-through original lossless** (Q7).
+>   Symphonia decodes locally. Right default for the LAN-first
+>   16-peer-small-business fleet per
+>   [[project_v12_connectivity_scope]].
+> - **Gapless on, no crossfade** (Q8). Pre-buffer next track
+>   during last ~5s of current; switch buffers seamlessly.
+> - **Output sink: follow PipeWire default** (Q9). No per-app
+>   sink picker; operator routes via existing
+>   `mde-applet-audio`.
+> - **Volume: PipeWire per-stream** (Q10). Player has its own
+>   slider; system volume untouched. Maps to MPRIS `Volume`.
+> - **Search: global top-bar via Airsonic `search3`** (Q11).
+>   `Cmd-F` focuses from anywhere; results render in a card
+>   sheet (Artists / Albums / Songs sections).
+> - **Card density: adaptive** (Q12). Hub 240×240, library
+>   160×160, list rows 48×48.
+> - **Sort/filter persistence: mesh-shared** (Q13).
+>   `~/.local/share/mde/music-prefs.json` on mesh-home; same
+>   sort across all peers.
+> - **Album page: Spotify-style** (Q14). Cover art on left
+>   half; track list flows right of it.
+> - **Genres: first-class with mosaic art** (Q15). Genre tiles
+>   show a 4-album cover mosaic per genre.
+> - **Queue: Spotify-style single linear** (Q16). 'Play Next'
+>   inserts after current; 'Add to Queue' appends. Autoplay
+>   from context when queue empties.
+> - **Shuffle + repeat: independent toggles** (Q17). Shuffle
+>   randomizes queue at toggle-time; repeat off / all / one.
+> - **Lyrics: Airsonic-served synced** (Q18). LRC time-synced
+>   when source files have them; plain text otherwise; falls
+>   back to 'No lyrics' card.
+> - **Mini-player: 320×400 layer-shell popover** (Q19) anchored
+>   below the `mde-applet-now-playing` chip. Lives in
+>   `crates/mde-popover/` alongside clipboard + watermark.
+> - **Mesh cache: GlusterFS-shared** (Q20).
+>   `~/.local/share/mde/music-cache/` on mesh-home; any peer
+>   that plays a song caches it for the whole mesh. 10 GB cap
+>   (settings-adjustable); LRU eviction.
+> - **Handoff trigger: manual** (Q21). Peer B coming online
+>   while peer A is playing shows a discrete 'Pick up from
+>   `<peer>`' card in `mde-applet-now-playing`.
+> - **State sync: queue + position + shuffle/repeat
+>   replicate; volume peer-local** (Q22). Updated every ~5s by
+>   the active peer.
+> - **Simultaneity: exclusive — one peer plays at a time**
+>   (Q23). Coordinated via mesh-home state file; second peer's
+>   `mde-musicd` pauses on conflict + surfaces a handoff card.
+> - **Cards: 12px rounded + soft drop-shadow + 1.02× hover
+>   scale** (Q24). Brand departure from existing MDE card
+>   grammar; chosen for the music-specific warmth.
+> - **Color accent: per-album dominant-color extraction**
+>   (Q25). Apple-Music-style. Maxi-player chrome (scrub,
+>   buttons, lyrics highlight) tints to the cover's dominant.
+>   WCAG fallback when contrast fails.
+> - **Activity + takeover: 'Peers' tab in maxi-player +
+>   handoff row in mini-player** (Q26). Each peer state at
+>   `~/.local/share/mde/music-state-by-peer/<host>.json` on
+>   mesh-home, written by each peer's `mde-musicd` every 5s.
+>   Tap any peer card to take over (pulls their queue +
+>   position; their `mde-musicd` pauses).
+> - **Workbench presence: new `Media → Music` panel** (Q27).
+>   Sidebar grows a 'Media' group (sibling to Network /
+>   System / Devices).
+> - **swaylock: full-bleed art + bottom control strip** (Q28).
+>   Prev / play-pause / next + title + artist above the
+>   password field; no scrub bar (no fat-finger seeks).
+> - **Server lost mid-track: cache-completion + reconnect
+>   backoff** (Q29). Finish current track from cache, pause,
+>   surface `Reconnecting…` card. Exponential backoff (1s /
+>   2s / 4s / … cap 60s). Resume queue on reconnect.
+> - **v1 scope: Music + Podcasts + Internet Radio** (Q30).
+>   Jukebox + share links deferred to v2 (separate epic).
+>
+> **Target: v6.1 or v6.2** — sibling of the v6.0 mde-portal
+> epic. The Media-group concept is what makes the portal lock
+> coherent; Music is the headline app that proves it. Per
+> §0.12 no incomplete implementations — every AIR-* task ships
+> wired end-to-end or the whole epic stays `[ ] Open`.
+>
+> **Acceptance criterion (bench-observable):** on a fresh peer
+> after `mde-install --profile=full` + operator credentials
+> dropped at `~/.local/share/mde/airsonic-creds.json`,
+> launching `mde-music` lands at the 7-card hub. Clicking
+> Albums shows an art grid; clicking an album opens the
+> Spotify-style page with art-left + track-list-right;
+> clicking play streams the file via PipeWire with the
+> dominant-color accent driving the maxi-player chrome. The
+> `mde-applet-now-playing` chip in the top bar shows the
+> current track; clicking it opens the 320×400 mini-player
+> popover. Closing the `mde-music` window leaves audio
+> playing. With a second peer enrolled, that peer's
+> `mde-applet-now-playing` shows a 'Pick up from `<host>`'
+> card; clicking it transfers queue + position; the source
+> peer's `mde-musicd` pauses within ~5s.
+
+#### Daemon + IPC
+
+- [ ] **v6.1: AIR-1 Add `mde-music` + `mde-musicd` to the spec (Tier 1)** — add `Requires: pipewire-libs` to base `mde` (already present in `mde-desktop` via the general PipeWire dep, no addition needed). New binaries `mde-music` + `mde-musicd` install to `%{_bindir}/` under `mde-desktop` per INST-1 (GUI binaries live in the desktop addon). systemd user unit `mde-musicd.service` installs to `%{_userunitdir}/`. Acceptance: `rpmspec -P` clean; `dnf install mde-desktop` pulls the binaries; `systemctl --user start mde-musicd` brings the daemon up.
+
+- [ ] **v6.1: AIR-2 `crates/mde-musicd/` scaffold (Tier 1)** — new workspace member. tokio main loop; zbus 5 D-Bus surface registering `dev.mackes.MDE.Music` (`Play / Pause / Next / Previous / Seek / SetVolume / GetState / GetQueue / EnqueueTrack / EnqueueAfter / Clear`); MPRIS surface (`org.mpris.MediaPlayer2.mde-music`); per the §0.12 / [[feedback_no_stubs]] rule, the first commit ships a real end-to-end play flow (load creds → fetch a track URL via Airsonic REST → PipeWire stream → audio out), NOT a skeleton-with-todo!(). Acceptance: bench play of a single track via `busctl --user call dev.mackes.MDE.Music … Play <song-id>` works.
+
+- [ ] **v6.1: AIR-3 `crates/mde-music/` scaffold (Tier 1)** — new Iced workspace member. Window + the 7-card hub + a working "Albums" page rendering live data from the daemon's D-Bus surface. Same §0.12 rule: real end-to-end render, no placeholder cards. Acceptance: `mde-music` launches, hub renders, Albums tile opens a live Airsonic-sourced grid.
+
+- [ ] **v6.1: AIR-4 Airsonic REST client + cred loader (Tier 1)** — `crates/mde-musicd/src/airsonic.rs` ships an async `Client` covering: auth (Subsonic-API md5(password + salt) token), `getMusicDirectory`, `getArtists`, `getArtist`, `getAlbum`, `getAlbumList2`, `getPlaylists`, `getPlaylist`, `getStarred2`, `search3`, `stream`, `getCoverArt`, `getGenres`, `getAlbumList?type=byGenre`, `getLyricsBySongId`, `getPodcasts`, `getNewestPodcasts`, `getPodcastChannel`, `getInternetRadioStations`. Cred loader reads `~/.local/share/mde/airsonic-creds.json` (mesh-home — per Q4 single-shared lock); refuses to start when missing with a clear `mde-musicd: airsonic creds missing — run \`mde-music --first-run\` to create` log line. Tests: per-endpoint shape; cred-missing branch; server-down handling.
+
+#### Playback engine
+
+- [ ] **v6.1: AIR-5 PipeWire-native playback + gapless pre-buffer + Symphonia decode (Tier 1)** — `crates/mde-musicd/src/engine.rs` opens a PipeWire stream node via `pipewire-rs`; decodes via Symphonia (`flac` / `mp3` / `vorbis` / `opus` / `aac` features); ring buffer + sample-rate convert; gapless = pre-buffer next track during last 5s of current. Volume = per-stream PW volume (Q10). Acceptance: bench play of a FLAC, MP3, and Opus file from Airsonic with zero audible gap between tracks within the same album.
+
+- [ ] **v6.1: AIR-6 MPRIS surface + media-key routing (Tier 1)** — `crates/mde-musicd/src/mpris.rs` registers `org.mpris.MediaPlayer2.mde-music` with the standard interfaces (`Identity`, `CanQuit`, `Play/Pause/Stop/Next/Previous`, `Position`, `Metadata`, `Volume`, `LoopStatus`, `Shuffle`). XF86Audio* media keys handled by the existing sway bindings routing through `playerctl` → MPRIS. Acceptance: `playerctl status` reports `Playing`; `XF86AudioPlay` pauses + resumes; lock-screen widget reads same surface.
+
+- [ ] **v6.1: AIR-7 Mesh-shared cache with LRU eviction (Tier 1)** — writes streamed audio to `~/.local/share/mde/music-cache/<song-id>.<ext>` (mesh-home → replicates across peers per [[project_v5_0_0_gluster_mesh]]); index at `music-cache/index.json` tracks (song-id, bytes, last-played-ts) for LRU eviction; default 10 GB cap settings-adjustable (Q27 panel). Starred songs (`getStarred2`) pinned against eviction. Acceptance: play a song on peer A, take peer A offline, peer B sees the cached file + can play it offline.
+
+- [ ] **v6.1: AIR-8 Mesh state file + exclusive-playback coordination (Tier 1)** — `mde-musicd` writes `~/.local/share/mde/music-state.json` (current playing peer's authoritative state) every 5s while playing AND `~/.local/share/mde/music-state-by-peer/<host>.json` (per-peer activity snapshot for Q26 Peers tab). When peer A starts playback, sees `music-state.json` already claimed by peer B → posts a handoff request via a separate `music-handoff-intent/<ulid>.json` file; peer B's `mde-musicd` reads, pauses, surfaces 'Operator-Mac took over' notification, deletes the intent. Acceptance: two peers playing the same library, first peer plays X, second peer claims via take-over, first peer pauses within 5s + drawer notification fires.
+
+- [ ] **v6.1: AIR-9 Server-lost mid-track handler + reconnect backoff (Tier 1)** — `mde-musicd` watches `airsonic.Client::stream` errors; on connection-lost mid-track, finishes the current track from the local cache buffer (if fully cached) or hard-stops with a logged-warn (if only partially streamed); pauses queue; surfaces a `Reconnecting…` card via D-Bus (the client renders it); reconnects with exponential backoff (1s, 2s, 4s, …, 60s cap). On reconnect, resumes queue. Acceptance: kill the server mid-track; player finishes the cached portion, pauses; restart server; resumes from next track within one backoff cycle.
+
+#### Iced client
+
+- [ ] **v6.1: AIR-10 7-card library hub landing (Tier 1)** — `crates/mde-music/src/hub.rs` renders the 7 hub cards (Albums / Artists / Playlists / Recents / Genres / Podcasts / Radio) at 240×240 (Q12). Cards use the 12px-rounded + drop-shadow + 1.02× hover treatment (Q24). Carbon glyphs per card type. Hub is the default landing — both first-launch + every subsequent breadcrumb-root click. Acceptance: launching `mde-music` cold lands at the hub; clicking each tile opens a real page (no `todo!()`).
+
+- [ ] **v6.1: AIR-11 Adaptive card grid + breadcrumb (Tier 1)** — `crates/mde-music/src/grid.rs` lays out child cards at 160×160 in library grids, wrapping to fit window width. `crates/mde-music/src/breadcrumb.rs` builds the breadcrumb path (Library → segment → … max 4 segments per Q3). Clicking a breadcrumb segment ascends. Persistence: scroll position + sort selection per page in `~/.local/share/mde/music-prefs.json` (Q13). Acceptance: navigate Library → Artists → <Artist> → <Album> renders a 4-segment breadcrumb; each segment click ascends correctly; scrolling Albums then re-entering preserves position.
+
+- [ ] **v6.1: AIR-12 Spotify-style album page (Tier 1)** — `crates/mde-music/src/album.rs` lays out: left half = cover art at intrinsic size (capped to viewport half); right half = album title + artist + year + duration + track count + Play/Shuffle/Add to Queue + numbered track list with per-track menu (`Play Next` / `Add to Queue` / `Star` / `View Artist`). At narrow widths (< 800 px) collapses to single-column with art on top. Acceptance: bench-open an album, click Play → queue + position update + audio starts; click a track-row menu → `Play Next` inserts after current; track-list scroll independent of art column.
+
+- [ ] **v6.1: AIR-13 Genres grid with mosaic art (Tier 1)** — `crates/mde-music/src/genres.rs` renders genre tiles (160×160) with a 2×2 mosaic of representative album covers per genre (from `getAlbumList?type=byGenre` sample). Clicking a genre tile descends into a Genre page (Albums + Artists + Songs filtered by genre). Acceptance: hub → Genres → 'Jazz' tile shows a 4-album cover mosaic; click → genre page lists every Jazz album as 160×160 cards.
+
+- [ ] **v6.1: AIR-14 Global top-bar search via `search3` (Tier 1)** — title-bar search field; debounced 250ms; sends `search3?query=&artistCount=20&albumCount=20&songCount=20`; renders results in a sheet over the current page (Artists section / Albums section / Songs section, each scrollable). `Cmd-F` focuses; `Esc` dismisses. Acceptance: typing "miles" returns Miles Davis + relevant albums + tracks within < 500ms on a LAN-local Airsonic; clicking a result navigates to the canonical breadcrumb path for that item.
+
+- [ ] **v6.1: AIR-15 Maxi-player surface + queue/lyrics/peers tabs (Tier 1)** — `crates/mde-music/src/maxi.rs` is the full-window playback surface: large cover art + title/artist + scrub bar + transport + tabs at the bottom (`Queue` / `Lyrics` / `Peers`). Queue tab = current queue with `current` row highlighted, drag-to-reorder. Lyrics tab = LRC time-synced lines highlighting at playhead (Q18) — gracefully falls back to plain-text or a `No lyrics for this track` card. Peers tab = list of every online peer with their current state + `Take over` button (Q26). Acceptance: each tab renders live data + the take-over interaction reaches AIR-8's handoff path.
+
+- [ ] **v6.1: AIR-16 Per-album dominant-color extraction (Tier 2)** — `crates/mde-music/src/color.rs` runs median-cut on the cover art at load time (small thumbnail, ~64×64) producing a dominant hex + a contrast-safe text color (white when dominant is dark, charcoal otherwise per WCAG AA). Maxi-player chrome (scrub bar fill, button highlights, lyrics highlight) tints to the dominant. Fallback to Indigo `#5b6af5` if extraction fails or contrast can't meet AA. Acceptance: open a bright cover (sunny album), maxi-player chrome shifts warm; open a dark cover, chrome shifts cool; in both cases the play button's icon stays legible.
+
+- [ ] **v6.1: AIR-17 Mini-player popover in `crates/mde-popover/` (Tier 1)** — new `mde-popover music-mini` invocation that renders a 320×400 wlr-layer-shell popover anchored below the `mde-applet-now-playing` chip. Layout: art thumbnail + title + artist (top); scrub bar + time (middle); prev / play-pause / next + shuffle / repeat + volume (bottom); 'Open full player' footer. Includes a top section per Q26: 'Now Playing on the Mesh' row — one card per peer with quick take-over. Dismisses on outside-click. Acceptance: click panel chip → popover opens; controls work without opening the main window; outside-click dismisses; mesh-row cards trigger AIR-8 handoff.
+
+#### Panel + system integration
+
+- [ ] **v6.1: AIR-18 `crates/mde-applet-now-playing/` (new panel applet) + handoff row (Tier 1)** — new Iced applet ships as `mde-applet-now-playing` binary; reads MPRIS for current track + reads mesh-state-by-peer for handoff cards; renders the top-bar chip (art thumbnail 24×24 + scrolling title). Empty state = a Carbon `music` glyph chip. Right-click opens a context menu (`Open mde-music` / `Pause` / `Skip` / `Take over from <peer>` if applicable). Wires into `mde-panel`'s applet host. Acceptance: panel shows the chip when audio is playing; chip click opens the AIR-17 popover; right-click menu items work.
+
+- [ ] **v6.1: AIR-19 swaylock full-bleed art + control strip (Tier 1)** — extend `crates/mde-applet-lock-screen/` (or wherever lockscreen rendering lives) to subscribe to MPRIS. When a track is playing during lock, swaylock's background renders the current cover art full-bleed (slightly darkened ~30% black overlay for password legibility). Pill-shaped control strip above the password field: prev / play-pause / next glyphs + track title (truncated) + artist. No scrub bar (Q28). Acceptance: play music + lock screen → cover art appears as background + controls work via MPRIS.
+
+- [ ] **v6.1: AIR-20 Workbench `Media → Music` panel (Tier 1)** — add a 'Media' sidebar group to `crates/mde-workbench/` (sibling to Network / System / Devices) with a 'Music' panel: server URL field (saves to mesh-home creds JSON), test-connection button, cache size cap slider (1-50 GB, default 10), 'Allow this peer to be taken over' toggle (default on), 'Clear cache' button with confirm, 'Sign out of Airsonic' (deletes creds JSON). Settings persist via the existing Workbench-settings pipeline. Acceptance: typing a new server URL + clicking 'Test connection' returns a success/failure indicator; toggling cache cap to 5 GB triggers immediate LRU eviction in `mde-musicd` to fit.
+
+#### Podcasts + radio (v1 scope additions)
+
+- [ ] **v6.1: AIR-21 Podcasts hub card + episode flow (Tier 2)** — Podcasts tile on hub → `Subscribed` + `Available` sections; clicking a podcast opens a page with art + show description + episode list; episode rows have a download glyph (forces full cache fetch) + play; auto-next within a podcast plays the next episode in chronological order. Reads from `getPodcasts` + `getNewestPodcasts` + `getPodcastChannel`. Subscribe/unsubscribe via Airsonic's `createPodcastChannel` + `deletePodcastChannel`. Acceptance: subscribed podcast appears on the hub Podcasts card; clicking an episode plays; episode boundary fires the next-episode autoplay; mark-as-played syncs back via Airsonic's `setPodcastEpisodeStatus`.
+
+- [ ] **v6.1: AIR-22 Internet radio hub card + stream-only playback (Tier 2)** — Radio tile on hub → grid of radio station tiles from `getInternetRadioStations` (built-in Airsonic feature; admin-curated on the server). Clicking a station starts streaming the URL; no cache (live streams don't cache cleanly); maxi-player shows station name + 'LIVE' badge; scrub bar disabled; track-metadata pulled from ICY headers when present. Acceptance: bench-add a station via Airsonic admin; tile appears on Radio card; clicking starts playback; ICY title-change updates the maxi-player metadata.
+
+#### Tests + docs
+
+- [ ] **v6.1: AIR-23 Tests + docs + voice-tone + CHANGELOG + design doc (Tier 2)** — Pytest covers any Python wizard wiring (the wizard's `apply.py` likely gains an `apply_music_seed_creds` step that prompts the operator first-run; tests cover the creds-file path resolution + the cred-missing branch). Cargo tests cover the daemon's pure-fn helpers (handoff conflict resolution, cache LRU eviction, gapless pre-buffer scheduling, color extraction). `docs/help/music.md` ships covering the 30 locks operator-readable + the take-over interaction + the cache-eviction explanation + the credential location. `docs/design/v6.1-mde-music.md` ships with the 30 locks captured verbatim (canonical design doc). `install-helpers/lint-voice.sh` passes on every user-visible string. CHANGELOG entry for v6.1 calls out the native music player + mesh take-over as the headline operator-visible change.
 
 ### v2.0.0 monolithic cut (shipped 2026-05-20)
 
