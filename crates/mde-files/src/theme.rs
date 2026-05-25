@@ -66,6 +66,35 @@ pub const FG: Color = PF_TEXT_100;
 pub const FG_DIM: Color = PF_TEXT_200;
 pub const FG_FAINT: Color = PF_TEXT_300;
 pub const WINDOW: Color = PF_BG_300;
+
+/// CR-4 — bridge the mde-files local theme tokens to the
+/// `mde_theme::Palette` shape so `mde_iced_components::object_card`
+/// can render against mde-files's amber accent + PatternFly dark
+/// surfaces. Without this bridge the Object Card chrome would
+/// inherit the workbench's indigo accent and read out-of-place
+/// inside the file manager.
+#[must_use]
+pub fn mde_files_palette() -> mde_theme::Palette {
+    use mde_theme::Rgba;
+    let to_rgba = |c: Color| {
+        Rgba::rgba(
+            (c.r * 255.0).round() as u8,
+            (c.g * 255.0).round() as u8,
+            (c.b * 255.0).round() as u8,
+            c.a,
+        )
+    };
+    mde_theme::Palette {
+        background: to_rgba(BG),
+        surface: to_rgba(WINDOW_TITLEBAR),
+        raised: to_rgba(WINDOW),
+        overlay: to_rgba(PF_BG_400),
+        accent: to_rgba(ACCENT),
+        border: to_rgba(PF_BORDER),
+        text: to_rgba(FG),
+        text_muted: to_rgba(FG_FAINT),
+    }
+}
 pub const WINDOW_TITLEBAR: Color = PF_BG_200;
 pub const WINDOW_SIDE: Color = rgb_hex(0x25, 0x25, 0x27);
 pub const DIVIDER: Color = white_alpha(0.08);

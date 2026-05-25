@@ -15,6 +15,11 @@ path = "src/main.rs"
 [dependencies]
 iced       = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "svg", "tokio", "advanced"] }
 mackes-theme = { path = "../mackes-theme" }
+# CR-4 (2026-05-25) — Object Card consumer. Pulls `object_card` from
+# the shared widget crate that CR-3.b introduced; the data form +
+# spec constants come from mde-theme (no toolkit dep there).
+mde-theme  = { path = "../mde-theme", features = ["iced"] }
+mde-iced-components = { path = "../mde-iced-components" }
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 # v2.0.0 Phase 2.x — Backend trait + DemoBackend audit-log

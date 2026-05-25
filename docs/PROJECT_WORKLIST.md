@@ -2907,7 +2907,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Picked the new-crate path over the `iced-widgets` feature flag in mde-theme since mde-theme's design lock specifically excludes the toolkit dep ("the toolkit dep doesn't leak into this crate" — see `crates/mde-theme/src/components/mod.rs`). The feature-flag path would have muddied that lock.
     - The 7 tests in `mde_iced_components::tests` are the canonical spec-coverage suite. panel_chrome.rs keeps a single re-export smoke (`object_card_reexport_resolves`) so a future symbol-removal would surface as a compile error there immediately.
     - Blockers: CR-3 ✓ (shipped 2026-05-25 in commit `4f17a7a6`).
-- [ ] **CR-4: v2.6 — mde-files visual retrofit (layout unchanged, look swapped).** *(CR-3.b unblocker shipped 2026-05-25; can now `cargo add mde-iced-components` and consume `object_card`)*
+- [>] **CR-4: v2.6 — mde-files visual retrofit (layout unchanged, look swapped).** *(folder-row Object Cards landed 2026-05-25 — see CR-4.a; remaining slices CR-4.b/c/d/e tracked individually)*
   **As** an operator opening mde-files, **I want** the existing
   sidebar / list / toolbar layout to stay exactly where it is
   while the visual treatment matches Classic ChromeOS and grid
@@ -2915,16 +2915,63 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   preserved while the visual identity updates per the operator
   directive `Layout of the File manager should not change, only
   the "look"`. **Acceptance:**
-  - [ ] No layout structure change in `crates/mde-files/src/app.rs`'s `view()` (sidebar position, list region, toolbar slot all unchanged).
-  - [ ] Sidebar adopts CR-2's 56→256 px hover-expand behavior.
-  - [ ] List view rows use Classic ChromeOS density (28 px, Roboto 13 px, sharp 1 px dividers, indigo selection).
-  - [ ] Grid view renders each file/folder via `mde_theme::object_card(...)` at `CardSize::Medium`.
-  - [ ] Toolbar buttons match the Classic ChromeOS primary/secondary/text button styles.
-  - [ ] Bench-verify: side-by-side screenshot pre/post — sidebar / list / toolbar are in identical positions; only the rendering changed.
+  - [✓] No layout structure change in `crates/mde-files/src/app.rs`'s `view()` (sidebar position, list region, toolbar slot all unchanged) — the folder-row retrofit kept the existing column flow untouched.
+  - [ ] Sidebar adopts CR-2's 56→256 px hover-expand behavior — **deferred to CR-4.c**; blocked on CR-2 (Workbench shell retrofit) which owns the sidebar primitive.
+  - [ ] List view rows use Classic ChromeOS density (28 px, Roboto 13 px, sharp 1 px dividers, indigo selection) — **deferred to CR-4.d**.
+  - [>] Grid view renders each file/folder via `mde_iced_components::object_card(...)` at `CardSize::Small` — folder rows shipped (see CR-4.a); file rows tracked as CR-4.b.
+  - [ ] Toolbar buttons match the Classic ChromeOS primary/secondary/text button styles — **deferred to CR-4.e**; chains on CR-9 (form-controls retrofit) for the button shapes.
+  - [ ] Bench-verify: side-by-side screenshot pre/post — operator-side, deferred until CR-4.b/c/d/e ship.
   **Implementation notes:**
     - Spec: `docs/design/chromeos-classic-spec.md` everywhere.
     - Icons: existing mde-files Carbon set (no swaps).
-    - Blockers: CR-1, CR-2, CR-3.
+    - Blockers: CR-1 ✓, CR-2 (for the sidebar bullet), CR-3 ✓, CR-3.b ✓.
+- [✓] **CR-4.a: v2.6 — mde-files folder-row Object Card retrofit.** *(shipped 2026-05-25)*
+  **As** an operator browsing a mesh-replicated peer folder or `~/Documents`, **I want** each folder navigation row to render as a Material Object Card so it matches the Mesh Topology peer cards (CR-6) + the Workbench cards-everywhere direction.
+  **Acceptance:**
+  - [✓] `crates/mde-files/src/views.rs::folder_row_button` builds an `ObjectCard::small` and renders via `mde_iced_components::object_card`; wrapped in a `button(...)` so the card itself is the click target for `MeshFolderEnter`.
+  - [✓] Subtitle is `<size> · <age>` (size + last-modified compacted into the one-line slot per the round-4 re-ask compact-content lock).
+  - [✓] Empty-state cases (size empty / age empty / both empty) handled gracefully — subtitle omitted when both are blank.
+  - [✓] `crates/mde-files/src/theme.rs` gains `mde_files_palette()` bridging the local PatternFly amber tokens to `mde_theme::Palette`, so the rendered card carries the amber accent (not the workbench's indigo).
+  - [✓] All 190 mde-files unit tests pass; cargo check clean.
+  **Implementation notes:**
+    - Consumes the CR-3.b shared crate (`mde-iced-components`). mde-files's `Cargo.toml` gains the `mde-theme` + `mde-iced-components` path deps.
+    - Per §0.12 the file-row retrofit (CR-4.b) is split out rather than stubbed here — the file_row data shape (name + size + mtime + selection state + drag handles) needs its own ObjectCard schema mapping pass.
+- [ ] **CR-4.b: v2.6 — mde-files file-row Object Card retrofit.** *(split from CR-4 2026-05-25)*
+  **As** an operator browsing a peer folder, **I want** each individual file row (not just folder rows) to render as an Object Card so the whole grid reads consistently.
+  **Acceptance:**
+  - [ ] `crates/mde-files/src/widgets.rs::file_row` (and every caller) builds an `ObjectCard::small` via `mde_iced_components::object_card`; selection state maps to `CardState::Selected`; focus state maps to `CardState::Focused`.
+  - [ ] Drag handles continue to fire `Message::DragStart`; right-click continues to surface the context menu.
+  - [ ] Subtitle = `<size> · <mtime>` when both are present, gracefully degrades when either is missing.
+  - [ ] Bench-verify: opening a peer folder shows file rows + folder rows in the same Card shape.
+  **Implementation notes:**
+    - Reuse `mde_files_palette()` from CR-4.a.
+    - Selection batch from `selection.rs` needs to route into `CardState::Selected` for the multi-select range case.
+    - Blockers: CR-4.a ✓.
+- [ ] **CR-4.c: v2.6 — mde-files sidebar adopts CR-2's 56→256 px hover-expand behavior.** *(split from CR-4 2026-05-25)*
+  **As** an operator, **I want** the mde-files sidebar to match the Workbench sidebar's compact-by-default + hover-expand affordance so the two surfaces share one sidebar grammar.
+  **Acceptance:**
+  - [ ] `crates/mde-files/src/views.rs::sidebar` shifts to 56 px collapsed / 256 px expanded with the same 200 ms hover transition CR-2 lands for the Workbench.
+  - [ ] Sidebar nav entries collapse to icon-only when narrow; full label appears on hover-expand.
+  - [ ] No behaviour change to the click-to-navigate flow.
+  **Implementation notes:**
+    - Blockers: CR-2 (Workbench shell retrofit owns the sidebar primitive; reuses the same widget once it lands in `mde_iced_components` or `panel_chrome`).
+- [ ] **CR-4.d: v2.6 — mde-files list-view rows use Classic ChromeOS density.** *(split from CR-4 2026-05-25)*
+  **As** an operator switching to list view, **I want** rows to use the Classic ChromeOS density spec (28 px row height, Roboto 13 px, 1 px sharp dividers, indigo selection) so the list reads like the Workbench data tables.
+  **Acceptance:**
+  - [ ] List-view rows render at 28 px height with Roboto 13 px text + 1 px `#3c4043` dividers.
+  - [ ] Selection state uses indigo `#5b6af5` overlay at 15 %.
+  - [ ] Bench-verify: list view side-by-side with Workbench table — same density rhythm.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Lists + tables.
+    - Blockers: CR-1 ✓.
+- [ ] **CR-4.e: v2.6 — mde-files toolbar buttons match Classic ChromeOS button styles.** *(split from CR-4 2026-05-25)*
+  **As** an operator using the mde-files toolbar, **I want** Refresh / New folder / Upload / etc. buttons to use the same primary/secondary/text button styles CR-9 lands.
+  **Acceptance:**
+  - [ ] Primary action (e.g. "New folder") uses filled-indigo button per CR-9 spec.
+  - [ ] Secondary actions use border-only button per CR-9 spec.
+  - [ ] Icon-only buttons (refresh, view toggle) use the icon-button spec.
+  **Implementation notes:**
+    - Blockers: CR-9 (form-controls retrofit).
 - [ ] **CR-5: v2.6 — mde-start retrofit (Start menu app cards).**
   **As** an operator pressing the M button, **I want** the Start
   menu to render application entries as Object Cards at

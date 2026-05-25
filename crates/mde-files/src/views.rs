@@ -1102,31 +1102,40 @@ fn parent_link_row() -> Element<'static, Message> {
 /// Clickable folder row used inside `mesh_home_child`. Renders
 /// the same shape as `file_row` but the whole row is a button
 /// that dispatches `Message::MeshFolderEnter(name)`.
+/// CR-4 — folder navigation row renders as a CardSize::Small
+/// Object Card per docs/design/chromeos-classic-spec.md §Object
+/// Cards. Title: folder name; subtitle: `<size> · <age>` (size +
+/// last-modified condensed into the one-line compact-shape slot
+/// per the round-4 re-ask 2026-05-24). Wrapped in a button so the
+/// card is the click target for `MeshFolderEnter`.
+///
+/// File-row retrofit (per-view file enumeration through
+/// `widgets::file_row`) tracked as CR-4.b — share this same
+/// `mde_iced_components::object_card` call once the file-row
+/// data shape (name + size + mtime + selection state) maps
+/// cleanly onto the Card schema.
 fn folder_row_button(f: FileRow) -> Element<'static, Message> {
     let name_payload = f.name.clone();
     let display = f.name.trim_end_matches('/').to_owned();
-    let summary = f.size.clone();
-    let age = f.age.clone();
-    button(
-        container(
-            row![
-                icon(icons::FOLDER, 14.0, t::ACCENT),
-                Space::with_width(Length::Fixed(8.0)),
-                text(format!("{display}/")).size(12).color(t::FG),
-                Space::with_width(Length::Fill),
-                text(summary).size(11).color(t::FG_FAINT),
-                Space::with_width(Length::Fixed(14.0)),
-                text(age).size(11).color(t::FG_FAINT),
-            ]
-            .align_y(iced::alignment::Vertical::Center),
-        )
-        .padding(Padding::from([6.0, 12.0]))
-        .width(Length::Fill),
-    )
-    .padding(0)
-    .style(|_, _| ghost_button_style())
-    .on_press(Message::MeshFolderEnter(name_payload))
-    .into()
+    let subtitle = match (f.size.is_empty(), f.age.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => f.age.clone(),
+        (false, true) => f.size.clone(),
+        (false, false) => format!("{} · {}", f.size, f.age),
+    };
+    let palette = t::mde_files_palette();
+    let mut card = mde_theme::ObjectCard::small(
+        mde_theme::Icon::Fleet,
+        format!("{display}/"),
+    );
+    if !subtitle.is_empty() {
+        card = card.with_subtitle(subtitle);
+    }
+    button(mde_iced_components::object_card(card, palette))
+        .padding(0)
+        .style(|_, _| ghost_button_style())
+        .on_press(Message::MeshFolderEnter(name_payload))
+        .into()
 }
 
 /// The five mesh-home shortcut slugs the sidebar + the

@@ -3756,6 +3756,8 @@ dependencies = [
  "chrono",
  "iced",
  "mackes-theme",
+ "mde-iced-components",
+ "mde-theme",
  "serde",
  "serde_json",
  "tokio",
