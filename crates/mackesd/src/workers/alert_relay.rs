@@ -37,6 +37,9 @@ use serde::Deserialize;
 
 use super::{ShutdownToken, Worker};
 
+#[cfg(feature = "async-services")]
+use crate::ipc::portal::PortalClient;
+
 /// Default sweep cadence — 2 seconds. Alerts are infrequent
 /// but operators expect fairly prompt desktop toasts when an
 /// outage fires.
@@ -76,6 +79,14 @@ pub struct AlertRelayWorker {
     /// notification toast by design so MON-5 + future audit
     /// tools can replay them).
     seen_alert_ids: std::sync::Mutex<BTreeSet<String>>,
+    /// v6.0 Portal-1 — when the portal is running, CRITICAL alerts
+    /// also navigate Portal-full to the Control layer so the
+    /// operator sees the mesh-health panel immediately.
+    #[cfg(feature = "async-services")]
+    portal: Option<PortalClient>,
+    /// Set by `fire_notification` when a CRITICAL severity is fired;
+    /// consumed in `run()` to decide whether to call the portal.
+    had_critical: std::sync::atomic::AtomicBool,
 }
 
 impl AlertRelayWorker {
@@ -91,7 +102,19 @@ impl AlertRelayWorker {
             tick: DEFAULT_TICK_INTERVAL,
             notify_send: "notify-send".to_owned(),
             seen_alert_ids: std::sync::Mutex::new(BTreeSet::new()),
+            #[cfg(feature = "async-services")]
+            portal: None,
+            had_critical: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Attach a `PortalClient` so CRITICAL alerts navigate
+    /// Portal-full to the Control (mesh-health) layer.
+    #[cfg(feature = "async-services")]
+    #[must_use]
+    pub fn with_portal_client(mut self, client: PortalClient) -> Self {
+        self.portal = Some(client);
+        self
     }
 
     /// Override the alerts dir. Tests redirect to a tempdir.
@@ -163,6 +186,10 @@ impl AlertRelayWorker {
     }
 
     fn fire_notification(&self, event: &AlertEventPartial) {
+        let sev = event.severity.to_ascii_uppercase();
+        if sev == "CRITICAL" || sev == "ERROR" {
+            self.had_critical.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         let argv = notify_send_argv(&self.notify_send, event);
         match std::process::Command::new(&argv[0])
             .args(&argv[1..])
@@ -253,6 +280,21 @@ impl Worker for AlertRelayWorker {
                 _ = shutdown.wait() => return Ok(()),
                 _ = tokio::time::sleep(self.tick) => {
                     let _ = self.tick_once();
+                    // v6.0 Portal-1 — navigate Portal-full to Control
+                    // (mesh-health) layer on CRITICAL/ERROR so the
+                    // operator sees the Netdata alert in context.
+                    #[cfg(feature = "async-services")]
+                    if self.had_critical.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                        if let Some(ref portal) = self.portal {
+                            if let Err(e) = portal.goto("control").await {
+                                tracing::debug!(
+                                    target: "mackesd::alert_relay",
+                                    error = %e,
+                                    "portal goto(control) failed (portal may not be running)",
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }

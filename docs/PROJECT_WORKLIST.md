@@ -141,7 +141,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Portal-* — core shell
 
-- [>] **Portal-1: Scaffold `crates/mde-portal/` Rust crate with Iced + libcosmic + swayipc-async + wlr-layer-shell deps.** Bootstrap mded supervises mde-portal; D-Bus `dev.mackes.MDE.Portal` registers Goto/Focus/Lock/ToggleDND methods. End-to-end runnable: launches, registers, exits cleanly.
+- [✓] **Portal-1: Scaffold `crates/mde-portal/` Rust crate with Iced + libcosmic + swayipc-async + wlr-layer-shell deps.** Bootstrap mded supervises mde-portal; D-Bus `dev.mackes.MDE.Portal` registers Goto/Focus/Lock/ToggleDND methods. End-to-end runnable: launches, registers, exits cleanly. PortalClient wired into mackesd alert_relay (CRITICAL alerts navigate Portal-full → Control layer). `mde-portal.service` user unit ships alongside binary.
 - [ ] **Portal-2: Dock layer-shell surface** — 56px bottom strip, exclusive zone, per-output instances (R3-Q1, R3-Q45). Renders solid charcoal strip (off-white in light, R4-Q75). Bound on every output via i3 output-add events.
 - [ ] **Portal-3: Intel One Mono font + Carbon icon set + Nerd Glyph fallback** integrated platform-wide via xdg-desktop-portal-mde theme.
 - [ ] **Portal-4: 6 direct nav buttons** (Apps/Files/Notifications/VoIP/Network/Settings) with Carbon glyphs, 36px sizing, domain-color chevrons between (R10-Q1, R10-Q2, R10-Q14, R10-Q46), tier-pulse + count badge (R10-Q3), tonal-inversion active indicator (R10-Q15), per-button-specific right-click (R10-Q5).

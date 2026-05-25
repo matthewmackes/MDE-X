@@ -2333,10 +2333,36 @@ fn run_serve(
         // RestartPolicy::Always since the tick is passive +
         // operator outage detection is the failure-tolerance
         // goal.
-        sup.spawn(Spawn::new(
-            mackesd_core::workers::alert_relay::AlertRelayWorker::new(),
-            RestartPolicy::Always,
-        ));
+        //
+        // v6.0 Portal-1 — attach a PortalClient so CRITICAL
+        // alerts also navigate Portal-full to the Control
+        // (mesh-health) layer. Graceful-degrade: if the session
+        // bus or mde-portal aren't running at daemon startup
+        // the relay skips the portal call and surfaces the
+        // FDO notification alone.
+        let alert_relay = {
+            let mut worker = mackesd_core::workers::alert_relay::AlertRelayWorker::new();
+            match zbus::Connection::session().await {
+                Ok(bus) => {
+                    worker = worker.with_portal_client(
+                        mackesd_core::ipc::portal::PortalClient::new(bus),
+                    );
+                    tracing::info!(
+                        "alert_relay: PortalClient attached \
+                         (CRITICAL alerts will navigate Portal-full → Control)"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        error = %e,
+                        "alert_relay: session bus unavailable at startup; \
+                         portal goto(control) disabled"
+                    );
+                }
+            }
+            worker
+        };
+        sup.spawn(Spawn::new(alert_relay, RestartPolicy::Always));
         worker_names
             .lock()
             .expect("worker_names mutex")

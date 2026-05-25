@@ -816,6 +816,15 @@ install -D -m 0755 target/release/mde-panel \
 install -D -m 0755 target/release/mde-popover \
     %{buildroot}%{_bindir}/mde-popover
 
+# v6.0 Portal-1 — mde-portal unified shell (Dock + Portal-compact +
+# Portal-full + Lock + Theater + Mesh-wallpaper).  Registers
+# dev.mackes.MDE.Portal on the session bus; mackesd calls Lock/Goto/
+# Focus/ToggleDND from daemon-side events (idle-lock, mesh alerts).
+install -D -m 0755 target/release/mde-portal \
+    %{buildroot}%{_bindir}/mde-portal
+install -m 0644 data/systemd/user/mde-portal.service \
+    %{buildroot}%{_userunitdir}/
+
 # v4.0.1 BUG-4 — mde-files (Iced mesh-first Artifact Manager,
 # crates/mde-files/, forked from pop-os/cosmic-files). Replaces
 # cosmic-files as the default inode/directory handler; the .desktop
@@ -1209,6 +1218,9 @@ fi
 %{_datadir}/thumbnailers/mackes-mesh.thumbnailer
 # Wayland session entry — only useful when a DM is on the box.
 %{_datadir}/wayland-sessions/mde.desktop
+# v6.0 Portal-1 — mde-portal unified shell + user service.
+%{_bindir}/mde-portal
+%{_userunitdir}/mde-portal.service
 # v2.0.0 Phase D.6 mde-session.service — user-session
 # orchestrator. Only runs after the operator logs in to the
 # Wayland session host.
