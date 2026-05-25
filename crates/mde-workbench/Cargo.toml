@@ -64,6 +64,11 @@ mde-mesh-types = { path = "../mde-mesh-types" }
 # can derive its `iced::Theme::Custom` palette from
 # `mde_theme::Palette` without hardcoding hex literals.
 mde-theme = { path = "../mde-theme", features = ["iced"] }
+# CR-3.b (2026-05-25) — shared Iced widget builders. `object_card`
+# moved here from panel_chrome.rs so peer crates (mde-files,
+# mde-popover, mde-music) can render the canonical Material Object
+# Card without taking a dep on the entire workbench crate.
+mde-iced-components = { path = "../mde-iced-components" }
 
 [features]
 # `wayland` (default): Iced renders via Wayland/wgpu.

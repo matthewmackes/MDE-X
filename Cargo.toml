@@ -39,6 +39,7 @@ members  = [
     "crates/mde-config",
     "crates/mde-drawer",
     "crates/mde-files",
+    "crates/mde-iced-components",
     "crates/mde-kdc",
     "crates/mde-kdc-proto",
     "crates/mde-logout-dialog",

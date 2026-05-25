@@ -3763,6 +3763,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mde-iced-components"
+version = "0.0.0"
+dependencies = [
+ "iced",
+ "mde-theme",
+]
+
+[[package]]
 name = "mde-kdc"
 version = "0.0.0"
 dependencies = [
@@ -3947,6 +3955,7 @@ dependencies = [
  "futures",
  "iced",
  "mde-config",
+ "mde-iced-components",
  "mde-mesh-types",
  "mde-theme",
  "serde",
