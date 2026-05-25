@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use anyhow::Context;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::Result;
 
@@ -336,6 +336,43 @@ pub fn set_node_role(conn: &Connection, node_id: &str, role: &str) -> Result<usi
     .with_context(|| format!("setting role={role} for {node_id}"))
 }
 
+/// Set the `health` column for an existing node, returning whether
+/// the value actually changed. The `health_reconciler` worker uses
+/// the change bit to decide whether to fire the
+/// `dev.mackes.MDE.Nebula.Status.PeerStateChanged` signal — emitting
+/// only on transitions rather than on every reconcile tick.
+///
+/// Returns `Ok(false)` when the node row is missing OR when the
+/// stored value already matches `health`. Returns `Ok(true)` when
+/// the UPDATE wrote a new value.
+///
+/// # Errors
+///
+/// Returns an error when the read-then-update transaction fails.
+pub fn set_node_health(conn: &Connection, node_id: &str, health: &str) -> Result<bool> {
+    let prior: Option<String> = conn
+        .query_row(
+            "SELECT health FROM nodes WHERE node_id = ?",
+            [node_id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .with_context(|| format!("reading prior health for {node_id}"))?;
+    let Some(prior) = prior else {
+        return Ok(false);
+    };
+    if prior == health {
+        return Ok(false);
+    }
+    let n = conn
+        .execute(
+            "UPDATE nodes SET health = ? WHERE node_id = ?",
+            (health, node_id),
+        )
+        .with_context(|| format!("setting health={health} for {node_id}"))?;
+    Ok(n > 0)
+}
+
 /// Replace a node's `public_key` (Phase 12.3.5 re-enrollment).
 /// Updates `enrolled_at` to NOW. Does NOT touch lifecycle state, so
 /// a previously-decommissioned node keeps its `decommissioned` role
@@ -491,6 +528,40 @@ mod tests {
         assert_eq!(n, 1);
         let nodes = list_nodes(&conn).expect("list");
         assert_eq!(nodes[0].role, "decommissioned");
+    }
+
+    #[test]
+    fn set_node_health_returns_true_on_transition_and_false_on_noop() {
+        let conn = open_in_memory().expect("open");
+        upsert_node(&conn, "peer:delta", "delta", "pk", None).expect("seed");
+        // Default health from migration is "unknown".
+        assert!(
+            set_node_health(&conn, "peer:delta", "healthy").expect("first set"),
+            "first transition unknown→healthy must change",
+        );
+        assert!(
+            !set_node_health(&conn, "peer:delta", "healthy").expect("noop set"),
+            "second call with same value must not change",
+        );
+        assert!(
+            set_node_health(&conn, "peer:delta", "unreachable").expect("flip"),
+            "healthy→unreachable must change",
+        );
+        let row = list_nodes(&conn)
+            .expect("list")
+            .into_iter()
+            .find(|n| n.node_id == "peer:delta")
+            .expect("row exists");
+        assert_eq!(row.health, "unreachable");
+    }
+
+    #[test]
+    fn set_node_health_returns_false_when_node_missing() {
+        let conn = open_in_memory().expect("open");
+        assert!(
+            !set_node_health(&conn, "peer:ghost", "healthy").expect("missing-node noop"),
+            "no row to update must be a clean false (not an error)",
+        );
     }
 
     #[test]

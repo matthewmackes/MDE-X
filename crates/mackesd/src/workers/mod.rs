@@ -84,6 +84,16 @@ pub mod clipboard;
 pub mod derp;
 pub mod fs_sync;
 pub mod heartbeat;
+// OV-7.a (v2.6) — Health reconciler. Reads each known peer's
+// QNM-Shared heartbeat.json on a 5 s tick, applies the
+// `telemetry::health_state_from_age` threshold table, writes
+// the result back into `nodes.health`, and fires the
+// `dev.mackes.MDE.Nebula.Status.PeerStateChanged` signal on
+// transitions (so the Workbench Overview / applets / mde-files
+// re-probe without polling). Quietly skips peers without a
+// heartbeat file (peer hasn't enrolled yet) and the local peer
+// (heartbeat-self is unreachable by definition).
+pub mod health_reconciler;
 // KDC2-6.6 — legacy `kdc_bridge` retired alongside the upstream
 // kdeconnectd wrapper. The native KDC host worker
 // (`workers::kdc_host`) replaces it in the v2.1+ stack.

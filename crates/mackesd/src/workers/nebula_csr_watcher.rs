@@ -35,6 +35,7 @@ use std::time::Duration;
 use super::{ShutdownToken, Worker};
 use crate::ca::bundle::bundle_path;
 use crate::ca::NebulaCertBackend;
+use crate::ipc::nebula::{NebulaSignal, SignalSenderSlot};
 use crate::nebula_enroll::{pending_enroll_path, SignCsrPaths};
 
 /// Default tick cadence. Slower than the heartbeat (5 s) because
@@ -66,6 +67,15 @@ pub struct NebulaCsrWatcher {
     /// to nebula-cert). Tests inject `MockBackend` via
     /// [`Self::with_backend`].
     backend: Arc<dyn NebulaCertBackend>,
+    /// OV-7.c leader-side emission slot. Filled by the IPC
+    /// bootstrap once `spawn_signal_dispatcher` lands. When set,
+    /// every successful `sign_pending_csr` fires
+    /// `NebulaSignal::EnrollmentCompleted{node_id}` so any
+    /// Workbench Overview / applets on the leader's peer re-probe
+    /// without waiting for the next reconcile tick. Empty slot =
+    /// silent emission (peer-role boxes, pre-IPC startup); the
+    /// signing path still runs.
+    signal_slot: Option<SignalSenderSlot>,
 }
 
 impl NebulaCsrWatcher {
@@ -90,7 +100,18 @@ impl NebulaCsrWatcher {
             cert_lifetime_days: 365,
             tick: TICK_INTERVAL,
             backend: Arc::new(crate::ca::SubprocessBackend),
+            signal_slot: None,
         }
+    }
+
+    /// OV-7.c (v2.6) — attach the shared signal-sender slot so
+    /// successful CSR signings fire `EnrollmentCompleted` for
+    /// every Workbench / applet subscriber. Wired in
+    /// `run_serve` after `spawn_signal_dispatcher` returns.
+    #[must_use]
+    pub fn with_signal_slot(mut self, slot: SignalSenderSlot) -> Self {
+        self.signal_slot = Some(slot);
+        self
     }
 
     /// Override the SignCsrPaths used per tick. Tests need this
@@ -208,6 +229,21 @@ impl NebulaCsrWatcher {
                         overlay_ip = %outcome.overlay_ip,
                         "nebula-csr-watcher: signed peer cert + wrote bundle",
                     );
+                    // OV-7.c leader-side emission — fire
+                    // EnrollmentCompleted so any subscriber on the
+                    // leader's peer (Workbench Overview / applets)
+                    // re-probes capability status immediately
+                    // rather than waiting for the next reconcile
+                    // tick. Empty slot (peer-role box, pre-IPC
+                    // startup) → silent no-op; the SQL + bundle
+                    // write already landed.
+                    if let Some(slot) = &self.signal_slot {
+                        if let Some(sender) = slot.get() {
+                            sender.emit(NebulaSignal::EnrollmentCompleted {
+                                node_id: peer_id.clone(),
+                            });
+                        }
+                    }
                 }
                 Err(e) => {
                     // Common case on peer-role boxes: no active

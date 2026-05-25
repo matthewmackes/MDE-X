@@ -2106,6 +2106,13 @@ fn run_serve(
         // after IPC registration) still appear in the roster.
         let worker_names: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
+        // OV-7.a/c (v2.6) — shared signal-sender slot for every
+        // worker that emits dev.mackes.MDE.Nebula.Status.*
+        // signals. Workers receive a clone before they spawn;
+        // the IPC bootstrap fills the slot once the Nebula
+        // status surface is registered. Empty slot → silent
+        // emission; SQL + bundle writes still land.
+        let nebula_signal_slot = mackesd_core::ipc::nebula::new_signal_sender_slot();
         sup.spawn(Spawn::new(
             ClipboardWorker::new(),
             RestartPolicy::OnFailure,
@@ -2120,6 +2127,25 @@ fn run_serve(
             RestartPolicy::OnFailure,
         ));
         worker_names.lock().expect("worker_names mutex").push("heartbeat".into());
+        // OV-7.a (v2.6) — health reconciler. Polls each known
+        // peer's QNM-Shared heartbeat.json every 5 s, applies the
+        // telemetry::health_state_from_age threshold table, writes
+        // back into nodes.health, and fires PeerStateChanged on
+        // transitions. Closes the gap between live heartbeats and
+        // the SQLite column that NebulaStatusService::build_peer_list
+        // projects. Spawn order: after HeartbeatWorker so peers
+        // have at least one observable heartbeat by the first
+        // reconcile tick.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::health_reconciler::HealthReconcilerWorker::new(
+                qnm_root.clone(),
+                db_path.clone(),
+                node_id.clone(),
+                std::sync::Arc::clone(&nebula_signal_slot),
+            ),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("health_reconciler".into());
         // VV-2 (v4.1.0) — voice_config worker. Seeds the
         // /var/lib/mackesd/voice-desired.json document on first
         // tick + triggers `systemctl try-reload-or-restart` on
@@ -2255,7 +2281,8 @@ fn run_serve(
                 csr_watcher_mesh_id,
                 node_id.clone(),
                 csr_watcher_lighthouse_addr,
-            ),
+            )
+            .with_signal_slot(std::sync::Arc::clone(&nebula_signal_slot)),
             RestartPolicy::OnFailure,
         ));
         worker_names
@@ -2517,6 +2544,35 @@ fn run_serve(
                                     "Nebula.Status dbus surface registered at {}",
                                     mackesd_core::ipc::nebula::NEBULA_STATUS_OBJECT_PATH
                                 );
+                                // OV-7.a/c (v2.6) — spawn the
+                                // signal dispatcher loop now that
+                                // the interface is registered.
+                                // Fills nebula_signal_slot so the
+                                // health_reconciler + CSR watcher
+                                // workers (already spawned above)
+                                // pick up the sender on their
+                                // next tick.
+                                match mackesd_core::ipc::nebula::spawn_signal_dispatcher(
+                                    conn.clone(),
+                                    &nebula_signal_slot,
+                                )
+                                .await
+                                {
+                                    Ok(_sender) => {
+                                        tracing::info!(
+                                            "Nebula signal dispatcher spawned; \
+                                             health_reconciler + nebula_csr_watcher \
+                                             will emit on next state transition"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            error = %e,
+                                            "Nebula signal dispatcher spawn failed; \
+                                             signals will not fire until next mackesd restart"
+                                        );
+                                    }
+                                }
                             }
                             Err(e) => {
                                 tracing::warn!(

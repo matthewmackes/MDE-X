@@ -109,6 +109,79 @@ pub struct SelfNodeSnapshot {
 /// writes when this peer wins the leader-election lease.
 pub const DEFAULT_ROLE_HOST_MARKER: &str = "/var/lib/mackesd/nebula/role.host";
 
+/// Cross-thread events workers hand to the signal dispatcher so
+/// the matching `dev.mackes.MDE.Nebula.Status.*` D-Bus signals
+/// fan out to every subscribed consumer (Workbench Overview,
+/// applets, mde-files). Mirrors the GF-2.2
+/// [`crate::ipc::gluster::GlusterSignal`] pattern so the
+/// daemon's worker→IPC plumbing is consistent across surfaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NebulaSignal {
+    /// A peer's reachability flipped. Fired by the
+    /// `health_reconciler` worker when the SQLite `nodes.health`
+    /// row changes (e.g. unknown→healthy on first heartbeat,
+    /// healthy→degraded after one missed cycle).
+    PeerStateChanged {
+        /// Stable node id whose health column flipped.
+        node_id: String,
+        /// New reachable string, matching the `PeerRow.reachable`
+        /// mapping ("online" / "idle" / "offline").
+        reachable: String,
+    },
+    /// The mesh's active transport rotated. Fired by
+    /// `mesh_router` when its scorer picks a different primary
+    /// transport. OV-7.b emission lands when KDC2-1.9 wires
+    /// `detect_switch` into `tick_once`; today only the
+    /// dispatcher infrastructure exists and the signal helper is
+    /// callable by any future emitter.
+    TransportChanged {
+        /// New active-transport name (`nebula_direct`,
+        /// `nebula_https443`, `kdc_tls`, etc.).
+        active_transport: String,
+    },
+    /// A peer finished enrollment into the mesh. Fired from
+    /// `Enroll()` on the local peer's enrollment success AND
+    /// from `nebula_csr_watcher` on the leader's successful
+    /// `sign_pending_csr` (the remote-peer path).
+    EnrollmentCompleted {
+        /// Stable node id of the peer that just enrolled.
+        node_id: String,
+    },
+}
+
+/// Best-effort cross-thread sender handed to workers once IPC
+/// registration completes. Cloning is cheap (UnboundedSender is
+/// an Arc internally). `emit` is fire-and-forget — a full /
+/// closed channel drops the event silently. The worker's own
+/// tracing log already carries the event payload so forensics
+/// don't depend on the signal landing.
+#[derive(Debug, Clone)]
+pub struct NebulaSignalSender {
+    tx: tokio::sync::mpsc::UnboundedSender<NebulaSignal>,
+}
+
+impl NebulaSignalSender {
+    /// Emit a signal. Returns immediately.
+    pub fn emit(&self, signal: NebulaSignal) {
+        let _ = self.tx.send(signal);
+    }
+}
+
+/// Shared slot workers hold so the signal sender can be wired
+/// AFTER the worker has already spawned. The dispatcher
+/// `spawn_signal_dispatcher` fills the slot once IPC registration
+/// completes; workers spawned earlier in `run_serve()` pick up
+/// the sender on their next tick via `slot.get()`. Avoids
+/// reordering the entire startup sequence around D-Bus readiness.
+pub type SignalSenderSlot = Arc<std::sync::OnceLock<NebulaSignalSender>>;
+
+/// Construct a fresh, empty signal-sender slot. Workers receive
+/// a clone of the same `Arc` and read it lock-free per tick.
+#[must_use]
+pub fn new_signal_sender_slot() -> SignalSenderSlot {
+    Arc::new(std::sync::OnceLock::new())
+}
+
 /// Service state. Cheap to clone (every field is an Arc /
 /// String).
 #[derive(Debug, Clone)]
@@ -447,6 +520,64 @@ pub async fn register_nebula_status(
         .serve_at(NEBULA_STATUS_OBJECT_PATH, state)?
         .build()
         .await
+}
+
+/// Spawn the Nebula signal-dispatch loop. Pulls
+/// [`NebulaSignal`] events from the receiver, looks up the
+/// already-registered `NebulaStatusService` interface ref on
+/// the supplied connection, and emits the matching
+/// `dev.mackes.MDE.Nebula.Status.*` signal for each one.
+///
+/// Returns the [`NebulaSignalSender`] every worker holds. The
+/// `slot` argument is filled with a clone of the same sender so
+/// workers spawned earlier in `run_serve()` (before this call
+/// site) can pick it up on their next tick.
+///
+/// # Errors
+///
+/// Returns whatever zbus reports when fetching the interface
+/// reference fails (typically: the service wasn't registered
+/// first via [`register_nebula_status_on`]).
+pub async fn spawn_signal_dispatcher(
+    conn: zbus::Connection,
+    slot: &SignalSenderSlot,
+) -> zbus::Result<NebulaSignalSender> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<NebulaSignal>();
+    let iface_ref = conn
+        .object_server()
+        .interface::<_, NebulaStatusService>(NEBULA_STATUS_OBJECT_PATH)
+        .await?;
+    tokio::spawn(async move {
+        while let Some(signal) = rx.recv().await {
+            let ctx = iface_ref.signal_emitter();
+            let result = match signal {
+                NebulaSignal::PeerStateChanged { node_id, reachable } => {
+                    NebulaStatusService::peer_state_changed(ctx, &node_id, &reachable).await
+                }
+                NebulaSignal::TransportChanged { active_transport } => {
+                    NebulaStatusService::transport_changed(ctx, &active_transport).await
+                }
+                NebulaSignal::EnrollmentCompleted { node_id } => {
+                    NebulaStatusService::enrollment_completed(ctx, &node_id).await
+                }
+            };
+            if let Err(e) = result {
+                tracing::warn!(error = %e, "nebula signal emission failed");
+            }
+        }
+    });
+    let sender = NebulaSignalSender { tx };
+    // Fill the shared slot for workers that spawned before IPC
+    // registration. `set` returns Err if the slot is already
+    // filled — that's a programmer error (called twice), so
+    // we surface it via tracing rather than silently overwriting.
+    if slot.set(sender.clone()).is_err() {
+        tracing::warn!(
+            "nebula signal-sender slot already filled; \
+             ignoring duplicate spawn_signal_dispatcher call",
+        );
+    }
+    Ok(sender)
 }
 
 // ----- private SQL helpers -------------------------------------------
