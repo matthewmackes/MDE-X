@@ -29,6 +29,8 @@ mod app;
 mod dbus;
 // Portal-3 — font + Carbon icon theme layer.
 pub mod fonts;
+// Portal-5 — swayipc workspace integration.
+pub mod workspace;
 
 /// CLI surface for `mde-portal`.
 #[derive(Parser, Debug)]

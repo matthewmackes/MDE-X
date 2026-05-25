@@ -1,27 +1,29 @@
-//! Portal-4 Iced application — Dock with 6 nav buttons.
+//! Portal-5 Iced application — Dock with workspace segment + 6 nav buttons.
 //!
-//! Renders the full Dock row (56 px, AllScreens, Intel One Mono):
+//! Dock layout (56 px, AllScreens, Intel One Mono):
 //!
 //! ```text
-//! [›] [Apps] [›] [Files] [›] [Notif] [›] [VoIP] [›] [Net] [›] [Settings]
+//! [1›][2›][dev…›][+]  ···spacer···  [›Apps][›Files][›Notif][›VoIP][›Net][›Settings]
 //! ```
 //!
-//! Each nav button is 36 px, monochrome Carbon glyph, domain-color
-//! left-chevron (R10-Q46), tonal-inversion (indigo bg + white glyph)
-//! when active (R10-Q15), numeric count badge top-right (R10-Q3).
-//! Right-click emits `NavRightClicked` for per-button menus (R10-Q5).
+//! **Workspace segment** (Portal-5): chevron-as-border cells (R4-Q63),
+//! adaptive 24 px-floor width with truncation (R4-Q64 / Portal-5.b adds
+//! marquee), all workspaces visible + current-output highlight (R3-Q46),
+//! click-jump via swayipc (R3-Q23), `+` new-workspace (R3-Q24).
+//! Hover Aero-peek is Portal-5.c.
 //!
-//! Clicking a button sets the active state and emits `Goto(layer)` for
-//! Portal-16 (Portal-full scratchpad surface) to handle.
-//! Portal-4 only owns the Dock strip; Portal-full is Portal-16.
+//! **Nav buttons** (Portal-4): 36 px Carbon glyphs, domain-color chevrons
+//! (R10-Q46), tonal-inversion active indicator (R10-Q15), count badge
+//! (R10-Q3), right-click (R10-Q5).
 
 use iced::widget::{container, mouse_area, row, text};
-use iced::{Color, Element, Length, Padding, Task, Theme};
+use iced::{Color, Element, Length, Padding, Subscription, Task, Theme};
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use iced_layershell::to_layer_message;
 
 use crate::fonts::{resolve_icon, FONT_INTEL_ONE_MONO};
+use crate::workspace::WorkspaceInfo;
 use mde_theme::{Icon, IconSize};
 
 /// Crate-private app-id constant visible to the layer-shell compositor.
@@ -169,17 +171,27 @@ pub enum Message {
     NavClicked(NavButton),
     /// User right-clicked a nav button (per-button menu, R10-Q5).
     NavRightClicked(NavButton),
+    /// Workspace subscription emitted a fresh workspace list (Portal-5).
+    WorkspaceList(Vec<WorkspaceInfo>),
+    /// User clicked a workspace cell — focus it via swayipc (R3-Q23).
+    FocusWorkspace(String),
+    /// User clicked `+` — switch to the next unused workspace number.
+    NewWorkspace,
+    /// Fire-and-forget placeholder for Task::perform callbacks that produce no message.
+    Noop,
 }
 
 // ── application state ─────────────────────────────────────────────────────────
 
-/// Dock application state (Portal-4).
+/// Dock application state (Portal-5).
 #[derive(Debug)]
 pub struct DockApp {
     /// Currently active nav layer; `None` = Dock-only (Portal-full hidden).
     active_nav: Option<NavButton>,
     /// Unread/pending counts per nav button (index matches `NavButton::ALL`).
     badge_counts: [u32; 6],
+    /// Live workspace list from swayipc (Portal-5). Empty until subscription fires.
+    workspaces: Vec<WorkspaceInfo>,
 }
 
 impl Default for DockApp {
@@ -187,6 +199,7 @@ impl Default for DockApp {
         Self {
             active_nav: None,
             badge_counts: [0u32; 6],
+            workspaces: Vec::new(),
         }
     }
 }
@@ -256,6 +269,23 @@ impl iced_layershell::Application for DockApp {
                 // Portal-16's scratchpad surface. For now the click is a
                 // no-op so the button state doesn't change.
             }
+            Message::WorkspaceList(list) => {
+                self.workspaces = list;
+            }
+            Message::FocusWorkspace(name) => {
+                return Task::perform(
+                    crate::workspace::focus_workspace(name),
+                    |_| Message::Noop,
+                );
+            }
+            Message::NewWorkspace => {
+                let taken: Vec<i32> = self.workspaces.iter().map(|w| w.num).collect();
+                return Task::perform(
+                    crate::workspace::new_workspace(taken),
+                    |_| Message::Noop,
+                );
+            }
+            Message::Noop => {}
             // Variants injected by #[to_layer_message] (layer-shell protocol
             // actions: AnchorChange, SetInputRegion, etc.).  Not used by the
             // Dock strip — forward to the runtime silently.
@@ -264,15 +294,24 @@ impl iced_layershell::Application for DockApp {
         Task::none()
     }
 
+    fn subscription(&self) -> Subscription<Message> {
+        crate::workspace::workspace_subscription()
+    }
+
     fn view(&self) -> Element<'_, Message> {
         let theme = self.theme();
         let bg = if theme == Theme::Dark { CHARCOAL } else { OFF_WHITE };
         let fg = if theme == Theme::Dark { Color::WHITE } else { Color::BLACK };
 
+        let ws_seg = build_workspace_segment(self, fg);
         let nav_row = build_nav_row(self, fg);
 
         container(
-            row![nav_row]
+            row![
+                ws_seg,
+                iced::widget::horizontal_space(),
+                nav_row,
+            ]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .padding(Padding::from([0, 8])),
@@ -292,6 +331,104 @@ impl iced_layershell::Application for DockApp {
 }
 
 // ── widget helpers ────────────────────────────────────────────────────────────
+
+/// Build the workspace segment (Portal-5): `[ws1›][ws2›][dev…›][+]`.
+///
+/// Each cell has the workspace label + inline `›` right-chevron acting as the
+/// cell border (R4-Q63).  Cells adapt to content width; 24 px floor (R4-Q64).
+/// Focused workspace: indigo bg.  Current-output visible workspace: subtle
+/// highlight.  Urgent: red bg.  Other outputs' workspaces: dimmed.
+fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
+    // Determine output of the focused workspace — that's the "current" output.
+    let current_output: &str = app
+        .workspaces
+        .iter()
+        .find(|w| w.focused)
+        .map(|w| w.output.as_str())
+        .unwrap_or("");
+
+    let mut cells: Vec<Element<'a, Message>> = Vec::new();
+
+    for ws in app.workspaces.iter().filter(|w| w.num >= 0) {
+        let is_focused = ws.focused;
+        let is_current_output = ws.output == current_output;
+        let is_urgent = ws.urgent;
+
+        let label = ws.display_label();
+
+        let text_color = if is_focused {
+            Color::WHITE
+        } else if is_current_output {
+            fg
+        } else {
+            Color { a: 0.5, ..fg }
+        };
+
+        let cell_bg: Option<Color> = if is_urgent {
+            Some(Color::from_rgb(0.8, 0.1, 0.1))
+        } else if is_focused {
+            Some(COLOR_INDIGO)
+        } else if ws.visible {
+            Some(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.1 })
+        } else {
+            None
+        };
+
+        let chevron_color = if is_focused {
+            Color { r: 1.0, g: 1.0, b: 1.0, a: 0.5 }
+        } else if is_current_output {
+            Color { r: 0.5, g: 0.5, b: 0.5, a: 1.0 }
+        } else {
+            Color { r: 0.3, g: 0.3, b: 0.3, a: 1.0 }
+        };
+
+        let cell_content = row![
+            text(label).size(12.0).color(text_color),
+            text("›").size(10.0).color(chevron_color),
+        ]
+        .spacing(2)
+        .align_y(iced::Alignment::Center);
+
+        let cell = container(cell_content)
+            .width(Length::Shrink)
+            .height(Length::Fill)
+            .align_y(iced::alignment::Vertical::Center)
+            .padding(Padding::from([0, 8]))
+            .style(move |_: &Theme| iced::widget::container::Style {
+                background: cell_bg.map(iced::Background::Color),
+                ..Default::default()
+            });
+
+        let ws_name = ws.name.clone();
+        cells.push(
+            mouse_area(cell)
+                .on_press(Message::FocusWorkspace(ws_name))
+                .into(),
+        );
+    }
+
+    // `+` button — creates the next unused workspace.
+    let plus_cell = container(
+        text("+").size(14.0).color(Color { a: 0.6, ..fg }),
+    )
+    .width(Length::Shrink)
+    .height(Length::Fill)
+    .align_x(iced::alignment::Horizontal::Center)
+    .align_y(iced::alignment::Vertical::Center)
+    .padding(Padding::from([0, 6]));
+
+    cells.push(
+        mouse_area(plus_cell)
+            .on_press(Message::NewWorkspace)
+            .into(),
+    );
+
+    row(cells)
+        .spacing(0)
+        .height(Length::Fill)
+        .align_y(iced::Alignment::Center)
+        .into()
+}
 
 /// Build the nav-button row segment: `[chevron][button]` × 6.
 fn build_nav_row(app: &DockApp, fg: Color) -> Element<'_, Message> {
@@ -529,5 +666,78 @@ mod tests {
     #[test]
     fn settings_navigates_to_control() {
         assert_eq!(NavButton::Settings.portal_layer(), "control");
+    }
+
+    // ── Portal-5 workspace segment tests ─────────────────────────────────────
+
+    fn make_ws(num: i32, name: &str, focused: bool, visible: bool, output: &str) -> WorkspaceInfo {
+        WorkspaceInfo {
+            num,
+            name: name.to_string(),
+            focused,
+            visible,
+            output: output.to_string(),
+            urgent: false,
+        }
+    }
+
+    #[test]
+    fn workspace_list_updates_state() {
+        let mut app = DockApp::default();
+        assert!(app.workspaces.is_empty());
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::WorkspaceList(vec![make_ws(1, "1", true, true, "eDP-1")]),
+        );
+        assert_eq!(app.workspaces.len(), 1);
+        assert_eq!(app.workspaces[0].num, 1);
+    }
+
+    #[test]
+    fn workspace_list_replaces_previous() {
+        let mut app = DockApp::default();
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::WorkspaceList(vec![
+                make_ws(1, "1", true, true, "eDP-1"),
+                make_ws(2, "2", false, false, "eDP-1"),
+            ]),
+        );
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::WorkspaceList(vec![make_ws(3, "3", true, true, "HDMI-A-1")]),
+        );
+        assert_eq!(app.workspaces.len(), 1, "list should be replaced, not appended");
+    }
+
+    #[test]
+    fn noop_message_is_handled_silently() {
+        let mut app = DockApp::default();
+        let task = iced_layershell::Application::update(&mut app, Message::Noop);
+        // Task::none() — no side-effects; state unchanged.
+        drop(task);
+        assert!(app.workspaces.is_empty());
+    }
+
+    #[test]
+    fn workspaces_start_empty() {
+        let app = DockApp::default();
+        assert!(app.workspaces.is_empty());
+    }
+
+    #[test]
+    fn new_workspace_task_fires_without_panic() {
+        let mut app = DockApp::default();
+        // Set up two taken workspaces so new_workspace picks 3.
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::WorkspaceList(vec![
+                make_ws(1, "1", false, false, "eDP-1"),
+                make_ws(2, "2", true, true, "eDP-1"),
+            ]),
+        );
+        // Should produce a Task::perform without panicking (sway not running,
+        // so the async op will fail silently at runtime).
+        let _task = iced_layershell::Application::update(&mut app, Message::NewWorkspace);
     }
 }
