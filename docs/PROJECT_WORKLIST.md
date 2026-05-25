@@ -727,6 +727,264 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] 5 pytest tests cover: lighthouse role → off; host role → work; peer role → work; missing role → work (fail-safe); idempotent re-run leaves file alone.
     - [ ] Bench: fresh install with `role=host` → after birthright completes, `<qnm_root>/<self>/mackesd/focus-profile.json` shows `active_mode: work` + the 3 default modes; same install with `role=lighthouse` → shows `active_mode: off`.
 
+### DEAD-2.1..DEAD-2.15: v5.1/v5.2 — Mesh module retirement queue (audit 2026-05-25)
+
+> **Audit findings from the 2026-05-25 mesh-module overlap review.**
+> With Nebula (v2.5) owning transport+auth, Gluster (v5.0) owning XDG
+> file replication, Netdata (v2.6 MON-*) owning metrics+alerts, and
+> the GF-17 unified bus (v5.1) owning notification routing, ~half of
+> the python `mackes/mesh_*.py` tree + several mackesd worker probes
+> are now redundant. This section consolidates the retirements.
+>
+> **Precedent:** NF-5.1 (2026-05-24) deleted `mackes/mesh_vpn.py`
+> wholesale across 24 importers because every call site was wrapped
+> in `try/except ImportError` — degrades to empty / not-joined
+> stand-ins automatically. Each DEAD-2.x task below follows the same
+> "verify try/except wrapping exists OR migrate the consumer in the
+> same commit" pattern. The operator's 2026-05-24 unblock-survey on
+> NF-5.1 ("Wholesale binary retire") extends to this section.
+>
+> **Pre-commit gates per §0.7 for every retirement commit:**
+> module-import smoke (`python3 -c "import mackes.<unchanged-module>"`
+> for every module that imported the retired one), `make test-nodeps`,
+> `make lint` (ruff F401/F541/F811/F841), `make rpm` when packaging
+> changes, voice-and-tone lint when any user-visible string changed.
+>
+> **Target releases:** v5.1 for DEAD-2.1..2.11 + 2.13..2.15 (no HW
+> gating). DEAD-2.12 is v5.2 (HW-gated on v5.0 gluster bench
+> validation — deleting `mesh_fs.py` before gluster mesh-home is
+> proven on real fleets would leave operators with no file sync).
+
+#### Wave 1 — Hard delete (0 external references)
+
+- [ ] **DEAD-2.1: v5.1 — Delete `mackes/mesh_discovery.py`**
+  **As** the v5.1 cleanup pass,
+  **I want** to delete `mackes/mesh_discovery.py` (the v1.7 mesh-join credential fallback chain),
+  **so that** the codebase stops carrying a module that no longer earns its keep — the Nebula CSR flow + birthright single-passcode replaces every credential-discovery path the module used to cover.
+  **Acceptance** (each bench-observable):
+    - [ ] `mackes/mesh_discovery.py` deleted from working tree.
+    - [ ] `tests/test_mesh_discovery.py` deleted if present.
+    - [ ] `grep -rln "import mesh_discovery\|from mackes.mesh_discovery\|mackes.mesh_discovery\b" mackes/ tests/ --include='*.py'` returns zero matches (audit pre-retirement: confirmed zero external consumers 2026-05-25 audit).
+    - [ ] `python3 -c "import mackes.mesh"` + `python3 -c "import mackes.birthright"` + `python3 -c "import mackes.headless.daemon"` succeed.
+    - [ ] `make test-nodeps` passes; pytest count drops by exactly the number of tests in `tests/test_mesh_discovery.py` (and zero other tests).
+    - [ ] `make lint` clean (ruff F401/F541/F811/F841).
+    - [ ] CHANGELOG entry under `## 5.1` notes the deletion + cites the Nebula CSR + birthright passcode replacement.
+
+- [ ] **DEAD-2.2: v5.1 — Delete `mackes/mesh_thumbnailer.py`**
+  **As** the v5.1 cleanup pass,
+  **I want** to delete `mackes/mesh_thumbnailer.py` (Tumbler thumbnailer for mesh clipboard + notification files),
+  **so that** the codebase stops carrying a python module superseded by the live `crates/mackesd/src/workers/thumbnailer.rs` Rust port (already spawned in `run_serve` per 1 ref in `bin/mackesd.rs+mod.rs`).
+  **Acceptance** (each bench-observable):
+    - [ ] `mackes/mesh_thumbnailer.py` deleted.
+    - [ ] `tests/test_mesh_thumbnailer.py` deleted if present.
+    - [ ] `grep -rln "import mesh_thumbnailer\|from mackes.mesh_thumbnailer\|mackes.mesh_thumbnailer\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `python3 -c "import mackes.mesh"` succeeds (the umbrella module — line 13 of `mackes/mesh.py` lists thumbnailer as one of 8 layers; verify the try/except guard handles the deletion).
+    - [ ] `make test-nodeps` passes; `make lint` clean.
+    - [ ] CHANGELOG entry under `## 5.1` notes the deletion + cites `thumbnailer.rs` as the canonical implementation.
+
+#### Wave 2 — Workbench panel retirement (gateway for Wave 3)
+
+- [ ] **DEAD-2.3: v5.1 — Delete `mackes/workbench/network/mesh_performance.py` panel + sidebar nav item**
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the Mesh Performance Workbench panel (Datapath / MTU+GSO / Probes / Discovery / Relay / Metrics),
+  **so that** the gateway-consumer of 5 retirement targets (`mesh_fs`, `mesh_fs_fuse`, `mesh_mdns`, `mesh_wol`, `mesh_metrics`) is removed first, unblocking Wave 3. The canonical metrics surface in v2.6+ is Netdata's web UI (chart URLs already stamped into alert events per MON-3); the Datapath/MTU knobs are auto-tuned by `nebula_supervisor` + glusterd defaults; the Discovery row is owned by `mdns.rs` worker; the Relay row is dead (DERP retired in v2.5).
+  **Acceptance** (each bench-observable):
+    - [ ] `mackes/workbench/network/mesh_performance.py` deleted.
+    - [ ] `tests/test_mesh_performance.py` (if present) deleted.
+    - [ ] Sidebar nav item for "Mesh Performance" removed from `mackes/workbench/shell/sidebar_window.py` (`_network_advanced()` section).
+    - [ ] `grep -rln "mesh_performance" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `python3 -c "import mackes.workbench.shell.sidebar_window"` succeeds.
+    - [ ] `make test-nodeps` passes; `make lint` clean.
+    - [ ] Workbench launches + opens to Network section without the panel (visual verification — sidebar still navigable; the removed item leaves no dangling chrome).
+    - [ ] CHANGELOG entry: "Mesh Performance panel retired; metrics surface is Netdata web UI (chart URLs in alerts) + Workbench Mesh Storage panel (GF-8.2)."
+  **Risk note:** if the v1.x mackes WorkbenchWindow itself is being retired in favor of mde-workbench (Iced/Rust), this task becomes a no-op pre-condition for that retirement; coordinate with the v2.0+ Iced workbench tree.
+
+#### Wave 3 — Python modules superseded by Rust ports (unblocked by Wave 2)
+
+- [ ] **DEAD-2.4: v5.1 — Delete `mackes/mesh_mdns.py` (superseded by `mdns.rs` Rust worker)** *(depends on DEAD-2.3)*
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the python mDNS service discovery module,
+  **so that** the codebase has one mDNS implementation (`crates/mackesd/src/workers/mdns.rs`) instead of two — DEAD-2.3 retires the sole external consumer (mesh_performance.py).
+  **Acceptance** (each bench-observable):
+    - [ ] `mackes/mesh_mdns.py` deleted; `tests/test_mesh_mdns.py` deleted if present.
+    - [ ] `grep -rln "import mesh_mdns\|from mackes.mesh_mdns\|mackes.mesh_mdns\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `mdns.rs` worker still spawns in `run_serve` (`grep mdns crates/mackesd/src/bin/mackesd.rs`).
+    - [ ] `make test-nodeps` passes; `make lint` clean.
+    - [ ] CHANGELOG entry cites `mdns.rs` as the canonical mDNS surface.
+
+- [ ] **DEAD-2.5: v5.1 — Delete `mackes/mesh_wol.py` (superseded by `wol.rs` Rust worker)** *(depends on DEAD-2.3)*
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the python Wake-on-LAN module,
+  **so that** the codebase has one WoL implementation — DEAD-2.3 retires the sole external consumer (mesh_performance.py); `tests/test_mesh_wol.py` consumer also retires.
+  **Acceptance** (each bench-observable):
+    - [ ] `mackes/mesh_wol.py` deleted; `tests/test_mesh_wol.py` deleted.
+    - [ ] `grep -rln "import mesh_wol\|from mackes.mesh_wol\|mackes.mesh_wol\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `wol.rs` worker still spawns in `run_serve`.
+    - [ ] `make test-nodeps` passes; `make lint` clean.
+    - [ ] CHANGELOG entry cites `wol.rs` as the canonical WoL surface.
+
+- [ ] **DEAD-2.6: v5.1 — Delete `mackes/mesh_metrics.py` (superseded by Netdata MON-* path)** *(depends on DEAD-2.3)*
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the Prometheus exporter for mesh metrics,
+  **so that** the codebase echoes the DEAD-1 pattern (`metrics_flush.rs` retired 2026-05-25) — Netdata is the canonical metrics path per v2.6 MON-1..MON-5 lock; Prometheus is no longer the metrics protocol. DEAD-2.3 retires the gateway consumer (mesh_performance.py); `tests/test_mesh_metrics.py` consumer also retires.
+  **Acceptance** (each bench-observable):
+    - [ ] `mackes/mesh_metrics.py` deleted; `tests/test_mesh_metrics.py` deleted.
+    - [ ] `grep -rln "import mesh_metrics\|from mackes.mesh_metrics\|mackes.mesh_metrics\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] No new Netdata-aggregator regression — `netdata_aggregator.rs` worker still ticks every 5 s (`grep netdata_aggregator crates/mackesd/src/bin/mackesd.rs`).
+    - [ ] `make test-nodeps` passes; `make lint` clean.
+    - [ ] CHANGELOG entry cites `netdata_aggregator.rs` + `data/netdata/health.d/*.conf` as the canonical metrics + alerting path; "Prometheus retired in MDE-platform metrics — Netdata is the single source."
+
+- [ ] **DEAD-2.7: v5.1 — Delete `mackes/mesh_fs_fuse.py` (read-cache FUSE backend, superseded by `mde-mesh-mount@.service`)** *(depends on DEAD-2.3)*
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the SSHFS-with-read-cache FUSE backend module,
+  **so that** the codebase has one FUSE mount implementation — DEAD-2.3 retires the sole external consumer (mesh_performance.py). The per-user FUSE mount of mesh-home is owned by the templated systemd unit `data/systemd/mde-mesh-mount@.service` per GF-4.1.
+  **Acceptance** (each bench-observable):
+    - [ ] `mackes/mesh_fs_fuse.py` deleted; `tests/test_mesh_fs_fuse.py` deleted if present.
+    - [ ] `grep -rln "import mesh_fs_fuse\|from mackes.mesh_fs_fuse\|mackes.mesh_fs_fuse\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `mde-mesh-mount@.service` still present in `data/systemd/` and packaged in the RPM `%files` block.
+    - [ ] `make test-nodeps` passes; `make rpm` builds clean; `make lint` clean.
+    - [ ] CHANGELOG entry cites `mde-mesh-mount@.service` as the canonical XDG-dir FUSE mount.
+
+#### Wave 4 — Notifications module superseded by GF-17 bus
+
+- [ ] **DEAD-2.8: v5.1 — Delete `mackes/mesh_notifications.py` (superseded by GF-17 unified bus + `notification_relay.rs`)** *(depends on GF-17.5 alert_router rename)*
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the distributed `notify-send` python module,
+  **so that** the codebase has one notification path — the GF-17 unified bus (`alert_router` + `<qnm_root>/<self>/mackesd/notifications/<ulid>.json`) + the live `notification_relay.rs` worker (DB sync).
+  **Consumers (3):** `mackes/headless/cli.py`, `mackes/headless/daemon.py`, `mackes/mesh.py`. Confirm each wraps `from mackes.mesh_notifications import …` in `try/except ImportError` per the NF-5.1 wholesale-retire pattern. If any does not, add the wrapping in the same commit before deletion.
+  **Acceptance** (each bench-observable):
+    - [ ] All 3 consumer call sites verified `try/except ImportError`-wrapped (add wrapping if missing in the same commit).
+    - [ ] `mackes/mesh_notifications.py` deleted; `tests/test_mesh_notifications.py` deleted if present.
+    - [ ] `grep -rln "import mesh_notifications\|from mackes.mesh_notifications\|mackes.mesh_notifications\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `python3 -c "import mackes.headless.daemon"` + `python3 -c "import mackes.headless.cli"` + `python3 -c "import mackes.mesh"` succeed.
+    - [ ] `make test-nodeps` passes; `make lint` clean.
+    - [ ] CHANGELOG entry cites GF-17 + `notification_relay.rs` as the canonical notification path.
+
+#### Wave 5 — `mesh_services` retirement (NF-20.6 lint already guards against re-introduction)
+
+- [ ] **DEAD-2.9: v5.1 — Delete `mackes/mesh_services.py` + retire §8.13 service catalog**
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the §8.13 mesh-services catalog loader + port-probe scanner,
+  **so that** the codebase finishes the NF-20.6 retirement that's already lint-guarded — the §8.13 catalog model (curated set of mesh services per peer) was superseded by the open-mesh / flat-trust directive (every peer trusts every other; no curated allow-list).
+  **Consumers (7):** `caddy_gateway.py`, `headless/cli.py`, `headless/daemon.py`, `mesh.py`, `native_clients.py`, `workbench/shell/sidebar_window.py`, `tests/test_mesh_services.py`. Verify each consumer is `try/except`-wrapped per NF-5.1 pattern; add wrapping if missing.
+  **Acceptance** (each bench-observable):
+    - [ ] All 7 consumer call sites verified `try/except ImportError`-wrapped (or migrate to no-op stand-ins) in the same commit.
+    - [ ] `mackes/mesh_services.py` deleted; `tests/test_mesh_services.py` deleted; `crates/mde-workbench/src/panels/mesh_services.rs`'s catalog-absence assertions stay (they're the regression guard).
+    - [ ] Sidebar nav item for "Mesh Services" removed from `sidebar_window.py:298` if not already.
+    - [ ] `grep -rln "import mesh_services\|from mackes.mesh_services\|mackes.mesh_services\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] All 6 non-test consumer modules pass `python3 -c "import mackes.<module>"`.
+    - [ ] `make test-nodeps` passes; `make lint` clean; `install-helpers/lint-legacy-mesh.sh` clean.
+    - [ ] CHANGELOG entry cites the open-mesh / flat-trust directive as the rationale (every peer trusts every other; curated service catalog is no longer the model).
+
+#### Wave 6 — `mesh_sync` + `mesh_nats` retirement (replaced by Gluster + GF-17 bus)
+
+- [ ] **DEAD-2.10: v5.1 — Delete `mackes/mesh_sync.py` + `mackes/mesh_nats.py` (NATS-substrate bucket-sync stack)**
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the NATS JetStream + filesystem-polling bucket-sync stack,
+  **so that** the codebase has one cross-peer replication path — Gluster mesh-home (sub-5 s heal) for files, GF-17 unified bus (2 s poll) for notifications. The NATS substrate's "control peer runs nats-server, peers are clients" model is incompatible with the open-mesh / flat-trust directive (no control peers in v2.5+).
+  **Consumers of `mesh_sync` (6 + 1 test):** `clipboard_app.py`, `mdns_relay.py`, `mesh_browser.py`, `mesh_gvfs/operations.py`, `mesh.py`, `presets.py`, `tests/test_mesh_sync.py`.
+  **Consumers of `mesh_nats` (2):** part of the `mesh_sync` import chain; deletion cascades.
+  **Per NF-5.1 pattern:** verify each consumer is `try/except`-wrapped (presets.py lines 359-361 already show the pattern: `try: from mackes.mesh_sync import ensure_buckets`). Add wrapping if missing.
+  **Acceptance** (each bench-observable):
+    - [ ] All 6 consumer call sites verified `try/except ImportError`-wrapped (add wrapping if missing in the same commit).
+    - [ ] `mackes/mesh_sync.py` + `mackes/mesh_nats.py` deleted; `tests/test_mesh_sync.py` + any `tests/test_mesh_nats.py` deleted.
+    - [ ] `grep -rln "import mesh_sync\|from mackes.mesh_sync\|mackes.mesh_sync\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `grep -rln "import mesh_nats\|from mackes.mesh_nats\|mackes.mesh_nats\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] All 6 non-test consumer modules pass `python3 -c "import mackes.<module>"`; `mackes/clipboard_app.py` + `mackes/mdns_relay.py` continue to function (write to the live `clipboard.rs` + `mdns.rs` Rust workers' surfaces instead).
+    - [ ] `make test-nodeps` passes; `make lint` clean; `install-helpers/lint-legacy-mesh.sh` clean.
+    - [ ] CHANGELOG entry cites Gluster mesh-home + GF-17 bus as the replacement; "NATS substrate retired with v5.1 — incompatible with open-mesh directive."
+
+#### Wave 7 — `mesh://` URI handler retirement (gluster makes XDG dirs natively mesh-mounted)
+
+- [ ] **DEAD-2.11: v5.1 — Delete `mackes/mesh_browser.py` + `mesh://` URI handler + gvfs mount config + Tumbler mesh thumbnailer .desktop entry**
+  **As** the v5.1 cleanup pass,
+  **I want** to delete the Thunar `mesh://` URI scheme handler + its supporting data files,
+  **so that** users navigate the mesh through their normal `~/Documents/` etc. (gluster mesh-home is FUSE-mounted at the XDG paths per GF-4.1; no URI scheme needed). The QNM-* view directories the module managed are obsoleted by full-mesh replication.
+  **Files to delete:**
+    - `mackes/mesh_browser.py`
+    - `data/applications/mackes-mesh-uri-handler.desktop`
+    - `data/gvfs/mesh.mount`
+    - `data/thumbnailers/mackes-mesh.thumbnailer`
+  **Consumers (2):** `mackes/mesh.py`, `mackes/presets.py` (line 366 already shows the `try` pattern: `try: from mackes.mesh_browser import ensure_layout, install_thunar_bookmarks`).
+  **Spec changes:** remove `%files` entries for the 3 data files from `packaging/fedora/mackes-shell.spec`.
+  **Acceptance** (each bench-observable):
+    - [ ] 4 files deleted; spec `%files` entries removed.
+    - [ ] `grep -rln "import mesh_browser\|from mackes.mesh_browser\|mackes.mesh_browser\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `grep -rln "mesh-mount\|mesh://\|mackes-mesh-uri" mackes/ data/ --include='*.py' --include='*.desktop'` returns zero matches in v2.5+ source (legacy mackes-panel + tests allow-listed).
+    - [ ] `make rpm` builds clean; `rpm -qpl rpmbuild/RPMS/x86_64/mde-*.rpm` does NOT include the 3 deleted data files.
+    - [ ] Both consumer modules pass `python3 -c "import mackes.<module>"`.
+    - [ ] `make test-nodeps` passes; `make lint` clean; `install-helpers/lint-voice.sh` clean (the `mesh://` strings live in user-visible .desktop files; their removal needs voice-lint to confirm no orphans).
+    - [ ] CHANGELOG entry cites the gluster XDG mount as making the URI scheme unnecessary.
+
+#### Wave 8 — The big one: `mesh_fs.py` + `mesh_gvfs/` + `fs_sync.rs` worker retirement [v5.2 HW-gated]
+
+- [ ] **DEAD-2.12: v5.2 — Delete `mackes/mesh_fs.py` + `mackes/mesh_gvfs/` directory + retire `crates/mackesd/src/workers/fs_sync.rs` worker [HW carve-out]** *(depends on DEAD-2.7 (mesh_fs_fuse), DEAD-2.10 (mesh_sync), DEAD-2.11 (mesh_browser) — and on v5.0 gluster mesh-home being **operator-validated on real hardware bench** per `feedback_no_cut_until_worklist_empty.md`)*
+  **As** the v5.2 cleanup pass,
+  **I want** to delete the SSHFS-over-QNM peer-dir mount supervisor stack,
+  **so that** the codebase has one file-replication path — Gluster mesh-home replicates every XDG file to every peer; the "SSHFS-mount each peer's QNM-Shared bucket under `~/.local/share/mackes-mesh-fuse/`" model is fully obviated.
+  **Files to delete:**
+    - `mackes/mesh_fs.py`
+    - `mackes/mesh_gvfs/` (entire directory: `__init__.py`, `daemon.py`, `operations.py`)
+    - `crates/mackesd/src/workers/fs_sync.rs` (Rust worker that supervised the python gvfs daemon subprocess)
+    - `tests/test_mesh_fs.py` + any `tests/test_mesh_gvfs*` + any `tests/test_fs_sync.rs` unit tests
+  **Consumers of `mesh_fs` (7):** `headless/daemon.py`, `headless/status.py`, `mesh_gvfs/operations.py`, `mesh.py`, `mesh_sync.py` (already retired in DEAD-2.10), `presets.py` (line 354-355 shows `try` pattern), `workbench/network/mesh_performance.py` (already retired in DEAD-2.3).
+  **Spec changes:** remove the `fs_sync` reference from `bin/mackesd.rs::run_serve()`; remove the `pub mod fs_sync;` from `crates/mackesd/src/workers/mod.rs`.
+  **HW gate (per `feedback_no_cut_until_worklist_empty.md`):** before this task can ship, the v5.0 GF-* hardware bench tests must pass on a real ≥3-peer fleet — specifically GF-3.3 (XDG mesh mount), GF-11.2 (VM-CI 2-peer integration), GF-11.3 (3-peer split-brain). Without those green, deleting `mesh_fs.py` leaves operators with no file sync.
+  **Acceptance** (each bench-observable):
+    - [ ] v5.0 GF-3.3 + GF-11.2 + GF-11.3 bench gates green on operator-confirmed hardware run.
+    - [ ] All 5 remaining (post-Wave-2/4/6) consumer call sites verified `try/except ImportError`-wrapped.
+    - [ ] `mackes/mesh_fs.py` + `mackes/mesh_gvfs/` directory + `crates/mackesd/src/workers/fs_sync.rs` deleted.
+    - [ ] `bin/mackesd.rs` no longer spawns `FsSyncWorker`; `worker_names` list no longer contains `"fs-sync"`; `crates/mackesd/src/workers/mod.rs` no longer has `pub mod fs_sync;`.
+    - [ ] `grep -rln "import mesh_fs\|from mackes.mesh_fs\|mackes.mesh_fs\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `grep -rln "import mesh_gvfs\|from mackes.mesh_gvfs\|mackes.mesh_gvfs\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] `grep -rln "fs_sync\|FsSync" crates/mackesd/src/ --include='*.rs'` returns zero matches.
+    - [ ] All non-test consumer modules pass `python3 -c "import mackes.<module>"`.
+    - [ ] `cargo build -p mackesd --features async-services` clean; `cargo test -p mackesd --features async-services --lib workers::` passes (test count drops by exactly the fs_sync-test count).
+    - [ ] `make test-nodeps` passes; `make rpm` builds clean; `make lint` clean; `install-helpers/lint-legacy-mesh.sh` clean.
+    - [ ] CHANGELOG entry cites Gluster mesh-home + `mde-mesh-mount@.service` as the canonical XDG file-sync path; explicitly notes operators with custom scripts mounting `~/.local/share/mackes-mesh-fuse/*` paths must update.
+
+#### Wave 9 — Rust worker absence-canaries + Nebula python audit
+
+- [ ] **DEAD-2.13: v5.1 — Repurpose `nats.rs` + `derp.rs` as absence-canaries OR delete entirely**
+  **As** the v5.1 cleanup pass,
+  **I want** to repurpose the Rust status-probe modules into "should-be-absent" canaries (alert if NATS/DERP services unexpectedly running on a v2.5+ peer), OR delete the modules outright if the canary value is low,
+  **so that** the codebase reflects the v2.5 Nebula-only / v5.1 GF-17-bus reality — both NATS and DERP were tailscale-stack components axed in v2.5 NF-* + retired in v5.1 DEAD-2.10. The current `derp.rs` + `nats.rs` are read-only status helpers for the (deleted) Workbench Mesh VPN panel; they have no live consumer.
+  **Decision required up-front (default: delete; canary path is a v5.2 follow-up if operator asks):**
+    - **Option A — Delete:** Remove `crates/mackesd/src/workers/{nats,derp}.rs`. Remove from `workers/mod.rs`. No spec change (these aren't spawned).
+    - **Option B — Repurpose as canaries:** Spawn each as a once-per-hour tick that probes `systemctl is-active mackes-derper` + `systemctl is-active nats-server`; if either returns `active`, fire a `dev.mackes.MDE.Gluster` (or new `MDE.Hygiene`) D-Bus signal + write a `gluster.hygiene` class event to the GF-17 bus.
+  **Acceptance for Option A** (default):
+    - [ ] `crates/mackesd/src/workers/nats.rs` + `crates/mackesd/src/workers/derp.rs` deleted.
+    - [ ] `crates/mackesd/src/workers/mod.rs` no longer has `pub mod nats;` + `pub mod derp;`.
+    - [ ] `grep -rln "workers::nats\|workers::derp\|DerpWorker\|NatsWorker" crates/ --include='*.rs'` returns zero matches.
+    - [ ] `cargo build -p mackesd --features async-services` clean; lib tests still pass (count drops by the deleted unit-test count).
+    - [ ] `install-helpers/lint-legacy-mesh.sh` clean.
+    - [ ] CHANGELOG entry cites the v2.5 Nebula-only lock as the rationale ("DERP/NATS status helpers retired; both substrates axed in v2.5").
+
+- [ ] **DEAD-2.14: v5.1 — Audit `mackes/mesh_nebula.py` coverage vs Rust `nebula_supervisor`; delete python if coverage complete**
+  **As** the v5.1 cleanup pass,
+  **I want** to confirm that every operator-facing surface in the python `mesh_nebula.py` wrapper (NF-5.3 + NF-13) is covered by the Rust `nebula_supervisor` + `nebula_csr_watcher` workers + `dev.mackes.MDE.Nebula.Status` D-Bus surface,
+  **so that** I can either delete `mesh_nebula.py` (preferred — one Nebula implementation) or document the remaining coverage gap as a follow-up task.
+  **Consumers (5):** `mesh_media.py` (kept), `mesh_nats.py` (retired in DEAD-2.10), `mesh_wol.py` (retired in DEAD-2.5), `workbench/network/mesh_ssh.py` (kept — `mesh_ssh.py` is keep-list), `tests/test_mesh_nebula.py`. After DEAD-2.5 + DEAD-2.10 land, effective consumers are 3 (mesh_media, mesh_ssh panel, tests).
+  **Acceptance** (each bench-observable):
+    - [ ] Coverage audit completed: each function in `mesh_nebula.py` mapped to either (a) a `nebula_supervisor` / `nebula_csr_watcher` equivalent, (b) a `dev.mackes.MDE.Nebula.Status` D-Bus method, or (c) "no equivalent — gap." Audit lands as a single comment block at top of `mesh_nebula.py` (if kept) OR as the body of the deletion CHANGELOG entry (if deleted).
+    - [ ] **If audit shows full coverage:** `mesh_nebula.py` + `tests/test_mesh_nebula.py` deleted; `mesh_media.py` + `mesh_ssh.py` panel migrated to call the D-Bus surface instead (via `Gio.DBusProxy`); `grep -rln "import mesh_nebula\|from mackes.mesh_nebula\|mackes.mesh_nebula\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] **If audit shows partial coverage:** a new follow-up task `NF-21.x` documents the gap with a concrete bench-observable acceptance for the Rust side to close it; `mesh_nebula.py` stays in place pending that task; THIS task closes with the audit comment block in place.
+    - [ ] `make test-nodeps` passes; `make lint` clean.
+    - [ ] CHANGELOG entry (deletion path) cites the D-Bus surface as the canonical Nebula operator interface; (audit-only path) cites the follow-up task ID.
+
+#### Wave 10 — Umbrella + section sweep
+
+- [ ] **DEAD-2.15: v5.1 — Audit `mackes/mesh.py` umbrella after Waves 1-9 land; retire if no longer earning its keep**
+  **As** the v5.1 cleanup pass after Waves 1-9 complete,
+  **I want** to audit whether the `mackes/mesh.py` umbrella (which today probes 8 mesh layers: vpn, ssh, services, fs, sync, notifications, browser, thumbnailer) still earns its place,
+  **so that** if 7 of its 8 layers are gone (vpn retired in NF-5.1; services in DEAD-2.9; fs in DEAD-2.12; sync in DEAD-2.10; notifications in DEAD-2.8; browser in DEAD-2.11; thumbnailer in DEAD-2.2) — only `ssh` remains — the umbrella can be deleted and consumers can call `mesh_ssh.py` directly. Otherwise document the retained value.
+  **Acceptance** (each bench-observable):
+    - [ ] Audit: list every external consumer of `mackes/mesh.py::health()` + every layer-row it still returns. Cross-check against Waves 1-9 retirement state.
+    - [ ] **If only `ssh` layer remains AND `health()` consumers are ≤2:** delete `mackes/mesh.py`; rewrite the 1-2 consumers to call `mesh_ssh.py::health()` directly. `grep -rln "import mackes.mesh\b\|from mackes.mesh import\b\|mackes\.mesh\b" mackes/ tests/ --include='*.py'` returns zero matches.
+    - [ ] **If umbrella still earns its keep:** prune the dead-layer rows from `health()`; add a top-of-file comment block listing what layers were retired in which Wave; THIS task closes with the prune.
+    - [ ] `make test-nodeps` passes; `make lint` clean; `install-helpers/lint-legacy-mesh.sh` clean.
+    - [ ] CHANGELOG entry summarizes the retirement count: "v5.1 retired N python mesh modules + M Rust worker modules; mesh tree is now <X> source files (was <Y>)."
+
 ### v2.5: Nebula fabric rebuild (locked 2026-05-23)
 
 > **Design lock:** `docs/design/v2.5-nebula-fabric.md`.
