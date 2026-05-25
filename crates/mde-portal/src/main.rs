@@ -1,11 +1,14 @@
-//! `mde-portal` — v6.0 unified shell (Portal-1 scaffold).
+//! `mde-portal` — v6.0 unified shell (Portal-2 Dock surface).
 //!
 //! Single Rust binary that hosts all six Wayland surfaces:
 //!   Dock / Portal-compact / Portal-full / Lock / Theater / Mesh-wallpaper
 //!
-//! Portal-1 ships the scaffold: Dock layer-shell strip (charcoal,
-//! 56 px) + `dev.mackes.MDE.Portal` D-Bus registration. Every
-//! subsequent Portal-N task wires in its surface or segment.
+//! Portal-2 ships the Dock: 56 px bottom strip, exclusive zone,
+//! `StartMode::AllScreens` (one strip per connected output),
+//! theme-adaptive background (charcoal dark / off-white light).
+//! `dev.mackes.MDE.Portal` D-Bus (Goto/Focus/Lock/ToggleDND) landed
+//! in Portal-1. Every subsequent Portal-N task wires in its surface
+//! or segment.
 //!
 //! **Supervision:** `mde-portal.service` (systemd user unit) is
 //! `WantedBy=graphical-session.target` so the session manager starts
