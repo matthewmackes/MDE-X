@@ -210,6 +210,82 @@ non-systemd-path rejection) + the watch-list membership
 `cargo test -p mde-workbench --lib panels::home`: **26 /
 0** passing. Voice-and-tone lint clean.
 
+## Unreleased — CR-1: Classic ChromeOS theme token swap
+
+Opens the v2.6 CR-N chrome epic from the 2026-05-24 design lock.
+Every Workbench surface (and every downstream GTK consumer that
+reads `data/css/tokens.css`) now renders in the Classic ChromeOS
+pre-2022 palette + Roboto typography per
+`docs/design/chromeos-classic-spec.md`.
+
+**Visual delta:**
+
+- **Palette** — page surface flips from Apple-charcoal `#1d1d1f`
+  to Classic ChromeOS `#202124`. Cards and popovers shift from
+  the prior three-tier elevation (`#2a2a2c / #38383a / #48484a`)
+  to a flat single-tier `#2d2e30`. Borders are now hard 1 px
+  dividers at `#3c4043` (dark) and `#dadce0` (light) rather than
+  alpha hairlines — the visual rhythm reads sharper end-to-end.
+  Accent stays indigo `#5b6af5` in dark mode; light mode gains
+  a darker `#4051d3` pair for AA contrast against white.
+- **Typography** — Geologica + IBM Plex Mono retire in favor of
+  Roboto + Roboto Mono. UI body shrinks from 14 px to 13 px /
+  18 px line; display title shrinks from 28 px to 22 px;
+  monospace from 13 px to 12 px. Section headers (11 px small
+  caps, +0.5 px letter-space) and page titles (18 px) get
+  dedicated tiers.
+- **Forbidden hybrids** (per the iteration skill's design-
+  influence locks) audited: no rounded corners on flat content
+  rows, no per-row accents, no sans-serif numerics in monospace
+  contexts.
+
+**`crates/mde-theme/`:**
+
+- `palette::dark()` and `palette::light()` return the new
+  Classic ChromeOS tokens; the prior Q3 Apple-charcoal + Q2
+  same-accent-both-themes rules are grandfathered in source
+  comments only.
+- `FontSize::defaults()` returns the new Classic ChromeOS tier
+  sizes (caption 11 / body 13 / subheading 15 / heading 16 /
+  section 18 / display 22 / mono 12).
+- `FONT_DISPLAY_BODY = "Roboto"`, `FONT_MONO = "Roboto Mono"`.
+- A11y `high_contrast` variant brightens the border to solid
+  white (dark) / black (light) rather than widening alpha from
+  a hairline (the prior contract is no longer valid against the
+  new solid base border).
+
+**`data/css/tokens.css`:**
+
+- Every `cds_bg_*`, `cds_text_*`, `cds_border_*` token now
+  resolves to a Classic ChromeOS hex. The `cds_` naming stays so
+  the 153 existing GTK consumers in the `mackes/workbench/` tree
+  keep working without per-file rewrites.
+- `font-family` rules name Roboto / Roboto Mono. Nerd Font
+  fallback chain switches from RedHatMono Nerd Font to
+  RobotoMono Nerd Font.
+- `lint-css.sh` clean (4 / 4 OK).
+
+**Packaging:**
+
+- `packaging/fedora/mackes-shell.spec` gains hard
+  `Requires: google-roboto-fonts` + `Requires:
+  google-roboto-mono-fonts`. Both ship in stock Fedora repos.
+  The prior `Recommends: ibm-plex-mono-fonts` line stays as
+  archaeology (no harm in pulling Plex Mono alongside Roboto
+  Mono for operators who customize beyond MDE defaults).
+
+**Tests:** Downstream callers that hard-coded the prior palette
+or typography values updated to match. `mde-theme` 95 / 95 passing,
+`mde-workbench` 614 / 614 passing, `mde-files` 190 / 190 passing.
+Voice-and-tone lint clean. `rpmspec -P` parses the spec without
+errors.
+
+**Unblocks:** CR-2 (Workbench shell retrofit), CR-3 (Object Card
+component), CR-4 (mde-files visual retrofit), CR-5 (Start menu),
+CR-6 (Mesh Topology peer cards), CR-7 (Networking / Phones /
+Credentials / Recents panels). Each lands a UI surface against
+the new token bedrock.
+
 ## Unreleased — GF-2.2.a: Gluster D-Bus surface (methods + signal interfaces)
 
 Closes the method-side of GF-2.2 from the v5.0.0 GlusterFS
