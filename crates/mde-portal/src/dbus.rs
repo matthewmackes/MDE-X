@@ -1,6 +1,6 @@
 //! `dev.mackes.MDE.Portal` D-Bus surface.
 //!
-//! Exposes four methods that mded, the sway config keybinds, and
+//! Exposes five methods that mded, the sway config keybinds, and
 //! other MDE components use to drive the portal:
 //!
 //! - `Goto(layer: &str)` — navigate to a named layer inside Portal-full
@@ -8,6 +8,7 @@
 //! - `Focus` — bring Portal-full to the foreground (unhide / raise).
 //! - `Lock` — trigger the lock-screen surface (Portal-25).
 //! - `ToggleDND` — flip mesh-wide Do-Not-Disturb on/off (Portal-33).
+//! - `Restart` — soft-restart mde-portal via systemd (Portal-30).
 
 use std::sync::Arc;
 
@@ -76,6 +77,29 @@ impl PortalState {
         tracing::info!(dnd = new_state, "Portal.ToggleDND");
         Ok(new_state)
     }
+
+    /// Soft-restart mde-portal (Portal-30, R4-Q87).
+    ///
+    /// Delegates to `systemctl --user restart mde-portal` so the systemd
+    /// unit restarts cleanly. The shell-state snapshot (Portal-29) is at
+    /// most 5 s stale; the new process restores from it on startup.
+    ///
+    /// Returns immediately — systemd manages the restart asynchronously.
+    async fn restart(&self) -> zbus::fdo::Result<()> {
+        tracing::info!("Portal.Restart: requesting systemctl --user restart mde-portal");
+        match tokio::process::Command::new("systemctl")
+            .args(["--user", "restart", "mde-portal"])
+            .spawn()
+        {
+            Ok(_child) => Ok(()),
+            Err(e) => {
+                tracing::warn!(error = %e, "Portal.Restart: systemctl spawn failed");
+                Err(zbus::fdo::Error::Failed(format!(
+                    "systemctl --user restart mde-portal: {e}"
+                )))
+            }
+        }
+    }
 }
 
 /// Register the `dev.mackes.MDE.Portal` service on the session bus and
@@ -135,5 +159,15 @@ mod tests {
     async fn portal_state_new_dnd_false() {
         let state = PortalState::new();
         assert!(!state.dnd_enabled().await, "DND starts disabled");
+    }
+
+    /// Restart is a fire-and-forget systemctl call. In test environments
+    /// systemctl may not be available; we just verify the method returns
+    /// without panicking (either Ok or a Err wrapping the spawn failure).
+    #[tokio::test]
+    async fn restart_returns_without_panic() {
+        let state = PortalState::new();
+        // Result can be Ok (systemctl found) or Err (not available in CI).
+        let _ = state.restart().await;
     }
 }

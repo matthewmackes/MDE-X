@@ -3885,8 +3885,11 @@ name = "mde-portal"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-stream",
+ "chrono",
  "clap",
  "dirs 5.0.1",
+ "futures-util",
  "iced",
  "iced_layershell",
  "mde-theme",
