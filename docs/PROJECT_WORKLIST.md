@@ -2001,6 +2001,27 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 - [✓] **OV-test-flake-1: v2.6 — `dbus::tests::focus_handler_*` shared-global flake** *(shipped 2026-05-25 via option (a). Added a module-private `static FOCUS_LOCK: Mutex<()>` in `crates/mde-workbench/src/dbus.rs` + a `lock_focus()` helper that recovers from poisoning (so a panicking test doesn't block the rest of the suite). Every one of the 6 tests that touches the `PendingFocus` process-global slot (`pending_focus_drain_returns_none_on_empty_slot`, `pending_focus_round_trip_through_submit_and_drain`, `pending_focus_coalesces_to_latest_submit`, `focus_handler_writes_into_pending_slot`, `focus_handler_normalises_whitespace_only_slug_to_empty`, `focus_handler_trims_surrounding_whitespace`) now starts with `let _guard = lock_focus();` so concurrent runs observe sequential interleavings. `cargo test -p mde-workbench --lib`: 614/614 passing (was 609; 5-test growth from OV-8.a's systemd1 helpers). `dbus::tests`: 9/9. No more `--test-threads=1` workaround needed.)*
 - [✓] **OV-test-flake-2: v2.6 — `nebula_ca_backup::backup_path_for_mirrors_bundle_convention` test rename** *(shipped 2026-05-25 — the test was asserting the pre-GF-9.1 filename `ca-backup.enc`; the live impl writes `state-backup.enc` per the v5.0.0 GF-9.1 rename ("backup carries full mackesd state — CA + volume config — not just the CA bundle"). Picked option (c) "reconcile to the impl": updated the test assertion to `state-backup.enc` + added a one-line context comment citing GF-9.1. The design doc already locked the new name, the spec lists the new filename, and the impl matches — the test was the only laggard. `cargo test -p mackesd --features async-services --lib workers::nebula_ca_backup`: 8/8 green.)*
 
+### BUG-SWAY-SEED: v2.6 — Sway config seeding fallback (shipped 2026-05-25)
+
+> **Gap:** operator reported "logging into MDE from lightdm opens
+> empty sway" on a freshly installed test system 2026-05-24. Root
+> cause: `mde-session` execs `sway` with no `-c`, so sway resolves
+> its config via the standard search chain (`$XDG_CONFIG_HOME`,
+> `~/.config/sway/config`, `/etc/sway/config`). The MDE default
+> ships to `/usr/share/mde/sway/config` — **outside** that chain —
+> so without a per-user seed, sway falls back to stock Fedora and
+> the operator sees a barren desktop (no mde-panel, no Carbon
+> palette, no autostarts). Fix is intentionally belt-and-suspenders:
+> a Python birthright step that seeds the file on first wizard run,
+> plus a Rust fallback so an operator who never ran the wizard
+> still lands in a configured sway. The wider greetd swap epic
+> (DM-1..DM-8 in v2.7) addresses the DM-side surface; this entry is
+> the v2.6 root-cause fix that keeps both LightDM and the future
+> greetd path honest about which sway config sway actually loads.
+
+- [✓] **BUG-SWAY-SEED-1: v2.6 — `apply_sway_config()` birthright step (shipped 2026-05-25)** — new `mackes/birthright.py::apply_sway_config` copies `/usr/share/mde/sway/config` → `~/.config/sway/config` on first wizard run. Routes through `pwd.getpwnam` to resolve the primary operator from `$SUDO_USER` / `$USER` / `$LOGNAME`, chowns dest + parent dir to that uid/gid, falls back to the in-repo `data/sway/config` when invoked outside an installed RPM. Idempotent: existing `~/.config/sway/config` is preserved untouched (operator hand-edits win). Wired into `mackes/wizard/pages/apply.py`'s `_Step` rail between "Panel layout" and "Boot splash". 7 pytest cases cover: no primary user, user-not-in-passwd, existing-config-preserved, source-missing-skipped, happy-path-with-chown, idempotent-second-run, root-only-skip.
+- [✓] **BUG-SWAY-SEED-2: v2.6 — `mde-session` sway `-c` fallback (shipped 2026-05-25)** — `crates/mde-session/src/main.rs` ships `sway_config_args()` pure helper + `SYSTEM_SWAY_CONFIG = "/usr/share/mde/sway/config"` constant. Before exec, when the compositor is `sway` AND `~/.config/sway/config` is absent AND `/usr/share/mde/sway/config` exists, the helper returns `["-c", "/usr/share/mde/sway/config"]` which is appended to the sway argv. Three short-circuit returns (non-sway compositor / user config present / system config missing) keep the default sway resolution chain intact in every other case. 6 unit tests cover all branches + the install-path constant. Safety net for the operator who reaches a login screen without ever stepping through the wizard.
+
 ### Phase 0 rescue findings (audit 2026-05-24)
 
 > **Audit:** 4 dead modules confirmed at the 2026-05-24 /iteration

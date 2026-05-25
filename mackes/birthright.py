@@ -1561,6 +1561,79 @@ def apply_thunar_autostart(_preset: Preset) -> List[str]:
     return actions
 
 
+_SWAY_SYSTEM_CONFIG = Path("/usr/share/mde/sway/config")
+
+
+def apply_sway_config(_preset: Preset) -> List[str]:
+    """Seed ~/.config/sway/config from the MDE-shipped default.
+
+    mde-session execs `sway` without `-c`, so sway resolves its
+    config via the standard search chain. The MDE default lives at
+    /usr/share/mde/sway/config — outside that chain — so without
+    this step a freshly-installed user lands in stock Fedora sway
+    (no mde-panel, no Carbon palette, no autostart). This was the
+    "logged into MDE but got empty sway" bug operators saw on
+    fresh installs.
+
+    Idempotent. Never overwrites an existing ~/.config/sway/
+    config — operator customizations win.
+    """
+    import pwd
+
+    actions: List[str] = []
+
+    user = (
+        os.environ.get("SUDO_USER")
+        or os.environ.get("USER")
+        or os.environ.get("LOGNAME")
+    )
+    if not user or user == "root":
+        actions.append("sway: no primary user in environment; skipped")
+        log_action(actions[-1])
+        return actions
+
+    try:
+        pw = pwd.getpwnam(user)
+    except KeyError:
+        actions.append(f"sway: user '{user}' not in /etc/passwd; skipped")
+        log_action(actions[-1])
+        return actions
+
+    home = Path(pw.pw_dir)
+    dest = home / ".config" / "sway" / "config"
+    if dest.exists():
+        actions.append(f"sway: {dest} already present; preserving operator config")
+        log_action(actions[-1])
+        return actions
+
+    source = _SWAY_SYSTEM_CONFIG
+    if not source.exists():
+        repo_source = Path(__file__).resolve().parent.parent / "data" / "sway" / "config"
+        if repo_source.exists():
+            source = repo_source
+        else:
+            actions.append(
+                f"sway: source config missing at {_SWAY_SYSTEM_CONFIG}; "
+                "skipped (run from installed RPM or repo tree)"
+            )
+            log_action(actions[-1])
+            return actions
+
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(str(source), str(dest))
+        os.chown(str(dest), pw.pw_uid, pw.pw_gid)
+        os.chown(str(dest.parent), pw.pw_uid, pw.pw_gid)
+    except OSError as e:
+        actions.append(f"sway: seed write failed: {e}")
+        log_action(actions[-1])
+        return actions
+
+    actions.append(f"sway: seeded {dest} from {source}")
+    log_action(actions[-1])
+    return actions
+
+
 def apply_hotkey(_preset: Preset) -> List[str]:
     """Bind <Super>m to `mackes --drawer` via xfconf.
 

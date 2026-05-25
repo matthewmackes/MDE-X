@@ -136,11 +136,7 @@ pub fn strip_exec_field_codes(exec: &str) -> String {
     let mut chars = exec.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '%' {
-            if let Some(_code) = chars.next() {
-                // Discard the code character; pad with a space to
-                // avoid argv concatenation glitches.
-                out.push(' ');
-            }
+            chars.next(); // discard the field-code character (%U, %F, …)
         } else {
             out.push(c);
         }

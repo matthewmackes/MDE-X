@@ -51,8 +51,8 @@ from mackes.birthright import (
     apply_gluster_bootstrap, apply_hotkey, apply_lightdm, apply_media_clients,
     apply_netdata_monitor, apply_panel_archive, apply_panel_layout,
     apply_panel_swap, apply_plymouth, apply_qnm, apply_remote_desktop,
-    apply_themes, apply_third_party_repos, apply_thunar_autostart,
-    apply_uid_normalize, apply_uninstall_legacy_xfce,
+    apply_sway_config, apply_themes, apply_third_party_repos,
+    apply_thunar_autostart, apply_uid_normalize, apply_uninstall_legacy_xfce,
     apply_uninstall_legacy_xsessions, apply_user_dirs,
 )
 from mackes.presets import (
@@ -353,6 +353,14 @@ class ApplyPage(Gtk.Box):
             _Step("Fonts",             lambda: apply_fonts(merged)),
             _Step("Apps",              lambda: apply_apps(merged)),
             _Step("Panel layout",      lambda: apply_panel_layout(merged)),
+            # 2026-05-25 — seed ~/.config/sway/config from the MDE
+            # default at /usr/share/mde/sway/config. Without this,
+            # mde-session execs `sway` and sway falls back to
+            # /etc/sway/config (stock Fedora), producing the "logged
+            # into MDE but got empty sway" bug operators hit on
+            # fresh installs. Idempotent — preserves operator
+            # customizations.
+            _Step("Sway config",       lambda: apply_sway_config(merged)),
             _Step("Boot splash",       lambda: apply_plymouth(merged)),
             _Step("System update",     lambda: apply_dnf_update(merged)),
             _Step("Third-party repos", lambda: apply_third_party_repos(merged)),
