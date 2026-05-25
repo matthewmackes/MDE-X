@@ -32,6 +32,7 @@ mod expose;
 mod fonts;
 mod hostname_info;
 mod icon_mapper;
+mod status;
 mod minimized;
 mod network;
 mod notifications;
@@ -115,6 +116,11 @@ enum Kind {
     /// uptime, primary IP, and mesh role. Spawned when the
     /// user clicks the Dock's hostname segment.
     HostnameInfo,
+    /// Portal-9.b — status-zone slide-up strip. Full-width
+    /// 180 px strip above the Dock with Volume / Brightness /
+    /// Power tabs. Spawned by clicking the volume or
+    /// brightness glyph in the Dock's status segment.
+    Status,
 }
 
 fn main() -> iced_layershell::Result {
@@ -146,5 +152,6 @@ fn main() -> iced_layershell::Result {
         Kind::SnapAssist => snap_assist::run(),
         Kind::IconMapper => icon_mapper::run(),
         Kind::HostnameInfo => hostname_info::run(),
+        Kind::Status => status::run(),
     }
 }

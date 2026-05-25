@@ -234,6 +234,8 @@ pub enum Message {
     PowerClicked,
     /// User clicked the clock segment — spawns `mde-popover clock` calendar (Portal-11.b).
     ClockClicked,
+    /// User clicked the volume or brightness glyph — spawns `mde-popover status` (Portal-9.b).
+    StatusZoneClicked,
     /// Fire-and-forget placeholder for Task::perform callbacks that produce no message.
     Noop,
 }
@@ -545,6 +547,16 @@ impl iced_layershell::Application for DockApp {
                     async {
                         let _ = tokio::process::Command::new("mde-popover")
                             .arg("clock")
+                            .spawn();
+                    },
+                    |_| Message::Noop,
+                );
+            }
+            Message::StatusZoneClicked => {
+                return Task::perform(
+                    async {
+                        let _ = tokio::process::Command::new("mde-popover")
+                            .arg("status")
                             .spawn();
                     },
                     |_| Message::Noop,
@@ -1221,26 +1233,32 @@ fn build_status_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
             .into(),
     );
 
-    // ── Volume (static glyph — IPC wired in Portal-9.b) ──────────────────────
+    // ── Volume (clickable → mde-popover status, Portal-9.b) ──────────────────
     let vol_glyph = resolve_icon(Icon::Sound, IconSize::Inline).fallback_glyph;
     items.push(
-        container(text(vol_glyph).size(11.0).color(Color { a: 0.55, ..fg }))
-            .height(Length::Fill)
-            .align_y(iced::alignment::Vertical::Center)
-            .padding(Padding::from([0, 4]))
-            .into(),
+        mouse_area(
+            container(text(vol_glyph).size(11.0).color(Color { a: 0.55, ..fg }))
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Center)
+                .padding(Padding::from([0, 4])),
+        )
+        .on_press(Message::StatusZoneClicked)
+        .into(),
     );
 
-    // ── Brightness ────────────────────────────────────────────────────────────
+    // ── Brightness (clickable → mde-popover status, Portal-9.b) ─────────────
     if let Some(bri) = si.brightness_pct {
         let bri_glyph = resolve_icon(Icon::Display, IconSize::Inline).fallback_glyph;
         let label = format!("{bri_glyph}{bri}%");
         items.push(
-            container(text(label).size(10.0).color(Color { a: 0.6, ..fg }))
-                .height(Length::Fill)
-                .align_y(iced::alignment::Vertical::Center)
-                .padding(Padding::from([0, 4]))
-                .into(),
+            mouse_area(
+                container(text(label).size(10.0).color(Color { a: 0.6, ..fg }))
+                    .height(Length::Fill)
+                    .align_y(iced::alignment::Vertical::Center)
+                    .padding(Padding::from([0, 4])),
+            )
+            .on_press(Message::StatusZoneClicked)
+            .into(),
         );
     }
 
@@ -1635,6 +1653,15 @@ mod tests {
         // ClockClicked spawns mde-popover clock; state itself is unchanged.
         let _task =
             iced_layershell::Application::update(&mut app, Message::ClockClicked);
+        assert_eq!(app.active_nav, None);
+    }
+
+    #[test]
+    fn status_zone_clicked_fires_task_without_panic() {
+        let mut app = DockApp::default();
+        // StatusZoneClicked spawns mde-popover status; state itself unchanged.
+        let _task =
+            iced_layershell::Application::update(&mut app, Message::StatusZoneClicked);
         assert_eq!(app.active_nav, None);
     }
 
