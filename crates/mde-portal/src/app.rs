@@ -27,6 +27,7 @@ use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use iced_layershell::to_layer_message;
 
 use crate::fonts::{resolve_icon, FONT_INTEL_ONE_MONO};
+use crate::status::StatusInfo;
 use crate::workspace::WorkspaceInfo;
 use mde_theme::{Icon, IconSize};
 
@@ -191,6 +192,12 @@ pub enum Message {
     ShowDesktopToggle,
     /// Async result of `show_desktop_hide()` — carries IDs of moved windows.
     ShowDesktopHidden(Vec<i64>),
+    /// 30-second sysfs poll result (Portal-9.a: battery/network/backlight).
+    StatusUpdate(StatusInfo),
+    /// User clicked the Lock glyph — triggers `loginctl lock-session` (Portal-9.a).
+    LockClicked,
+    /// User clicked the Power glyph — triggers `systemctl suspend` (Portal-9.a).
+    PowerClicked,
     /// Fire-and-forget placeholder for Task::perform callbacks that produce no message.
     Noop,
 }
@@ -214,6 +221,8 @@ pub struct DockApp {
     wallpaper_strip_on: bool,
     /// Container IDs of windows moved to scratchpad by show-wallpaper toggle.
     desktop_window_ids: Vec<i64>,
+    /// Last sysfs status snapshot (Portal-9.a). Updated every 30 s.
+    status_info: StatusInfo,
 }
 
 impl Default for DockApp {
@@ -226,6 +235,7 @@ impl Default for DockApp {
             clock_now: chrono::Local::now(),
             wallpaper_strip_on: false,
             desktop_window_ids: Vec::new(),
+            status_info: StatusInfo::default(),
         }
     }
 }
@@ -360,6 +370,29 @@ impl iced_layershell::Application for DockApp {
                 self.wallpaper_strip_on = !ids.is_empty();
                 self.desktop_window_ids = ids;
             }
+            Message::StatusUpdate(info) => {
+                self.status_info = info;
+            }
+            Message::LockClicked => {
+                return Task::perform(
+                    async {
+                        let _ = tokio::process::Command::new("loginctl")
+                            .arg("lock-session")
+                            .spawn();
+                    },
+                    |_| Message::Noop,
+                );
+            }
+            Message::PowerClicked => {
+                return Task::perform(
+                    async {
+                        let _ = tokio::process::Command::new("systemctl")
+                            .arg("suspend")
+                            .spawn();
+                    },
+                    |_| Message::Noop,
+                );
+            }
             Message::Noop => {}
             // Variants injected by #[to_layer_message] (layer-shell protocol
             // actions: AnchorChange, SetInputRegion, etc.).  Not used by the
@@ -374,6 +407,7 @@ impl iced_layershell::Application for DockApp {
             crate::workspace::workspace_subscription(),
             clock_subscription(),
             snapshot_subscription(),
+            status_subscription(),
         ])
     }
 
@@ -384,6 +418,7 @@ impl iced_layershell::Application for DockApp {
 
         let ws_seg = build_workspace_segment(self, fg);
         let host_seg = build_hostname_segment(self, fg);
+        let status_seg = build_status_segment(self, fg);
         let clock_seg = build_clock_segment(self, fg);
         let nav_row = build_nav_row(self, fg);
         let wallpaper_strip = build_wallpaper_strip(self);
@@ -393,6 +428,7 @@ impl iced_layershell::Application for DockApp {
                 ws_seg,
                 host_seg,
                 iced::widget::horizontal_space(),
+                status_seg,
                 clock_seg,
                 nav_row,
                 wallpaper_strip,
@@ -466,6 +502,24 @@ fn snapshot_subscription() -> Subscription<Message> {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 yield Message::SnapshotTick;
+            }
+        },
+    )
+}
+
+/// 30-second status-poll subscription (Portal-9.a).
+///
+/// Emits an initial `StatusUpdate` immediately on startup, then every 30 s.
+/// Reads are synchronous sysfs calls (< 1 ms) so blocking inside the async
+/// stream is acceptable.
+fn status_subscription() -> Subscription<Message> {
+    Subscription::run_with_id(
+        "mde-portal-status",
+        async_stream::stream! {
+            yield Message::StatusUpdate(crate::status::read_status());
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                yield Message::StatusUpdate(crate::status::read_status());
             }
         },
     )
@@ -730,6 +784,118 @@ fn nav_button_cell<'a>(
     mouse_area(cell)
         .on_press(Message::NavClicked(btn))
         .on_right_press(Message::NavRightClicked(btn))
+        .into()
+}
+
+/// Build the status-zone glyph segment (Portal-9.a, R4-Q56, R3-Q32–R3-Q35).
+///
+/// Layout: `[bat%] [net●][mesh●] [♫] [▭bri%] [lock] [pwr]`
+///
+/// - Battery: colour-coded percentage; charging prefix "⚡".
+/// - Network / Mesh: coloured 8 px dots (green / indigo when up, dim when down).
+/// - Volume: static "♫" glyph — IPC wired in Portal-9.b.
+/// - Brightness: "▭ XX%" — sysfs value.
+/// - Lock: click → `loginctl lock-session`.
+/// - Power: click → `systemctl suspend`.
+fn build_status_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
+    let si = &app.status_info;
+    let mut items: Vec<Element<'a, Message>> = Vec::new();
+
+    // ── Battery ───────────────────────────────────────────────────────────────
+    if let Some(pct) = si.battery_pct {
+        let bat_color = if pct > 50 {
+            Color::from_rgb(0.22, 0.78, 0.35) // green
+        } else if pct > 20 {
+            Color::from_rgb(0.95, 0.75, 0.10) // amber
+        } else {
+            Color::from_rgb(0.90, 0.22, 0.12) // red
+        };
+        let charging_prefix = if si.battery_charging { "⚡" } else { "" };
+        let label = format!("{charging_prefix}{pct}%");
+        items.push(
+            container(text(label).size(10.0).color(bat_color))
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Center)
+                .padding(Padding::from([0, 4]))
+                .into(),
+        );
+    }
+
+    // ── Network + Mesh dots ───────────────────────────────────────────────────
+    let net_color = if si.network_up {
+        Color::from_rgb(0.22, 0.78, 0.35)
+    } else {
+        Color { a: 0.25, ..fg }
+    };
+    items.push(
+        container(text("●").size(8.0).color(net_color))
+            .height(Length::Fill)
+            .align_y(iced::alignment::Vertical::Center)
+            .padding(Padding::from([0, 2]))
+            .into(),
+    );
+    let mesh_color = if si.mesh_up { COLOR_INDIGO } else { Color { a: 0.25, ..fg } };
+    items.push(
+        container(text("●").size(8.0).color(mesh_color))
+            .height(Length::Fill)
+            .align_y(iced::alignment::Vertical::Center)
+            .padding(Padding::from([0, 2]))
+            .into(),
+    );
+
+    // ── Volume (static glyph — IPC wired in Portal-9.b) ──────────────────────
+    let vol_glyph = resolve_icon(Icon::Sound, IconSize::Inline).fallback_glyph;
+    items.push(
+        container(text(vol_glyph).size(11.0).color(Color { a: 0.55, ..fg }))
+            .height(Length::Fill)
+            .align_y(iced::alignment::Vertical::Center)
+            .padding(Padding::from([0, 4]))
+            .into(),
+    );
+
+    // ── Brightness ────────────────────────────────────────────────────────────
+    if let Some(bri) = si.brightness_pct {
+        let bri_glyph = resolve_icon(Icon::Display, IconSize::Inline).fallback_glyph;
+        let label = format!("{bri_glyph}{bri}%");
+        items.push(
+            container(text(label).size(10.0).color(Color { a: 0.6, ..fg }))
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Center)
+                .padding(Padding::from([0, 4]))
+                .into(),
+        );
+    }
+
+    // ── Lock (clickable → loginctl lock-session) ──────────────────────────────
+    let lock_glyph = resolve_icon(Icon::Session, IconSize::Inline).fallback_glyph;
+    items.push(
+        mouse_area(
+            container(text(lock_glyph).size(11.0).color(Color { a: 0.65, ..fg }))
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Center)
+                .padding(Padding::from([0, 4])),
+        )
+        .on_press(Message::LockClicked)
+        .into(),
+    );
+
+    // ── Power (clickable → systemctl suspend) ─────────────────────────────────
+    let pwr_glyph = resolve_icon(Icon::Power, IconSize::Inline).fallback_glyph;
+    items.push(
+        mouse_area(
+            container(text(pwr_glyph).size(11.0).color(Color { a: 0.65, ..fg }))
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Center)
+                .padding(Padding::from([0, 4])),
+        )
+        .on_press(Message::PowerClicked)
+        .into(),
+    );
+
+    row(items)
+        .spacing(0)
+        .height(Length::Fill)
+        .align_y(iced::Alignment::Center)
         .into()
 }
 
@@ -1108,6 +1274,50 @@ mod tests {
         // Should produce a Task::perform without panicking (sway not running,
         // so the async op will fail silently at runtime).
         let _task = iced_layershell::Application::update(&mut app, Message::NewWorkspace);
+    }
+
+    // ── Portal-9.a status segment tests ──────────────────────────────────────
+
+    #[test]
+    fn status_info_starts_at_default() {
+        let app = DockApp::default();
+        assert!(app.status_info.battery_pct.is_none());
+        assert!(!app.status_info.network_up);
+        assert!(!app.status_info.mesh_up);
+    }
+
+    #[test]
+    fn status_update_message_stores_info() {
+        let mut app = DockApp::default();
+        let info = StatusInfo {
+            battery_pct: Some(80),
+            battery_charging: true,
+            network_up: true,
+            mesh_up: false,
+            brightness_pct: Some(60),
+        };
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::StatusUpdate(info),
+        );
+        assert_eq!(app.status_info.battery_pct, Some(80));
+        assert!(app.status_info.battery_charging);
+        assert!(app.status_info.network_up);
+        assert!(!app.status_info.mesh_up);
+        assert_eq!(app.status_info.brightness_pct, Some(60));
+    }
+
+    #[test]
+    fn lock_clicked_returns_task_without_panic() {
+        let mut app = DockApp::default();
+        // loginctl may not be available in test env; spawn failure is silent.
+        let _task = iced_layershell::Application::update(&mut app, Message::LockClicked);
+    }
+
+    #[test]
+    fn power_clicked_returns_task_without_panic() {
+        let mut app = DockApp::default();
+        let _task = iced_layershell::Application::update(&mut app, Message::PowerClicked);
     }
 
     // ── Portal-12 show-wallpaper strip tests ─────────────────────────────────
