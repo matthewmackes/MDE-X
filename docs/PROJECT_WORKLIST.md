@@ -2936,17 +2936,29 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   **Implementation notes:**
     - Consumes the CR-3.b shared crate (`mde-iced-components`). mde-files's `Cargo.toml` gains the `mde-theme` + `mde-iced-components` path deps.
     - Per §0.12 the file-row retrofit (CR-4.b) is split out rather than stubbed here — the file_row data shape (name + size + mtime + selection state + drag handles) needs its own ObjectCard schema mapping pass.
-- [ ] **CR-4.b: v2.6 — mde-files file-row Object Card retrofit.** *(split from CR-4 2026-05-25)*
+- [ ] **CR-3.c: v2.6 — Add per-mime Carbon Icon variants to `mde_theme::Icon` so file-row Object Cards (CR-4.b) can preserve at-a-glance file-type distinction.** *(filed 2026-05-25 as CR-4.b unblock)*
+  **As** the author of CR-4.b, **I want** `mde_theme::Icon` to carry file-type-specific glyphs (image, document, pdf, code, audio, video, archive, …) sourced from the Carbon Icon Set, **so that** file-row Object Cards can pick the right icon per `mime` instead of falling back to the generic `Icon::Files` (a regression from the current per-mime `icons::svg_for_mime` rendering).
+  **Acceptance:**
+  - [ ] `mde_theme::Icon` gains at least: `Document`, `DocumentBlank`, `Image`, `Pdf`, `Code`, `Audio`, `Video`, `Archive`, `Folder` (so folder cards can drop the current `Icon::Fleet` placeholder CR-4.a used too).
+  - [ ] Each new variant has a baked SVG at `assets/icons/carbon/<name>.svg` (Carbon Apache-2.0 source) + a matching arm in `ResolvedIcon::svg_bytes()` + a `carbon_name()` mapping + a Unicode `fallback_glyph` for the BUG-13 safety-net path.
+  - [ ] `mde_theme::icon_for_device_type` or a new sibling `icon_for_mime(&str) -> Icon` maps MIME prefixes (image/, audio/, video/, application/pdf, text/, application/zip, etc.) to the new variants — single canonical mapping every consumer reads.
+  - [ ] Per-variant unit tests in `mde-theme/src/icons.rs::tests` verify each variant resolves to non-empty SVG bytes.
+  **Implementation notes:**
+    - Spec: `docs/design/chromeos-classic-spec.md` §Iconography + Carbon Icon Set 11 source.
+    - Without this, CR-4.b would either ship a regression (every file shows the same generic icon) or land its own per-mime SVG bytes in mde-files (a parallel implementation that violates the single-source-of-truth lock).
+    - Blockers: none — pure mde-theme extension.
+- [ ] **CR-4.b: v2.6 — mde-files file-row Object Card retrofit.** *(split from CR-4 2026-05-25; blocked on CR-3.c)*
   **As** an operator browsing a peer folder, **I want** each individual file row (not just folder rows) to render as an Object Card so the whole grid reads consistently.
   **Acceptance:**
   - [ ] `crates/mde-files/src/widgets.rs::file_row` (and every caller) builds an `ObjectCard::small` via `mde_iced_components::object_card`; selection state maps to `CardState::Selected`; focus state maps to `CardState::Focused`.
   - [ ] Drag handles continue to fire `Message::DragStart`; right-click continues to surface the context menu.
   - [ ] Subtitle = `<size> · <mtime>` when both are present, gracefully degrades when either is missing.
-  - [ ] Bench-verify: opening a peer folder shows file rows + folder rows in the same Card shape.
+  - [ ] Icon per `mime` uses the CR-3.c per-mime Carbon variants via `mde_theme::icon_for_mime` — no parallel SVG implementation in mde-files.
+  - [ ] Bench-verify: opening a peer folder shows file rows + folder rows in the same Card shape, with at-a-glance file-type distinction preserved via icon.
   **Implementation notes:**
     - Reuse `mde_files_palette()` from CR-4.a.
     - Selection batch from `selection.rs` needs to route into `CardState::Selected` for the multi-select range case.
-    - Blockers: CR-4.a ✓.
+    - Blockers: CR-4.a ✓, CR-3.c (per-mime Icon variants).
 - [ ] **CR-4.c: v2.6 — mde-files sidebar adopts CR-2's 56→256 px hover-expand behavior.** *(split from CR-4 2026-05-25)*
   **As** an operator, **I want** the mde-files sidebar to match the Workbench sidebar's compact-by-default + hover-expand affordance so the two surfaces share one sidebar grammar.
   **Acceptance:**
