@@ -3,6 +3,10 @@
 **Audience:** AI design partners (Claude sessions) before helping
 design or build features in this repo.
 **Last refreshed:** 2026-05-25 (post-BUS lock)
+**Status:** SUPERSEDED by `docs/AI_GOVERNANCE.md` (locked 2026-05-25
+via 100-Q tightening survey) for AI-design guidance going forward.
+Kept here as legacy reference for the pre-100-Q-survey state. Read
+`AI_GOVERNANCE.md` first.
 **Status:** Living document — update when the platform's identity
 or methods shift, not for routine feature work.
 

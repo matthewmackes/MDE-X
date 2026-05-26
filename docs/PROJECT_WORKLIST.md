@@ -185,7 +185,7 @@ locked work appears under **Active** with `[ ] Open`.
 - [ ] **Portal-34: Three-scale Portal model** — Dock ↔ Portal-compact ↔ Portal-full as scales of one surface (R3-Q50). Morph animations between scales (R3-Q49, R4-Q33).
 - [✓] **Portal-35: mde:// URI scheme** for cross-layer + cross-peer deep linking (R2-Q51); routed internally by mde-portal; external apps can emit via xdg-desktop-portal-mde. `mde-portal::uri::parse_mde_uri()` parses the grammar `mde://<verb>[/<path>][?<query>]` into a typed `Action` enum (Goto/Lock/Focus/ToggleDnd/Restart/OpenApp/OpenFile/Peer/Unknown). `dev.mackes.MDE.Portal.OpenUri(uri)` D-Bus method dispatches the parsed action; `mde-open <uri>` is a tiny CLI registered as the `x-scheme-handler/mde` handler via `data/applications/mde-open.desktop` so `xdg-open mde://library/Downloads` round-trips. Spec wires both binaries + the desktop file. 21 URI parser tests + 4 OpenUri tests + 1 new Lock-spawn test. Portal.Lock D-Bus method now actually spawns `mde-popover lock` (was previously a no-op). Peer-routing arm returns Unknown until the Mackes Bus lands (BUS-1..7).
 - [ ] **Portal-36: xdg-desktop-portal-mde implementation** (R2-Q66, R2-Q67) — pops Library in 'picker mode' for file pickers; Grim/Slurp + activity card for screenshots (R2-Q68); theme + accent + dark/light backends route to GTK4/Qt6 apps.
-- [ ] **Portal-37: MDE GTK4 + Qt6 themes** matching Portal visual identity; ships in `data/themes/` (Carbon-inspired pastel-on-charcoal). Intel One Mono system-wide via portal theme prefs.
+- [>] **Portal-37: MDE GTK4 + Qt6 themes** matching Portal visual identity; ships in `data/themes/` (Carbon-inspired pastel-on-charcoal). Intel One Mono system-wide via portal theme prefs.
 - [ ] **Portal-38: Sound design** — typewriter tick on breadcrumb segment append (R4-Q28); per-activity-type cues (notif ping/call ring/file tick/alert siren, R2-Q90); lock-engaged thud + unlock ping (R2-Q90).
 - [ ] **Portal-39: 15 default wallpapers** (5 curated + animated M + 10 community, R2-Q82) with mesh-sync toggle (R2-Q81).
 - [ ] **Portal-40: Easter eggs** (R2-Q91) — 7-click M-watermark = credits + brand-story; `#!` tag-name = CrunchBang ASCII tribute; Konami code = chiptune dev console.
@@ -1133,6 +1133,409 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] **If umbrella still earns its keep:** prune the dead-layer rows from `health()`; add a top-of-file comment block listing what layers were retired in which Wave; THIS task closes with the prune.
     - [ ] `make test-nodeps` passes; `make lint` clean; `install-helpers/lint-legacy-mesh.sh` clean.
     - [ ] CHANGELOG entry summarizes the retirement count: "v5.1 retired N python mesh modules + M Rust worker modules; mesh tree is now <X> source files (was <Y>)."
+
+### EPIC-MASTER + RETIRE + UI + SYNC + BUS-EXT + PROC + SEC + SCOPE: 100-Q tightening survey aftermath (locked 2026-05-25)
+
+> **100-Q tightening survey locked 2026-05-25.** Full lock table +
+> architectural decisions captured in `docs/AI_GOVERNANCE.md`. This
+> section indexes the actionable worklist work produced by the survey.
+> Each epic carries the Q-references that locked it. Detailed task
+> breakdowns develop per-epic as they're picked up.
+>
+> Per Q78, these will renumber to `EPIC-001..NNN` once that migration
+> ships (see EPIC-PROC-3 below).
+>
+> **Target release:** 1.0 (MackesDE for Workgroups) — first official
+> release after the Q72 rebrand. All items below land before the
+> 1.0 cut per Q91 maximum-scope lock.
+
+#### EPIC-MASTER (rebrand + 1.0 prep)
+
+- [ ] **EPIC-MASTER-1: Rebrand all user-visible strings to "MackesDE for Workgroups" / "MackesDE" / "MDE" three-tier naming** *(Q71 + Q73)*
+  **As** the platform identity,
+  **I want** every user-visible string to use the right tier per context,
+  **so that** the operator + small circle experience consistent branding throughout the platform.
+  **Acceptance** (each bench-observable):
+    - [ ] Audit + replace: marketing/About/release → "MackesDE for Workgroups"; in-app strings/About panel → "MackesDE"; code/D-Bus/binaries → "MDE" unchanged.
+    - [ ] Voice-and-tone lint (`install-helpers/lint-voice.sh`) enforces tier-per-context.
+    - [ ] CHANGELOG entry under v1.0 documents the rebrand + naming tiers.
+    - [ ] README + CONTRIBUTING updated.
+
+- [ ] **EPIC-MASTER-2: Version reset to 1.0 — "MackesDE for Workgroups 1.0" is the first official release** *(Q72)*
+  **As** the operator,
+  **I want** to cut a 1.0 release that resets the version line on rebrand,
+  **so that** all pre-rebrand work becomes "mackes-shell pre-history" and 1.x trajectory starts clean.
+  **Acceptance** (each bench-observable):
+    - [ ] All 15 items in §11 of `AI_GOVERNANCE.md` 1.0 roadmap green.
+    - [ ] `cut release 1.0.0` shorthand runs successfully (4-file version bump + CHANGELOG + smoke + `make rpm` + commit + tag + push + GitHub workflow watch).
+    - [ ] Pre-history archive doc `docs/MACKES_SHELL_PREHISTORY.md` lists tags from before the rebrand for git-archaeology reference.
+
+- [ ] **EPIC-MASTER-3: Update fleet cap from 16 → 8 peers across design docs + code + memory** *(Q3)*
+  **As** the platform scope,
+  **I want** every reference to a 16-peer cap updated to 8,
+  **so that** all design assumptions (gluster replica cost, Bus broker mesh, attendance election) reflect the tightened lock.
+  **Acceptance** (each bench-observable):
+    - [ ] `docs/design/v12-connectivity-scope.md` updated; memory `project_v12_connectivity_scope` updated; `feedback_no_cut_until_worklist_empty` reviewed.
+    - [ ] CLAUDE.md + `AI_GOVERNANCE.md` consistently say "8 peers."
+    - [ ] `grep -rln "16-peer\|16 peer" docs/ mackes/ crates/` returns only allow-listed historical mentions.
+
+#### EPIC-RETIRE (additions to existing DEAD-2)
+
+- [ ] **EPIC-RETIRE-CADDY: Retire `mackes/caddy_gateway.py` + Caddy install from birthright** *(Q10)*
+  **As** the cleanup pass,
+  **I want** to retire Caddy entirely (mesh-services catalog gone per DEAD-2.9 + Bus owns webhook ingress per BUS-3),
+  **so that** no remaining Caddy use case justifies the dependency.
+  **Acceptance** (each bench-observable):
+    - [ ] `mackes/caddy_gateway.py` + `tests/test_caddy_gateway.py` deleted.
+    - [ ] Birthright no longer installs Caddy (`mackes/birthright.py` step removed).
+    - [ ] RPM spec drops Caddy `Requires:` / `Recommends:` lines.
+    - [ ] `grep -rln "caddy" mackes/ data/ packaging/` returns zero matches outside allow-listed historical mentions.
+
+- [ ] **EPIC-RETIRE-PY-DAEMONS: Port every subprocess-supervised Python daemon to Rust before 1.0** *(Q15 + Q95)*
+  **As** the platform,
+  **I want** zero subprocess-supervised Python daemons in the 1.0 cut,
+  **so that** the v2.0→1.0 Rust migration is complete; no transitional bridge survives.
+  **Acceptance** (each bench-observable):
+    - [ ] Inventory: list every `crates/mackesd/src/workers/*.rs` that uses `subprocess_tick` or shells a python module via `python3 -m mackes.<x>`.
+    - [ ] For each: port to Rust (replace `mackes/<x>.py` business logic) OR retire if the use case died.
+    - [ ] `grep -rln "python3 -m mackes\|subprocess::Command::new.*python" crates/mackesd/` returns zero matches.
+    - [ ] All previously-subprocess-driven behaviors covered by Rust unit + integration tests.
+
+- [ ] **EPIC-RETIRE-PY-WORKBENCH: Retire `mackes/workbench/` Python GTK tree; all panels migrate to Iced `mde-workbench`** *(Q49)*
+  **As** the v1.0 cut,
+  **I want** the v1.x Python workbench retired entirely,
+  **so that** only `mde-workbench` (Iced/Rust) renders Workbench panels.
+  **Acceptance** (each bench-observable):
+    - [ ] Every panel under `mackes/workbench/` either ported to `crates/mde-workbench/src/panels/` OR retired with a worklist entry.
+    - [ ] GF-8.2 (Mesh Storage panel) + GF-17.10 (focus-mode editor) — and any other new-panel tasks — re-target to the Iced tree.
+    - [ ] `mackes/app.py` removes the GTK workbench window invocation; entry point becomes `mde-workbench` binary.
+    - [ ] `make test-nodeps` passes; UI snapshot tests verify panel coverage.
+
+- [ ] **EPIC-RETIRE-DBUS: Migrate every MDE-internal D-Bus surface to Bus action/reply topics** *(Q20 + Q96)*
+  **As** the platform,
+  **I want** D-Bus retired for MDE-internal IPC (FDO standards interop retained),
+  **so that** "Bus for everything" (Q20) is the single command + event channel.
+  **Acceptance** (each bench-observable):
+    - [ ] Per-service migration plan: 5 services (Mesh / Shell / Notifications / Voice / Files) each → `action/<domain>/<verb>` topics + `reply/<ulid>` response topics.
+    - [ ] Existing zbus `#[interface]` blocks removed; replaced by Bus subscribers.
+    - [ ] `grep -rln "#\[interface\]" crates/mackesd/src/ipc/` returns zero matches for MDE-internal services (FDO interop e.g., `org.freedesktop.Notifications` allow-listed).
+    - [ ] CLAUDE.md updated to reflect D-Bus retirement; Bus is the canonical IPC.
+
+- [ ] **EPIC-RETIRE-QNM: Rename QNM-Shared → MDE-Workgroup across code + docs + memory** *(Q14 + Q77)*
+  **As** the platform,
+  **I want** "QNM-Shared" replaced by "MDE-Workgroup" as the conceptual handle,
+  **so that** the new substrate path (`~/.mde-mesh/<peer>/` per Q21) has clear naming.
+  **Acceptance** (each bench-observable):
+    - [ ] Code: `qnm_root` parameter renames to `workgroup_root` across all Rust + Python.
+    - [ ] CLAUDE.md + `AI_GOVERNANCE.md` + design docs use "MDE-Workgroup" consistently.
+    - [ ] Memory notes referencing QNM-Shared updated.
+    - [ ] `grep -rln "QNM-Shared\|qnm_root\|QNM_SHARED" docs/ mackes/ crates/` returns only historical/allow-listed mentions.
+
+- [ ] **EPIC-RETIRE-TRANSPORT: Simplify `mackes-transport` — 4 TransportKind variants → 2 (Nebula with internal mode field + KdcTls)** *(Q11)*
+  **As** the mesh-router,
+  **I want** the transport abstraction to reflect the Nebula-only-plus-KDC2 reality,
+  **so that** the abstraction earns its weight.
+  **Acceptance** (each bench-observable):
+    - [ ] `enum TransportKind { Nebula(NebulaMode), KdcTls }` replaces 4-variant enum.
+    - [ ] `enum NebulaMode { Direct, Https443, LighthouseRelay }` carries the internal mode.
+    - [ ] All consumers updated; tests + scorer + path-switch logic preserved.
+    - [ ] `cargo test -p mackes-transport` + `cargo test -p mackesd --features async-services` green.
+
+#### EPIC-UI (visual + design retrofits)
+
+- [ ] **EPIC-UI-MATERIAL: Migrate from Carbon icons to Material Symbols across all user-visible code** *(Q43 + Q97)*
+  **As** the visual identity,
+  **I want** every icon swapped from Carbon to Material Symbols,
+  **so that** the platform's visual language aligns with the ChromeOS Classic lock.
+  **Acceptance** (each bench-observable):
+    - [ ] Inventory every icon reference (Carbon `carbon-*` names) across `crates/mde-*/src/` + `mackes/workbench/` + `data/applications/*.desktop`.
+    - [ ] Replace each with Material Symbol equivalent.
+    - [ ] New pre-commit gate (`install-helpers/lint-material-symbols.sh`) catches Carbon regressions.
+    - [ ] Memory `project_ux_polish_locks` + iteration skill body updated to lock Material Symbols.
+    - [ ] Voice-and-tone lint vocabulary updated.
+
+- [ ] **EPIC-UI-CARDS: Conform Object Card 12 px corners to 4 px platform rule** *(Q42)*
+  **As** the visual identity,
+  **I want** cards to use the 4 px corner radius like every other surface,
+  **so that** the platform's radius scale is consistent.
+  **Acceptance** (each bench-observable):
+    - [ ] Every `radius: 12` in `data/css/` + `crates/mde-*/src/` reduced to `radius: 4`.
+    - [ ] Memory `project_object_card_pattern` updated to retire the 12 px outlier.
+    - [ ] Visual snapshot tests refresh under the new radius.
+
+- [ ] **EPIC-UI-PALETTE: Lock pure ChromeOS Classic palette (#202124-class) + Material You indigo** *(Q45)*
+  **As** the visual identity,
+  **I want** a single token set for charcoal + indigo,
+  **so that** UX-polish-era values (#5b6af5 / #1d1d1f) retire.
+  **Acceptance** (each bench-observable):
+    - [ ] `data/css/tokens.css` ships only the locked palette.
+    - [ ] Memory `project_ux_polish_locks` updates to retire UX-polish indigo / charcoal.
+    - [ ] Visual snapshot tests pass under new palette.
+
+- [ ] **EPIC-UI-FONTS: Lock Roboto (body) + Intel One Mono (code); retire Roboto Mono, Geologica, IBM Plex Mono** *(Q44)*
+  **As** the visual identity,
+  **I want** two fonts platform-wide,
+  **so that** the platform's typography is unambiguous.
+  **Acceptance** (each bench-observable):
+    - [ ] RPM spec ships only Roboto + Intel One Mono (`Requires:` lines updated).
+    - [ ] `data/css/tokens.css` font tokens reduced to those two.
+    - [ ] Voice-and-tone lint updates vocabulary; CSS lint catches regressions.
+
+- [ ] **EPIC-UI-DENSITY: Three density modes (compact 24 px / regular 28 px / comfortable 32 px)** *(Q46)*
+  **As** the operator,
+  **I want** per-peer density preference,
+  **so that** laptops can be tighter, desktops looser.
+  **Acceptance** (each bench-observable):
+    - [ ] CSS density variants ship; Workbench Display panel exposes the selector.
+    - [ ] `~/.config/mde/display.yaml` carries the per-peer setting; mde-config materializer applies.
+
+- [ ] **EPIC-UI-MOTION: Codify functional + subtle decorative motion (150 ms ease-out)** *(Q47)*
+  **As** the visual identity,
+  **I want** a documented motion language,
+  **so that** new UI doesn't drift into bouncy / springy / decorative animation.
+  **Acceptance** (each bench-observable):
+    - [ ] `docs/design/motion-language.md` ships with the 150 ms ease-out lock + curated transition list.
+    - [ ] Voice-and-tone lint adds vocabulary for motion (no "bounce" / "spring" / "wiggle" in user strings).
+
+- [ ] **EPIC-UI-WALLPAPER: Mesh-wallpaper = decoration + optional Bus mesh-stripe (urgent only)** *(Q48)*
+  **As** the Mesh-Wallpaper surface,
+  **I want** a simpler model than the full functional-globe vision,
+  **so that** the wallpaper layer doesn't carry the data-visualization complexity.
+  **Acceptance** (each bench-observable):
+    - [ ] Portal-24 design re-scoped — wallpaper is a static image by default; Bus `urgent` messages with `surface=wallpaper` tag paint the stripe.
+    - [ ] BUS-2.6 spec updated to reflect the simpler model.
+
+- [ ] **EPIC-UI-PRESETS: Implement 4 visual presets — ChromeOS Classic Light + Dark + Ableton 12 Light + Dark** *(Q79)*
+  **As** the operator,
+  **I want** to pick between two distinct aesthetic lineages, each with a light + dark variant,
+  **so that** the platform supports both the cleanroom Classic + warmer Ableton vibes.
+  **Acceptance** (each bench-observable):
+    - [ ] Four preset YAML files ship in `data/presets/`: `chromeos-classic-light.yaml`, `chromeos-classic-dark.yaml`, `ableton-12-light.yaml`, `ableton-12-dark.yaml`.
+    - [ ] Workbench Display panel exposes the preset selector.
+    - [ ] Retire hashbang / mackes / daylight / vanilla presets (or move to `data/presets/legacy/` for back-compat).
+    - [ ] Voice-and-tone lint vocabulary updates to reference the new preset names.
+
+#### EPIC-SYNC (storage + sync model)
+
+- [ ] **EPIC-SYNC-MOUNT: Add per-user systemd unit `mde-mesh-mount@.mde-mesh.service` mounting gluster at `~/.mde-mesh/<peer>/`** *(Q14 + Q21)*
+  **As** the platform substrate,
+  **I want** QNM-Shared coordination files folded into gluster mesh-home at a dedicated subvolume mount,
+  **so that** TWO substrates (gluster + Bus) replace THREE (gluster + QNM-Shared + Bus).
+  **Acceptance** (each bench-observable):
+    - [ ] New unit file `data/systemd/mde-mesh-mount@.mde-mesh.service` ships.
+    - [ ] Birthright (GF-3.3 equivalent) enables the unit alongside the XDG mounts.
+    - [ ] Per-peer subdirs (`~/.mde-mesh/<self-node-id>/`) populate on first launch.
+    - [ ] Workers (`gluster_worker`, `netdata_aggregator`, etc.) updated to read from `~/.mde-mesh/<peer>/` instead of `$QNM_SHARED_ROOT/<peer>/`.
+
+- [ ] **EPIC-SYNC-ARBITER: Configure gluster volume with arbiter brick on lighthouses** *(Q22)*
+  **As** the platform,
+  **I want** lighthouses to hold only arbiter metadata (no data),
+  **so that** SBC lighthouse storage stays small + lighthouses don't carry full file replicas.
+  **Acceptance** (each bench-observable):
+    - [ ] Volume create command updated: `gluster volume create mesh-home replica 2 arbiter 1 <data-peer-1>:<brick> <data-peer-2>:<brick> <lighthouse>:<arbiter-brick>`.
+    - [ ] Birthright detects `role: lighthouse` + configures arbiter-only brick.
+    - [ ] Bench: 8-peer fleet with 6 data + 2 arbiter lighthouses → file writes replicate to data peers; lighthouse arbiter brick stays under 100 MB.
+
+- [ ] **EPIC-SYNC-APP-CONFIG: Port `media_sync_daemon.py` to Rust as `mde-app-sync` worker** *(Q26)*
+  **As** the platform's app-config sync,
+  **I want** the cross-peer app-config sync (Sublime Music + Delfin) ported to Rust,
+  **so that** Q15's hard deadline (no Python subprocess-supervised daemons by 1.0) is met for this case.
+  **Acceptance** (each bench-observable):
+    - [ ] New worker `crates/mackesd/src/workers/app_sync.rs` ships.
+    - [ ] Discovery + write-config logic ported from `mackes/media_sync_daemon.py`.
+    - [ ] Per-app plugin model supports adding new apps (Sublime Music + Delfin out-of-box; extensible).
+    - [ ] `media_sync_daemon.py` retired (DEAD-2.x addition).
+
+- [ ] **EPIC-SYNC-CLIP-BLOBS: Unify clipboard blobs into `~/.mde-mesh/blobs/<ulid>.<ext>` (gluster-replicated)** *(Q29)*
+  **As** the platform's blob model,
+  **I want** one canonical blob store across the platform,
+  **so that** clipboard payloads + Bus references + any future blob refs use the same location.
+  **Acceptance** (each bench-observable):
+    - [ ] BUS-5.3 spec updated: `~/.local/share/mde/clipboard/blobs/` → `~/.mde-mesh/blobs/`.
+    - [ ] `mde-clipd` writes to the gluster-replicated path.
+    - [ ] GC logic respects gluster's replication (don't delete on local peer if other peers might still reference).
+
+#### EPIC-BUS-EXT (Bus refinements beyond BUS-1..7)
+
+- [ ] **EPIC-BUS-EXT-ACTION: Implement `action/<domain>/<verb>` namespace + `reply/<ulid>` RPC pattern** *(Q31 + Q32)*
+  **As** the IPC default,
+  **I want** Bus to support commands + responses, not just events,
+  **so that** D-Bus retirement (Q96) has a target for migrating command surfaces.
+  **Acceptance** (each bench-observable):
+    - [ ] `mde-bus publish action/gluster/resolve-conflict ...` invocation works.
+    - [ ] Caller subscribes to `reply/<ulid>` before publishing; response arrives there.
+    - [ ] Timeout handling: configurable per-publish; default 30 s.
+    - [ ] `mde-bus-client` library (Rust crate) wraps the RPC pattern for ergonomic use.
+
+- [ ] **EPIC-BUS-EXT-CONFLICT: `mesh/conflict` Bus topic for gluster file conflicts (high priority + persistent until ack)** *(Q23)*
+  **As** the gluster_worker,
+  **I want** conflict events to publish at `mesh/conflict` with high priority,
+  **so that** operators see split-brain conflicts via the status-zone strip + must explicitly ack.
+  **Acceptance** (each bench-observable):
+    - [ ] GF-2.9 conflict resolver publishes to `mesh/conflict` with `priority=high` after LWW completion.
+    - [ ] Status-zone strip (BUS-2.4) surfaces the conflict; persistent until any peer acks.
+    - [ ] Ack action invokes `action/gluster/dismiss-conflict` with the gfid.
+    - [ ] Multiple conflicts coalesce per BUS-1.7 thread_id (gfid:<uuid> as thread key).
+
+- [ ] **EPIC-BUS-EXT-CORRELATION-5: Ship 5 correlation rule examples with BUS-6.5** *(Q34)*
+  **As** the operator,
+  **I want** 5 sample correlation rules out-of-box,
+  **so that** I have templates for common incident patterns.
+  **Acceptance** (each bench-observable):
+    - [ ] `data/bus/correlate.yaml.tmpl` ships 5 rules: power-outage (UPS + WAN-down), disk-pressure (cpu+iowait+memory), mesh-degraded (peer-down + heal-pending), VPN-flap (handshake-rate spikes), GFS-quota-trending (disk + heal correlation).
+    - [ ] Each rule has a comment block explaining the trigger + expected synthesized topic.
+    - [ ] Bench: scripted trigger of each correlation pattern fires the expected synthesized topic.
+
+- [ ] **EPIC-BUS-EXT-FEDERATION: Federation pairing flow — OOB passcode + Workbench accept-pair UI** *(Q35 + Q55)*
+  **As** an operator pairing two meshes,
+  **I want** to exchange a one-time pairing code + accept the pair via Workbench,
+  **so that** subscribe-only symmetric grants take effect cleanly.
+  **Acceptance** (each bench-observable):
+    - [ ] Workbench Mesh > Bus > Federation tab shows "Pair with another mesh" action.
+    - [ ] Generates + displays a pairing code; the other mesh enters it.
+    - [ ] Both sides confirm; bi-directional subscribe grants for default federation topics (`fleet/announce` etc.).
+    - [ ] BUS-7.7 implementation updated to honor explicit pairing.
+
+- [ ] **EPIC-BUS-EXT-AUDIT-BUS: Migrate BUS-7.1 audit from per-peer JSONL to `audit/<peer>` Bus topic** *(Q28)*
+  **As** the audit subsystem,
+  **I want** audit events on Bus instead of JSONL files,
+  **so that** cross-peer audit visibility is trivial + the substrate is uniform.
+  **Acceptance** (each bench-observable):
+    - [ ] BUS-7.1 task body updated: writes to `audit/<peer>` Bus topic with `priority=min` + `retention=forever`.
+    - [ ] All peers subscribe to `audit/+` by default (mesh-wide transparency per Q54).
+    - [ ] Audit-emit code path bypasses the audit hook for `audit/*` topics (avoid circular reference).
+
+- [ ] **EPIC-BUS-EXT-CUT-DM: Remove BUS-6.6 DM addressing from worklist** *(Q37)*
+  **As** the personal-mesh design,
+  **I want** the DM addressing feature cut (single-operator mesh, DM is meaningless),
+  **so that** scope shrinks + Bus-6.6 + its dependencies retire.
+  **Acceptance** (each bench-observable):
+    - [ ] BUS-6.6 task converted to `[~] Retired — superseded by Q37 (personal mesh)`.
+    - [ ] BUS-6.x sub-epic loses one task.
+
+#### EPIC-PROC (process + tooling)
+
+- [ ] **EPIC-PROC-LINT: Add 2 new pre-commit gates — D-Bus method shape + Material Symbols** *(Q63)*
+  **As** the §0.7 gates,
+  **I want** lint catches for D-Bus typed args + Material Symbols icon references,
+  **so that** Q12 + Q43 commitments enforce automatically.
+  **Acceptance** (each bench-observable):
+    - [ ] `install-helpers/lint-dbus-shape.sh` written + wired into §0.7.
+    - [ ] `install-helpers/lint-material-symbols.sh` written + wired into §0.7.
+    - [ ] CLAUDE.md §0.7 updated to list 9 gates total.
+
+- [ ] **EPIC-PROC-DOD: Add 8th DoD gate — security review for new public ports / D-Bus methods / `{{exec}}` templates** *(Q64)*
+  **As** the §0.8 Definition of Done,
+  **I want** an explicit gate when surface area expands,
+  **so that** creeping attack surface doesn't slip through.
+  **Acceptance** (each bench-observable):
+    - [ ] CLAUDE.md §0.8 updated to list 8 gates.
+    - [ ] Worklist task template includes "Security review notes" field when surface expands.
+
+- [ ] **EPIC-PROC-EPIC-NNN: Migrate epic prefix taxonomy to `EPIC-001..NNN` with `tag:` field** *(Q78)*
+  **As** the worklist,
+  **I want** stable numeric epic IDs with the prefix preserved as a tag,
+  **so that** cross-epic refs survive renaming + the prefix sprawl simplifies.
+  **Acceptance** (each bench-observable):
+    - [ ] Migration script assigns EPIC-001..NNN to every existing epic in `PROJECT_WORKLIST.md`.
+    - [ ] Each epic header keeps its old prefix as `tag: GF, BUS, DEAD, ...`.
+    - [ ] All `[ ]` / `[>]` / `[✓]` / `[!]` markers preserved.
+    - [ ] CLAUDE.md WF-5 release-tag rule updated to reference `EPIC-NNN.M` titles.
+
+- [ ] **EPIC-PROC-QUARTERLY: Establish quarterly retirement audit cadence + first audit landed before 1.0** *(Q65)*
+  **As** the cleanup discipline,
+  **I want** a quarterly DEAD-N audit that catches drift inline-per-epic retirements miss,
+  **so that** the codebase stays lean over time.
+  **Acceptance** (each bench-observable):
+    - [ ] CLAUDE.md adds a §0.13 (or similar) for the quarterly retirement audit cadence.
+    - [ ] First quarterly DEAD-N audit lands before 1.0 cut.
+
+- [ ] **EPIC-PROC-HW-GATE: Enforce pre-release HW bench gate** *(Q69)*
+  **As** the release process,
+  **I want** every `cut release X.Y.Z` to require HW bench items for that release green,
+  **so that** releases don't ship on un-bench-verified code.
+  **Acceptance** (each bench-observable):
+    - [ ] CLAUDE.md §0.6 (cut-release shorthand) updates step 0 to "Verify all HW carve-out items targeting this release are green."
+    - [ ] Memory `feedback_no_cut_until_worklist_empty` updates to remove the HW carve-out exception (HW now blocks cuts).
+    - [ ] Memory `feedback_hardware_testing_epic` reframes as "HW is the bench gate" (was "HW never gates a release").
+
+- [ ] **EPIC-PROC-SKILLS-3: Consolidate `.claude/skills/` to 3 — `plan` / `ship` / `release`** *(Q87)*
+  **As** the operator,
+  **I want** three clear slash skills covering design + execution + release,
+  **so that** the skill catalog stays memorable + each maps to a known verb.
+  **Acceptance** (each bench-observable):
+    - [ ] New skills: `plan` (absorbs design/survey/audit/iteration/autonomous-worker/complete-remaining-work/batch); `ship` (drains the worklist queue); `release` (cut + push + tag flow).
+    - [ ] Old skills retire with a comment redirecting to the new home.
+
+- [ ] **EPIC-PROC-HIERARCHY: Document authority hierarchy in CLAUDE.md** *(Q67)*
+  **As** the platform,
+  **I want** the Memory > CLAUDE.md > governance > design > worklist hierarchy codified,
+  **so that** conflict resolution between locks is unambiguous.
+  **Acceptance** (each bench-observable):
+    - [ ] CLAUDE.md adds a §0.14 (or similar) documenting the hierarchy + "newest wins on contradiction" rule.
+
+- [ ] **EPIC-PROC-HARNESS-INJECT: Configure harness to auto-inject brief + MEMORY.md + last-3-commits on session start** *(Q90)*
+  **As** a new Claude session,
+  **I want** the governance doc + memory + recent context pre-loaded,
+  **so that** I'm a competent design partner without manually reading 5 files.
+  **Acceptance** (each bench-observable):
+    - [ ] `.claude/settings.json` configured via `update-config` skill to inject the summarized context.
+    - [ ] Hook script reads + summarizes `AI_GOVERNANCE.md` + `MEMORY.md` + `git log -3 --oneline`.
+    - [ ] New session sees the injected context in the first system message.
+
+#### EPIC-SEC (security + audit)
+
+- [ ] **EPIC-SEC-PASSCODE-CREDS: Store mesh passcode via systemd-creds TPM-or-host-key** *(Q52)*
+  **As** the platform,
+  **I want** the mesh passcode encrypted at rest with hardware-backed key when available,
+  **so that** disk-image theft doesn't leak the mesh credential.
+  **Acceptance** (each bench-observable):
+    - [ ] Birthright writes passcode via `systemd-creds encrypt` (auto-detects TPM, falls back to host key).
+    - [ ] mded reads via `systemd-creds decrypt` at startup.
+    - [ ] Plaintext passcode never written to disk.
+
+- [ ] **EPIC-SEC-BANLIST: Compromised-node ban list — revoked node-id refuses re-join even with correct passcode** *(Q53)*
+  **As** the platform,
+  **I want** a permanent ban list survive CA revocation,
+  **so that** a stolen lighthouse doesn't re-join with the same node-id.
+  **Acceptance** (each bench-observable):
+    - [ ] Ban list at `~/.mde-mesh/<self>/mackesd/ban-list.json` (gluster-replicated).
+    - [ ] mackesd enrollment check rejects any node-id present in the union of all peers' ban lists.
+    - [ ] CLI `mackesd ca ban <node-id>` adds to local ban list; gluster propagates.
+
+- [ ] **EPIC-SEC-OFF-MESH-BACKUP: Optional off-mesh backup upload (S3/B2/SSH)** *(Q30 + Q59)*
+  **As** the operator,
+  **I want** to configure off-mesh backup targets,
+  **so that** catastrophic mesh loss (every peer destroyed simultaneously) is recoverable.
+  **Acceptance** (each bench-observable):
+    - [ ] `mackesd backup config target add s3://...` works.
+    - [ ] `mackesd_state_backup` worker uploads to configured targets after writing the mesh-local copy.
+    - [ ] Workbench System > Backup panel exposes the config.
+
+- [ ] **EPIC-SEC-PUBLIC-PORT-LINT: Lint script catches accidental public-port binds** *(Q60)*
+  **As** the security model,
+  **I want** lint to catch any new code that binds a port outside the allow-list (4242/UDP + 443/TCP),
+  **so that** lighthouse public surface doesn't grow accidentally.
+  **Acceptance** (each bench-observable):
+    - [ ] `install-helpers/lint-public-ports.sh` written + wired into CI.
+    - [ ] Lint scans for `bind\(.*0\.0\.0\.0\|.*ListenAddress.*0\.0\.0\.0\|.*EXPOSE`-style patterns + allow-lists the 2 declared ports.
+
+#### EPIC-SCOPE (scope clarifications)
+
+- [ ] **EPIC-SCOPE-VOIP-DEFER: Defer VoIP spinout from Q8 immediate to 1.1 per Q94** *(Q94 softens Q8)*
+  **As** the 1.0 release scope,
+  **I want** VoIP to ship in 1.0 (no spinout yet) and re-evaluate spinout at 1.1,
+  **so that** the 1.0 cut isn't blocked on repo split.
+  **Acceptance** (each bench-observable):
+    - [ ] v4.1.0 + v4.2.0 worklist sections stay in `PROJECT_WORKLIST.md` for 1.0; mark target as "1.0 / re-evaluate 1.1 spinout".
+    - [ ] AI_GOVERNANCE.md §2 Bundle policy table reflects "ships 1.0; spinout deferred 1.1."
+
+#### Master rule reference
+
+The §0 master rule from `docs/AI_GOVERNANCE.md` applies to every task
+in this section: when implementation choices arise that aren't covered
+by a specific lock, pick the option that best embodies **"Secure,
+Simple, Centerless Workgroup."** (Q1 + Q100)
 
 ### v2.5: Nebula fabric rebuild (locked 2026-05-23)
 
