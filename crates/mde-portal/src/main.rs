@@ -26,6 +26,8 @@ use clap::Parser;
 use iced_layershell::Application as _;
 
 mod app;
+// Portal-31 — startup scan of ~/.local/share/mde/cards/ + one-line summary log.
+pub mod card_index;
 pub mod dbus;
 // Portal-3 — font + Carbon icon theme layer.
 pub mod fonts;
@@ -59,6 +61,11 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    // Portal-31 — confirm the local card store is reachable and log
+    // a one-line summary. Runs unconditionally so headless smoke
+    // tests also exercise the import.
+    card_index::log_summary_at_startup();
 
     if cli.headless {
         return run_headless();

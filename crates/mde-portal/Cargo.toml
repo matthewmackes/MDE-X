@@ -74,8 +74,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # mde_theme::Palette without hardcoding hex literals.
 mde-theme = { path = "../mde-theme", features = ["iced"] }
 
+# Portal-31 — universal cards subsystem. Startup hook scans the
+# on-disk store and logs a summary so the runtime confirms the
+# crate is wired (no scaffold-only modules per §0.12).
+mde-card = { path = "../mde-card" }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+tempfile = "3"
 
 [features]
 # `wayland` (default): SCTK + iced_layershell surfaces.

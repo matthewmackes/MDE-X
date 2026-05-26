@@ -3729,6 +3729,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mde-card"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "tracing",
+]
+
+[[package]]
 name = "mde-config"
 version = "0.0.0"
 dependencies = [
@@ -3892,10 +3902,12 @@ dependencies = [
  "futures-util",
  "iced",
  "iced_layershell",
+ "mde-card",
  "mde-theme",
  "serde",
  "serde_json",
  "swayipc-async",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
