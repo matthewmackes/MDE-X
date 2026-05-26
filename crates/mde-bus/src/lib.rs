@@ -27,6 +27,7 @@ pub mod cli;
 pub mod discovery;
 pub mod hooks;
 pub mod persist;
+pub mod retention;
 pub mod seed;
 pub mod subs;
 pub mod template;

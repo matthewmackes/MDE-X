@@ -23,7 +23,7 @@ use std::time::Duration;
 use clap::Parser;
 
 use mde_bus::cli::{Cli, Cmd};
-use mde_bus::{broker, discovery, hooks, seed, subs, template::Renderer, topic::Registry};
+use mde_bus::{broker, discovery, hooks, retention, seed, subs, template::Renderer, topic::Registry};
 
 fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -223,6 +223,42 @@ async fn run_daemon() -> anyhow::Result<()> {
                 (None, None, None)
             }
         };
+
+    // BUS-1.9 — retention loop. Spawns a tokio task that runs
+    // one GC pass every hour: walks the SQLite index by
+    // ts_unix_ms, deletes messages past their priority's TTL,
+    // and publishes a bus/sys/quota warning when the soft
+    // quota is exceeded. Skipped when bus_root resolution
+    // fails (pre-XDG environment).
+    let (_retention_shutdown_tx, _retention_task) = match mde_bus::default_data_dir() {
+        Some(bus_root) => {
+            let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            let policy = retention::RetentionPolicy::default();
+            let bus_root_clone = bus_root.clone();
+            let task = tokio::spawn(async move {
+                retention::run_loop(
+                    policy,
+                    bus_root_clone,
+                    retention::DEFAULT_PASS_INTERVAL,
+                    shutdown_rx,
+                )
+                .await;
+            });
+            tracing::info!(
+                target: "mde_bus::retention",
+                bus_root = %bus_root.display(),
+                "retention loop active (hourly passes)"
+            );
+            (Some(shutdown_tx), Some(task))
+        }
+        None => {
+            tracing::info!(
+                target: "mde_bus::retention",
+                "retention loop skipped — no XDG data home"
+            );
+            (None, None)
+        }
+    };
 
     // Heartbeat tick — every 60s log a single line so operators can
     // see the daemon is alive in `journalctl -u mde-bus`.

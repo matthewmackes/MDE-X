@@ -5,6 +5,23 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-1.9 — retention engine + quota enforcement (v6.x Mackes Bus, 2026-05-26)**
+- New `crates/mde-bus/src/retention.rs` ships per-priority TTL
+  (urgent = forever, high = 30 days, default = 7 days,
+  min = 24 hours) + GFS quota (500 MB soft / 2 GB hard) per
+  the design-doc §8 lock.
+- `run_loop` spawns next to the broker / mDNS / hooks tasks in
+  the bus daemon. One GC pass per hour walks the SQLite index
+  by `ts_unix_ms`, removes messages past their priority's TTL,
+  and sums disk usage to compare against the quota.
+- Soft-quota breach publishes a `bus/sys/quota` warning at
+  default priority with a `Bus storage at X MB / Y MB soft
+  limit` title. Rate-limited to one publish per breach
+  transition.
+- File deletion is ordered before index-row deletion so
+  file-orphan is the worst-case failure mode — `Persist::
+  detect_divergence` cleans those up on the next audit.
+
 **BUS-1.8 — `mde-bus` CLI binary (v6.x Mackes Bus, 2026-05-26)**
 - New `crates/mde-bus/src/cli/` submodule centralises every
   operator-facing subcommand: `publish`, `tail`, `sub`, `mute`,
