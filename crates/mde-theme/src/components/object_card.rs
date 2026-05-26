@@ -229,10 +229,14 @@ impl ObjectCard {
 // and update the unit tests below.
 // ---------------------------------------------------------------
 
-/// Card corner radius (12 px). Intentional break from the 4 px
-/// Classic ChromeOS rule; the larger radius is the
-/// card-as-tangible-object affordance.
-pub const CARD_CORNER_RADIUS: f32 = 12.0;
+/// Card corner radius (4 px per Q42 of the 100-Q tightening
+/// survey 2026-05-25 — conformance with the Classic ChromeOS
+/// platform rule). Was 12 px (intentional break); the outlier
+/// retired with the EPIC-UI-CARDS lock. Card identity now comes
+/// from icon (Material Symbols per Q43) + title + subtitle
+/// layout + flat-card variant (no M3 shadow) per the
+/// `project_object_card_pattern` memory supersession block.
+pub const CARD_CORNER_RADIUS: f32 = 4.0;
 
 /// Internal padding on every side of the card surface.
 pub const CARD_PADDING: f32 = 16.0;
@@ -367,9 +371,12 @@ mod tests {
     }
 
     #[test]
-    fn corner_radius_is_twelve_px() {
-        // Spec lock: 12 px (NOT the 4 px Classic ChromeOS default).
-        assert!((CARD_CORNER_RADIUS - 12.0).abs() < f32::EPSILON);
+    fn corner_radius_is_four_px() {
+        // Spec lock 2026-05-25 (Q42 + EPIC-UI-CARDS): conform to the
+        // Classic ChromeOS 4 px platform rule. Was 12 px (intentional
+        // break); the break retired in favor of platform consistency.
+        // Card identity comes from icon + layout + flat-card variant.
+        assert!((CARD_CORNER_RADIUS - 4.0).abs() < f32::EPSILON);
     }
 
     #[test]

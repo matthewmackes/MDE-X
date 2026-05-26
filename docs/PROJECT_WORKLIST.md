@@ -1358,14 +1358,14 @@ call-end lifecycle, never at install or login.
     - [ ] Memory `project_ux_polish_locks` + iteration skill body updated to lock Material Symbols.
     - [ ] Voice-and-tone lint vocabulary updated.
 
-- [>] **EPIC-UI-CARDS: Conform Object Card 12 px corners to 4 px platform rule** *(Q42)* *(session=opus-cw-2026-05-26-00:50 — memory supersession block landed; CSS audit confirmed no 12px-card hits in data/css/ (only switch + tag pills at 12px which are functional shapes); mde-card crate radius left to the parallel session owning that crate)*
+- [✓] **EPIC-UI-CARDS: Conform Object Card 12 px corners to 4 px platform rule** *(Q42)* *(shipped 2026-05-26 — session=opus-cw-2026-05-26-01:40; CSS audit done 2026-05-26 morning; memory supersession block landed 2026-05-26; CARD_CORNER_RADIUS const updated 2026-05-26 evening (12.0 → 4.0 in `crates/mde-theme/src/components/object_card.rs:235`; test renamed `corner_radius_is_twelve_px` → `corner_radius_is_four_px` + asserts 4.0; 116/116 mde-theme tests pass; mde-iced-components consumers compile clean))*
   **As** the visual identity,
   **I want** cards to use the 4 px corner radius like every other surface,
   **so that** the platform's radius scale is consistent.
   **Acceptance** (each bench-observable):
     - [✓] `data/css/` audit: `border-radius: 12px` hits are only in `tokens.css:334` (switch track radius — functional, kept) + `carbon-layout.css:257` (`.mackes-tag` pill radius — functional, kept). No Object-Card-specific 12 px CSS rules to change.
     - [✓] Memory `project_object_card_pattern` updated 2026-05-26: top-of-file SUPERSESSION NOTICE block + new "Spec (2026-05-25 supersession — Q42)" section at end documenting the 4 px replacement with full token table (Material Symbols icon, Roboto/Intel-One-Mono typography, Q45 palette). Historical 12 px spec block retained inline for archeology.
-    - [ ] **Open follow-on (EPIC-UI-CARDS.crate):** `crates/mde-card/src/` (parallel-session crate, Portal-31) needs radius `12 → 4` if it currently hardcodes 12. Picked up by whichever session next touches that crate — the memory supersession is the spec source.
+    - [✓] **EPIC-UI-CARDS.crate (shipped 2026-05-26):** the actual radius lives in `crates/mde-theme/src/components/object_card.rs` (`pub const CARD_CORNER_RADIUS: f32`), not in `crates/mde-card/` (which is a data-model crate — id / schema / migration / render_mode). Constant updated 12.0 → 4.0; `mde-iced-components/src/lib.rs:166/171/176` consumers automatically pick up the new value via `radius: CARD_CORNER_RADIUS.into()`. No mde-card change needed.
     - [ ] **Open follow-on (EPIC-UI-CARDS.snapshots):** Visual snapshot tests refresh once UX-23 lands (HW-gated per the existing carve-out).
 
 - [✓] **EPIC-UI-PALETTE: Lock pure ChromeOS Classic palette (#202124-class) + Material You indigo** *(Q45)* *(shipped 2026-05-26 — session=opus-cw-2026-05-26-00:05)*
