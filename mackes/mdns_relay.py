@@ -18,7 +18,19 @@ import socket
 import subprocess
 from dataclasses import dataclass, asdict
 
-from mackes.mesh_sync import put, list_keys
+# mesh_sync wholesale-retired in DEAD-2.10 (2026-05-26) per Q14 + Q77:
+# QNM-Shared substrate folds into gluster mesh-home + Bus events
+# (BUS-1..7). The mdns-relay buckets are obviated by mDNS service
+# discovery on the Nebula overlay directly. Wrapped in try/except for
+# wholesale-retire safety per NF-5.1; degrades to no-op when the
+# module is gone.
+try:
+    from mackes.mesh_sync import put, list_keys  # type: ignore[import-not-found]
+except ImportError:
+    def put(*_a, **_kw) -> None:  # type: ignore[misc]
+        return None
+    def list_keys(*_a, **_kw) -> list:  # type: ignore[misc]
+        return []
 
 RELAY_BUCKET = "mdns"
 ME = socket.gethostname()

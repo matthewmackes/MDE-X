@@ -38,9 +38,23 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import GdkPixbuf, GLib, Gtk, Gdk  # noqa: E402
 
-from mackes.mesh_sync import (
-    BUCKET_CLIPBOARD, put, list_keys, get,
-)
+# mesh_sync wholesale-retired in DEAD-2.10 (2026-05-26) per Q14 + Q77.
+# Cross-peer clipboard sync now owned by the v6.x Mackes Bus
+# `clipboard/sync` topic + the `mde-clipd` daemon (BUS-5.x). Wrapped
+# in try/except for wholesale-retire safety per NF-5.1; the v1.x GTK
+# clipboard daemon degrades to local-only mode when mesh_sync is gone.
+try:
+    from mackes.mesh_sync import (  # type: ignore[import-not-found]
+        BUCKET_CLIPBOARD, put, list_keys, get,
+    )
+except ImportError:
+    BUCKET_CLIPBOARD = "clipboard"
+    def put(*_a, **_kw) -> None:  # type: ignore[misc]
+        return None
+    def list_keys(*_a, **_kw) -> list:  # type: ignore[misc]
+        return []
+    def get(*_a, **_kw):  # type: ignore[misc]
+        return None
 from mackes.logging import log_action
 
 

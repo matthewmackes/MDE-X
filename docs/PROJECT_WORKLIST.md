@@ -1027,7 +1027,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Wave 6 — `mesh_sync` + `mesh_nats` retirement (replaced by Gluster + GF-17 bus)
 
-- [ ] **DEAD-2.10: v5.1 — Delete `mackes/mesh_sync.py` + `mackes/mesh_nats.py` (NATS-substrate bucket-sync stack)**
+- [✓] **DEAD-2.10: v5.1 — Delete `mackes/mesh_sync.py` + `mackes/mesh_nats.py` (NATS-substrate bucket-sync stack)** *(shipped 2026-05-26 — session=opus-cw-2026-05-26-00:20; mdns_relay.py + clipboard_app.py wrapped in try/except per NF-5.1 before delete; mesh_browser already in DEAD-2.11 same commit; mesh_gvfs/operations.py left in place as part of DEAD-2.12 retirement; mesh.py + presets.py consumers pre-wrapped; tests/test_mesh_sync.py deleted; module-import smoke green on all 4 surviving consumers; ruff clean; legacy-mesh + voice lints clean)*
   **As** the v5.1 cleanup pass,
   **I want** to delete the NATS JetStream + filesystem-polling bucket-sync stack,
   **so that** the codebase has one cross-peer replication path — Gluster mesh-home (sub-5 s heal) for files, GF-17 unified bus (2 s poll) for notifications. The NATS substrate's "control peer runs nats-server, peers are clients" model is incompatible with the open-mesh / flat-trust directive (no control peers in v2.5+).
@@ -1045,7 +1045,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Wave 7 — `mesh://` URI handler retirement (gluster makes XDG dirs natively mesh-mounted)
 
-- [ ] **DEAD-2.11: v5.1 — Delete `mackes/mesh_browser.py` + `mesh://` URI handler + gvfs mount config + Tumbler mesh thumbnailer .desktop entry**
+- [✓] **DEAD-2.11: v5.1 — Delete `mackes/mesh_browser.py` + `mesh://` URI handler + gvfs mount config + Tumbler mesh thumbnailer .desktop entry** *(shipped 2026-05-26 — session=opus-cw-2026-05-26-00:20; 4 files deleted; 3 spec install + %files entries replaced with retirement-comment blocks citing DEAD-2.11; both consumers (mesh.py + presets.py) pre-wrapped; rpmspec -P clean; module smoke green)*
   **As** the v5.1 cleanup pass,
   **I want** to delete the Thunar `mesh://` URI scheme handler + its supporting data files,
   **so that** users navigate the mesh through their normal `~/Documents/` etc. (gluster mesh-home is FUSE-mounted at the XDG paths per GF-4.1; no URI scheme needed). The QNM-* view directories the module managed are obsoleted by full-mesh replication.

@@ -774,13 +774,12 @@ install -D -m 0644 data/systemd/mde-migrate-from-1x.service \
 install -D -m 0644 data/systemd/mde-shell-migrate-v2.service \
     %{buildroot}%{_userunitdir}/mde-shell-migrate-v2.service
 
-# 4c. Tumbler thumbnailer
-install -D -m 0644 data/thumbnailers/mackes-mesh.thumbnailer \
-    %{buildroot}%{_datadir}/thumbnailers/mackes-mesh.thumbnailer
-
-# 4d. GVFS mount registration (mesh:// URI scheme)
-install -D -m 0644 data/gvfs/mesh.mount \
-    %{buildroot}%{_datadir}/gvfs/mounts/mesh.mount
+# 4c. Tumbler thumbnailer + 4d. GVFS mount registration RETIRED in
+# DEAD-2.11 (2026-05-26): the `mesh://` URI scheme is obviated by
+# gluster mesh-home — XDG dirs (~/Documents etc.) are natively
+# FUSE-mounted from the mesh volume per GF-4.1. No URI scheme,
+# no Thunar bookmarks, no Tumbler thumbnailer. Operators navigate
+# via the regular file manager.
 
 # 5. Top-level launchers + icons
 install -D -m 0644 data/applications/mackes-shell.desktop \
@@ -796,8 +795,8 @@ install -D -m 0644 data/applications/mackes-clipboard.desktop \
 # - xfce4-panel/xfdesktop are Conflicts (CB-3.3) — they can't
 #   be installed alongside MDE.
 # - kdeconnect-indicator never starts on Wayland.
-install -D -m 0644 data/applications/mackes-mesh-uri-handler.desktop \
-    %{buildroot}%{_datadir}/applications/mackes-mesh-uri-handler.desktop
+# mackes-mesh-uri-handler.desktop RETIRED in DEAD-2.11 (2026-05-26):
+# `mesh://` URI scheme obviated by gluster mesh-home. See 4c/4d note above.
 # AppStream metainfo — surfaces Mackes in GNOME Software / KDE Discover
 # and is the modern standard for desktop app metadata. Reverse-DNS app
 # ID matches mackes-shell.desktop's launchable type.
@@ -1227,7 +1226,7 @@ fi
 # `mackes-desktop-environment` comps group) pulls them back.
 %{_datadir}/applications/mackes-shell.desktop
 %{_datadir}/applications/mackes-clipboard.desktop
-%{_datadir}/applications/mackes-mesh-uri-handler.desktop
+# mackes-mesh-uri-handler.desktop RETIRED in DEAD-2.11 (2026-05-26).
 # v2.0.0 Phase 0.9 — MDE-namespaced .desktop launcher.
 %{_datadir}/applications/mde.desktop
 # Legacy mackes-* GTK panel binaries that the v2.0+ Iced port

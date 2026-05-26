@@ -17,6 +17,22 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   indeterminate blue progress) per the operator's
   `Mackes DE Bootsplash.html` design lock 2026-05-25.
 
+**More mesh-tree retirements (DEAD-2.10 + DEAD-2.11)**
+- Deleted `mackes/mesh_sync.py` + `mackes/mesh_nats.py` — NATS-
+  substrate bucket-sync stack. Replaced by gluster mesh-home
+  (file sync, <5 s heal) + v6.x Mackes Bus (events, 2 s poll).
+  The NATS "control peer runs nats-server" model is incompatible
+  with the open-mesh / flat-trust directive (no control peers).
+- Deleted `mackes/mesh_browser.py` + `data/applications/mackes-
+  mesh-uri-handler.desktop` + `data/gvfs/mesh.mount` +
+  `data/thumbnailers/mackes-mesh.thumbnailer` — the `mesh://`
+  Thunar URI scheme is obviated by gluster mesh-home (XDG dirs
+  are natively FUSE-mounted on the mesh per GF-4.1).
+- Spec %files block updated; 3 install lines replaced by
+  retirement-comment blocks.
+- Consumers wrapped per NF-5.1 (mdns_relay + clipboard_app added
+  try/except guards; mesh.py + presets.py already wrapped).
+
 **Mesh tree retirements (DEAD-2.x)**
 - Deleted `mackes/mesh_discovery.py` — v1.7 mesh-join credential
   fallback. Replaced by Nebula CSR flow + birthright single-passcode.
