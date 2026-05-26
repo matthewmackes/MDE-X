@@ -12,7 +12,7 @@ NAME    := mackes-shell
 VERSION := $(shell python3 -c "import mackes; print(mackes.__version__)")
 SDIST   := dist/$(NAME)-$(VERSION).tar.gz
 
-.PHONY: sdist rpm test test-nodeps test-coverage smoke lint lint-grid verify rust rust-check docs iso clean install-deps install-hooks deploy deploy-rebuild deploy-status
+.PHONY: sdist rpm test test-nodeps test-coverage smoke lint lint-grid verify rust rust-check docs iso clean install-deps install-hooks deploy deploy-rebuild deploy-status pre-cut-check
 
 sdist:
 	@# Prefer PEP 517 build (works on Fedora 40+ without distutils).
@@ -87,6 +87,15 @@ lint:
 # their consumer-side migration to mde-theme tokens.
 lint-grid:
 	@tools/mde-grid-lint.sh
+
+# TUNE-7 (2026-05-26 per Q11 + Q12 of 25-Q tuning survey) — §0.17
+# NO INCOMPLETE RELEASES enforcement. Refuses if any §11 roadmap
+# epic prefix has open tasks in the worklist's Active section.
+# Hard block — no operator override flag. Invoked by §0.6
+# cut-release shorthand step 0 (the `cut release X.Y.Z` flow
+# refuses to proceed past this gate).
+pre-cut-check:
+	@install-helpers/pre-cut-check.sh
 
 smoke:
 	python3 -c "import importlib, pkgutil, sys, mackes; \

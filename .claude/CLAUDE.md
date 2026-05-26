@@ -118,8 +118,22 @@ conflict to the operator. Don't guess.
 ### 0.6 `cut release` shorthand
 
 When the user types `cut release X.Y.Z` (or says "cut a release"), treat
-it as a single executable command with seven ordered steps — execute all
-seven without asking for confirmation between steps unless a step fails:
+it as a single executable command with eight ordered steps — execute all
+eight without asking for confirmation between steps unless a step fails:
+
+0. **Pre-cut check** (TUNE-7, 2026-05-26 per Q11 + Q12 of 25-Q
+   tuning survey): `make pre-cut-check`. This script
+   (`install-helpers/pre-cut-check.sh`) refuses if any §11
+   roadmap-epic prefix from `docs/AI_GOVERNANCE.md` still has
+   open or in-progress tasks in the worklist's Active section.
+   **Hard block per Q12 — no operator override flag, no env-var
+   bypass, no `--force`.** The legitimate path past this gate
+   is the operator typing "amend Q91 to drop <epic>" (which
+   removes the line from §11 + the script's `ROADMAP_PREFIXES`
+   list). Per §0.15: also verify every HW-* acceptance bullet
+   for this release is `[✓]` with operator-confirmed bench
+   results — `make pre-cut-check` checks task-level marks; the
+   per-bullet check is operator-typed.
 
 1. **Bump version** in four files:
    - `mackes/__init__.py:__version__`
@@ -157,7 +171,8 @@ seven without asking for confirmation between steps unless a step fails:
    confirm with `gh release view vX.Y.Z`.
 
 If just `build the RPM for testing` is requested instead, run only steps
-1–4 (no commit, no tag, no push).
+1–4 (no commit, no tag, no push). Step 0 still applies if the request
+is `cut release` shorthand — `build the RPM` standalone skips it.
 
 ### 0.7 Pre-commit gates
 

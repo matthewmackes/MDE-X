@@ -453,16 +453,16 @@ call-end lifecycle, never at install or login.
     - [✓] §0.16 amended: standing auth for all §11 epics (excluding HW-*); no session budget; mid-flight survey-lift recording template.
     - [✓] §0.17 amended: cross-reference `make pre-cut-check` hard block per Q11+Q12.
 
-- [ ] **TUNE-7: TUNE-CUT-PRECHECK — `make pre-cut-check` + hard-block flow.**
+- [✓] **TUNE-7: TUNE-CUT-PRECHECK — `make pre-cut-check` + hard-block flow.** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-X; new `install-helpers/pre-cut-check.sh` (~140 LOC POSIX sh, no bash-isms) refuses the cut when any §11 roadmap-epic prefix has open / in-progress / blocked tasks in the worklist's Active section. The 19-prefix `ROADMAP_PREFIXES` list is intentionally explicit (not auto-extracted from §11) so unexpected design-doc edits don't silently change the gate scope — each prefix must be reviewed at write-time when §11 grows. Active-section bounds detected via `## Active` header + awk-based next-`## ` lookup so history/Future-Deliverables sections are excluded. Each open prefix surfaces in the refusal output with `<prefix>: N open, M in-progress, P blocked` + a sample task-title truncated to 120 chars so the operator sees what's blocking. Tested live against the current worklist: 143 open / 8 in-progress / 0 blocked across BUS-, GF-, DEAD-, CR-, TUNE-, Portal-, INST-, DM-, EPIC-RETIRE-PY-WORKBENCH, MON- + others — script exits 1 with the right error. New `pre-cut-check` Makefile target (added to .PHONY) shells the script under the canonical `make pre-cut-check` entry point. CLAUDE.md §0.6 cut-release shorthand re-numbered from "seven ordered steps" to "eight ordered steps" with new step 0: `make pre-cut-check` — explicit "Hard block per Q12" + "no operator override flag, no env-var bypass, no `--force`" + the legitimate path is "amend Q91 to drop <epic>". The §0.15 HW-* per-bullet check stays operator-typed per §0.15's lock; this script verifies the task-level [✓] only. Step 0's `cut release` framing carries through to `build the RPM for testing` standalone (which skips step 0 since it's not a cut). Voice + public-ports + dbus-shape + no-stubs lints clean on the new script.)*
   **As** the §0.17 NO INCOMPLETE RELEASES enforcement,
   **I want** the cut-release shorthand to refuse when any §11 roadmap item is open,
   **so that** the lock applies at release-time mechanically.
   **Acceptance**:
-    - [ ] New `install-helpers/pre-cut-check.sh` greps the worklist for each §11 epic prefix.
-    - [ ] Makefile target `pre-cut-check` invokes the script.
-    - [ ] §0.6 cut-release flow gains a new step 0: `make pre-cut-check` must exit 0.
-    - [ ] No operator override path (hard block per Q12).
-    - [ ] Documents how to amend Q91 if scope needs revision.
+    - [✓] New `install-helpers/pre-cut-check.sh` greps the worklist for each §11 epic prefix.
+    - [✓] Makefile target `pre-cut-check` invokes the script.
+    - [✓] §0.6 cut-release flow gains a new step 0: `make pre-cut-check` must exit 0.
+    - [✓] No operator override path (hard block per Q12).
+    - [✓] Documents how to amend Q91 if scope needs revision. *(both the script body's refusal message + CLAUDE.md §0.6 step 0 name the "amend Q91 to drop <epic>" path as the legitimate route; never auto-proposed by Claude per §0.17)*
 
 - [ ] **TUNE-8: TUNE-HW-CHECKLIST — per-bullet HW acceptance.**
   **As** the §0.15 HW bench gate,
