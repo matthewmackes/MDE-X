@@ -73,8 +73,9 @@ mackesd ca rotate       # re-issues all peer certs
 
 Peers that were offline when the CA rotation ran won't receive their
 new cert until they come online. Once online, `nebula_supervisor`
-picks up the updated bundle from `~/QNM-Shared/` within one
-heartbeat cycle (≤ 10 seconds).
+picks up the updated bundle from the MDE-Workgroup coordination root
+(`~/.mde-mesh/<peer>/mackesd/` on v5+ installs; legacy `~/QNM-Shared/<peer>/mackesd/`
+on pre-v5 installs) within one heartbeat cycle (≤ 10 seconds).
 
 ## "Mesh peer says offline but I can ping it"
 
@@ -156,8 +157,9 @@ that survives.
   mackes_mesh_ed25519.pub
   authorized_keys                    (appended with mesh peer pubkeys)
 
-~/QNM-Shared/                        files exposed to other mesh peers via SSHFS
-~/QNM-Mesh/                          mount points for other peers' shares
+~/.mde-mesh/                         MDE-Workgroup coordination root (v5+; was ~/QNM-Shared/)
+~/Documents, ~/Pictures, ~/Music,    XDG dirs FUSE-mounted on the gluster mesh-home volume —
+~/Videos, ~/Downloads                every peer holds every file (GF-4.1; was per-peer SSHFS at ~/QNM-Mesh/)
 ```
 
 System paths Mackes installs to:

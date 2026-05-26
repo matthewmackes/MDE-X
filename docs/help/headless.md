@@ -34,10 +34,10 @@ $ mackes init
    CPU:       AMD Ryzen 5 5600G
    RAM:       16 GB
 
-→ Preset: node (auto-selected for headless)
-   Mesh:     enabled (Nebula overlay)
-   Mesh FS:  enabled (~/QNM-Shared via SSHFS)
-   Mesh Sync: enabled (NATS replica)
+→ Preset: chromeos-classic-dark (auto-selected; node-style headless variant)
+   Mesh:       enabled (Nebula overlay; legacy Tailscale retired)
+   File sync:  enabled (gluster mesh-home — XDG dirs FUSE-mounted; was SSHFS via ~/QNM-Shared)
+   Event bus:  enabled (Mackes Bus over ntfy + Nebula; was NATS)
 
 → Mesh setup
    Is this the first peer in a new mesh? [Y/n] Y
@@ -51,8 +51,8 @@ $ mackes init
    ✓ snapshot created: 2026-05-16T22-08-12_node-baseline
    ✓ mded started (supervisor + workers)
    ✓ nebula.service started
-   ✓ mesh-fs enabled (sharing ~/QNM-Shared)
-   ✓ mesh-sync enabled (NATS replica)
+   ✓ gluster mesh-home enabled (XDG dirs FUSE-mounted)
+   ✓ Mackes Bus enabled (ntfy broker on nebula0)
    ✓ mesh-ssh keys distributed
 
 → Auto-start mesh node on boot? [Y/n] _

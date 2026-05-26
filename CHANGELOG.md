@@ -5,6 +5,20 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**QNM-Shared → MDE-Workgroup Phase A (EPIC-RETIRE-QNM, 2026-05-26)**
+- 5 operator-visible help docs swept to use "MDE-Workgroup
+  coordination root" terminology with legacy `~/QNM-Shared/`
+  parenthetical fallbacks in shell commands. `docs/help/mesh-
+  thunar.md` gains a DEPRECATED banner (whole doc retired per
+  DEAD-2.11 mesh:// URI handler retirement). CLAUDE.md +
+  AI_GOVERNANCE.md already aligned.
+- Memory `project_v12_connectivity_scope` already aligned
+  (Bundle 1b).
+- Internal `qnm_root` symbol rename + env-var alias + design-
+  doc sweep deferred to Phase B/C/D follow-ons (Phase B waits
+  on BUS-1.x parallel-session quiescence; Phase C is one-line;
+  Phase D folds into a quarterly retirement audit).
+
 **Memory hygiene (EPIC-UI-CARDS partial + EPIC-UI-PALETTE follow-on, 2026-05-26)**
 - Memory `project_object_card_pattern` gets a SUPERSESSION NOTICE
   + new "Spec (2026-05-25 supersession — Q42)" section: the 12 px

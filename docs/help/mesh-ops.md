@@ -22,7 +22,7 @@ Idempotent by hardware fingerprint — re-running refreshes the cert.
 1. Calls `dev.mackes.MDE.Nebula.Enroll(token)` on the mackesd D-Bus
    surface.
 2. The lighthouse signs a cert for this peer and writes a bundle to
-   `~/QNM-Shared/<lighthouse_id>/mackesd/bundle.json`.
+   `~/.mde-mesh/<lighthouse_id>/mackesd/bundle.json` (legacy installs may still write to `~/QNM-Shared/<lighthouse_id>/mackesd/bundle.json` — both paths are read).
 3. `nebula_supervisor` on the new peer picks up the bundle, writes
    `/etc/nebula/{config.yaml,ca.crt,host.crt,host.key}` atomically,
    and starts `nebula.service`.

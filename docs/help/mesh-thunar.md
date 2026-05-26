@@ -1,4 +1,22 @@
-# Mesh in Thunar
+# Mesh in Thunar — DEPRECATED 2026-05-25
+
+> **This doc is HISTORICAL.** The `mesh:///` URI scheme + the
+> `gvfsd-mesh` GVFS backend + the `~/QNM-Mesh/` bookmark layout
+> are all **RETIRED** per DEAD-2.11 of the 100-Q tightening
+> survey (Q14 + Q77 lock 2026-05-25). The mesh is now natively
+> reachable through your normal file manager: gluster FUSE-mounts
+> `~/Documents/`, `~/Pictures/`, `~/Music/`, `~/Videos/`, and
+> `~/Downloads/` directly onto the mesh-home volume per GF-4.1.
+> No URI scheme, no bookmarks, no per-peer SSHFS mounts —
+> every peer holds every file, and your XDG dirs ARE the mesh.
+>
+> The pre-DEAD-2.11 mesh:// behavior below is retained only
+> for archeology + cross-referencing legacy code paths still
+> being retired.
+
+---
+
+# Mesh in Thunar (legacy, pre-DEAD-2.11)
 
 Mackes ships a `gvfsd-mesh` GVFS backend that exposes the mesh as a
 browsable filesystem under the URI scheme `mesh:///`. Works inside Thunar,

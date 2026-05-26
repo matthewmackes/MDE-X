@@ -25,8 +25,10 @@ every signed peer cert. Store the bundle off-machine — a USB stick in
 a safe, a password-manager attachment, encrypted cloud storage.
 
 The NF-18.4 automated backup writes the same bundle every 24 hours to
-`~/QNM-Shared/<lighthouse_id>/mackesd/ca-backup.enc` once that worker
-ships; until then, run `ca export` manually after every CA rotation
+`~/.mde-mesh/<lighthouse_id>/mackesd/state-backup.enc` (v5+;
+legacy installs may still write to `~/QNM-Shared/<lighthouse_id>/mackesd/ca-backup.enc`
+per GF-9.1 rename — `mackesd ca import` reads both paths). Until that
+worker ships, run `ca export` manually after every CA rotation
 or new peer enrollment.
 
 ## Full-mesh loss recovery
@@ -148,8 +150,9 @@ a fresh cert.
 ```bash
 # On the lighthouse:
 mackesd ca sign <expired-peer-node-id>
-# The signed bundle propagates via QNM-Shared to the expired peer
-# on the next heartbeat tick (≤ 10 s).
+# The signed bundle propagates via the MDE-Workgroup coordination
+# root (~/.mde-mesh/ on v5+; ~/QNM-Shared/ on legacy installs) to
+# the expired peer on the next heartbeat tick (≤ 10 s).
 ```
 
 ### If the expired peer can't reach the lighthouse (cert expired
@@ -163,13 +166,15 @@ bundle through the mesh. Use the out-of-band path:
 mackesd ca sign <expired-peer-node-id>
 # Export just the new bundle (CLI shim until NF-18.2 lands the
 # typed roster-export):
-sudo cp ~/QNM-Shared/<lighthouse>/mackesd/bundle.json /tmp/
+# MDE-Workgroup coordination root: ~/.mde-mesh/ on v5+; ~/QNM-Shared/ on legacy
+sudo cp ~/.mde-mesh/<lighthouse>/mackesd/bundle.json /tmp/ \
+    2>/dev/null || sudo cp ~/QNM-Shared/<lighthouse>/mackesd/bundle.json /tmp/
 
 # Sneakernet or scp over LAN to the expired peer:
 scp /tmp/bundle.json <expired-peer-LAN-ip>:/tmp/
 
-# On the expired peer:
-sudo cp /tmp/bundle.json ~/QNM-Shared/<lighthouse>/mackesd/
+# On the expired peer (write to the canonical v5+ path):
+sudo cp /tmp/bundle.json ~/.mde-mesh/<lighthouse>/mackesd/
 sudo systemctl restart mackesd.service
 # nebula_supervisor picks up the new bundle on its next tick.
 ```
@@ -219,15 +224,16 @@ sudo systemctl stop mackesd.service
 sudo cp ~/.local/share/mde/mackesd.sqlite /tmp/mackesd-snapshot.sqlite
 mackesd events --since '24 hours ago' > /tmp/last-24h-events.jsonl
 
-# Verify against the QNM-Shared replica (every peer keeps a copy):
-ls ~/QNM-Shared/*/mackesd/heartbeat.json
+# Verify against the MDE-Workgroup replica (every peer keeps a copy):
+ls ~/.mde-mesh/*/mackesd/heartbeat.json 2>/dev/null || ls ~/QNM-Shared/*/mackesd/heartbeat.json
 # Compare event sequence numbers across peers — the legitimate
 # chain matches; the tampered one doesn't.
 
 # Once you've identified the tampering point, restore the last
 # known-good snapshot (created automatically by the daily backup):
-sudo cp ~/QNM-Shared/<peer>/mackesd/snapshot-<date>.sqlite \
+sudo cp ~/.mde-mesh/<peer>/mackesd/snapshot-<date>.sqlite \
         ~/.local/share/mde/mackesd.sqlite
+# (Legacy install path: ~/QNM-Shared/<peer>/mackesd/snapshot-<date>.sqlite)
 sudo systemctl start mackesd.service
 mackesd audit verify          # should now return "chain intact"
 ```
@@ -241,13 +247,16 @@ CA + revoke every peer that was online during the suspect window.
 The CA bundle covers cert chain state only. It does NOT include:
 
 - The per-peer `mackesd.sqlite` event log (each peer keeps its own).
-- The QNM-Shared file content (separate backup via your usual
-  filesystem-level tooling).
+- The MDE-Workgroup coordination root file content
+  (`~/.mde-mesh/` on v5+; legacy `~/QNM-Shared/` on pre-v5
+  installs). Separate backup via your usual filesystem-level
+  tooling.
 - Per-peer SSH host keys (regenerated automatically on first boot).
 - Per-peer mDNS / hostname state (configured per-machine).
 
 For a fully reproducible mesh disaster-recovery story, pair `mackesd
-ca export` with snapshots of QNM-Shared + per-peer sqlite databases.
+ca export` with snapshots of the MDE-Workgroup coordination root
+(`~/.mde-mesh/`; legacy `~/QNM-Shared/`) + per-peer sqlite databases.
 
 ## References
 

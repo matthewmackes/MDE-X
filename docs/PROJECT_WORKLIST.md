@@ -1324,15 +1324,16 @@ call-end lifecycle, never at install or login.
     - [ ] `grep -rln "#\[interface\]" crates/mackesd/src/ipc/` returns zero matches for MDE-internal services (FDO interop e.g., `org.freedesktop.Notifications` allow-listed).
     - [ ] CLAUDE.md updated to reflect D-Bus retirement; Bus is the canonical IPC.
 
-- [ ] **EPIC-RETIRE-QNM: Rename QNM-Shared → MDE-Workgroup across code + docs + memory** *(Q14 + Q77)*
+- [>] **EPIC-RETIRE-QNM: Rename QNM-Shared → MDE-Workgroup across code + docs + memory** *(Q14 + Q77)* *(session=opus-cw-2026-05-26-01:00 — Phase A user-visible docs done; Phase B internal `qnm_root` symbol rename is a separate large refactor pending parallel-session quiescence)*
   **As** the platform,
   **I want** "QNM-Shared" replaced by "MDE-Workgroup" as the conceptual handle,
   **so that** the new substrate path (`~/.mde-mesh/<peer>/` per Q21) has clear naming.
   **Acceptance** (each bench-observable):
-    - [ ] Code: `qnm_root` parameter renames to `workgroup_root` across all Rust + Python.
-    - [ ] CLAUDE.md + `AI_GOVERNANCE.md` + design docs use "MDE-Workgroup" consistently.
-    - [ ] Memory notes referencing QNM-Shared updated.
-    - [ ] `grep -rln "QNM-Shared\|qnm_root\|QNM_SHARED" docs/ mackes/ crates/` returns only historical/allow-listed mentions.
+    - [✓] **Phase A (operator-visible docs) shipped 2026-05-26:** all 5 help docs swept — `docs/help/{troubleshooting,mesh-thunar,mesh-ops,mesh-recovery,headless}.md`. Operator-visible references say "MDE-Workgroup coordination root (~/.mde-mesh/ on v5+; ~/QNM-Shared/ on legacy installs)" with parenthetical legacy-path fallbacks in shell commands. `mesh-thunar.md` gains a DEPRECATED banner at the top (whole doc retired per DEAD-2.11 mesh:// URI handler retirement). Voice + legacy-mesh + CSS lints clean. CLAUDE.md + AI_GOVERNANCE.md already aligned (CLAUDE.md has zero QNM-Shared refs; AI_GOVERNANCE.md uses MDE-Workgroup throughout per write-time lock).
+    - [✓] Memory: `project_v12_connectivity_scope` already aligned (updated 2026-05-25 in Bundle 1b).
+    - [ ] **Open follow-on (EPIC-RETIRE-QNM.code) — Phase B:** internal `qnm_root` parameter rename to `workgroup_root` across 30+ Rust files (mackesd workers, mde-workbench panels, mackes-panel + mackes-config + mackes-mesh-types + mde-applets/notification-bell) and 16+ Python files (mesh_fs, mesh.py, headless/*, workbench/*, birthright, etc.). Large coordinated refactor — wait for BUS-1.x parallel-session quiescence (BUS workers use qnm_root for the QNM-Shared peer-bundle discovery in BUS-1.4 persistence + BUS-1.3 mDNS service registration) before sweeping. The CLI flag `--qnm-root` keeps its name as a back-compat alias when the rename lands; new canonical is `--workgroup-root`.
+    - [ ] **Open follow-on (EPIC-RETIRE-QNM.envvar) — Phase C:** `$QNM_SHARED_ROOT` env var stays for back-compat; add `$MDE_WORKGROUP_ROOT` as the canonical name + have mackesd read both (precedence: WORKGROUP wins). One-line change to `crates/mackesd/src/lib.rs::default_qnm_shared_root()`.
+    - [ ] **Open follow-on (EPIC-RETIRE-QNM.designdocs) — Phase D:** sweep `docs/design/*.md` (~15 mentions in v5.0-gluster + v6.x-bus + v2.5-nebula-fabric + others). Quarterly retirement-audit candidate per §0.13.
 
 - [ ] **EPIC-RETIRE-TRANSPORT: Simplify `mackes-transport` — 4 TransportKind variants → 2 (Nebula with internal mode field + KdcTls)** *(Q11)*
   **As** the mesh-router,
