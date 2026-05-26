@@ -55,6 +55,7 @@ use super::matcher::{match_request, Adapter, MatchError};
 use super::nut::NutAdapter;
 use super::sonarr::SonarrAdapter;
 use crate::persist::Persist;
+use crate::surface::{dispatch as dispatch_surface, LogOnlySurfaces};
 use super::publisher::{publish_to_ntfy, PublisherError};
 
 /// Default port. Mirrored from `super::DEFAULT_LISTEN_PORT` so
@@ -329,7 +330,15 @@ async fn handle_hook(
                 Some(&rendered.title),
                 Some(&rendered.body),
             ) {
-                Ok(stored) => Some(stored.ulid),
+                Ok(stored) => {
+                    // BUS-2.1 — fire the priority → surface
+                    // dispatcher. Until BUS-2.2..2.8 land the
+                    // real Iced surfaces, LogOnlySurfaces just
+                    // tracing-logs so the dispatch table is
+                    // observable in `journalctl -u mde-bus`.
+                    dispatch_surface(&stored, &LogOnlySurfaces);
+                    Some(stored.ulid)
+                }
                 Err(e) => {
                     tracing::warn!(
                         target: "mde_bus::hooks",

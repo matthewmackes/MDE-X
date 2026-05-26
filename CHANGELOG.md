@@ -5,6 +5,17 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-2.1 — priority → surface dispatcher (v6.x Mackes Bus, 2026-05-26)**
+- New `crates/mde-bus/src/surface.rs` ships the `Surfaces` trait
+  (four methods, one per priority class) + the `dispatch(msg,
+  surfaces)` router. `LogOnlySurfaces` is the daemon's default
+  impl — tracing-logs each dispatch with the surface name + ULID
+  + topic so the table is observable in `journalctl -u mde-bus`
+  until BUS-2.2..2.8 land the Iced surfaces.
+- Wired into the webhook server: every match → persist write
+  → fires `dispatch_surface(&stored, &LogOnlySurfaces)` for
+  runtime reachability.
+
 **BUS-1.9 — retention engine + quota enforcement (v6.x Mackes Bus, 2026-05-26)**
 - New `crates/mde-bus/src/retention.rs` ships per-priority TTL
   (urgent = forever, high = 30 days, default = 7 days,

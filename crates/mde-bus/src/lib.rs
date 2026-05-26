@@ -30,6 +30,7 @@ pub mod persist;
 pub mod retention;
 pub mod seed;
 pub mod subs;
+pub mod surface;
 pub mod template;
 pub mod topic;
 pub mod wildcard;
