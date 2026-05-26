@@ -278,6 +278,16 @@ Before every commit, when applicable:
     (TUNE-3.b cleanup epic tracks each entry; file shrinks over
     time). Any net-new dead module is a regression. Wall time
     ~60-120 s on the full repo.
+15. **Design-doc → worklist sync lint** (added 2026-05-26 per
+    Q18 of the 25-Q + TUNE-4): `install-helpers/lint-design-doc-sync.sh`
+    (if any `docs/design/<epic>.md` is touched). Refuses the
+    commit if `docs/PROJECT_WORKLIST.md` is not ALSO touched —
+    forcing design-doc edits to lift actionable items into
+    the worklist at write-time. Closes the failure mode where
+    design-doc actions sit un-lifted for sessions. Override
+    via `git commit --no-verify` only with operator approval +
+    commit-body record (e.g., "design-doc typo fix, no new
+    actionable items").
 
 If a pre-commit hook fails, the commit did **not** happen — fix the
 issue, re-stage, and create a **new** commit. Never `--amend` in that

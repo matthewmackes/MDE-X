@@ -424,7 +424,7 @@ call-end lifecycle, never at install or login.
     - [ ] CLAUDE.md §0.7 updates: gate count rises to 14.
     - [ ] Snapshot-allow-list documented if existing dead modules survive (none expected — v3.x audit closed them).
 
-- [ ] **TUNE-4: TUNE-LINT-15 — `lint-design-doc-sync.sh` (gate #15).**
+- [✓] **TUNE-4: TUNE-LINT-15 — `lint-design-doc-sync.sh` (gate #15).** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-W; new `install-helpers/lint-design-doc-sync.sh` (~65 LOC) refuses commits that touch `docs/design/<epic>.md` without also touching `docs/PROJECT_WORKLIST.md`. Excludes `docs/design/README.md` + `.gitkeep` files (not actionable locks). On no-staged-files invocation falls back to `git diff --name-only HEAD` for ad-hoc smoke testing. Override path documented: `git commit --no-verify` with commit-body justification (e.g., typo-only fix). CLAUDE.md §0.7 gate #15 documented. Smoke test: lint exits clean on no-design-doc-edits state; positive blocking case verified by reading the logic. Closes the failure mode where design-doc actions sat un-lifted between quarterly audits (Q20 retires the quarterly cadence; this lint replaces the catch-up with at-write-time enforcement).)*
   **As** the platform's design-doc-to-worklist discipline,
   **I want** every `docs/design/<epic>.md` edit to require a paired `docs/PROJECT_WORKLIST.md` edit,
   **so that** design-doc actions never sit un-lifted.
