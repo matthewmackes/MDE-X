@@ -191,6 +191,37 @@ shipping:
 - `error` as the entirety of an error message
 - `Oops`, `Whoops`, `Yikes`
 
+### Coming-soon aspirational language (TUNE-5, 2026-05-26)
+
+Per §0.12 + Q9 of the 25-Q tuning survey, user-visible strings
+must not advertise aspirational state. The `lint-voice.sh` gate
+#6 blocks these literal-quoted forms:
+
+- `"coming soon"`, `"TBD"`, `"WIP"`, `"work in progress"`
+- `"not yet implemented"`, `"soon™"`, `"early access"`
+
+And these parenthetical-label forms (suffix on a user-visible
+label):
+
+- `"... (coming soon)"`, `"... (TBD)"`, `"... (WIP)"`
+- `"... (beta)"`, `"... (alpha)"`, `"... (preview)"`
+- `"... (experimental)"`, `"... (early access)"`
+
+**Wayland-protocol exception:** `unstable-v1` is a legitimate
+upstream protocol naming convention (`wlr-data-control-v1`,
+`wlr-output-management-unstable-v1`). The lint patterns avoid
+catching these.
+
+**Technical-prose exception:** bare mentions of `beta` /
+`alpha` / `experimental` inside long descriptive strings
+(e.g., "Cargo's experimental WGSL feature") are NOT caught —
+the patterns require parenthetical-suffix or whole-string-
+literal forms that signal aspirational labels.
+
+When labeling a feature that genuinely isn't ready, REMOVE the
+feature from the UI instead. The platform does not ship UI
+that points at unimplemented surfaces (§0.12).
+
 ---
 
 ## Where this doc applies

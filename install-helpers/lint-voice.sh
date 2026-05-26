@@ -157,6 +157,45 @@ scan FORBIDDEN-CARBON-VOCAB \
     'Carbon iconography vocab leaked into user-visible copy (Q43 superseded by Material Symbols)' \
     '--include=*.rs --include=*.py --include=*.desktop'
 
+# TUNE-5 / 25-Q Q9 (2026-05-26) — coming-soon discipline. Per
+# §0.12 + Q9 of the 25-Q tuning survey, user-visible strings
+# must not advertise aspirational state ("coming soon", "TBD",
+# "WIP", etc.). Pairs with the code-side `lint-no-stubs.sh`
+# (gate #13) to fully enforce §0.12.
+#
+# Wayland-protocol exception: `unstable-v1` is a legitimate
+# upstream protocol naming convention (`wlr-data-control-v1`,
+# `wlr-output-management-unstable-v1`, etc.) and not aspirational
+# from MDE's perspective. The pattern below requires the
+# forbidden word be inside a double-quoted string AND not
+# preceded by `wlr-` / `wp_` / `zxdg_` / `zwp_` / `unstable-v`
+# tokens that signal protocol naming.
+#
+# Note on conservatism: `experimental` / `beta` / `alpha` /
+# `preview` words can be legitimate in technical contexts (e.g.,
+# "experimental WGSL feature", "beta cargo feature"). The match
+# below requires the word to be the FIRST or LAST token in the
+# quoted string, which catches "Coming soon!" / "TBD" / "(WIP)"
+# style operator-facing aspirational labels without false-
+# positive on technical sentences.
+scan FORBIDDEN-COMING-SOON \
+    '"(coming soon|TBD|tbd|WIP|work in progress|not yet implemented|soon™|early access)"' \
+    'aspirational "coming soon" / "TBD" / "WIP" labels leaked into user-visible copy (§0.12 + 25-Q Q9)' \
+    '--include=*.rs --include=*.py --include=*.desktop'
+
+# Aspirational labels embedded INSIDE quoted user strings — e.g.
+# "Networks (coming soon)" / "Voice (beta)" / "Files [WIP]".
+# Match a quoted string containing one of: "(coming soon)",
+# "[coming soon]", "(WIP)", "[TBD]", "(beta)", "(alpha)",
+# "(preview)", "(experimental)", "(early access)". The
+# parenthetical / bracketed form is the operator-facing
+# aspirational-label idiom; bare technical mentions of beta/
+# alpha/etc. inside long descriptive strings are not caught.
+scan FORBIDDEN-LABEL-SUFFIX \
+    '"[^"]*[\[\(](coming soon|TBD|WIP|work in progress|early access|alpha|beta|preview|experimental)[\]\)][^"]*"' \
+    'aspirational label suffix leaked into user-visible copy (§0.12 + 25-Q Q9)' \
+    '--include=*.rs --include=*.py --include=*.desktop'
+
 # ──────────────────────────────────────────────────────────────
 # Verb discipline (locked §Verb discipline)
 # Targets clear button-label-shape strings only: capitalized
