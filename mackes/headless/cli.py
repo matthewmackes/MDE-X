@@ -102,8 +102,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_svc_launch = svc_sub.add_parser("launch")
     p_svc_launch.add_argument("name")
     p_svc_launch.add_argument("--peer", default=None)
-    svc_sub.add_parser("enable-gateway")
-    svc_sub.add_parser("disable-gateway")
+    # enable-gateway / disable-gateway retired 2026-05-25 with the Caddy
+    # gateway (Q10 of the 100-Q tightening survey + EPIC-RETIRE-CADDY).
+    # Cross-peer service exposure is owned by Nebula direct + the v6.x
+    # Mackes Bus webhook ingress; Caddy no longer earns its bundle slot.
     svc_sub.add_parser("catalog")
 
     # ssh
@@ -473,16 +475,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             for line in launch(match[0]):
                 print(line)
             return 0
-        if args.svc_cmd == "enable-gateway":
-            from mackes.caddy_gateway import enable_gateway
-            for line in enable_gateway():
-                print(line)
-            return 0
-        if args.svc_cmd == "disable-gateway":
-            from mackes.caddy_gateway import disable_gateway
-            for line in disable_gateway():
-                print(line)
-            return 0
+        # enable-gateway / disable-gateway retired with Caddy 2026-05-25
+        # (Q10 + EPIC-RETIRE-CADDY); see svc_sub.add_parser() block above.
         if args.svc_cmd == "catalog":
             for d in load_catalog():
                 p = d.port if d.port else "—"

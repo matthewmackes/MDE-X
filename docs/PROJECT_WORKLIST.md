@@ -179,7 +179,7 @@ locked work appears under **Active** with `[ ] Open`.
 - [ ] **Portal-28: App-switcher lives on Dock** (R3-Q41) — Alt+Tab cycles Dock running-zone icons in place with Aero-peek thumbnail above current; Esc cancels; Alt-release commits.
 - [✓] **Portal-29: 5s snapshot crash recovery** to `~/.cache/mde/shell-state.json` (R2-Q59); full state restores on respawn (R4-Q48).
 - [✓] **Portal-30: Universal recovery gesture** Super+Shift+Q soft-restarts mde-portal (R4-Q87).
-- [ ] **Portal-31: Universal cards subsystem** — 12-field schema (R5-Q3), 6 render modes (R5-Q2 + R5-Q7 + R5-Q17 + R5-Q21), stable mesh-merged IDs (R5-Q9), composition via `children: Card[]` (R5-Q10), `schema_version: 1` with migration registry (R10-Q36), forward-compatible across mesh-version drift (R10-Q37).
+- [>] **Portal-31: Universal cards subsystem** — 12-field schema (R5-Q3), 6 render modes (R5-Q2 + R5-Q7 + R5-Q17 + R5-Q21), stable mesh-merged IDs (R5-Q9), composition via `children: Card[]` (R5-Q10), `schema_version: 1` with migration registry (R10-Q36), forward-compatible across mesh-version drift (R10-Q37).
 - [ ] **Portal-32: Card enrichment subsystem** — 9+ sources (Wikipedia/MusicBrainz/TMDB/GitHub/Open-Food-Facts/local-thumbnailer/OSM/PyPI/recipe-sites — R5-Q14); lazy-fetch + cache-forever (R5-Q16, R10-Q40); inline in card JSON (R5-Q15); per-source toggle ALL-ON default (R5-Q19); soft caps 100MB/card + 10MB/hr/peer + pause at mesh-home >90% (R10-Q43); silent retries + exponential backoff (R10-Q39); tag-driven opt-out (R10-Q41); hero render default (R5-Q17, R5-Q18); color-as-image text-only hero fallback (R10-Q38); multi-source merge with cited chips (R10-Q42); freedesktop XDG thumbnail spec for files (R5-Q22).
 - [ ] **Portal-33: Activity-as-files subsystem** — 8 types written to `~/.local/share/mde/activity/<type>/<iso8601>-<hash>.json`; FDO Notification schema mirror + MDE extensions (R2-Q3); state embedded `{read, starred, pinned, tags}` (R2-Q4); per-type retention (R2-Q5); ≤3s e2e mesh-sync (R2-Q9); FDO Notifications + new `dev.mackes.MDE.Activity.Emit(type, payload)` D-Bus emit (R2-Q8); Clipboard Local-Only mode (R2-Q87); cross-peer all-react mesh-wide DND with greyed segments (R2-Q37, R4-Q39); per-source mute right-click (R2-Q40); 5-action notification right-click menu (R4-Q41); 4-action stack-collapse (R2-Q36).
 - [ ] **Portal-34: Three-scale Portal model** — Dock ↔ Portal-compact ↔ Portal-full as scales of one surface (R3-Q50). Morph animations between scales (R3-Q49, R4-Q33).
@@ -1183,15 +1183,18 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### EPIC-RETIRE (additions to existing DEAD-2)
 
-- [ ] **EPIC-RETIRE-CADDY: Retire `mackes/caddy_gateway.py` + Caddy install from birthright** *(Q10)*
+- [✓] **EPIC-RETIRE-CADDY: Retire `mackes/caddy_gateway.py` + Caddy install from birthright** *(Q10)* *(shipped 2026-05-25 — session=opus-cw-2026-05-25-23:35)*
   **As** the cleanup pass,
   **I want** to retire Caddy entirely (mesh-services catalog gone per DEAD-2.9 + Bus owns webhook ingress per BUS-3),
   **so that** no remaining Caddy use case justifies the dependency.
   **Acceptance** (each bench-observable):
-    - [ ] `mackes/caddy_gateway.py` + `tests/test_caddy_gateway.py` deleted.
-    - [ ] Birthright no longer installs Caddy (`mackes/birthright.py` step removed).
-    - [ ] RPM spec drops Caddy `Requires:` / `Recommends:` lines.
-    - [ ] `grep -rln "caddy" mackes/ data/ packaging/` returns zero matches outside allow-listed historical mentions.
+    - [✓] `mackes/caddy_gateway.py` deleted (no `tests/test_caddy_gateway.py` to delete — never existed).
+    - [✓] Birthright never had a Caddy install step (grep clean before delete); no change needed there.
+    - [✓] RPM spec `Recommends: caddy` line (256) replaced by a retirement comment block citing Q10 + EPIC-RETIRE-CADDY + the BUS webhook ingress replacement. No `Requires: caddy` existed.
+    - [✓] `mde mesh-services enable-gateway` + `disable-gateway` CLI subcommands removed from `mackes/headless/cli.py` (both the `add_parser()` registrations and the dispatch `if` branches; retirement comments cite Q10 + EPIC-RETIRE-CADDY).
+    - [✓] `mackes/workbench/network/mesh_services.py` callers left in place — they're `try: from mackes.caddy_gateway import ...` wrapped (NF-5.1 pattern) and will retire together with mesh_services.py per DEAD-2.9.
+    - [✓] Module-import smoke green: `mackes.headless.cli`, `mackes.mesh`, `mackes.workbench.network.mesh_services`. Ruff F401/F541/F811/F841 clean. `rpmspec -P` clean.
+    - [✓] `grep -rln "caddy" mackes/ data/ packaging/` returns matches only in the retirement-comment block + the still-wrapped (and self-retiring-via-DEAD-2.9) `mesh_services.py` try/except sites — allow-listed historical mentions.
 
 - [ ] **EPIC-RETIRE-PY-DAEMONS: Port every subprocess-supervised Python daemon to Rust before 1.0** *(Q15 + Q95)*
   **As** the platform,

@@ -252,8 +252,10 @@ Recommends:     wireguard-tools
 # for the magic packet but reads ARP via `ip neigh` (in iproute2,
 # already a hard dep) so no extra Recommends needed.
 
-# Mesh-services unified gateway (§8.13 Layer 3) — optional, opt-in via UI
-Recommends:     caddy
+# Caddy gateway retired 2026-05-25 (Q10 of the 100-Q tightening
+# survey + EPIC-RETIRE-CADDY): mesh-services catalog gone with
+# DEAD-2.9; v6.x Mackes Bus owns webhook ingress on its own
+# Nebula-only port. No remaining use case justifies the dep.
 
 # Native media clients with mesh autoconfig (§8.13 Layer 4)
 # jellyfin-media-player isn't in Fedora's mainline repos — users

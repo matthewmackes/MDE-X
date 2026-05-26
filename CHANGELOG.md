@@ -24,6 +24,21 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   clipboard/notification files. Replaced by
   `crates/mackesd/src/workers/thumbnailer.rs` (Rust).
 
+**Scope tightening (EPIC-MASTER-3)**
+- Fleet cap reduced from 16 to **8 peers** (Q3 of the 100-Q
+  tightening survey 2026-05-25). Personal-mesh scope per Q2 doesn't
+  need 16; tighter scope bounds gluster full-replica + Bus broker
+  mesh + attendance election cost. Code-level refs updated in a
+  follow-on EPIC-MASTER-3.code subtask.
+
+**Bundle retirements (EPIC-RETIRE-CADDY)**
+- Deleted `mackes/caddy_gateway.py` — §8.13 Layer-3 Caddy reverse
+  proxy for cross-peer service exposure. Mesh-services catalog gone
+  with DEAD-2.9; v6.x Mackes Bus owns webhook ingress on its own
+  Nebula-only port. `mde mesh-services enable-gateway` +
+  `disable-gateway` CLI subcommands removed. `Recommends: caddy`
+  dropped from the RPM spec.
+
 ## Unreleased — v4.0 Nebula fabric rebuild
 
 (Operator-locked 2026-05-24: v4.0 is the target release for
