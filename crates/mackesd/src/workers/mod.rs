@@ -156,6 +156,11 @@ pub mod netdata_aggregator;
 pub mod notification_relay;
 pub mod perf;
 pub mod remmina_sync;
+// NF-21.1 — owns the /etc/ssh/sshd_config.d/mackes-mesh.conf
+// drop-in that binds sshd to this peer's Nebula overlay IP.
+// Replaces mesh_nebula.py::write_sshd_overlay_bind so the
+// Python module can fully retire (DEAD-2.14 plan).
+pub mod sshd_overlay_bind;
 pub mod stun_gather;
 pub mod subprocess_tick;
 pub mod thumbnailer;

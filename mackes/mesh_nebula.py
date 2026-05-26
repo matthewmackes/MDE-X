@@ -31,8 +31,12 @@ infrastructure):
 
   Functions with NO Rust equivalent yet (= NF-21.x follow-on
   needed before mesh_nebula.py can fully retire):
-    - write_sshd_overlay_bind     — needs a mackesd worker to manage the
-                                    sshd drop-in; tracked as NF-21.1
+    - write_sshd_overlay_bind     — RUST EQUIVALENT SHIPPED 2026-05-26
+                                    as crates/mackesd/src/workers/sshd_overlay_bind.rs
+                                    (NF-21.1 [✓] Done). Python helper kept
+                                    only until workbench/network/mesh_ssh.py
+                                    retires under EPIC-RETIRE-PY-WORKBENCH;
+                                    no new callers should use it.
     - wol_via_lighthouse          — wol.rs Rust worker already exists
                                     (DEAD-2.5 wired `mackesd wake-peer`);
                                     needs a way to issue WoL THROUGH a

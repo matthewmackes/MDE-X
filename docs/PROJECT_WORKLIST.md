@@ -1171,7 +1171,7 @@ call-end lifecycle, never at install or login.
 > that have NO current Rust equivalent. When all four land, the
 > module can fully retire (DEAD-2.14 → completion).
 
-- [ ] **NF-21.1: v1.0/1.1 — mackesd worker manages sshd Nebula-overlay-bind drop-in** *(blocks mesh_nebula.py::write_sshd_overlay_bind retirement)*
+- [✓] **NF-21.1: v1.0/1.1 — mackesd worker manages sshd Nebula-overlay-bind drop-in** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-A; new `crates/mackesd/src/workers/sshd_overlay_bind.rs` worker (~220 LOC + 7 unit tests, all green) polls `/var/lib/mackesd/nebula/overlay-ip` every 5 s, writes `/etc/ssh/sshd_config.d/mackes-mesh.conf` atomically via temp+rename on change, reloads `sshd.service` via `systemctl reload`; quiet no-op on pre-enrollment peers (missing publish file); registered in `workers/mod.rs` + spawned in `bin/mackesd.rs` `run_serve` with `RestartPolicy::OnFailure`; worker_names roster includes `sshd_overlay_bind` so `Shell.Workers` D-Bus surface lists it; `mackes/mesh_nebula.py` comment block updated to record the Rust equivalent is live + Python helper marked for retirement once `workbench/network/mesh_ssh.py` retires under EPIC-RETIRE-PY-WORKBENCH; cargo check clean, ruff clean, legacy-mesh + dbus-shape lints clean, 7/7 tests pass)*
   **As** mackesd,
   **I want** to manage `/etc/ssh/sshd_config.d/mackes-mesh.conf` per the overlay-IP publishing flow,
   **so that** `mesh_nebula.py::write_sshd_overlay_bind` retires.

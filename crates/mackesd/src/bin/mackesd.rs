@@ -2096,7 +2096,8 @@ fn run_serve(
     use mackesd_core::workers::{
         clipboard::ClipboardWorker, fs_sync::FsSyncWorker, heartbeat::HeartbeatWorker,
         mdns::MdnsWorker, mesh_router::MeshRouterWorker,
-        notification_relay::NotificationRelayWorker, voice_config::VoiceConfigWorker,
+        notification_relay::NotificationRelayWorker,
+        sshd_overlay_bind::SshdOverlayBindWorker, voice_config::VoiceConfigWorker,
         RestartPolicy, Spawn, Supervisor,
     };
     let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
@@ -2190,6 +2191,18 @@ fn run_serve(
             RestartPolicy::OnFailure,
         ));
         worker_names.lock().expect("worker_names mutex").push("voice_config".into());
+        // NF-21.1 — sshd overlay-bind worker. Polls
+        // /var/lib/mackesd/nebula/overlay-ip every 5 s; on change,
+        // writes the /etc/ssh/sshd_config.d/mackes-mesh.conf drop-in
+        // + reloads sshd so the daemon binds to the new overlay
+        // address. Quiet no-op on pre-enrollment peers (missing
+        // publish file). Replaces mesh_nebula.py::write_sshd_overlay_bind
+        // so the Python module can fully retire (DEAD-2.14 plan).
+        sup.spawn(Spawn::new(
+            SshdOverlayBindWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("sshd_overlay_bind".into());
         // mesh_router bootstraps with the per-transport
         // registry. Phase 12.18 D.2 (2026-05-23) — the NebulaHttps443
         // transport is registered at startup so the per-peer
