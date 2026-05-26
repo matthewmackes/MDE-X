@@ -395,18 +395,30 @@ enum Cmd {
         sub: VoiceCmd,
     },
 
-    /// DEAD-2.5 (v5.1) — Wake-on-LAN. Fires the magic packet at the
-    /// broadcast address for the given MAC. Wires
-    /// `mackesd_core::workers::wol::wake` so the Rust port of the
-    /// retired `mackes/mesh_wol.py` has a runtime entry point.
+    /// DEAD-2.5 (v5.1) + NF-21.2 (v1.0/1.1) — Wake-on-LAN.
+    ///
+    /// Default mode: fires the magic packet at the local broadcast
+    /// address (works within one LAN segment). `--via-lighthouse <ip>`
+    /// instead sends the magic packet as unicast over the Nebula
+    /// overlay to a lighthouse, which de-encapsulates and re-broadcasts
+    /// on the target's LAN — the "WoL across LANs" capability the v2.5
+    /// cut enables.
+    ///
+    /// Replaces `mackes/mesh_wol.py::wake_peer` + `mesh_nebula.py::wol_via_lighthouse`.
     WakePeer {
         /// Target MAC in any canonical form: `aa:bb:cc:dd:ee:ff`,
         /// `aa-bb-cc-dd-ee-ff`, or `aabbccddeeff`.
         mac: String,
         /// Broadcast address to fire at. Defaults to the limited
-        /// broadcast.
+        /// broadcast. Ignored when `--via-lighthouse` is set.
         #[clap(long, default_value = "255.255.255.255")]
         broadcast: String,
+        /// Send via this lighthouse's overlay IP as unicast. The
+        /// lighthouse-side relay re-broadcasts on the target LAN.
+        /// Mutually exclusive with `--broadcast` (when both set,
+        /// lighthouse mode wins).
+        #[clap(long)]
+        via_lighthouse: Option<String>,
         /// Destination UDP port. Standard ports are 7 + 9; 9 is the
         /// historical default and what every mainboard expects.
         #[clap(long, default_value_t = 9)]
@@ -1545,18 +1557,31 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Cmd::WakePeer { mac, broadcast, port } => {
-            // DEAD-2.5 — wire mackesd_core::workers::wol so the Rust
-            // port has a runtime entry point. Replaces the retired
-            // Python `mesh_wol.wake_peer` for the MAC-already-known
-            // case; hostname resolution is the operator's job until
-            // a PeerStore lookup helper lands.
+        Cmd::WakePeer { mac, broadcast, via_lighthouse, port } => {
+            // DEAD-2.5 + NF-21.2 — wire mackesd_core::workers::wol so
+            // the Rust port has a runtime entry point. Replaces the
+            // retired Python `mesh_wol.wake_peer` for the MAC-already-
+            // known case; hostname resolution is the operator's job
+            // until a PeerStore lookup helper lands. `--via-lighthouse`
+            // routes through a lighthouse's overlay IP for WoL-across-
+            // LANs (NF-21.2).
             let Some(mac_bytes) = mackesd_core::workers::wol::normalize_mac(&mac) else {
                 anyhow::bail!("wake-peer: could not parse MAC {mac:?}");
             };
-            mackesd_core::workers::wol::wake(mac_bytes, &broadcast, port)
-                .context("wake-peer: send magic packet")?;
-            println!("wake-peer: sent magic packet to {mac} via {broadcast}:{port}");
+            if let Some(lighthouse_ip) = via_lighthouse.as_deref() {
+                mackesd_core::workers::wol::wake_via_lighthouse(
+                    mac_bytes, lighthouse_ip, port,
+                )
+                .context("wake-peer: send magic packet via lighthouse")?;
+                println!(
+                    "wake-peer: sent magic packet for {mac} via lighthouse \
+                     {lighthouse_ip}:{port}"
+                );
+            } else {
+                mackesd_core::workers::wol::wake(mac_bytes, &broadcast, port)
+                    .context("wake-peer: send magic packet")?;
+                println!("wake-peer: sent magic packet to {mac} via {broadcast}:{port}");
+            }
         }
         Cmd::PeerCard { peer, dry_run } => {
             // PC-3.a — operator-driven trigger for the peer-card

@@ -87,6 +87,38 @@ pub fn wake(mac: Mac, broadcast: &str, port: u16) -> std::io::Result<()> {
     Ok(())
 }
 
+/// NF-21.2 — wake the peer with `mac` by sending the WoL magic
+/// packet as **unicast UDP** to a lighthouse's overlay IP. The
+/// lighthouse-side relay (separate component) de-encapsulates and
+/// re-broadcasts on the target's LAN segment, enabling
+/// "WoL across LANs" — pre-Nebula, WoL only worked within a single
+/// broadcast domain.
+///
+/// Replaces `mackes/mesh_nebula.py::wol_via_lighthouse`. The Python
+/// helper shelled out to `wakeonlan -i lighthouse_ip target_mac`;
+/// this is the equivalent pure-Rust UDP send (no SO_BROADCAST since
+/// the destination is the lighthouse's unicast overlay address, not
+/// a LAN broadcast).
+///
+/// # Errors
+/// Returns `std::io::Error` when the socket bind, address parse, or
+/// `send_to` call fails.
+pub fn wake_via_lighthouse(
+    mac: Mac,
+    lighthouse_ip: &str,
+    port: u16,
+) -> std::io::Result<()> {
+    let socket = UdpSocket::bind("0.0.0.0:0")?;
+    // No set_broadcast: this is a unicast send to the lighthouse's
+    // overlay IP. The lighthouse re-broadcasts on the target LAN.
+    let addr: SocketAddr = format!("{lighthouse_ip}:{port}")
+        .parse()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{e}")))?;
+    let packet = magic_packet(mac);
+    socket.send_to(&packet, addr)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +215,22 @@ mod tests {
         // broadcast on loopback — varies by system). Both are fine
         // here; we're proving the call path compiles + runs.
         let _ = result;
+    }
+
+    #[test]
+    fn wake_via_lighthouse_returns_err_for_invalid_ip() {
+        let mac = [0u8; 6];
+        let result = wake_via_lighthouse(mac, "not-an-address", 9);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wake_via_lighthouse_succeeds_for_loopback_unicast() {
+        // NF-21.2 — unicast UDP to loopback. The lighthouse-side
+        // relay isn't running here; we're only proving the client
+        // side sends without SO_BROADCAST.
+        let mac = [0xde, 0xad, 0xbe, 0xef, 0x00, 0x01];
+        let result = wake_via_lighthouse(mac, "127.0.0.1", 9);
+        assert!(result.is_ok(), "loopback unicast WoL send: {result:?}");
     }
 }

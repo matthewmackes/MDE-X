@@ -37,11 +37,13 @@ infrastructure):
                                     only until workbench/network/mesh_ssh.py
                                     retires under EPIC-RETIRE-PY-WORKBENCH;
                                     no new callers should use it.
-    - wol_via_lighthouse          — wol.rs Rust worker already exists
-                                    (DEAD-2.5 wired `mackesd wake-peer`);
-                                    needs a way to issue WoL THROUGH a
-                                    specific lighthouse, not just locally;
-                                    tracked as NF-21.2
+    - wol_via_lighthouse          — RUST EQUIVALENT SHIPPED 2026-05-26
+                                    as workers::wol::wake_via_lighthouse
+                                    + `mackesd wake-peer --via-lighthouse <ip>`
+                                    CLI flag (NF-21.2 [✓] Done). Python
+                                    helper kept only until consumers retire
+                                    under EPIC-RETIRE-PY-WORKBENCH; no new
+                                    callers should use it.
     - apply_nebula_firewall_preset — nftables preset application;
                                      tracked as NF-21.3
     - emit_lighthouse_event / emit_ca_rotation / emit_https_fallback_state

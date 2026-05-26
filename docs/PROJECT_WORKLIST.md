@@ -1177,7 +1177,7 @@ call-end lifecycle, never at install or login.
   **so that** `mesh_nebula.py::write_sshd_overlay_bind` retires.
   **Acceptance:** new `crates/mackesd/src/workers/sshd_overlay_bind.rs` worker writes the drop-in + reloads sshd via the Shell.Workers D-Bus surface on every overlay-ip change.
 
-- [ ] **NF-21.2: v1.0/1.1 — mackesd lighthouse-relayed WoL** *(blocks mesh_nebula.py::wol_via_lighthouse retirement)*
+- [✓] **NF-21.2: v1.0/1.1 — mackesd lighthouse-relayed WoL** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-B; new `mackesd_core::workers::wol::wake_via_lighthouse(mac, lighthouse_ip, port)` function in `crates/mackesd/src/workers/wol.rs` sends WoL magic packet as unicast UDP to the lighthouse's overlay IP (no SO_BROADCAST since the lighthouse re-broadcasts on the target's LAN); new `mackesd wake-peer --via-lighthouse <ip>` CLI flag in `crates/mackesd/src/bin/mackesd.rs` routes through `wake_via_lighthouse` when set (mutually exclusive with `--broadcast`); 2 new unit tests added (invalid-ip error path + loopback-unicast success path), 14/14 wol tests green; `mackes/mesh_nebula.py` DEAD-2.14 comment block updated; cargo check + clippy + ruff + legacy-mesh + dbus-shape lints all clean)*
   **As** the operator,
   **I want** to issue a Wake-on-LAN packet THROUGH a specific lighthouse instead of from the local peer,
   **so that** waking a desktop from a roaming laptop on a different LAN works.
