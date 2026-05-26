@@ -950,7 +950,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Wave 3 — Python modules superseded by Rust ports (unblocked by Wave 2)
 
-- [ ] **DEAD-2.4: v5.1 — Delete `mackes/mesh_mdns.py` (superseded by `mdns.rs` Rust worker)** *(depends on DEAD-2.3)*
+- [✓] **DEAD-2.4: v5.1 — Delete `mackes/mesh_mdns.py` (superseded by `mdns.rs` Rust worker)** *(depends on DEAD-2.3)*
   **As** the v5.1 cleanup pass,
   **I want** to delete the python mDNS service discovery module,
   **so that** the codebase has one mDNS implementation (`crates/mackesd/src/workers/mdns.rs`) instead of two — DEAD-2.3 retires the sole external consumer (mesh_performance.py).

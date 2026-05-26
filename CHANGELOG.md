@@ -30,6 +30,11 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   (GF-8.2). The sidebar's "Mesh Performance" nav row and the
   unified `mesh_control` notebook's "Performance" tab are removed
   in the same change. Unblocks Wave 3 (DEAD-2.4..2.7 + DEAD-2.10).
+- Deleted `mackes/mesh_mdns.py` — Python mDNS service-discovery
+  module. The canonical mDNS surface is now
+  `crates/mackesd/src/workers/mdns.rs` (Rust worker spawned by
+  `mackesd run_serve`). DEAD-2.3 retired the sole external
+  consumer, so the python module is unreachable.
 
 **Scope tightening (EPIC-MASTER-3)**
 - Fleet cap reduced from 16 to **8 peers** (Q3 of the 100-Q
