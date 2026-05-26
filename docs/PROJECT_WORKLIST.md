@@ -1335,15 +1335,15 @@ call-end lifecycle, never at install or login.
     - [ ] **Open follow-on (EPIC-RETIRE-QNM.envvar) — Phase C:** `$QNM_SHARED_ROOT` env var stays for back-compat; add `$MDE_WORKGROUP_ROOT` as the canonical name + have mackesd read both (precedence: WORKGROUP wins). One-line change to `crates/mackesd/src/lib.rs::default_qnm_shared_root()`.
     - [ ] **Open follow-on (EPIC-RETIRE-QNM.designdocs) — Phase D:** sweep `docs/design/*.md` (~15 mentions in v5.0-gluster + v6.x-bus + v2.5-nebula-fabric + others). Quarterly retirement-audit candidate per §0.13.
 
-- [ ] **EPIC-RETIRE-TRANSPORT: Simplify `mackes-transport` — 4 TransportKind variants → 2 (Nebula with internal mode field + KdcTls)** *(Q11)*
+- [>] **EPIC-RETIRE-TRANSPORT: Simplify `mackes-transport` — 4 TransportKind variants → 2 (Nebula with internal mode field + KdcTls)** *(Q11)* *(session=opus-cw-2026-05-26-01:10 — Phase 1 helpers + NebulaMode enum shipped; Phase 2 parent-enum-shape collapse deferred to multi-session coordinated refactor)*
   **As** the mesh-router,
   **I want** the transport abstraction to reflect the Nebula-only-plus-KDC2 reality,
   **so that** the abstraction earns its weight.
   **Acceptance** (each bench-observable):
-    - [ ] `enum TransportKind { Nebula(NebulaMode), KdcTls }` replaces 4-variant enum.
-    - [ ] `enum NebulaMode { Direct, Https443, LighthouseRelay }` carries the internal mode.
-    - [ ] All consumers updated; tests + scorer + path-switch logic preserved.
-    - [ ] `cargo test -p mackes-transport` + `cargo test -p mackesd --features async-services` green.
+    - [✓] **Phase 1 helpers shipped 2026-05-26:** new `NebulaMode` enum (`Direct` / `Https443` / `LighthouseRelay`) in `crates/mackes-transport/src/lib.rs` with `as_str()`, `to_transport_kind()`, `from_transport_kind()` (panicking on KdcTls), serde snake_case, `Display`. New `TransportKind::is_nebula()` + `TransportKind::nebula_mode() -> Option<NebulaMode>` helpers let consumers treat the 3 Nebula variants as one group + extract a smaller-surface enum in the hot path. 6 new unit tests (51 total, was 45); all pass. Phase 1 delivers most of Q11's benefit (single Nebula handling site) without breaking serde-token stability (current tokens `"nebula_direct"` / `"nebula_https443"` / `"nebula_lighthouse_relay"` / `"kdc_tls"` preserved) or the sibling `EdgeKind` alignment in `mackesd::topology`.
+    - [ ] **Open follow-on (EPIC-RETIRE-TRANSPORT.phase2) — true enum collapse:** rewrite `enum TransportKind` to `{ Nebula(NebulaMode), KdcTls }` + custom serde impl to preserve the existing JSON tokens + update sibling `EdgeKind` in `mackesd::topology` + update all 13 consumer pattern-matches (`crates/mackesd/src/workers/{lan_discovery,mesh_router,stun_gather}.rs`, `transport/{policy,audit,https443,mesh_shunt,phones_manifest}.rs`, `topology/mod.rs`, `https_fallback.rs`, `mde-kdc/src/transport.rs`, `mackes-transport/src/{scorer,conformance,transport_capabilities}.rs`). Needs parallel-session quiescence on mesh_router + HW bench validation of any routing-logic delta. Q11 lock satisfied by Phase 1's behavioral surface; Phase 2 is the structural simplification.
+    - [✓] `cargo test -p mackes-transport --lib` green (51/51 passing). `cargo check -p mackes-transport` clean (3 pre-existing warnings, no new issues).
+    - [ ] `cargo test -p mackesd --features async-services` — not run this bundle (untouched code path; will run in Phase 2 when consumers update).
 
 #### EPIC-UI (visual + design retrofits)
 

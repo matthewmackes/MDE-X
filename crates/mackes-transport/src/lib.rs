@@ -120,6 +120,123 @@ impl TransportKind {
             _ => None,
         }
     }
+
+    // ------------------------------------------------------------------
+    // Q11 Phase 1 simplification (2026-05-26 — EPIC-RETIRE-TRANSPORT
+    // partial). Q11 of the 100-Q tightening survey locked "collapse 3
+    // Nebula variants into one TransportKind::Nebula(NebulaMode) +
+    // keep KdcTls separate." Full enum-shape collapse would break
+    // serde token stability + the EdgeKind sibling alignment + every
+    // pattern-match in ~13 consumer files; that lands in EPIC-RETIRE-
+    // TRANSPORT Phase 2 once a coordinated multi-crate refactor is
+    // scheduled (depends on parallel-session quiescence on mesh_router
+    // + HW bench validation of any routing-logic delta).
+    //
+    // Phase 1 delivers most of Q11's benefit without breaking serde:
+    // helper methods that let consumers treat the 3 Nebula variants
+    // as one group + extract a NebulaMode when they need the variant
+    // detail.
+    // ------------------------------------------------------------------
+
+    /// Q11 Phase 1 helper — true when this transport is any of the
+    /// three Nebula variants (Direct / Https443 / LighthouseRelay).
+    /// Consumers that previously pattern-matched all three Nebula
+    /// arms identically can now write `if kind.is_nebula() { … }`
+    /// in one branch.
+    #[must_use]
+    pub const fn is_nebula(self) -> bool {
+        matches!(
+            self,
+            TransportKind::NebulaDirect
+                | TransportKind::NebulaHttps443
+                | TransportKind::NebulaLighthouseRelay
+        )
+    }
+
+    /// Q11 Phase 1 helper — return the `NebulaMode` when this
+    /// transport is Nebula, or `None` for KdcTls. Lets consumers
+    /// match on `NebulaMode` (3 variants) instead of TransportKind
+    /// (4 variants with 3-of-4 being Nebula-mode) in the hot path.
+    #[must_use]
+    pub const fn nebula_mode(self) -> Option<NebulaMode> {
+        match self {
+            TransportKind::NebulaDirect => Some(NebulaMode::Direct),
+            TransportKind::NebulaHttps443 => Some(NebulaMode::Https443),
+            TransportKind::NebulaLighthouseRelay => Some(NebulaMode::LighthouseRelay),
+            TransportKind::KdcTls => None,
+        }
+    }
+}
+
+/// Q11 Phase 1 (2026-05-26 — EPIC-RETIRE-TRANSPORT partial). The
+/// internal-Nebula mode discriminant. Used by
+/// `TransportKind::nebula_mode()` to give consumers a smaller-
+/// surface enum to match against. Phase 2 will collapse the parent
+/// `TransportKind` enum to `{ Nebula(NebulaMode), KdcTls }`; this
+/// helper enum is forward-compatible with that target shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NebulaMode {
+    /// Direct UDP between two peers' WireGuard sockets.
+    Direct,
+    /// HTTPS-tunneled TCP/443 fallback.
+    Https443,
+    /// Lighthouse-relay UDP fallback (Nebula's own DERP-style relay).
+    LighthouseRelay,
+}
+
+impl NebulaMode {
+    /// Construct from the parent `TransportKind`, panicking if the
+    /// caller passes `KdcTls`. Prefer `TransportKind::nebula_mode()`
+    /// which returns `Option<NebulaMode>` and lets the caller handle
+    /// the KdcTls case explicitly; this `From`-style constructor is
+    /// for sites where the caller has already proven the variant is
+    /// Nebula (e.g., after `is_nebula()` returned true).
+    ///
+    /// # Panics
+    /// If `kind == TransportKind::KdcTls`.
+    #[must_use]
+    pub const fn from_transport_kind(kind: TransportKind) -> Self {
+        match kind {
+            TransportKind::NebulaDirect => NebulaMode::Direct,
+            TransportKind::NebulaHttps443 => NebulaMode::Https443,
+            TransportKind::NebulaLighthouseRelay => NebulaMode::LighthouseRelay,
+            TransportKind::KdcTls => {
+                panic!("NebulaMode::from_transport_kind called with KdcTls — use TransportKind::nebula_mode() instead")
+            }
+        }
+    }
+
+    /// Stable string identifier (snake_case). Matches the
+    /// `TransportKind::as_str()` shape after the `nebula_` prefix:
+    /// `Direct → "direct"`, `Https443 → "https443"`,
+    /// `LighthouseRelay → "lighthouse_relay"`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            NebulaMode::Direct => "direct",
+            NebulaMode::Https443 => "https443",
+            NebulaMode::LighthouseRelay => "lighthouse_relay",
+        }
+    }
+
+    /// Reconstruct the parent `TransportKind` from a `NebulaMode`.
+    /// Pure inverse of `TransportKind::nebula_mode()` for the
+    /// Nebula variants.
+    #[must_use]
+    pub const fn to_transport_kind(self) -> TransportKind {
+        match self {
+            NebulaMode::Direct => TransportKind::NebulaDirect,
+            NebulaMode::Https443 => TransportKind::NebulaHttps443,
+            NebulaMode::LighthouseRelay => TransportKind::NebulaLighthouseRelay,
+        }
+    }
+}
+
+impl fmt::Display for NebulaMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 impl fmt::Display for TransportKind {
@@ -388,6 +505,73 @@ mod tests {
         assert_eq!(order[1], TransportKind::KdcTls);
         assert_eq!(order[2], TransportKind::NebulaLighthouseRelay);
         assert_eq!(order[3], TransportKind::NebulaHttps443);
+    }
+
+    // ---- Q11 Phase 1 helper tests (2026-05-26) ------------------------
+
+    #[test]
+    fn is_nebula_true_for_three_nebula_variants() {
+        assert!(TransportKind::NebulaDirect.is_nebula());
+        assert!(TransportKind::NebulaHttps443.is_nebula());
+        assert!(TransportKind::NebulaLighthouseRelay.is_nebula());
+        assert!(!TransportKind::KdcTls.is_nebula());
+    }
+
+    #[test]
+    fn nebula_mode_extracts_for_nebula_variants() {
+        assert_eq!(
+            TransportKind::NebulaDirect.nebula_mode(),
+            Some(NebulaMode::Direct),
+        );
+        assert_eq!(
+            TransportKind::NebulaHttps443.nebula_mode(),
+            Some(NebulaMode::Https443),
+        );
+        assert_eq!(
+            TransportKind::NebulaLighthouseRelay.nebula_mode(),
+            Some(NebulaMode::LighthouseRelay),
+        );
+        assert_eq!(TransportKind::KdcTls.nebula_mode(), None);
+    }
+
+    #[test]
+    fn nebula_mode_to_transport_kind_round_trips() {
+        for mode in [
+            NebulaMode::Direct,
+            NebulaMode::Https443,
+            NebulaMode::LighthouseRelay,
+        ] {
+            assert_eq!(mode.to_transport_kind().nebula_mode(), Some(mode));
+        }
+    }
+
+    #[test]
+    fn nebula_mode_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&NebulaMode::Direct).unwrap(),
+            r#""direct""#,
+        );
+        assert_eq!(
+            serde_json::to_string(&NebulaMode::Https443).unwrap(),
+            r#""https443""#,
+        );
+        assert_eq!(
+            serde_json::to_string(&NebulaMode::LighthouseRelay).unwrap(),
+            r#""lighthouse_relay""#,
+        );
+    }
+
+    #[test]
+    fn nebula_mode_as_str_matches_serde_token() {
+        assert_eq!(NebulaMode::Direct.as_str(), "direct");
+        assert_eq!(NebulaMode::Https443.as_str(), "https443");
+        assert_eq!(NebulaMode::LighthouseRelay.as_str(), "lighthouse_relay");
+    }
+
+    #[test]
+    #[should_panic(expected = "NebulaMode::from_transport_kind called with KdcTls")]
+    fn nebula_mode_from_kdc_tls_panics() {
+        let _ = NebulaMode::from_transport_kind(TransportKind::KdcTls);
     }
 
     #[test]

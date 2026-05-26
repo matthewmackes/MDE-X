@@ -5,6 +5,21 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**Transport abstraction Phase 1 (EPIC-RETIRE-TRANSPORT, 2026-05-26)**
+- New `NebulaMode` enum in `mackes-transport` (`Direct` /
+  `Https443` / `LighthouseRelay`) + new `TransportKind::is_nebula()`
+  + `TransportKind::nebula_mode() -> Option<NebulaMode>` helpers.
+  Consumers can now group the 3 Nebula variants as one + match on
+  the smaller NebulaMode enum in hot paths.
+- Q11 spirit delivered without breaking serde token stability
+  (current `"nebula_direct"`, `"nebula_https443"`, etc. preserved)
+  or the sibling `EdgeKind` alignment in mackesd::topology.
+- 6 new unit tests (51 total in mackes-transport, was 45). All
+  pass. `cargo check -p mackes-transport` clean.
+- True parent-enum collapse (`TransportKind { Nebula(NebulaMode),
+  KdcTls }`) deferred to Phase 2 (~13 consumer files + custom
+  serde + sibling EdgeKind update; needs HW bench validation).
+
 **QNM-Shared → MDE-Workgroup Phase A (EPIC-RETIRE-QNM, 2026-05-26)**
 - 5 operator-visible help docs swept to use "MDE-Workgroup
   coordination root" terminology with legacy `~/QNM-Shared/`
