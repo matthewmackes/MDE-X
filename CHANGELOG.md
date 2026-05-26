@@ -3,6 +3,27 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
+## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
+
+(Operator-locked 2026-05-25 via 100-Q tightening survey: the next
+release is **MackesDE for Workgroups 1.0** — full rebrand + version
+reset per Q71 + Q72. The v4.0 line below subsumes into the 1.0 cut;
+all in-flight epics ship together per Q91 maximum-scope lock. See
+`docs/AI_GOVERNANCE.md` for the canonical decision table.)
+
+**Boot splash**
+- New Plymouth theme `mde` replaces the legacy `mackes` theme.
+  Material-card design (black field, white card, stacked logo,
+  indeterminate blue progress) per the operator's
+  `Mackes DE Bootsplash.html` design lock 2026-05-25.
+
+**Mesh tree retirements (DEAD-2.x)**
+- Deleted `mackes/mesh_discovery.py` — v1.7 mesh-join credential
+  fallback. Replaced by Nebula CSR flow + birthright single-passcode.
+- Deleted `mackes/mesh_thumbnailer.py` — Tumbler thumbnailer for mesh
+  clipboard/notification files. Replaced by
+  `crates/mackesd/src/workers/thumbnailer.rs` (Rust).
+
 ## Unreleased — v4.0 Nebula fabric rebuild
 
 (Operator-locked 2026-05-24: v4.0 is the target release for
