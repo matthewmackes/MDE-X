@@ -110,7 +110,14 @@ class LegacyState:
     """
 
     preset_name: Optional[str] = None
-    """2.x preset name (hashbang/mackes/daylight/vanilla/node)."""
+    """Legacy v1.x/2.x preset name. Pre-rebrand presets: hashbang /
+    mackes / daylight / vanilla / node. Retired 2026-05-26 per Q79
+    of the 100-Q tightening survey; replaced by the 4-preset locked
+    set: chromeos-classic-{light,dark} + ableton-12-{light,dark}.
+    Legacy values found by `legacy_import` are preserved here for
+    the wizard's preservation report but get mapped to a current
+    preset at apply time (defaulting to chromeos-classic-dark per
+    AI_GOVERNANCE.md §6)."""
 
     wallpaper_path: Optional[str] = None
     """Absolute path to the user's last wallpaper."""

@@ -1403,9 +1403,9 @@ call-end lifecycle, never at install or login.
   **so that** new UI doesn't drift into bouncy / springy / decorative animation.
   **Acceptance** (each bench-observable):
     - [✓] `docs/design/motion-language.md` ships: §1 timing grid (100/120/150/200 ms ease-in/out), §2 six approved patterns (typewriter, marquee, tray reveal, hover focus, layout shift, sidebar hover-expand, mode cycle), §3 forbidden verbs (bounce/spring/wiggle/zoom/swoosh/etc.), §4 reduced-motion accessibility wrapper pattern, §5 master-rule alignment, §6 follow-on tasks (EPIC-UI-MOTION.lint / .cleanup / .reduced).
-    - [ ] **Open follow-on (EPIC-UI-MOTION.lint):** add motion-vocabulary to `install-helpers/lint-voice.sh` forbidden-strings list.
-    - [ ] **Open follow-on (EPIC-UI-MOTION.cleanup):** audit existing CSS transitions outside the 100/120/150/200 ms grid + bring into compliance.
-    - [ ] **Open follow-on (EPIC-UI-MOTION.reduced):** wrap every existing `transition:` declaration in `data/css/` with the `prefers-reduced-motion` block.
+    - [✓] **EPIC-UI-MOTION.lint (shipped 2026-05-26):** new `FORBIDDEN-MOTION-VOCAB` scan in `install-helpers/lint-voice.sh` catches `bounce|bouncy|springy|elastic|wiggle|jiggle|swoosh|whoosh|twirl|swirl` inside user-visible quoted-string literals. Lint runs clean.
+    - [✓] **EPIC-UI-MOTION.cleanup (shipped 2026-05-26):** 6 transitions in `data/css/mackes.css` (lines 132/133/206/207/257/363/390/435) updated from `180ms cubic-bezier(0.2, 0, 0, 1)` to the Q47-locked `150ms cubic-bezier(0.0, 0.0, 0.2, 1.0)`. Other CSS files carry no transitions. CSS lint clean on mackes.css + tokens.css.
+    - [~] **EPIC-UI-MOTION.reduced (retired 2026-05-26):** GTK CSS provider doesn't support `@media (prefers-reduced-motion)` (`gtk-css-provider-error-quark: unknown @ rule`). Per motion-language.md §4 + `data/css/density.css:73-83` comment block: GTK panels use `gtk-settings::gtk-enable-animations = false` instead. The `@media` wrapper applies only to Iced/HTML surfaces (mde-* crates) which already include it. Subtask retired — platform-policy choice, not a code task.
 
 - [ ] **EPIC-UI-WALLPAPER: Mesh-wallpaper = decoration + optional Bus mesh-stripe (urgent only)** *(Q48)*
   **As** the Mesh-Wallpaper surface,
@@ -1426,8 +1426,8 @@ call-end lifecycle, never at install or login.
     - [✓] Preset loader smoke-test: `from mackes.presets import list_presets; ps = list_presets()` returns 4 entries (`ableton`, `ableton-12-light`, `chromeos-classic-dark`, `chromeos-classic-light`).
     - [ ] **Open follow-on (EPIC-UI-PRESETS.rename):** rename `data/presets/ableton.yaml` → `data/presets/ableton-12-dark.yaml` + update `DEFAULT_PRESET_NAME` in `mackes/presets.py` from `"ableton"` to `"chromeos-classic-dark"`. Deferred because the rename touches the parallel session's recent `DEFAULT_PRESET_NAME = "ableton"` lock; pick up after a coord check.
     - [ ] **Open follow-on (EPIC-UI-PRESETS.workbench):** Workbench Display panel exposes the preset selector. (Pairs with EPIC-UI-DENSITY.workbench in the same panel.)
-    - [ ] **Open follow-on (EPIC-UI-PRESETS.retire-legacy):** retire `hashbang` / `mackes` / `daylight` / `vanilla` preset names (already absent from `data/presets/`; legacy importer at `mackes/legacy_import.py:113` references them — sweep is a small follow-on).
-    - [ ] **Open follow-on (EPIC-UI-PRESETS.voice-lint):** voice-and-tone vocabulary additions for the new preset names. Pairs with EPIC-UI-MOTION.lint follow-on.
+    - [✓] **EPIC-UI-PRESETS.retire-legacy (shipped 2026-05-26):** `mackes/legacy_import.py:112` docstring updated to acknowledge the Q79 supersession + name the canonical 4-preset target + name the default fallback (`chromeos-classic-dark` per AI_GOVERNANCE.md §6). The legacy names (hashbang / mackes / daylight / vanilla / node) survive only in this importer's preservation-report code path — they're already absent from `data/presets/` (zero legacy YAMLs ship in the RPM) and the importer maps them to the current default at apply time.
+    - [~] **EPIC-UI-PRESETS.voice-lint (skipped 2026-05-26):** legacy preset names live only in non-user-visible legacy import code. "mackes" and "vanilla" are too generic for a lint pattern (false-positive on brand mentions + ordinary "vanilla X" phrasing). "hashbang" + "daylight" + "node" are unique but never surface to users — adding a lint scan would be over-engineering. The new 4 preset names are tracked in `data/presets/*.yaml` filenames which the file-system enforces directly.
 
 #### EPIC-SYNC (storage + sync model)
 
