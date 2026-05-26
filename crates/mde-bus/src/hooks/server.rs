@@ -47,6 +47,7 @@ use thiserror::Error;
 use tokio::task::JoinHandle;
 
 use super::config::{ConfigError, HooksConfig};
+use super::gitea::GiteaAdapter;
 use super::github::GitHubAdapter;
 use super::matcher::{match_request, Adapter, MatchError};
 use super::publisher::{publish_to_ntfy, PublisherError};
@@ -205,6 +206,7 @@ fn register_builtin_adapters() -> std::collections::BTreeMap<String, Box<dyn Ada
     let mut map: std::collections::BTreeMap<String, Box<dyn Adapter>> =
         std::collections::BTreeMap::new();
     map.insert("github".to_string(), Box::new(GitHubAdapter));
+    map.insert("gitea".to_string(), Box::new(GiteaAdapter));
     map
 }
 

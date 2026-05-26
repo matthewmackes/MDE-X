@@ -1,0 +1,50 @@
+# BUS-3.4 — Gitea adapter rule set.
+#
+# Operator includes `adapters.gitea.rules` in their
+# `~/.config/mde/bus-hooks.yaml` to route Gitea webhooks. Gitea's
+# webhook config is per-repo + per-org; point each one at:
+#
+#   http://<peer-overlay-ip>:8444/hooks/gitea
+#
+# Three event types ship: push, pull_request, issues.
+
+adapters:
+
+  gitea:
+    rules:
+
+      - name: gitea-push
+        match:
+          event: push
+        publish:
+          topic: gitea/push
+          priority: default
+          title: "{{ repo }} push to {{ branch }}"
+          body: |
+            {{ pusher }} pushed {{ commit_count }} commit(s) to {{ repo }}@{{ branch }}.
+
+            {{ head_message }}
+
+      - name: gitea-pull-request
+        match:
+          event: pull_request
+        publish:
+          topic: gitea/pr
+          priority: default
+          title: "{{ repo }} PR #{{ pr_number }} {{ action }}"
+          body: |
+            {{ pr_user }} {{ action }} PR #{{ pr_number }}: {{ pr_title }}
+
+            {{ pr_url }}
+
+      - name: gitea-issues
+        match:
+          event: issues
+        publish:
+          topic: gitea/issue
+          priority: default
+          title: "{{ repo }} issue #{{ issue_number }} {{ action }}"
+          body: |
+            {{ issue_user }} {{ action }} issue #{{ issue_number }}: {{ issue_title }}
+
+            {{ issue_url }}

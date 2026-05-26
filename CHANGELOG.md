@@ -5,6 +5,16 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-3.4 — Gitea adapter (v6.x Mackes Bus, 2026-05-26)**
+- `GiteaAdapter` dispatches on `X-Gitea-Event` and ships
+  extractors for `push`, `pull_request`, and `issues` events.
+  Pusher-name resolution tries `pusher.username` →
+  `pusher.login` → `pusher.full_name` so the same rules handle
+  both modern and older Gitea payload shapes.
+- `data/bus/hooks/gitea.yaml` ships the verbatim-includable
+  rule set; operators copy it into `~/.config/mde/bus-hooks.yaml`
+  to wire Gitea repos to `gitea/*` topics.
+
 **BUS-3.1 + BUS-3.2 + BUS-3.3 — webhook ingress + GitHub adapter (v6.x Mackes Bus, 2026-05-26)**
 - New `crates/mde-bus/src/hooks/` module wires an axum HTTP
   listener on `<overlay-ip>:8444`. Bind-scope is the auth

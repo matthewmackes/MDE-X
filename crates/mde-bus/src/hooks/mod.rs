@@ -34,6 +34,7 @@
 //! Each later BUS-3.N adapter adds one file to this module.
 
 pub mod config;
+pub mod gitea;
 pub mod github;
 pub mod matcher;
 pub mod publisher;
