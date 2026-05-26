@@ -43,6 +43,11 @@ dirs = "5"
 # multiple-version drift.
 mdns-sd = "0.11"
 
+# BUS-1.7 — subscription manifest parsing. serde_yaml 0.9 is the
+# long-stable version (the 0.10 line ended in deprecation/yank
+# churn upstream).
+serde_yaml = "0.9"
+
 # Error enums — matches mackesd + mackes-nebula-https-tunnel versions.
 thiserror = "1"
 

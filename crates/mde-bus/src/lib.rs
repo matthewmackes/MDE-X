@@ -25,6 +25,7 @@
 pub mod broker;
 pub mod discovery;
 pub mod seed;
+pub mod subs;
 pub mod template;
 pub mod topic;
 pub mod wildcard;

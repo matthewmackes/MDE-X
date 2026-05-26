@@ -5,6 +5,20 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-1.7 — subscription manifest + live-reload watcher (v6.x Mackes Bus, 2026-05-26)**
+- New per-peer `~/.local/share/mde/bus/subs.yaml` (seeded from
+  `/usr/share/mde/bus/subs.yaml.tmpl`) drives delivery filtering.
+  Schema: `topics` (MQTT-style wildcards), `mute`, `quiet_hours`
+  (`start..end`, supports midnight-wrapping windows).
+- `SubsWatcher` polls the file's mtime every 100 ms and re-parses
+  on change, broadcasting the new manifest via a
+  `tokio::sync::watch` channel. The 200 ms "live delivery" exit
+  criterion is met by 100 ms detection + sub-ms parse.
+- Three pure predicates: `is_subscribed`, `is_muted`,
+  `should_deliver(topic, now_hhmm)`. Future consumers (BUS-1.8
+  `mde-bus tail` filter; BUS-4 FDO bridge) subscribe to the
+  watch receiver to apply the manifest at delivery time.
+
 **BUS-1.3 — mDNS service registration over Nebula (v6.x Mackes Bus, 2026-05-26)**
 - `mde-bus daemon` now registers `_mackes-bus._tcp.local.` via
   `mdns-sd`, advertising `<overlay-ip>:8443` + TXT records

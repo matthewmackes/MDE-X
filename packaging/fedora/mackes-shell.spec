@@ -691,6 +691,13 @@ install -D -m 0644 data/greetd/config.toml \
 install -D -m 0644 data/ntfy/server.yml.tmpl \
     %{buildroot}%{_datadir}/mde/ntfy/server.yml.tmpl
 
+# BUS-1.7 (v6.x Mackes Bus) — subscription manifest template. The
+# mde-bus daemon seeds ~/.local/share/mde/bus/subs.yaml from this
+# file on first launch when the per-peer file doesn't exist; the
+# SubsWatcher then live-reloads on every operator edit.
+install -D -m 0644 data/bus/subs.yaml.tmpl \
+    %{buildroot}%{_datadir}/mde/bus/subs.yaml.tmpl
+
 # DM-3 + DM-6 (v2.7) — regreet config sourced from the shared-tokens
 # theme dir. The .toml installs as %config(noreplace) so operator
 # edits survive upgrades. The greeter's CSS lives under

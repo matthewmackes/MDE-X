@@ -1,0 +1,40 @@
+# BUS-1.7 — per-peer subscription manifest template.
+#
+# Installed to /usr/share/mde/bus/subs.yaml.tmpl by the mde RPM; the
+# mde-bus daemon seeds ~/.local/share/mde/bus/subs.yaml from this
+# template on first run when the per-peer file doesn't exist. The
+# operator edits the live file; the daemon's SubsWatcher detects the
+# change within ~100 ms and the broker's delivery filter updates.
+#
+# Schema (parsed by `mde_bus::subs::SubsManifest`):
+#
+#   topics:        list of topic patterns (MQTT wildcards: `+`, `#`)
+#                  to deliver. Default: everything (`#`).
+#   mute:          list of topic patterns to silence even when they
+#                  match `topics`. Useful for noisy sources.
+#   quiet_hours:   24h window during which delivery defaults to
+#                  no-op (start..end). When start > end, the window
+#                  wraps midnight. Omit the block entirely to
+#                  deliver around the clock.
+#
+# Round-trip:
+#
+#   `mde-bus subs list`   reads this file.
+#   `mde-bus subs add T`  appends a topic + writes back.
+#   `mde-bus subs mute T` toggles mute + writes back.
+#
+# (CLI verbs land in BUS-1.8; this template is the data-plane
+#  contract they read + write against.)
+
+topics:
+  - "#"  # default: deliver every topic. Trim this list to silence
+         # whole categories without per-topic mute.
+
+mute: []
+
+# quiet_hours block omitted by default — deliver around the clock.
+# Uncomment + edit to enable. Times are local-clock 24h strings.
+#
+# quiet_hours:
+#   start: "22:00"
+#   end:   "07:00"

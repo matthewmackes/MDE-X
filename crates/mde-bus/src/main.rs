@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
-use mde_bus::{broker, discovery, seed, template::Renderer, topic::Registry};
+use mde_bus::{broker, discovery, seed, subs, template::Renderer, topic::Registry};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -161,6 +161,52 @@ async fn run_daemon() -> anyhow::Result<()> {
             }
             None => None,
         };
+
+    // BUS-1.7 — subscription manifest watcher. Polls the per-peer
+    // subs.yaml every 100ms; on change re-parses + broadcasts the
+    // new manifest via a `tokio::sync::watch` channel that future
+    // delivery filters (BUS-1.8 CLI + BUS-4 webhooks) subscribe to.
+    // Pre-enrollment peers + missing-template paths log + continue
+    // with in-memory defaults.
+    //
+    // The shutdown sender is held in this function's scope so it
+    // drops naturally when run_daemon returns — that triggers the
+    // watcher's shutdown.changed() Err arm + clean exit.
+    let (_subs_shutdown_tx, _subs_watcher_task) = match subs::default_per_peer_path() {
+        Some(per_peer) => {
+            let template = std::path::PathBuf::from(subs::DEFAULT_TEMPLATE_PATH);
+            let initial_body = match subs::load_or_seed(&per_peer, &template) {
+                Ok(body) => body,
+                Err(e) => {
+                    tracing::info!(
+                        target: "mde_bus::subs",
+                        error = %e,
+                        "subs.yaml seed skipped — running with in-memory defaults"
+                    );
+                    String::new()
+                }
+            };
+            let mut watcher = subs::SubsWatcher::new(per_peer, &initial_body);
+            tracing::info!(
+                target: "mde_bus::subs",
+                topics = ?watcher.current().topics,
+                "subs manifest loaded"
+            );
+            let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            let task = tokio::spawn(async move {
+                watcher.run(shutdown_rx).await;
+            });
+            (Some(shutdown_tx), Some(task))
+        }
+        None => {
+            tracing::info!(
+                target: "mde_bus::subs",
+                skip_reason = %subs::SubsSkipReason::NoDataDir,
+                "subs manifest watcher skipped — no XDG data home"
+            );
+            (None, None)
+        }
+    };
     // Heartbeat tick — every 60s log a single line so operators can
     // see the daemon is alive in `journalctl -u mde-bus`.
     let mut ticker = tokio::time::interval(Duration::from_secs(60));
