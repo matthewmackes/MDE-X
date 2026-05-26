@@ -983,7 +983,7 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] `make test-nodeps` passes; `make lint` clean.
     - [ ] CHANGELOG entry cites `netdata_aggregator.rs` + `data/netdata/health.d/*.conf` as the canonical metrics + alerting path; "Prometheus retired in MDE-platform metrics — Netdata is the single source."
 
-- [ ] **DEAD-2.7: v5.1 — Delete `mackes/mesh_fs_fuse.py` (read-cache FUSE backend, superseded by `mde-mesh-mount@.service`)** *(depends on DEAD-2.3)*
+- [✓] **DEAD-2.7: v5.1 — Delete `mackes/mesh_fs_fuse.py` (read-cache FUSE backend, superseded by `mde-mesh-mount@.service`)** *(depends on DEAD-2.3)*
   **As** the v5.1 cleanup pass,
   **I want** to delete the SSHFS-with-read-cache FUSE backend module,
   **so that** the codebase has one FUSE mount implementation — DEAD-2.3 retires the sole external consumer (mesh_performance.py). The per-user FUSE mount of mesh-home is owned by the templated systemd unit `data/systemd/mde-mesh-mount@.service` per GF-4.1.

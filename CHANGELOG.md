@@ -41,6 +41,10 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   `netdata_aggregator.rs`, MON-* lock) + `data/netdata/health.d/
   *.conf`. Prometheus is retired from MDE-platform metrics; Netdata
   is the single source.
+- Deleted `mackes/mesh_fs_fuse.py` — Python SSHFS-with-read-cache
+  FUSE backend. The canonical XDG-dir FUSE mount of mesh-home is
+  the templated systemd unit `data/systemd/mde-mesh-mount@.service`
+  (GF-4.1). DEAD-2.3 retired the sole external consumer.
 
 **Scope tightening (EPIC-MASTER-3)**
 - Fleet cap reduced from 16 to **8 peers** (Q3 of the 100-Q
