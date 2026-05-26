@@ -39,6 +39,18 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   `disable-gateway` CLI subcommands removed. `Recommends: caddy`
   dropped from the RPM spec.
 
+**Motion language locked (EPIC-UI-MOTION)**
+- New `docs/design/motion-language.md` — functional + subtle
+  decorative motion only; 100/120/150/200 ms ease-in/out timing
+  grid; 6 approved patterns; forbidden-verb list (bounce/spring/
+  wiggle/etc.); reduced-motion accessibility wrapper pattern (Q47).
+- Follow-on lint + CSS audit tasks added.
+
+**VoIP scope deferred to 1.1 (EPIC-SCOPE-VOIP-DEFER)**
+- v4.1.0 + v4.2.0 worklist sections gain TARGET REVISED suffix.
+  VoIP ships in 1.0; spinout to `mde-voice` repo re-evaluated at
+  1.1 per Q94 (softens Q8's "spin out immediately").
+
 **Skill catalog consolidated to 3 (EPIC-PROC-SKILLS-3)**
 - `plan` — design + N-Q survey + worklist rescue + lift design-doc
   actions to worklist.

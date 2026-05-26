@@ -1294,13 +1294,15 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] CSS density variants ship; Workbench Display panel exposes the selector.
     - [ ] `~/.config/mde/display.yaml` carries the per-peer setting; mde-config materializer applies.
 
-- [ ] **EPIC-UI-MOTION: Codify functional + subtle decorative motion (150 ms ease-out)** *(Q47)*
+- [✓] **EPIC-UI-MOTION: Codify functional + subtle decorative motion (150 ms ease-out)** *(Q47)* *(shipped 2026-05-25 — session=opus-cw-2026-05-25-23:55)*
   **As** the visual identity,
   **I want** a documented motion language,
   **so that** new UI doesn't drift into bouncy / springy / decorative animation.
   **Acceptance** (each bench-observable):
-    - [ ] `docs/design/motion-language.md` ships with the 150 ms ease-out lock + curated transition list.
-    - [ ] Voice-and-tone lint adds vocabulary for motion (no "bounce" / "spring" / "wiggle" in user strings).
+    - [✓] `docs/design/motion-language.md` ships: §1 timing grid (100/120/150/200 ms ease-in/out), §2 six approved patterns (typewriter, marquee, tray reveal, hover focus, layout shift, sidebar hover-expand, mode cycle), §3 forbidden verbs (bounce/spring/wiggle/zoom/swoosh/etc.), §4 reduced-motion accessibility wrapper pattern, §5 master-rule alignment, §6 follow-on tasks (EPIC-UI-MOTION.lint / .cleanup / .reduced).
+    - [ ] **Open follow-on (EPIC-UI-MOTION.lint):** add motion-vocabulary to `install-helpers/lint-voice.sh` forbidden-strings list.
+    - [ ] **Open follow-on (EPIC-UI-MOTION.cleanup):** audit existing CSS transitions outside the 100/120/150/200 ms grid + bring into compliance.
+    - [ ] **Open follow-on (EPIC-UI-MOTION.reduced):** wrap every existing `transition:` declaration in `data/css/` with the `prefers-reduced-motion` block.
 
 - [ ] **EPIC-UI-WALLPAPER: Mesh-wallpaper = decoration + optional Bus mesh-stripe (urgent only)** *(Q48)*
   **As** the Mesh-Wallpaper surface,
@@ -1531,13 +1533,14 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### EPIC-SCOPE (scope clarifications)
 
-- [ ] **EPIC-SCOPE-VOIP-DEFER: Defer VoIP spinout from Q8 immediate to 1.1 per Q94** *(Q94 softens Q8)*
+- [✓] **EPIC-SCOPE-VOIP-DEFER: Defer VoIP spinout from Q8 immediate to 1.1 per Q94** *(Q94 softens Q8)* *(shipped 2026-05-25 — session=opus-cw-2026-05-25-23:55)*
   **As** the 1.0 release scope,
   **I want** VoIP to ship in 1.0 (no spinout yet) and re-evaluate spinout at 1.1,
   **so that** the 1.0 cut isn't blocked on repo split.
   **Acceptance** (each bench-observable):
-    - [ ] v4.1.0 + v4.2.0 worklist sections stay in `PROJECT_WORKLIST.md` for 1.0; mark target as "1.0 / re-evaluate 1.1 spinout".
-    - [ ] AI_GOVERNANCE.md §2 Bundle policy table reflects "ships 1.0; spinout deferred 1.1."
+    - [✓] v4.1.0 worklist section header gains TARGET REVISED suffix + AMENDED block citing Q8 + Q94 + Q67 supersession rule.
+    - [✓] v4.2.0 worklist section header same treatment.
+    - [✓] AI_GOVERNANCE.md §2 Bundle policy table already reflects "Ships in 1.0; spinout deferred to 1.1" — locked at write-time in Bundle 0 (the 100-Q survey aftermath commit).
 
 #### Master rule reference
 
@@ -7552,7 +7555,18 @@ Every actionable item lifted from `docs/design/` + the still-open
 items from the prior worklist. Grouped by area for readability;
 all are equally tracked.
 
-### v4.1.0 Voice & Video epic (re-locked 2026-05-24 after Asterisk→Kamailio swap)
+### v4.1.0 Voice & Video epic (re-locked 2026-05-24 after Asterisk→Kamailio swap) — TARGET REVISED: 1.0 / spinout re-evaluated at 1.1 per Q94
+
+> **AMENDED 2026-05-25 by Q8 + Q94 of the 100-Q tightening survey.**
+> Original Q8 lock said "spin out VoIP to `mde-voice` repo
+> immediately"; Q94 (later same-session, supersedes per Q67)
+> softened to "ships in 1.0; spinout re-evaluated at 1.1."
+> No worklist task body changes — the items still ship as
+> originally specified, but the target release is now
+> **MackesDE for Workgroups 1.0** + the spinout decision is
+> a 1.1 task tracked under EPIC-SCOPE-VOIP-DEFER.
+
+
 
 **Plan source:** `docs/design/v4.1-voice-video.md` (rewritten
 2026-05-24). Brings real-time voice + video + presence + 1:1
@@ -8157,7 +8171,13 @@ v4.1.0 can ship Kamailio + RTPengine + 1:1 calls cleanly.)*
   - [ ] CI gate: `.github/workflows/ci.yml` adds a
     `voice-acceptance` job gated on changed paths.
 
-### v4.2.0 Voice PBX epic (locked 2026-05-24)
+### v4.2.0 Voice PBX epic (locked 2026-05-24) — TARGET REVISED: 1.0 / spinout re-evaluated at 1.1 per Q94
+
+> **AMENDED 2026-05-25 by Q8 + Q94 of the 100-Q tightening survey.**
+> Same as v4.1.0 above: ships in 1.0; spinout to a future
+> `mde-voice` repo re-evaluated at 1.1 per EPIC-SCOPE-VOIP-DEFER.
+
+
 
 **Plan source:** spun out of the v4.1.0 epic on 2026-05-24 when
 the operator locked Kamailio + RTPengine + RTPengine-without-
