@@ -1,0 +1,85 @@
+/* MackesDE for Workgroups — Density modes
+ *
+ * Q46 lock 2026-05-25: three density modes (compact 24px /
+ * regular 28px / comfortable 32px). Mode is selected per peer
+ * via the Workbench Display panel + persisted to
+ * ~/.config/mde/display.yaml; mde-config materializer applies
+ * the selected class to the root window at runtime.
+ *
+ * Default at first install: `mackes-density-regular` (the Classic
+ * ChromeOS lock at 28px rows per docs/design/chromeos-classic-spec.md).
+ *
+ * Apply by adding ONE of these classes to the GTK root window:
+ *   .mackes-density-compact      (24 px rows, 40 px shelf)
+ *   .mackes-density-regular      (28 px rows, 48 px shelf — default)
+ *   .mackes-density-comfortable  (32 px rows, 56 px shelf)
+ *
+ * Each mode scales row height + shelf height + tap-target sizes.
+ * Type sizes + radius + accent remain constant — density is a
+ * SPACING concern only per the Classic ChromeOS visual lock.
+ */
+
+/* ---- Density: compact (24 px rows) ------------------------------------- */
+
+.mackes-density-compact list row,
+.mackes-density-compact .cds-list-row,
+.mackes-density-compact .mde-list-row {
+    min-height: 24px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+.mackes-density-compact .mde-shelf {
+    min-height: 40px;
+}
+.mackes-density-compact button {
+    min-height: 24px;
+    padding: 4px 10px;
+}
+
+/* ---- Density: regular (28 px rows, default) ---------------------------- */
+
+.mackes-density-regular list row,
+.mackes-density-regular .cds-list-row,
+.mackes-density-regular .mde-list-row {
+    min-height: 28px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+.mackes-density-regular .mde-shelf {
+    min-height: 48px;
+}
+.mackes-density-regular button {
+    min-height: 28px;
+    padding: 6px 12px;
+}
+
+/* ---- Density: comfortable (32 px rows) --------------------------------- */
+
+.mackes-density-comfortable list row,
+.mackes-density-comfortable .cds-list-row,
+.mackes-density-comfortable .mde-list-row {
+    min-height: 32px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+.mackes-density-comfortable .mde-shelf {
+    min-height: 56px;
+}
+.mackes-density-comfortable button {
+    min-height: 32px;
+    padding: 8px 14px;
+}
+
+/* ---- Reduced-motion accessibility (per motion-language.md §4) ----------
+ *
+ * GTK's CSS provider doesn't support @media queries
+ * (gtk-css-provider-error-quark on unknown @ rule). The reduced-motion
+ * wrapper from motion-language.md §4 applies to Iced/HTML surfaces
+ * (mde-* crates) which DO support @media. GTK panels rely on the
+ * existing GTK animation-disable mechanism via
+ * `gtk-settings::gtk-enable-animations = false` instead.
+ *
+ * The density rules above have no transitions to disable; this comment
+ * documents the platform-policy choice so a future reader doesn't try
+ * to re-add the @media block here.
+ */

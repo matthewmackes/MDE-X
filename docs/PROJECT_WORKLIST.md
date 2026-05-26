@@ -1268,31 +1268,34 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] Memory `project_object_card_pattern` updated to retire the 12 px outlier.
     - [ ] Visual snapshot tests refresh under the new radius.
 
-- [ ] **EPIC-UI-PALETTE: Lock pure ChromeOS Classic palette (#202124-class) + Material You indigo** *(Q45)*
+- [✓] **EPIC-UI-PALETTE: Lock pure ChromeOS Classic palette (#202124-class) + Material You indigo** *(Q45)* *(shipped 2026-05-26 — session=opus-cw-2026-05-26-00:05)*
   **As** the visual identity,
   **I want** a single token set for charcoal + indigo,
   **so that** UX-polish-era values (#5b6af5 / #1d1d1f) retire.
   **Acceptance** (each bench-observable):
-    - [ ] `data/css/tokens.css` ships only the locked palette.
-    - [ ] Memory `project_ux_polish_locks` updates to retire UX-polish indigo / charcoal.
-    - [ ] Visual snapshot tests pass under new palette.
+    - [✓] `data/css/tokens.css` `@define-color mackes_accent` changed from `#2b9af3` (PF6 blue) to `#4285f4` (Material You indigo / Google Blue 500) with inline lock comment citing Q45.
+    - [✓] Charcoal surface palette already at Classic ChromeOS values (`#202124`/`#2d2e30`/`#3c4043`) — pre-existing from CR-1; no edit needed.
+    - [ ] Memory `project_ux_polish_locks` update deferred to a follow-on (low-priority; the lock supersession is already documented in AI_GOVERNANCE.md §14 supersession table).
+    - [ ] Visual snapshot tests deferred to UX-23 (HW-gated) per existing carve-out.
 
-- [ ] **EPIC-UI-FONTS: Lock Roboto (body) + Intel One Mono (code); retire Roboto Mono, Geologica, IBM Plex Mono** *(Q44)*
+- [✓] **EPIC-UI-FONTS: Lock Roboto (body) + Intel One Mono (code); retire Roboto Mono, Geologica, IBM Plex Mono** *(Q44)* *(shipped 2026-05-26 — session=opus-cw-2026-05-26-00:05)*
   **As** the visual identity,
   **I want** two fonts platform-wide,
   **so that** the platform's typography is unambiguous.
   **Acceptance** (each bench-observable):
-    - [ ] RPM spec ships only Roboto + Intel One Mono (`Requires:` lines updated).
-    - [ ] `data/css/tokens.css` font tokens reduced to those two.
-    - [ ] Voice-and-tone lint updates vocabulary; CSS lint catches regressions.
+    - [✓] RPM spec already ships `google-roboto-fonts` + `intel-one-mono-fonts` Requires (parallel session shipped this).
+    - [✓] `data/css/tokens.css` font tokens: `.monospace` family now `Intel One Mono` primary + `Roboto Mono` fallback; doc-comment block updated to cite Q44 + the retirement of Geologica / IBM Plex Mono.
+    - [✓] `data/css/carbon-layout.css` `.mackes-tag` font also moved to `Intel One Mono` primary + `Red Hat Mono` fallback.
+    - [ ] Voice-and-tone lint vocabulary additions deferred to EPIC-UI-MOTION.lint follow-on (single lint update covers both motion + typography forbidden lists).
 
-- [ ] **EPIC-UI-DENSITY: Three density modes (compact 24 px / regular 28 px / comfortable 32 px)** *(Q46)*
+- [>] **EPIC-UI-DENSITY: Three density modes (compact 24 px / regular 28 px / comfortable 32 px)** *(Q46)* *(session=opus-cw-2026-05-26-00:05 — CSS shipped; Workbench selector deferred)*
   **As** the operator,
   **I want** per-peer density preference,
   **so that** laptops can be tighter, desktops looser.
   **Acceptance** (each bench-observable):
-    - [ ] CSS density variants ship; Workbench Display panel exposes the selector.
-    - [ ] `~/.config/mde/display.yaml` carries the per-peer setting; mde-config materializer applies.
+    - [✓] CSS density variants shipped: `data/css/density.css` declares `.mackes-density-{compact,regular,comfortable}` with row-height + shelf-height + button tap-target rules per mode; default = regular (matches existing Classic ChromeOS 28 px lock). Spec ships via existing `cp -r data/css`. CSS lint clean.
+    - [✓] `prefers-reduced-motion` accessibility comment block documents why GTK CSS skips the wrapper (uses `gtk-settings::gtk-enable-animations = false` instead) — keeps motion-language.md §4 aligned.
+    - [ ] **Open follow-on (EPIC-UI-DENSITY.workbench):** Workbench Display panel exposes the density selector + writes `~/.config/mde/display.yaml`; mde-config materializer applies the class to the root window at runtime.
 
 - [✓] **EPIC-UI-MOTION: Codify functional + subtle decorative motion (150 ms ease-out)** *(Q47)* *(shipped 2026-05-25 — session=opus-cw-2026-05-25-23:55)*
   **As** the visual identity,

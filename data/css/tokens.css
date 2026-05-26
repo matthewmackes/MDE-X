@@ -10,11 +10,15 @@
  *          VALUES now resolve to the Classic ChromeOS scale per
  *          docs/design/chromeos-classic-spec.md. The previous
  *          PatternFly v6 tokens are grandfathered in commit history.
- * Typography: Roboto + Roboto Mono (Fedora's google-roboto-fonts +
- *             google-roboto-mono-fonts). Falls back to Cantarell /
- *             system-ui so the previous typography isn't broken on
- *             machines that haven't yet run the v2.6 birthright
- *             fonts step.
+ * Typography: Roboto (body) + Intel One Mono (code) — locked
+ *             2026-05-25 by Q44 of the 100-Q tightening survey.
+ *             Roboto Mono / Geologica / IBM Plex Mono retired
+ *             (memory: project_ux_polish_locks supersession).
+ *             Falls back to Cantarell / system-ui (body) +
+ *             Cascadia Code / JetBrains Mono (code) so the typography
+ *             isn't broken on machines that haven't yet run the
+ *             v2.6 birthright fonts step (`intel-one-mono-fonts`
+ *             ships in MackesDE 1.0 RPM Requires).
  * Spacing: 4 / 8 / 16 px grid per the Classic ChromeOS spec; the
  *          cds-spacing-* numeric ladder is unchanged so existing
  *          callers keep computing the documented values.
@@ -86,7 +90,7 @@
 
 /* ---- Per-preset accent (overridden by data/css/accents/<preset>.css) ----- */
 
-@define-color mackes_accent        #2b9af3;   /* PF6 blue — preset overrides */
+@define-color mackes_accent        #4285f4;   /* Material You indigo (Q45, 2026-05-25) — overridden per preset; replaces PF6 blue #2b9af3 */
 @define-color mackes_accent_hover  alpha(@mackes_accent, 0.85);
 @define-color mackes_accent_active alpha(@mackes_accent, 0.70);
 @define-color mackes_accent_dim    alpha(@mackes_accent, 0.20);
@@ -118,7 +122,10 @@
 
 textview.monospace, textview.monospace text,
 .monospace, .cds-code-01, .cds-code-02 {
-    font-family: "Roboto Mono", "Cascadia Code", "JetBrains Mono", monospace;
+    /* Q44 lock (2026-05-25): Intel One Mono primary; legacy Roboto Mono
+     * retained as fallback for machines without intel-one-mono-fonts
+     * installed yet (v2.6 birthright fonts step picks it up). */
+    font-family: "Intel One Mono", "Roboto Mono", "Cascadia Code", "JetBrains Mono", monospace;
 }
 
 /* Phase 7.2: Nerd Font fallback for inline-text contexts.

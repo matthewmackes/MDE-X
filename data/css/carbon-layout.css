@@ -251,10 +251,11 @@
 .mackes-tag {
     background-color: @cds_bg_layer_02;
     color: @cds_text_primary;
-    font-family: "Red Hat Mono", monospace;
+    /* Q44 lock (2026-05-25): Intel One Mono primary; Red Hat Mono fallback. */
+    font-family: "Intel One Mono", "Red Hat Mono", monospace;
     font-size: 11px;
     padding: 1px 8px;
-    border-radius: 12px;
+    border-radius: 12px;  /* pill — functional shape, not the Q42 card radius */
 }
 
 .mackes-tag.accent  { background-color: @mackes_accent_soft;     color: @mackes_accent; }
