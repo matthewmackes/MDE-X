@@ -190,17 +190,34 @@ locked work appears under **Active** with `[ ] Open`.
 - [ ] **Portal-39: 15 default wallpapers** (5 curated + animated M + 10 community, R2-Q82) with mesh-sync toggle (R2-Q81).
 - [ ] **Portal-40: Easter eggs** (R2-Q91) — 7-click M-watermark = credits + brand-story; `#!` tag-name = CrunchBang ASCII tribute; Konami code = chiptune dev console.
 
-#### VOIP-* — SIP / VoIP layer (Round 9, R8-Q86+ R9-Q1..Q20)
+#### VOIP-* — SIP / VoIP layer (Round 9 + R11 lock 2026-05-26 retires Kamailio)
 
-- [ ] **VOIP-1: Kamailio in podman container per peer** (R9-Q1); mded supervises; container-local creds + podman secret-management (R9-Q2).
-- [ ] **VOIP-2: Vitelity sub-account auto-registration** on Birthright completion; mesh-internal peer registration via Kamailio inter-tie.
-- [ ] **VOIP-3: Bare-hostname dialing** resolves `<host>.mesh.mde` via mesh DNS (R9-Q3); intra-mesh calls bypass Vitelity.
-- [ ] **VOIP-4: Smart external routing** — pick peer with best Vitelity latency at moment of dial (R9-Q4).
-- [ ] **VOIP-5: Focused-peer-only inbound ring** (R9-Q5); peer-focus detection via mde-portal.
+**R11 architecture lock 2026-05-26:** Kamailio-per-peer container model is
+retired. PJSIP registers directly to a per-peer Vitelity sub-account using
+multi-account support — no SIP server in the signaling path. Trades: smart
+external routing demoted to operator-explicit override; selective inbound
+fork moves to Vitelity SimRing + PJSIP focus filter; group-call mixing
+needs an ephemeral mediasoup bridge per call; multi-mesh SIP-over-Matrix
+federation deferred past 1.0. Supersedes R9-Q1, R9-Q2, R9-Q4, R9-Q5, R9-Q9
+in their original Kamailio-dependent forms; R9-Q3 / R9-Q6..Q8 / R9-Q10..Q17
+/ R9-Q19 unchanged. See [[v6_0_mde_portal]] §3.4 for full rationale.
+
+**Podman stays in the architecture (R11 clarification 2026-05-26)** — for
+the user-managed CONTAINER-* feature in Control layer only. Birthright
+provisions ZERO containers. The VoIP stack itself runs as native
+processes inside `mded`/`mde-portal`; only the on-demand mediasoup
+bridge from VOIP-9 may spawn a container, and that's at call-start /
+call-end lifecycle, never at install or login.
+
+- [ ] **VOIP-1: PJSIP multi-account configuration** (R11) — each peer's `mded` starts PJSIP with two accounts: `sip:<user>@mesh.mde` (mesh) + `sip:<sub-account>@sip.vitelity.net` (PSTN). Account lifecycle managed by `mded`; both auto-restart on credential change. Supersedes Kamailio-container task (R9-Q1).
+- [ ] **VOIP-2: Vitelity sub-account direct registration on Birthright** (R11 supersedes R9-Q2) — Birthright provisions the sub-account and writes creds to `~/.config/mde/voip/vitelity.toml` (mode 0600). PJSIP registers directly; **no container deployed at any point** (no Kamailio, no mediasoup, nothing — Birthright is container-free per R11 clarification). Operator-side: Vitelity admin must add the sub-account to the main DID's SimRing hunt-group (documented in Birthright wizard step).
+- [ ] **VOIP-3: Bare-hostname dialing** resolves `<host>.mesh.mde` via mesh DNS or GlusterFS contact file (R9-Q3); intra-mesh INVITE goes peer→peer directly, no relay.
+- [ ] **VOIP-4: Vitelity-link RTT telemetry + operator route override** (R11 supersedes R9-Q4 smart-routing) — `mded` measures own Vitelity registration RTT every 60s and broadcasts via Bus topic `voip/link-rtt/<peer>`. Dialer UI shows local RTT and, if a peer reports markedly better RTT (>50ms delta), offers a one-click "Place via <peer>?" override that re-INVITEs the call through that peer's SIP trunk. Auto-routing is **off** by default — operator-explicit only.
+- [ ] **VOIP-5: Vitelity SimRing + PJSIP focus filter** (R11 supersedes R9-Q5 Kamailio fork) — Vitelity-side SimRing hunt-group rings all peers' sub-accounts in parallel. Each peer's PJSIP subscribes to Bus topic `portal/focused-peer`; if `focused_peer != self`, PJSIP responds `486 Busy Here` immediately. Vitelity advances to next sub-account; the focused peer is the only one that actually answers. ULID-tiebreaker when two peers both claim focus (lower ULID wins).
 - [ ] **VOIP-6: Vitelity voicemail integration** → mesh-home `~/Documents/Voicemail/<peer>/<iso8601>.mp3` + transcript card in calls/ activity (R9-Q6).
 - [ ] **VOIP-7: PJSIP-based dialer + active call UI** as Portal-full overlay (R8-Q86, R9-Q8). Dialpad + recent-calls landing (R10-Q10).
 - [ ] **VOIP-8: Video stack** — VP9 default + H.264 fallback + AV1 opt-in + SRTP + adaptive 90p–1080p (R9-Q7).
-- [ ] **VOIP-9: Group calls** via per-call best-uplink any-peer bridge, 8-participant cap (R9-Q9).
+- [ ] **VOIP-9: Group calls via ephemeral mediasoup bridge** (R11 supersedes R9-Q9 Kamailio focus) — 1:1 calls go pure P2P PJSIP. Calls with >2 participants elect the peer with best uplink (via VOIP-4 RTT telemetry); `mded` on that peer spawns a `mediasoup` container scoped to the call (`podman run --rm` on demand, not at startup). Other participants re-INVITE to the bridge URI advertised via Bus. Container torn down on last-leave (`podman rm`). 8-participant cap preserved. This is the **only** container the VoIP stack ever spawns, and it lives strictly for the call's duration — Birthright never provisions it.
 - [ ] **VOIP-10: Per-peer recording toggle** in Customize, off by default (R9-Q10); recordings saved to `~/Documents/Call-recordings/<peer>/<iso8601>.{mka,mkv}`.
 - [ ] **VOIP-11: Vitelity SMS API** → conversational cards in calls/ activity, inline replies, mesh-synced threads (R9-Q11).
 - [ ] **VOIP-12: Contacts as universal cards** — type='contact', stored in mesh-home `~/.local/share/mde/contacts/<ulid>.json`, fully participate in tag system (R9-Q12).
@@ -209,8 +226,8 @@ locked work appears under **Active** with `[ ] Open`.
 - [ ] **VOIP-15: Adaptive bitrate cascade** with 'connection adapting' chip (R9-Q15).
 - [ ] **VOIP-16: 5 ringtones** + per-contact override (R9-Q16) via right-click contact card → 'Set ringtone…'.
 - [ ] **VOIP-17: Encryption** — Nebula intra-mesh + SRTP-AES external (R9-Q17); transport-encryption label on every call edge (R8-Q19).
-- [ ] **VOIP-18: Multi-mesh SIP-over-Matrix bridge** (R9-Q18) — federation between MDE meshes via Matrix bridges.
-- [ ] **VOIP-19: NAT traversal** — inherits Nebula UDP-hole-punching intra-mesh + SIP UDP/TLS with rport for external Vitelity (R9-Q19).
+- [ ] **VOIP-18: Multi-mesh SIP-over-Matrix bridge — DEFERRED past 1.0** (R11 reframes R9-Q18). Without Kamailio there's no per-peer SIP server to host `matrix-appservice-voip`. Reinstating requires either single-gateway-peer asymmetry (one peer runs the bridge, breaking centerlessness) or an alternative federation mechanism (e.g., Matrix-native VoIP without SIP bridging). Open question — not 1.0 scope.
+- [ ] **VOIP-19: NAT traversal** — Nebula UDP-hole-punching intra-mesh + PJSIP SIP UDP/TLS with rport + STUN for external Vitelity registration (R9-Q19).
 - [ ] **VOIP-20: Active call edge visualization** on globe (R8-Q85) — living purple edge + phone-glyph midpoint + audio-sync pulse + 1Hz throb; same for any SIP client activity.
 
 #### MESH-* — mesh-view subsystem (R7 + R8, ~100 decisions, 5 subgroups)
