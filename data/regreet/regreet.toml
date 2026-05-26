@@ -1,0 +1,48 @@
+# DM-3 (v2.7, locked 2026-05-24) — regreet config for the MDE greeter.
+#
+# Drops in at /etc/regreet/regreet.toml as %config(noreplace) so
+# operator edits survive package upgrades.
+#
+# Locks realized here come from the DM 10-Q survey:
+#   - Type the username on every boot (no auto-fill)
+#   - Don't remember the last session either
+#   - Charcoal background (#1d1d1f)
+#   - Greeter header reads "Mackes Desktop Environment"
+#   - Session picker shows the MDE wayland session only
+#   - Three power controls visible (shutdown / reboot / suspend)
+#
+# Note on the session filter: regreet itself doesn't (yet) ship a
+# session-name allow-list. Per the DM-3 task body's fallback path,
+# we point `sessions_dir` at a private path that contains only
+# `mde.desktop` (DM-5's birthright step provisions that dir). The
+# system-wide /usr/share/wayland-sessions/ is intentionally bypassed
+# so a stray third-party `*.desktop` doesn't appear in the picker.
+
+[appearance]
+greeting_msg = "Mackes Desktop Environment"
+# Read sessions exclusively from the MDE-curated dir. DM-5's
+# `apply_display_manager()` step creates this dir and symlinks
+# `mde.desktop` into it; nothing else lands there.
+sessions_dir = "/var/lib/mde/wayland-sessions"
+
+[background]
+# Charcoal — matches the Classic ChromeOS visual lock palette
+# (see project_chromeos_classic_visual_lock memory). The greeter
+# is the first surface a user sees; consistent palette from
+# boot-theater → greeter → desktop is part of the locked feel.
+style = "color"
+color = "#1d1d1f"
+
+[commands]
+# Three power controls — every regreet release uses the same
+# `reboot_command` / `poweroff_command` keys; suspend is a
+# bonus the picker exposes if `suspend_command` is set.
+reboot_command   = ["systemctl", "reboot"]
+poweroff_command = ["systemctl", "poweroff"]
+
+[widget.clock]
+# Show the clock at the top so the greeter doubles as a "wake up
+# and check the time" surface. ISO-style with day-of-week —
+# matches the breadcrumb clock segment from v6.0 design.
+format = "%A · %Y-%m-%d · %H:%M"
+resolution = "5s"

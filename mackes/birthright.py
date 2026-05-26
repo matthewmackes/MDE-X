@@ -1492,26 +1492,158 @@ def apply_gluster_bootstrap(_preset: Preset) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
-def apply_lightdm(preset: Preset) -> List[str]:
-    """Configure the LightDM GTK greeter to match the active preset.
+def apply_display_manager(preset: Preset) -> List[str]:
+    """DM-5 (v2.7) — swap the systemd display-manager default from
+    LightDM to greetd. Replaces apply_lightdm: LightDM is being
+    retired in favor of greetd + regreet on Wayland (see DM-1..DM-8
+    epic).
 
-    This was previously folded into apply_appearance — promoted to its
-    own step in v1.6.0 so the wizard rail surfaces it explicitly.
-    Writes /etc/lightdm/lightdm-gtk-greeter.conf via AdminSession so
-    the sudoers NOPASSWD drop-in covers it without a prompt.
+    Idempotent: each `systemctl` call checks the current state and
+    no-ops when no change is needed. Re-running on an already-
+    converged peer reports `display-manager: already on greetd`
+    and exits clean.
+
+    Profile-aware: skips `lighthouse` (headless lighthouses have no
+    graphical target) and `headless` (same). Only the `full` profile
+    runs the swap.
+
+    Active-graphical-session safety: when `systemctl is-active
+    graphical.target` is already true, we DON'T `systemctl start
+    greetd.service` — that would log out the operator mid-install.
+    Instead we enable greetd + set the default target, and the
+    operator's NEXT boot lands on greetd. The wizard's "Reboot"
+    step (or operator-initiated reboot) finishes the transition.
     """
     actions: List[str] = []
-    try:
-        from mackes.lightdm import configure_from_preset
-        from pathlib import Path as _P
-        wp = preset.appearance.get("wallpaper") if preset.appearance else None
-        wp_path = _P(str(wp)) if wp else None
-        actions.extend(configure_from_preset(preset.name, wallpaper=wp_path))
-    except Exception as e:
-        actions.append(f"lightdm: {e}")
+    profile = (preset.profile or "full") if preset else "full"
+    if profile in ("lighthouse", "headless"):
+        actions.append(
+            f"display-manager: profile={profile} has no graphical target — skipping"
+        )
+        for line in actions:
+            log_action(line)
+        return actions
+
+    # ---- 1. Disable + stop LightDM if present + active --------------
+    if _systemctl_unit_exists("lightdm.service"):
+        if _systemctl_is_enabled("lightdm.service"):
+            rc, _ = _run_root(["systemctl", "disable", "lightdm.service"], timeout=30)
+            actions.append(
+                "display-manager: lightdm.service disabled"
+                if rc == 0
+                else f"display-manager: lightdm.service disable failed (rc={rc})"
+            )
+        else:
+            actions.append("display-manager: lightdm.service already disabled")
+        if _systemctl_is_active("lightdm.service"):
+            # Only stop LightDM if we're on a TTY install. On an
+            # active graphical session (X11 or Wayland LightDM
+            # greeter still up) stopping it kills the operator's
+            # session — defer to next boot.
+            if not _systemctl_is_active("graphical.target"):
+                rc, _ = _run_root(["systemctl", "stop", "lightdm.service"], timeout=30)
+                actions.append(
+                    "display-manager: lightdm.service stopped"
+                    if rc == 0
+                    else f"display-manager: lightdm.service stop failed (rc={rc})"
+                )
+            else:
+                actions.append(
+                    "display-manager: lightdm.service still active but "
+                    "graphical.target is up — deferring stop to next boot"
+                )
+        else:
+            actions.append("display-manager: lightdm.service already stopped")
+    else:
+        actions.append("display-manager: lightdm.service not installed — skipping disable")
+
+    # ---- 2. Enable greetd (idempotent) ------------------------------
+    if not _systemctl_unit_exists("greetd.service"):
+        actions.append(
+            "display-manager: greetd.service not installed — DM-1 should have "
+            "added the `greetd` RPM; aborting swap"
+        )
+        for line in actions:
+            log_action(line)
+        return actions
+    if _systemctl_is_enabled("greetd.service"):
+        actions.append("display-manager: greetd.service already enabled")
+    else:
+        rc, _ = _run_root(["systemctl", "enable", "greetd.service"], timeout=30)
+        actions.append(
+            "display-manager: greetd.service enabled"
+            if rc == 0
+            else f"display-manager: greetd.service enable failed (rc={rc})"
+        )
+
+    # ---- 3. Start greetd, but only on a TTY install ------------------
+    if _systemctl_is_active("greetd.service"):
+        actions.append("display-manager: greetd.service already active")
+    elif _systemctl_is_active("graphical.target"):
+        actions.append(
+            "display-manager: graphical.target already active — deferring "
+            "`systemctl start greetd.service` to next boot"
+        )
+    else:
+        rc, _ = _run_root(["systemctl", "start", "greetd.service"], timeout=30)
+        actions.append(
+            "display-manager: greetd.service started"
+            if rc == 0
+            else f"display-manager: greetd.service start failed (rc={rc})"
+        )
+
+    # ---- 4. Set default to graphical.target -------------------------
+    rc, out = _run(["systemctl", "get-default"], timeout=10)
+    current = out.strip() if rc == 0 else ""
+    if current == "graphical.target":
+        actions.append("display-manager: default target already graphical.target")
+    else:
+        rc, _ = _run_root(
+            ["systemctl", "set-default", "graphical.target"], timeout=30
+        )
+        actions.append(
+            "display-manager: default target set to graphical.target"
+            if rc == 0
+            else f"display-manager: set-default failed (rc={rc})"
+        )
+
     for line in actions:
         log_action(line)
     return actions
+
+
+def _systemctl_unit_exists(unit: str) -> bool:
+    """Return True when systemd knows about `unit` (loaded OR
+    not-found-but-disabled-vendor-preset both count as "exists" for
+    our purposes — the unit file is at least on disk somewhere
+    systemd will look). Pure read; no privilege needed.
+    """
+    rc, out = _run(["systemctl", "list-unit-files", unit, "--no-legend"], timeout=10)
+    if rc != 0:
+        return False
+    return unit in out
+
+
+def _systemctl_is_enabled(unit: str) -> bool:
+    """systemctl is-enabled <unit> — return True on `enabled` or
+    `enabled-runtime`; False on `disabled` / `masked` / not found.
+    Pure read.
+    """
+    rc, out = _run(["systemctl", "is-enabled", unit], timeout=10)
+    if rc != 0:
+        return False
+    state = out.strip()
+    return state in ("enabled", "enabled-runtime", "static", "alias")
+
+
+def _systemctl_is_active(unit: str) -> bool:
+    """systemctl is-active <unit> — return True on `active`;
+    False on inactive / failed / not found. Pure read.
+    """
+    rc, out = _run(["systemctl", "is-active", unit], timeout=10)
+    if rc != 0:
+        return False
+    return out.strip() == "active"
 
 
 # ---------------------------------------------------------------------------

@@ -683,6 +683,23 @@ install -D -m 0644 data/sway/config.d/mackes-defaults.conf \
 install -D -m 0644 data/greetd/config.toml \
     %{buildroot}%{_datadir}/mde/greetd/config.toml
 
+# BUS-1.2 (v6.x Mackes Bus) — ntfy broker config template. The
+# mde-bus daemon renders this against the live Nebula overlay IP
+# at startup (Tera). Per design doc §line 210 the broker uses
+# plain HTTP — Nebula transport encryption + flat-trust mesh
+# remove the need for TLS at the broker layer.
+install -D -m 0644 data/ntfy/server.yml.tmpl \
+    %{buildroot}%{_datadir}/mde/ntfy/server.yml.tmpl
+
+# DM-3 (v2.7) — regreet config + stylesheet. The .toml installs as
+# %config(noreplace) so operator edits survive package upgrades;
+# the .css ships under /usr/share/mde/regreet/ (immutable theme)
+# and is sourced from regreet.toml via an absolute path.
+install -D -m 0644 data/regreet/regreet.toml \
+    %{buildroot}%{_sysconfdir}/regreet/regreet.toml
+install -D -m 0644 data/regreet/regreet.css \
+    %{buildroot}%{_datadir}/mde/regreet/regreet.css
+
 # KDC2-1.10 — Connect routing policy default. Ships as a
 # %config(noreplace) so operator edits survive package upgrades.
 install -D -m 0644 data/etc/mde/connect/policy.toml \
@@ -1190,6 +1207,12 @@ fi
 %config(noreplace) %{_sysconfdir}/netdata/health.d/mackesd.conf
 %config(noreplace) %{_sysconfdir}/netdata/health.d/workstation.conf
 %config(noreplace) %{_sysconfdir}/netdata/health.d/mde-suppressions.conf
+# DM-3 (v2.7) — regreet config + stylesheet. The .toml is
+# %config(noreplace) so operator tweaks survive upgrades; the
+# .css under /usr/share/mde/regreet/ is covered by the data
+# catch-all below.
+%dir %{_sysconfdir}/regreet
+%config(noreplace) %{_sysconfdir}/regreet/regreet.toml
 # DM-2 (v2.7) — greetd substrate config lives at
 # /usr/share/mde/greetd/config.toml (covered by the existing
 # %{_datadir}/%{name}/ catch-all below). Lives there rather
@@ -1294,10 +1317,11 @@ fi
 # Vendored icon themes — same reason.
 %{_datadir}/icons/Black-Sun/
 %{_datadir}/icons/Mackes-Carbon/
-# GVFS mesh-mount handler + thumbnailer — file-manager-only
-# surfaces; the daemon doesn't read them.
-%{_datadir}/gvfs/mounts/mesh.mount
-%{_datadir}/thumbnailers/mackes-mesh.thumbnailer
+# DEAD-2.11 (2026-05-26) retired the gvfs mesh-mount handler +
+# mackes-mesh thumbnailer along with mesh_browser.py. The install
+# lines were dropped in that commit; these %files entries were
+# left dangling and broke the rpm build (file-not-found in
+# BUILDROOT). Retired here as a hygiene fix.
 # Wayland session entry — only useful when a DM is on the box.
 %{_datadir}/wayland-sessions/mde.desktop
 # v6.0 Portal-1 — mde-portal unified shell + user service.

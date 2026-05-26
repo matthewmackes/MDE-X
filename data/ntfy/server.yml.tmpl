@@ -1,0 +1,44 @@
+# BUS-1.2 — ntfy broker configuration template.
+#
+# Rendered by `mde_bus::broker::render_config` against the live
+# Nebula overlay IP read from /var/lib/mackesd/nebula/overlay-ip.
+# Written to <cache>/mde/bus/ntfy/server.yml and handed to
+# `ntfy serve --config <rendered-path>` by the supervisor.
+#
+# Per design doc `docs/design/v6.x-mackes-bus.md` line 210
+# (Round 21 lock): encryption is intentionally NONE at the broker
+# layer — Nebula provides transport encryption + the mesh is flat-
+# trust. Binding to the overlay IP makes the broker unreachable
+# from the underlay; that's the security boundary.
+#
+# Persistence rides BUS-1.4's GFS-mesh-home file tree (rendered as
+# the `cache-file` pointer + `cache-startup-queries`). BUS-1.2
+# ships the broker; BUS-1.4 plugs in the actual replicated cache.
+
+# Bind on the Nebula overlay IP only. {{overlay_ip}} is rendered
+# by the supervisor before `ntfy serve` is spawned. If the publish
+# file is missing (pre-enrollment peer), the supervisor short-
+# circuits before rendering and doesn't start ntfy at all.
+listen-http: "{{ overlay_ip }}:8443"
+
+# Per-peer file-backed cache so messages survive a daemon restart.
+# Lives in the user's cache dir today; BUS-1.4 moves it onto GFS
+# mesh-home for fleet-wide replication.
+cache-file: "{{ cache_dir }}/ntfy.db"
+cache-duration: "168h"  # 7 days — matches BUS-1.9 default retention.
+
+# Single-peer broker — auth is open inside the mesh per the flat-
+# trust directive ([[project_open_mesh_directive]]). Cross-mesh
+# bridges are BUS-3+ territory.
+auth-default-access: "read-write"
+
+# Behavior-of-record logging. Stdout JSON so the supervisor's
+# tracing layer captures it.
+log-level: "info"
+log-format: "json"
+
+# Disable attachment uploads + email forwarding — out of v1 scope
+# per the design doc (features #11, #13, #16, #18, #23, #25, #26
+# were all cut in the 104-Q poll).
+attachment-cache-dir: ""
+smtp-sender-addr: ""

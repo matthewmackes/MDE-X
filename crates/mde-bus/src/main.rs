@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
-use mde_bus::{seed, template::Renderer, topic::Registry};
+use mde_bus::{broker, seed, template::Renderer, topic::Registry};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -96,16 +96,49 @@ fn build_seeded_registry() -> anyhow::Result<Registry> {
 
 async fn run_daemon() -> anyhow::Result<()> {
     let reg = build_seeded_registry()?;
-    tracing::info!(
-        topics = reg.len(),
-        "mackes-bus daemon ready; awaiting shutdown signal"
-    );
+    // BUS-1.2 — try to spawn the ntfy broker. Missing prereqs
+    // (pre-enrollment peer, ntfy not installed, template not
+    // shipped) are non-fatal: the daemon keeps idling and the
+    // outer mackesd::bus_supervisor will respawn us on its next
+    // restart cycle when prereqs land.
+    let broker_cfg = broker::BrokerConfig::default();
+    let broker_outcome = broker::start_if_ready(&broker_cfg).await?;
+    let mut broker_child = match broker_outcome {
+        broker::BrokerOutcome::Running { child, overlay_ip } => {
+            tracing::info!(
+                topics = reg.len(),
+                overlay_ip = %overlay_ip,
+                "mackes-bus daemon ready (broker live); awaiting shutdown"
+            );
+            Some(child)
+        }
+        broker::BrokerOutcome::Skipped(reason) => {
+            tracing::info!(
+                topics = reg.len(),
+                skip_reason = %reason,
+                "mackes-bus daemon ready (broker skipped — non-fatal); awaiting shutdown"
+            );
+            None
+        }
+    };
     // Heartbeat tick — every 60s log a single line so operators can
     // see the daemon is alive in `journalctl -u mde-bus`.
     let mut ticker = tokio::time::interval(Duration::from_secs(60));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
+        // When the broker is running, also wait on its exit — if
+        // ntfy crashes we propagate the exit upward so the outer
+        // mackesd supervisor restarts us with fresh prereq checks.
+        let broker_wait: std::pin::Pin<
+            Box<dyn std::future::Future<Output = std::io::Result<std::process::ExitStatus>> + Send>,
+        > = if let Some(c) = broker_child.as_mut() {
+            Box::pin(c.wait())
+        } else {
+            // Pending future so the select! arm is silent when no
+            // broker is running.
+            Box::pin(std::future::pending())
+        };
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("SIGINT received; shutting down");
@@ -115,10 +148,32 @@ async fn run_daemon() -> anyhow::Result<()> {
                 tracing::info!("SIGTERM received; shutting down");
                 break;
             }
+            status = broker_wait => {
+                match status {
+                    Ok(s) => tracing::warn!(
+                        exit_code = ?s.code(),
+                        "ntfy broker exited; mde-bus shutting down so the outer supervisor can respawn"
+                    ),
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "wait() on ntfy broker failed; shutting down"
+                    ),
+                }
+                broker_child = None;
+                break;
+            }
             _ = ticker.tick() => {
-                tracing::info!(topics = reg.len(), "heartbeat");
+                let broker_state = if broker_child.is_some() { "live" } else { "skipped" };
+                tracing::info!(topics = reg.len(), broker = broker_state, "heartbeat");
             }
         }
+    }
+    // Best-effort terminate the child on shutdown so we don't leak
+    // an orphan ntfy process. `kill_on_drop` handles it on drop too,
+    // but explicit is friendlier in logs.
+    if let Some(mut child) = broker_child {
+        tracing::info!("terminating ntfy broker child");
+        let _ = child.kill().await;
     }
     Ok(())
 }

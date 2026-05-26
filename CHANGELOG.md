@@ -5,6 +5,40 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**Display manager: LightDM → greetd + regreet (DM-3 + DM-5 + DM-8, 2026-05-26)**
+- The greeter is now greetd hosted by cage with regreet as the
+  GTK4 UI. Boot-theater → greeter → desktop reads as one
+  continuous environment (charcoal `#1d1d1f` background, Roboto,
+  indigo `#5b6af5` accents).
+- New birthright step `apply_display_manager()` swaps the systemd
+  default DM idempotently. LightDM stays installed; rollback is
+  two `systemctl` commands per `docs/help/display-manager.md`.
+- Greeter behavior locks: type the username every login (no
+  remember_user), MDE-only session picker, three power controls
+  visible bottom-right, greeting header reads "Mackes Desktop
+  Environment."
+- Removed: `apply_lightdm` birthright step. Replaced wholesale by
+  `apply_display_manager`; no shim retained.
+- Docs: new `docs/help/display-manager.md` (operator-facing) +
+  `docs/design/v2.7-display-manager.md` (10 design locks canonical
+  copy).
+
+**BUS-1.2 — per-peer ntfy broker over Nebula (v6.x Mackes Bus, 2026-05-26)**
+- `mde-bus daemon` now supervises an upstream `ntfy` subprocess
+  bound to the Nebula overlay IP (the same publish file
+  `nebula_supervisor` writes). Health endpoint reachable from
+  inside the mesh, silently unreachable from the underlay.
+- Plain HTTP at the broker layer per the BUS design lock —
+  Nebula provides transport encryption + the mesh is flat-trust,
+  so no TLS cert is needed.
+- Graceful degradation: pre-enrollment peers, dev boxes without
+  `ntfy` on PATH, or hosts missing the config template all log a
+  single line and skip the spawn. The outer
+  `mackesd::workers::bus_supervisor` respawns the daemon when
+  prereqs land.
+- Config template at `/usr/share/mde/ntfy/server.yml.tmpl`
+  (Tera-rendered against `overlay_ip` + `cache_dir`).
+
 **Transport abstraction Phase 1 (EPIC-RETIRE-TRANSPORT, 2026-05-26)**
 - New `NebulaMode` enum in `mackes-transport` (`Direct` /
   `Https443` / `LighthouseRelay`) + new `TransportKind::is_nebula()`

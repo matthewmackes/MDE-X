@@ -48,7 +48,7 @@ from mackes.logging import log_action
 from mackes.birthright import (
     apply_apps, apply_clipboard_daemon, apply_dnf_update, apply_drawer,
     apply_enforce_i3, apply_flathub, apply_fleet, apply_fonts,
-    apply_gluster_bootstrap, apply_hotkey, apply_lightdm, apply_media_clients,
+    apply_display_manager, apply_gluster_bootstrap, apply_hotkey, apply_media_clients,
     apply_netdata_monitor, apply_panel_archive, apply_panel_layout,
     apply_panel_swap, apply_plymouth, apply_qnm, apply_remote_desktop,
     apply_sway_config, apply_themes, apply_third_party_repos,
@@ -349,7 +349,7 @@ class ApplyPage(Gtk.Box):
             _Step("Network",           lambda: apply_network(merged)),
             _Step("Panel",             lambda: apply_panel(merged)),
             _Step("Themes",            lambda: apply_themes(merged)),
-            _Step("LightDM greeter",   lambda: apply_lightdm(merged)),
+            _Step("Display manager",   lambda: apply_display_manager(merged)),
             _Step("Fonts",             lambda: apply_fonts(merged)),
             _Step("Apps",              lambda: apply_apps(merged)),
             _Step("Panel layout",      lambda: apply_panel_layout(merged)),

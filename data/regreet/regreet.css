@@ -1,0 +1,121 @@
+/* DM-3 (v2.7) — regreet greeter styling.
+ *
+ * GTK4 CSS applied on top of the regreet default theme. Realizes
+ * the visual side of the 10-Q DM survey locks: charcoal background,
+ * Roboto type, indigo accents, three power glyphs bottom-right,
+ * no user-list (type-username-every-time enforces it).
+ *
+ * The Classic ChromeOS visual lock (see
+ * project_chromeos_classic_visual_lock memory) governs every
+ * surface — the greeter included. Colors + density mirror the
+ * desktop's so the boot-theater → greeter → desktop sequence
+ * reads as one continuous environment.
+ */
+
+/* ── Window chrome ─────────────────────────────────────────── */
+window,
+.background {
+    background-color: #1d1d1f;
+    color: #e8eaed;
+    font-family: "Roboto", sans-serif;
+    font-size: 14px;
+}
+
+/* ── Greeting header ───────────────────────────────────────── */
+.greeting,
+.greeting-message {
+    color: #e8eaed;
+    font-size: 28px;
+    font-weight: 300;
+    letter-spacing: 0.5px;
+    margin-bottom: 32px;
+}
+
+/* ── Username + password entries ───────────────────────────── */
+entry {
+    background-color: #2d2d2f;
+    color: #e8eaed;
+    border: 1px solid #3c4043;
+    border-radius: 4px;
+    padding: 10px 14px;
+    min-width: 280px;
+    caret-color: #5b6af5;
+}
+
+entry:focus {
+    border-color: #5b6af5;
+    outline: none;
+}
+
+entry placeholder {
+    color: #9aa0a6;
+}
+
+/* ── Buttons (login, power controls) ───────────────────────── */
+button {
+    background-color: #2d2d2f;
+    color: #e8eaed;
+    border: 1px solid #3c4043;
+    border-radius: 4px;
+    padding: 8px 16px;
+    min-height: 28px;
+    transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+
+button:hover {
+    background-color: #3c4043;
+    border-color: #5b6af5;
+}
+
+button:active,
+button.suggested-action {
+    background-color: #5b6af5;
+    border-color: #5b6af5;
+    color: #1d1d1f;
+}
+
+/* ── Power glyph row (bottom-right per DM-3 spec) ──────────── */
+.power-buttons,
+.system-buttons {
+    margin: 16px;
+}
+
+.power-buttons button,
+.system-buttons button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    border-radius: 22px; /* circular hit target */
+}
+
+/* ── Session picker dropdown ───────────────────────────────── */
+combobox,
+dropdown {
+    background-color: #2d2d2f;
+    color: #e8eaed;
+    border: 1px solid #3c4043;
+    border-radius: 4px;
+    padding: 6px 10px;
+}
+
+combobox:hover,
+dropdown:hover {
+    border-color: #5b6af5;
+}
+
+/* ── Clock widget (top, per regreet.toml) ──────────────────── */
+.clock,
+.clock-widget {
+    color: #9aa0a6;
+    font-size: 13px;
+    font-weight: 400;
+    margin-top: 24px;
+}
+
+/* ── Error / status messages ───────────────────────────────── */
+.error,
+label.error {
+    color: #f28b82;
+    font-size: 13px;
+    margin-top: 8px;
+}
