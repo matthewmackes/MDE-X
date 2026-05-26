@@ -32,6 +32,7 @@ mod expose;
 mod fonts;
 mod hostname_info;
 mod icon_mapper;
+mod lock;
 mod status;
 mod minimized;
 mod network;
@@ -121,6 +122,13 @@ enum Kind {
     /// Power tabs. Spawned by clicking the volume or
     /// brightness glyph in the Dock's status segment.
     Status,
+    /// Portal-25 — lock-screen layer-shell overlay. Fullscreen
+    /// Layer::Overlay surface that captures keyboard exclusively
+    /// and paints the MDE lock visual (M › hostname breadcrumb,
+    /// big clock, date, mesh/net/battery/weather indicators).
+    /// Bind via `bindsym $mod+l exec mde-popover lock`. Esc or
+    /// Enter dismisses.
+    Lock,
 }
 
 fn main() -> iced_layershell::Result {
@@ -153,5 +161,6 @@ fn main() -> iced_layershell::Result {
         Kind::IconMapper => icon_mapper::run(),
         Kind::HostnameInfo => hostname_info::run(),
         Kind::Status => status::run(),
+        Kind::Lock => lock::run(),
     }
 }
