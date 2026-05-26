@@ -172,7 +172,7 @@ locked work appears under **Active** with `[ ] Open`.
 - [ ] **Portal-22: Network layer** — full-screen mesh-view with sidebar peer-list + detail pane (R10-Q13); shares rendering pipeline with Portal-compact + Mesh-wallpaper. See MESH-* tasks.
 - [ ] **Portal-23: Portal-compact (Mod+Space, Mod+\\ on IBus systems R6-Q7)** — 336px-tall floating-bottom strip globe view (R6-Q6). 3-mode toggle Globe/Wireframe/Hybrid (R8-Q3). Globe = dark-mode 2D-flat projection with sparse 1px coastlines (R6-Q4, R8-Q42, R8-Q45). MaxMind GeoLite2 bundled offline (R8-Q77).
 - [ ] **Portal-24: Mesh-wallpaper surface** (6th Wayland surface, wlr-layer-shell `background`) — same rendering at lower fidelity (R6-Q27, R8-Q42); 12s default (6–60s) update; auto-pause when fully obscured; view-only (R6-Q28).
-- [ ] **Portal-25: Lock screen layer-shell overlay** (R2-Q54, R4-Q4) — replaces swaylock theming. Minimal `M › hostname` breadcrumb + clock + date + mesh pip + weather + battery + wifi/mesh icons.
+- [>] **Portal-25: Lock screen layer-shell overlay** (R2-Q54, R4-Q4) — replaces swaylock theming. Minimal `M › hostname` breadcrumb + clock + date + mesh pip + weather + battery + wifi/mesh icons.
 - [ ] **Portal-26: Boot theater + shutdown theater** — full-screen overlays rendering real-time systemd telemetry around M-watermark assembly/disassembly (R2-Q99, R2-Q100, R4-Q49, R4-Q50). 2–3s budget each. Breadcrumb types in left-to-right synchronized with service events.
 - [ ] **Portal-27: Birthright wizard** runs once on first install (R2-Q58): fonts, wallpaper, mesh enrolment, theme, DND hours. Captive until mesh-home mounts (R2-Q89). Renders inside Portal-full with breadcrumb showing `M › <hostname> › Birthright:Step1/5` (R4-Q45).
 - [ ] **Portal-28: App-switcher lives on Dock** (R3-Q41) — Alt+Tab cycles Dock running-zone icons in place with Aero-peek thumbnail above current; Esc cancels; Alt-release commits.
@@ -299,6 +299,152 @@ locked work appears under **Active** with `[ ] Open`.
 - v6.0 design notes are exhaustive; outstanding directives covered. Build authorization granted.
 - **Card schema versioning** — locked R10-Q36/Q37 forward-compatible mechanism; migrations land in Portal-31.
 - **Hero card fallbacks** — locked R10-Q38 (text-only accent-color hero); falls under Portal-32.
+
+---
+
+### v6.x BUS-1..7 — Mackes Bus (locked 2026-05-25 via 104-Q poll across 26 rounds)
+
+> **v6.x = Mackes Bus** — single mesh-wide notification + clipboard
+> bus on self-hosted ntfy over Nebula, with persistence on GlusterFS
+> mesh-home. Hard cut: replaces v5.1 GF-17 mesh notification bus +
+> v2.6 MON alert routing (parallel-write window for external
+> consumers) + standalone FDO notifications. Folds into v6.0 Portal
+> epic.
+>
+> **30 candidate features brainstormed.** 24 survived the poll; **7
+> cut** with rationale in the design doc: #11 cron (systemd timers),
+> #13 tier-2 ACL passcode (flat-trust only), #16 Piper TTS, #18
+> geofence, #23 calendar digest, #25 SMS escalation (KDC2 phone push
+> is enough), #26 E2E body encryption (Nebula transport is enough).
+>
+> **Design lock:** `docs/design/v6.x-mackes-bus.md`.
+> **Extended memory:** `~/.claude/projects/-home-mm-Desktop-files-mackes-shell/memory/project_v6_x_mackes_bus.md`.
+>
+> **Architecture highlights:**
+> - Per-peer ntfy broker, gossip-synced, with shared SQLite-on-GFS
+>   queryable index + per-topic file-tree authoritative store at
+>   `~/.local/share/mde/bus/<topic-path>/<ulid>.json`
+> - mDNS-on-Nebula discovery (`_mackes-bus._tcp`), <30 s failover
+> - Slash-hierarchy topics, MQTT wildcards (`+` / `#`), self-serve
+>   creation
+> - Tera templating with mesh vars + `{{exec 'cmd'}}` shell exec
+>   (flat-trust amplifier — documented in design doc §10)
+> - Full CommonMark + media via GFS reference
+> - 4 priority levels → surfaces: `min` silent log / `default` tray +
+>   badge / `high` status-zone strip + sound persistent until ack /
+>   `urgent` Theater takeover + wallpaper stripe + phone push
+> - Notifications + clipboard adds land as Dock Breadcrumb
+>   left-of-buttons segments (existing §2.9–2.10 of v6 Portal spec),
+>   tinted by type (priority accent vs neutral grey)
+> - Global clipboard sync via custom `mde-clipd`
+>   (wlr-data-control-unstable-v1) — all-peer auto-sync, all MIME
+>   types, Super+Shift+C to skip, Super+V centered popover with
+>   type-to-filter + j/k nav
+> - Phone reach via **dual path** (KDC2 + ntfy mobile app,
+>   deduplicated by ULID)
+>
+> **Sub-epics run in parallel** (R24 lock — no enforced order):
+> - **BUS-1** Foundation — crate + broker + persistence + CLI + templating
+> - **BUS-2** Surfaces — Breadcrumb / tray / strip / Theater / wallpaper / DND
+> - **BUS-3** Webhooks — ntfy publisher + YAML rules + 6 built-in adapters
+> - **BUS-4** Migration — GF-17 hard cut + MON parallel-write + FDO bridge
+> - **BUS-5** Clipboard — mde-clipd + Super+V + KDC2 round-trip + tag pinning
+> - **BUS-6** Advanced routing — rooms + first-to-ack + correlation + DM + broadcast snooze
+> - **BUS-7** Federation + audit + Workbench Mesh > Bus subpage
+>
+> **Each commit ships END-TO-END** per [[feedback_no_stubs]] + §0.12.
+> **Build authorization NOT yet granted** — design is locked; awaiting
+> user "execute" / "iterate" / "ship the Bus" per §0.5 before
+> implementation begins. Bound by
+> [[feedback_no_cut_until_worklist_empty]] — drain BUS-* before any cut.
+
+#### BUS-1: Foundation (mde-bus crate + broker + persistence + CLI)
+
+- [ ] **BUS-1.1: Scaffold `crates/mde-bus/` Rust crate.** Cargo.toml + lib.rs structure + supervised by mded. Scope: workspace member + `mde-bus` binary entry. Files: `crates/mde-bus/Cargo.toml`, `crates/mde-bus/src/lib.rs`, `crates/mde-bus/src/main.rs`, workspace `Cargo.toml`, `crates/mackesd/src/workers/bus_supervisor.rs`. Exit: `cargo build -p mde-bus` succeeds; `mded` spawns + restarts on exit. Test: `cargo test -p mde-bus` + bench smoke.
+- [ ] **BUS-1.2: Per-peer ntfy broker, gossip-synced over Nebula.** Embed or supervise upstream ntfy; bind only on `nebula0` IP. Scope: broker config + supervision. Files: `crates/mde-bus/src/broker.rs`, `data/ntfy/server.yml.tmpl`. Exit: `curl https://$peer:8443/v1/health` returns 200 from inside the mesh, fails from outside. Test: integration test with 2 peers in containers.
+- [ ] **BUS-1.3: mDNS Nebula-only service registration (`_mackes-bus._tcp`).** Broker advertises on the overlay; peers discover without static config. Scope: zeroconf service + responder. Files: `crates/mde-bus/src/discovery.rs`. Exit: `avahi-browse _mackes-bus._tcp` (over nebula0) lists every running peer. Test: spin up 3 peers in CI; assert all three see each other.
+- [ ] **BUS-1.4: Persistence layer — SQLite index + per-topic file tree.** Authoritative store: `~/.local/share/mde/bus/<topic-path>/<ulid>.json`. Queryable index: SQLite on GFS at `~/.local/share/mde/bus/index.sqlite`. Scope: write-path + read-path + GFS-aware locking. Files: `crates/mde-bus/src/persist.rs`, `crates/mde-bus/migrations/0001_init.sql`. Exit: publish creates the file AND a row; query by `(topic, since_ulid)` returns rows in order. Test: 10k-message replay; index/file divergence detector.
+- [ ] **BUS-1.5: Topic registry — slash hierarchy + MQTT wildcards + self-serve creation.** `+` single-level, `#` multi-level. Scope: parser + matcher + creation. Files: `crates/mde-bus/src/topic.rs`, `crates/mde-bus/src/wildcard.rs`. Exit: `mde-bus publish never/seen 'hi'` creates the topic; `mde-bus tail 'never/+'` matches. Test: wildcard match table covering MQTT spec.
+- [ ] **BUS-1.6: Seed the 12 curated default topics on first run.** `fleet/announce`, `fleet/sec`, `peer/$hostname/{alerts,system}`, `mon/{cpu,memory,disk,network}`, `mesh/{peers,leader}`, `fdo/$app` (auto), `clipboard/sync`. Scope: first-run hook + idempotent seed. Files: `crates/mde-bus/src/seed.rs`. Exit: `mde-bus topic list` shows all 12 after first launch; second launch is a no-op. Test: idempotency unit test.
+- [ ] **BUS-1.7: Subscription manifest at `~/.local/share/mde/bus/subs.yaml` + inotify watcher.** Per-peer manifest with topics + wildcards + mute state + quiet hours. Scope: schema + watcher + apply-on-save. Files: `crates/mde-bus/src/subs.rs`, `data/bus/subs.yaml.tmpl`. Exit: editing the manifest changes live delivery within 200 ms; tests verify add/remove/reload paths. Test: file-watch unit + inotify integration.
+- [ ] **BUS-1.8: `mde-bus` CLI binary — publish / tail / sub / mute / history / topic verbs.** Accept all 3 publish forms (verbose, default-verb, piped). Scope: clap-based CLI + subcommands. Files: `crates/mde-bus/src/cli/{mod,publish,tail,sub,mute,history,topic}.rs`. Exit: every verb has `--help`; `cargo run -p mde-bus -- publish fleet/sec 'hello'` works. Test: snapshot tests on `--help` output; integration test publish→tail loop.
+- [ ] **BUS-1.9: Retention engine — 7d default + per-priority overrides + GFS quota.** Urgent forever, high 30d, default 7d, min 24h. Quota: 500 MB soft warn / 2 GB hard stop. Scope: GC loop + quota check. Files: `crates/mde-bus/src/retention.rs`. Exit: messages past TTL are removed from file tree + index; quota breach emits `bus/sys/quota` warning. Test: time-travel test with stub clock.
+- [ ] **BUS-1.10: Tera templating engine with `{{exec}}`, `{{include}}`, and curated mesh vars.** Renders at publish time. Vars: `peer.*`, `mesh.*`, `time.*`, `system.*`. Scope: engine integration + variable resolvers + sandbox warnings. Files: `crates/mde-bus/src/template.rs`. Exit: `mde-bus publish fleet/info --template 'host={{peer.hostname}} uptime={{exec "uptime -p"}}'` renders correctly. Test: snapshot per variable; security-doc lint flags `{{exec}}` usage.
+
+#### BUS-2: Surfaces (Breadcrumb / tray / strip / Theater / wallpaper / mde:// / DND)
+
+- [ ] **BUS-2.1: Priority → surface mapping module.** `min` silent log only; `default` tray + dock badge; `high` status-zone slide-up + sound + persistent until ack; `urgent` Theater + wallpaper + phone. Scope: enum + dispatcher trait. Files: `crates/mde-bus/src/surface.rs`. Exit: unit tests per priority covering correct surface call; mocked surfaces verify dispatch table. Test: surface-dispatch snapshot test.
+- [ ] **BUS-2.2: Dock Breadcrumb wire-up — left-of-buttons notification segments.** Mackes Bus notifications + clipboard-adds become Breadcrumb segments per `docs/design/v6.0-mde-portal.md` §2.9–2.10. Tinted by type: notifs use priority accent, clipboard adds use neutral grey. `min` produces no segment (silent). Scope: extend Portal Dock with Bus subscriber. Files: `crates/mde-portal/src/dock/breadcrumb_bus.rs`, `crates/mde-portal/src/app.rs`. Exit: publishing to `fleet/announce` appears as a typewriter-revealed segment within 200 ms; clipboard add appears grey. Test: visual snapshot + Iced runtime test.
+- [ ] **BUS-2.3: Tray popover — priority bucket → chronological grouping.** Tray dropdown groups urgent / high / default; within bucket, newest first. Scope: tray rendering + dismiss handlers. Files: `crates/mde-portal/src/tray/bus_popover.rs`. Exit: 3 messages at 3 priorities show in 3 buckets; ack moves to acked-list. Test: Iced widget test.
+- [ ] **BUS-2.4: Status-zone slide-up strip integration for `high` priority.** Reuses Portal-9.b strip. `high` messages stack as cards inside the strip; sound plays once; persistent until any peer acks. Scope: integrate Bus subscriber into existing `mde-popover status`. Files: `crates/mde-popover/src/status.rs`, `crates/mde-popover/src/main.rs`. Exit: publishing `priority=high` opens the strip + plays sound; ack closes. Test: integration test with mock audio backend.
+- [ ] **BUS-2.5: Theater takeover surface for `urgent`.** Full-screen layer-shell overlay with message + actions. Scope: new `mde-popover urgent` mode. Files: `crates/mde-popover/src/urgent.rs`, `crates/mde-popover/src/main.rs`. Exit: `priority=urgent` shows full-screen overlay; Esc/ack dismisses; sound plays once. Test: layer-shell mock test.
+- [ ] **BUS-2.6: Wallpaper stripe surface (`surface=wallpaper` tag).** Paints a stripe across the Mesh-Wallpaper Wayland layer. Auto-fades after 30 s for non-urgent; urgent stays until ack. Scope: extend Portal-24 mesh-wallpaper renderer. Files: `crates/mde-portal/src/wallpaper/bus_stripe.rs`. Exit: tagged message paints stripe; untagged urgent does NOT (opt-in only). Test: wallpaper-surface integration test.
+- [ ] **BUS-2.7: Click-actions + `mde://` URL handler + in-place inline reply.** Max 5 action buttons per notification. mde:// dispatcher routes to peer/focus/topic targets via existing `mackes --focus` plumbing. Inline reply box publishes back to the topic. Scope: action button widget + reply box + mde:// resolver. Files: `crates/mde-bus/src/action.rs`, `crates/mde-portal/src/notification/inline_reply.rs`, `crates/mded/src/mde_uri.rs`. Exit: clicking `[Open Peer]` button opens that peer's card; reply box publishes a new message tagged `reply_to=<parent-ulid>`. Test: URL-handler snapshot + reply integration.
+- [ ] **BUS-2.8: Single DND toggle + per-topic global quiet hours + `override=dnd` bypass + fleet-wide DND sync.** DND state mesh-synced via GFS (`~/.local/share/mde/bus/dnd.yaml`). Per-topic `quiet_after` / `quiet_until` in topic config. `override=dnd` tag bypasses everything. Scope: DND state machine + sync. Files: `crates/mde-bus/src/dnd.rs`. Exit: DND on peer A silences peer B within 1 s; topic quiet hours apply globally; `override=dnd` urgent still rings. Test: mesh DND propagation integration.
+
+#### BUS-3: Webhooks + adapters
+
+- [ ] **BUS-3.1: Expose ntfy's webhook publisher on Nebula-only port.** Nebula source-IP is the only authentication. Scope: ntfy config + firewall rule. Files: `data/ntfy/server.yml.tmpl`, `data/firewall/mackes-bus.rules`. Exit: POST to `https://$peer:8444/<topic>` from inside mesh publishes; same POST from outside is dropped. Test: from-mesh + from-outside curl tests.
+- [ ] **BUS-3.2: YAML transform-rules engine at `~/.config/mde/bus-hooks.yaml`.** Match path / headers / body; extract fields; publish to topic with priority. Thin Rust shim in mded consumes inbound webhooks, evaluates YAML, calls ntfy publish API. Scope: rule parser + matcher + publisher. Files: `crates/mde-bus/src/hooks/{mod,parser,match}.rs`, `data/bus/hooks.yaml.tmpl`. Exit: shipped sample rule for GitHub `push` event publishes to `gh/push` topic with parsed `repo` + `branch`. Test: per-adapter unit tests with recorded payloads.
+- [ ] **BUS-3.3: GitHub adapter** — push / PR / issue / release events → `gh/*` topics. Files: `crates/mde-bus/src/hooks/github.rs`, `data/bus/hooks/github.yaml`. Exit: bench test with replayed GitHub webhook payload publishes correct topic. Test: payload snapshot.
+- [ ] **BUS-3.4: Gitea adapter** — push / PR / issue events → `gitea/*` topics. Files: `crates/mde-bus/src/hooks/gitea.rs`, `data/bus/hooks/gitea.yaml`. Exit + Test: as BUS-3.3.
+- [ ] **BUS-3.5: Sonarr/Radarr adapter** — download / grab / failure → `media/*` topics. Files: `crates/mde-bus/src/hooks/sonarr.rs`, `data/bus/hooks/sonarr.yaml`. Exit + Test: as BUS-3.3.
+- [ ] **BUS-3.6: UPS/NUT adapter** — grid loss / battery low / shutdown imminent → `power/*` topics. Files: `crates/mde-bus/src/hooks/nut.rs`, `data/bus/hooks/nut.yaml`. Exit + Test: as BUS-3.3.
+- [ ] **BUS-3.7: Home Assistant + generic-JSON adapters.** HA via webhook integration → `home/*` topics; generic accepts any JSON + passes via template. Files: `crates/mde-bus/src/hooks/{home_assistant,generic}.rs`, `data/bus/hooks/{home_assistant,generic}.yaml`. Exit + Test: as BUS-3.3.
+
+#### BUS-4: Migration (GF-17 hard cut + MON parallel + FDO bridge)
+
+- [ ] **BUS-4.1: Audit every GF-17 publisher in the workspace.** Inventory all callers of `mackesd::notification_bus::*` and equivalents. Scope: grep + categorize. Files: `docs/migration/BUS-4-callers.md` (new). Exit: complete table of `(crate, file, line, current API, target topic)`. Test: cross-check with `cargo doc` symbol index.
+- [ ] **BUS-4.2: GF-17 hard cut — delete `crates/mackesd/src/notification_bus/`; rewrite every caller to `mde-bus publish`.** Single commit per the Round 23 lock. Scope: deletion + per-caller rewrite. Files: every file from BUS-4.1 inventory. Exit: `grep -r notification_bus crates/` returns zero hits; build green; all previously-bench-tested notification scenarios now route through Bus. Test: full integration sweep.
+- [ ] **BUS-4.3: MON Netdata aggregator dual-write — `alerts/` JSONL stays + add `mde-bus publish` to `mon/*` topics.** Preserves external consumers reading `~/.local/share/mde/alerts/`. Scope: extend aggregator with Bus publisher. Files: `crates/mackesd/src/workers/mon_aggregator.rs`. Exit: a synthetic CPU alert writes BOTH the JSONL AND `mon/cpu` publish; alerts/ file format unchanged byte-for-byte. Test: dual-output snapshot test.
+- [ ] **BUS-4.4: mded FDO `org.freedesktop.Notifications` → `mde-bus publish` to `fdo/<app>` topics.** Every desktop notification becomes a Bus message; FDO clients still get delivery via mded's existing path. Scope: bridge module. Files: `crates/mded/src/fdo_bridge.rs`, `crates/mded/src/main.rs`. Exit: Slack `Notify` D-Bus call publishes to `fdo/slack` AND still surfaces the native desktop notification. Test: D-Bus integration test with mock client.
+- [ ] **BUS-4.5: Voice-and-tone lint update for Bus user-visible strings.** Run `install-helpers/lint-voice.sh` against the new Bus crate + popover surfaces. Scope: vocabulary additions + lint config. Files: `docs/design/voice-and-tone.md`, `install-helpers/lint-voice.sh`. Exit: every Bus string passes the lint; CI runs the lint against the new crate. Test: CI green.
+- [ ] **BUS-4.6: Legacy-mesh-vocabulary lint check on Bus code.** Verify no `tailscale` / `headscale` / `derper` references in new code. Scope: run existing `install-helpers/lint-legacy-mesh.sh` against `crates/mde-bus/` + `crates/mde-clipd/`. Exit: lint passes. Test: CI green.
+
+#### BUS-5: Clipboard (mde-clipd + Super+V + KDC2 round-trip)
+
+- [ ] **BUS-5.1: Scaffold `crates/mde-clipd/` Rust daemon using `wlr-data-control-unstable-v1`.** Supervised by mded; one instance per Wayland session. Scope: crate + protocol wiring + session. Files: `crates/mde-clipd/Cargo.toml`, `crates/mde-clipd/src/{main,proto,session}.rs`, `crates/mackesd/src/workers/clipd_supervisor.rs`. Exit: `mde-clipd` watches the Wayland clipboard; logs every change event. Test: protocol-level integration with `wl-copy` triggering observed event.
+- [ ] **BUS-5.2: Publish every clipboard event to `clipboard/sync` topic (all MIME types).** ≤ 64 KB payloads go inline; larger get auto-stored on GFS at `~/.local/share/mde/clipboard/blobs/<ulid>.<ext>` and referenced. Scope: publisher + size threshold. Files: `crates/mde-clipd/src/publish.rs`. Exit: copying "hello" publishes inline; copying a 1 MB PNG publishes a reference. Test: round-trip via subscriber.
+- [ ] **BUS-5.3: GFS blob store + lifecycle for clipboard references.** Auto-GC blobs whose referencing message has been retention-evicted. Scope: blob store + GC. Files: `crates/mde-clipd/src/blobstore.rs`. Exit: orphan blobs removed on next GC pass; live blobs survive. Test: orphan-detection unit.
+- [ ] **BUS-5.4: Subscribe + apply inbound `clipboard/sync` to local Wayland clipboard via `wl-copy`.** Skip messages originating from this peer (dedup by `publisher_peer` field). Scope: subscriber loop. Files: `crates/mde-clipd/src/subscribe.rs`. Exit: copy on peer A → paste on peer B within 1 s. Test: two-peer integration.
+- [ ] **BUS-5.5: Super+Shift+C skip-sync modifier — intercepted at Wayland layer.** mde-clipd marks the next copy event as `local-only` if Super+Shift+C is held within 500 ms before/during the copy. Scope: input listener + flag state. Files: `crates/mde-clipd/src/skip_sync.rs`. Exit: held Super+Shift+C followed by Ctrl+C keeps the copy local; held Ctrl+C alone syncs. Test: keystroke-injection test.
+- [ ] **BUS-5.6: Super+V history popover — centered floating, scrollable card list, type-to-filter, j/k navigation, enter pastes.** Reads from `clipboard/sync` replay buffer. Scope: layer-shell popover + Iced UI. Files: `crates/mde-clipd/src/popover/{main,filter,paste}.rs`. Exit: Super+V opens centered popover; typing filters; Enter on a row pastes via `wl-copy` then dismisses. Test: Iced widget snapshot + paste integration.
+- [ ] **BUS-5.7: Pin clipboard entries via the Mackes universal tag system.** Reuses `~/.local/share/mde/tags.json` infrastructure from Portal-18. Tagged entries pin to top of Super+V; survive retention TTL. Scope: tag store integration + UI affordance. Files: `crates/mde-clipd/src/pin.rs`. Exit: right-click entry → 'Pin' adds tag; pinned section appears above rolling history. Test: tag-store unit + UI snapshot.
+- [ ] **BUS-5.8: Merge-text conflict resolution on simultaneous copies.** When two peers publish within the same second, concat text payloads with `\n--- @other-peer ---\n` separator. Non-text payloads use last-write-wins by ULID. Scope: conflict detector + merger. Files: `crates/mde-clipd/src/conflict.rs`. Exit: synthetic same-second copies produce merged payload; non-text uses LWW. Test: deterministic unit with stub clock.
+- [ ] **BUS-5.9: KDC2 clipboard plugin bidirectional bridge.** Phone copy → publish to `clipboard/sync`; mesh copy → push to paired phone via existing KDC2 clipboard plugin protocol. Scope: KDC2 plugin extension + bus subscriber. Files: `crates/mde-kdc-proto/src/plugins/clipboard.rs`. Exit: copy on phone appears in mesh Super+V; copy on mesh appears in phone clipboard. Test: emulated KDC2 client integration.
+
+#### BUS-6: Advanced routing (rooms + first-to-ack + correlation + DM + broadcast snooze)
+
+- [ ] **BUS-6.1: Topic rooms — every topic auto-supports threaded replies via Round 9 inline-reply.** No new code path; inline reply (BUS-2.7) already publishes back to the topic with `reply_to=<parent-ulid>`. Scope: thread renderer in Library. Files: `crates/mde-portal/src/library/chat_card.rs`. Exit: topic in Library shows threaded view when any message has `reply_to`. Test: snapshot of threaded vs flat.
+- [ ] **BUS-6.2: Chat-card render reusing VoIP SMS thread bubble layout (R9-Q11).** Same visual grammar as Vitelity SMS threads. Scope: shared bubble widget. Files: `crates/mde-portal/src/shared/thread_bubble.rs`, `crates/mde-portal/src/voip/sms_thread.rs`. Exit: room view and SMS view share the same bubble widget. Test: widget snapshot.
+- [ ] **BUS-6.3: Mirror-publish Bus rooms to KDC2 SMS (cross-post topics).** Opt-in per topic via `mirror_to: sms:<number>` config. Scope: mirror publisher. Files: `crates/mde-bus/src/mirror.rs`. Exit: publishing to a mirrored topic also sends an SMS via the VoIP Vitelity API. Test: VoIP mock.
+- [ ] **BUS-6.4: First-to-ack-wins routing via `ack=once` tag.** Publisher tags `ack=once`; first acker cancels delivery on every other peer within 500 ms. Scope: cancel-message protocol + UI fade. Files: `crates/mde-bus/src/ack.rs`, `crates/mde-portal/src/notification/cancel.rs`. Exit: synthetic ack on peer A clears banner on peer B within 1 s; tray entry shows `✓ acked by @<peer> @ <ts>`. Test: 3-peer integration.
+- [ ] **BUS-6.5: Cross-topic correlation engine at `~/.config/mde/bus-correlate.yaml`.** Synthesize new topics when multiple source topics fire within a window (e.g. `power/ups/grid-loss` + `network/wan-down` within 60 s → `incident/likely-power-outage`). Scope: rule parser + sliding-window evaluator. Files: `crates/mde-bus/src/correlate/{mod,parser,window}.rs`, `data/bus/correlate.yaml.tmpl`. Exit: sample rule fires `incident/likely-power-outage` when both source topics publish within window. Test: time-sliced unit.
+- [ ] **BUS-6.6: DM addressing — `to=@user` resolves to peer with most-recent libinput activity within 5 min.** Active-peer detection via mackesd's existing libinput watcher. Scope: resolver + filter. Files: `crates/mde-bus/src/dm.rs`, `crates/mackesd/src/workers/active_peer.rs`. Exit: `mde-bus publish dm 'hi' --to @matthew` delivers only to currently-active peer; if none active in 5 min, falls back to all peers. Test: stubbed active-peer state.
+- [ ] **BUS-6.7: Broadcast snooze — `mde-bus mute fleet/sec --duration 1h`.** Mutes the topic on every peer for the duration; auto-unmute. State synced via the same GFS `dnd.yaml` from BUS-2.8. Scope: extend mute command + propagation. Files: `crates/mde-bus/src/cli/mute.rs`. Exit: mute on peer A silences fleet/sec on peer B within 1 s; auto-unmute after duration. Test: timed integration.
+- [ ] **BUS-6.8: Phone reach — dual KDC2 + ntfy app delivery, deduplicated by ULID.** Default reach: `default + high + urgent` (everything except `min`). Android system DND wins on phone. Inline reply via KDC2 publishes back to topic. Scope: dual publisher + dedup. Files: `crates/mde-bus/src/phone.rs`, `crates/mde-kdc-proto/src/plugins/bus_reach.rs`. Exit: one phone receives via both paths but sees one notification (deduplicated). Test: KDC2 + ntfy mock integration.
+
+#### BUS-7: Federation + audit + Workbench panel
+
+- [ ] **BUS-7.1: Per-peer JSONL audit log at `~/.local/share/mde/bus/audit/<date>.jsonl`.** Publishes only (who, when, topic, priority, ULID). Retention follows topic TTL. Plain JSONL — relies on GFS perms 0600 + mesh trust. Scope: audit writer + rotation. Files: `crates/mde-bus/src/audit.rs`. Exit: every publish appends one JSONL line; daily rotation; rotation respects retention. Test: append-only unit + rotation test.
+- [ ] **BUS-7.2: Workbench Mesh > Bus subpage skeleton.** New subpage in `Mesh` group with 5 tabs: Topics / Subscriptions / Hooks / Audit / DND. Scope: subpage scaffolding + tab routing. Files: `crates/mde-workbench/src/panels/mesh/bus/{mod,topics,subs,hooks,audit,dnd}.rs`. Exit: navigation lands on Bus subpage; all 5 tabs render empty states. Test: navigation snapshot.
+- [ ] **BUS-7.3: Topics tab — list-row default with cascade-card expand.** Shows subscribers + last activity + priority per topic; click expands to recent messages + controls. Reuses Object Card 6-mode rendering. Scope: topics list + expand + controls. Files: `crates/mde-workbench/src/panels/mesh/bus/topics.rs`. Exit: 12 default topics render; clicking expands inline. Test: widget snapshot.
+- [ ] **BUS-7.4: Subscriptions tab — toggle + copy-from-peer.** Toggle subscription per topic; `Match @<peer>` button copies another peer's full subscription set into the local manifest. Cross-peer subscription visibility per Round 22. Scope: toggle + copy + write to manifest. Files: `crates/mde-workbench/src/panels/mesh/bus/subs.rs`. Exit: toggle persists to subs.yaml; Match-@peer copies subset. Test: manifest write integration.
+- [ ] **BUS-7.5: Hooks tab — YAML rules editor with live validate.** Edit `bus-hooks.yaml`; live-lint against the YAML schema; per-adapter sample dropdown. Scope: text editor + validator + samples. Files: `crates/mde-workbench/src/panels/mesh/bus/hooks.rs`. Exit: invalid YAML shows inline error; save persists. Test: validator unit.
+- [ ] **BUS-7.6: DND tab — single toggle + per-topic quiet-hour editor.** Master DND toggle (fleet-wide sync); per-topic `quiet_after` / `quiet_until` time pickers. Scope: toggle + time pickers + propagation. Files: `crates/mde-workbench/src/panels/mesh/bus/dnd.rs`. Exit: toggle propagates within 1 s; quiet hours apply globally. Test: propagation integration.
+- [ ] **BUS-7.7: Federation — subscribe-only Nebula-to-Nebula bridge.** External meshes can subscribe to this mesh's topics over a Nebula-to-Nebula link; cannot publish back without explicit grant. Scope: bridge daemon + grant config. Files: `crates/mde-bus/src/federation.rs`, `data/bus/federation.yaml.tmpl`. Exit: external mesh peer subscribes to `fleet/announce`; receives messages; publish attempt rejected with audit entry. Test: 2-mesh integration.
+
+#### Cross-cutting tensions resolved at write-time
+
+- **SQLite + file tree both exist.** File tree (`~/.local/share/mde/bus/<topic>/<ulid>.json`) is authoritative + inotify-friendly; SQLite at `~/.local/share/mde/bus/index.sqlite` is the queryable index for Workbench audit/history views. BUS-1.4 implements both.
+- **`min` priority + Breadcrumb TTL.** `min` produces no Breadcrumb segment at all; Round 19 TTL rules apply to `default` / `high` / `urgent` only. Encoded in BUS-2.1 + BUS-2.2.
+- **ntfy built-in publisher + YAML transform rules.** A thin Rust shim in mded consumes inbound webhooks, evaluates YAML rules, and calls ntfy's publish API. Implemented in BUS-3.1 + BUS-3.2.
+- **Feature #6 phone reach (KDC2 only) vs Round 12 dual-path lock.** Round 12 supersedes. BUS-6.8 implements the dual path.
+
+#### Annotation on retired sections
+
+- GF-17.1..GF-17.11 (line 590 of this file): **superseded by BUS-4.2 hard cut**. Tasks retain their `[ ]` / `[✓]` state for historical context until BUS-4.2 lands; on that commit they convert to `[~]` Retired with a link to BUS-4.2.
+- MON-1..MON-5 (line 2568): **NOT retired**. Aggregator gains BUS-4.3 dual-write; `alerts/` JSONL retained for external consumers.
 
 ---
 
@@ -587,8 +733,10 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] Bench (single split-brain): user sees the gluster_worker per-file toast (with `keep-mine` / `keep-theirs` / `open-diff` actions). Netdata's 30 s window doesn't fire because the gluster_worker LWW resolver clears it before 30 s.
     - [ ] Bench (100 split-brains): user sees the GF-16.3 coalesced toast immediately + the Netdata summary toast at the 30 s mark (different urgency + shape, intentional — the summary catches the case where gluster_worker's LWW can't clear in time).
 
-### GF-17.1..GF-17.11: v5.1 — Mesh notification bus + focus modes (locked 2026-05-25 via 5-Q survey)
+### GF-17.1..GF-17.11: v5.1 — Mesh notification bus + focus modes (locked 2026-05-25 via 5-Q survey) — SUPERSEDED by v6.x BUS-4.2 hard cut
 
+> **SUPERSEDED 2026-05-25:** the v6.x Mackes Bus epic (see "v6.x BUS-1..7" section above) hard-cuts GF-17 in BUS-4.2. Tasks below retain their current state for historical context; on the BUS-4.2 commit they convert to `[~]` Retired with a link back to BUS-4.2. Focus modes are replaced by single-DND + per-topic mute/snooze (Round 6 of the 104-Q poll).
+>
 > **Design lock:** `docs/design/v5.1-notification-bus.md`.
 > **5-Q locks:** (1) scope-driven fanout (fleet→Aggregator, peer→Origin,
 > user→Attended, security→All); (2) 15-min roaming-grace window;
