@@ -1,7 +1,7 @@
 # The Mesh — overview
 
 The "mesh" is the peer-to-peer fabric Mackes provisions between your
-machines. Up to 16 peers; works across LANs and over the public internet.
+machines. Up to 8 peers; works across LANs and over the public internet.
 
 ## Architecture
 
@@ -30,8 +30,9 @@ Five layered subsystems, all running through one daemon (`qnmd`):
 
 ## Capacity & limits
 
-- **16-peer hard cap** (Q-MX18). 17th peer-add fails with a Carbon Toast
-  reading "Mesh capacity (16/16)".
+- **8-peer hard cap** (Q3 of the 100-Q tightening survey, 2026-05-25;
+  supersedes Q-MX18). 9th peer-add fails with a toast reading
+  "Mesh capacity (8/8)".
 - Each peer auto-mirrors every other peer's clipboard ring (100 items
   each) + Saved/ (uncapped) + notifications + Object Store buckets.
 - Worst case at full capacity: ~1600 cached clipboard items + replicated

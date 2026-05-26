@@ -1,5 +1,13 @@
 # Phase 12 — Connectivity scope & intent (locked 2026-05-19)
 
+> **SUPERSEDED 2026-05-25 (peer cap) by Q3 of the 100-Q tightening
+> survey:** the original Q1/Q2 16-peer cap is replaced by an **8-peer
+> hard cap**. Personal-mesh scope per Q2 (1 person, 3-8 of their own
+> devices) doesn't need 16; tighter scope bounds gluster full-replica
+> + Bus broker mesh + attendance election cost. See
+> `docs/AI_GOVERNANCE.md` §1 for the canonical lock; this doc retains
+> the original numbers as historical context.
+>
 > **SUPERSEDED 2026-05-23 by `v2.5-nebula-fabric.md`** for
 > everything below the `mackesd_core` library facade. The
 > Tailscale + Headscale + self-hosted DERP architecture this

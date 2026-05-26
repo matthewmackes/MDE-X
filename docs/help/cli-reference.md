@@ -175,7 +175,7 @@ Available topics: `index`, `getting-started`, `dashboard`, `look-and-feel`,
 - `1` — generic error (operation failed)
 - `2` — usage error (invalid args / unknown subcommand)
 - `3` — not provisioned (mesh op called before `mackes init`)
-- `4` — mesh capacity reached (16-peer cap)
+- `4` — mesh capacity reached (8-peer cap)
 - `5` — auth failure (join token rejected, cert expired, etc.)
 - `124` — operation timed out
 - `127` — required binary not in PATH

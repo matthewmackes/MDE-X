@@ -26,7 +26,7 @@ See **[mesh-vpn.md](mesh-vpn.md)** for the full guide. The summary panel
 here shows:
 
 - Mesh status (connected / disconnected / control node)
-- Peer count + 16-peer cap indicator
+- Peer count + 8-peer cap indicator
 - Add Peer button (generates QR + paste-link)
 - Diagnostics (DERP RTT, current control node, snapshot age)
 - Advanced (ACLs, exit nodes, DERP servers)

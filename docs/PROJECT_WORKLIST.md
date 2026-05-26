@@ -1170,14 +1170,16 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] `cut release 1.0.0` shorthand runs successfully (4-file version bump + CHANGELOG + smoke + `make rpm` + commit + tag + push + GitHub workflow watch).
     - [ ] Pre-history archive doc `docs/MACKES_SHELL_PREHISTORY.md` lists tags from before the rebrand for git-archaeology reference.
 
-- [ ] **EPIC-MASTER-3: Update fleet cap from 16 → 8 peers across design docs + code + memory** *(Q3)*
+- [>] **EPIC-MASTER-3: Update fleet cap from 16 → 8 peers across design docs + code + memory** *(Q3)* *(session=opus-cw-2026-05-25-23:30 — docs + memory portion shipped; code refs deferred to follow-on subtask EPIC-MASTER-3.code)*
   **As** the platform scope,
   **I want** every reference to a 16-peer cap updated to 8,
   **so that** all design assumptions (gluster replica cost, Bus broker mesh, attendance election) reflect the tightened lock.
   **Acceptance** (each bench-observable):
-    - [ ] `docs/design/v12-connectivity-scope.md` updated; memory `project_v12_connectivity_scope` updated; `feedback_no_cut_until_worklist_empty` reviewed.
-    - [ ] CLAUDE.md + `AI_GOVERNANCE.md` consistently say "8 peers."
-    - [ ] `grep -rln "16-peer\|16 peer" docs/ mackes/ crates/` returns only allow-listed historical mentions.
+    - [✓] `docs/design/v12-connectivity-scope.md` updated (top-of-file supersession block); memory `project_v12_connectivity_scope` updated (description + supersession note + fact-1 rewrite); `feedback_no_cut_until_worklist_empty` reviewed — doesn't reference the 16 cap directly, no edit needed.
+    - [✓] CLAUDE.md (no 16-peer ref to update) + `AI_GOVERNANCE.md` (already 8-peer per Q3 lock at write-time) consistently say "8 peers."
+    - [✓] `docs/help/{mesh,network,cli-reference}.md` updated.
+    - [ ] **Open follow-on (EPIC-MASTER-3.code):** code-level refs in `mackes/birthright.py`, `mackes/workbench/network/mesh_topology_render.py`, `mackes/workbench/fleet/{inventory,run_history}.py`, `mackes/headless/daemon.py`, `crates/mackesd/src/policy/mod.rs`, `crates/mde-voice-config/src/lib.rs`, `crates/mde-alert-emit/src/main.rs` — each needs per-file inspection (some are hardcoded peer-count caps, some are docstrings, some incidental). Also `docs/design/v2.5-nebula-fabric.md`, `docs/design/v4.1-voice-video.md`, `docs/EPIC-production-ready-mackes.md` design docs (medium priority, not operator-visible).
+    - [ ] Final-pass acceptance: `grep -rln "16-peer\|16 peer" docs/ mackes/ crates/` returns only allow-listed historical mentions (e.g., the supersession blocks themselves + `docs/PROJECT_WORKLIST.md` historical sections + `docs/design/v1.1.0-carbon-refresh/` retired design).
 
 #### EPIC-RETIRE (additions to existing DEAD-2)
 
