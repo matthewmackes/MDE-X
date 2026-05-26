@@ -2096,8 +2096,9 @@ fn print_revisions_table(rows: &[serde_json::Value]) {
 /// only when the `async-services` feature is active so the default
 /// build stays sync.
 ///
-/// v3.0.3 — wires the 6 Phase B workers (clipboard, mdns, fs_sync,
-/// heartbeat, mesh_router, notification_relay) into the
+/// v3.0.3 — wires the 5 Phase B workers (clipboard, mdns, fs_sync,
+/// heartbeat, mesh_router; notification_relay retired in BUS-4.2)
+/// into the
 /// `Supervisor` alongside the legacy reconcile worker. Audit-2
 /// caught all 6 as dead code: `impl Worker for X` shipped, no
 /// spawn. Each worker gets a `RestartPolicy::OnFailure` so a
@@ -2122,7 +2123,6 @@ fn run_serve(
         clipboard::ClipboardWorker, firewall_preset::FirewallPresetWorker,
         fs_sync::FsSyncWorker, heartbeat::HeartbeatWorker,
         mdns::MdnsWorker, mesh_router::MeshRouterWorker,
-        notification_relay::NotificationRelayWorker,
         sshd_overlay_bind::SshdOverlayBindWorker, voice_config::VoiceConfigWorker,
         RestartPolicy, Spawn, Supervisor,
     };
@@ -2274,25 +2274,14 @@ fn run_serve(
             RestartPolicy::OnFailure,
         ));
         worker_names.lock().expect("worker_names mutex").push("stun_gather".into());
-        // notification_relay needs its own SQLite connection
-        // (the legacy reconcile worker holds its own; we mint a
-        // second handle so the two run independently).
-        match rusqlite::Connection::open(&db_path) {
-            Ok(conn) => {
-                sup.spawn(Spawn::new(
-                    NotificationRelayWorker::new(qnm_root.clone(), conn),
-                    RestartPolicy::OnFailure,
-                ));
-                worker_names.lock().expect("worker_names mutex").push("notification_relay".into());
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    db_path = %db_path.display(),
-                    "notification_relay: sqlite open failed; worker skipped"
-                );
-            }
-        }
+        // BUS-4.2 (2026-05-26) — `notification_relay` retired.
+        // Cross-peer notification routing is now a side-effect of
+        // BUS-4.4's FDO bridge: every Notify call publishes to
+        // `fdo/<app>` on the Mackes Bus, and every peer subscribes
+        // to `fdo/#` via the standard Bus subscription. The
+        // legacy `~/QNM-Shared/<peer>/.qnm-notifications/` JSON
+        // file convention is replaced by `<bus_root>/<topic>/
+        // <ulid>.json` (BUS-1.4 file tree on GFS).
 
         // v2.5 NF-3.4 (2026-05-23) — Nebula supervisor.
         // Watches the leader-election state + the QNM-Shared

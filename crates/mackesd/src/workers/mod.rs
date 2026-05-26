@@ -153,7 +153,10 @@ pub mod alert_relay;
 // block so netdata falls back to local-only with the 7-day
 // dbengine retention `apply_netdata_monitor` locked.
 pub mod netdata_aggregator;
-pub mod notification_relay;
+// notification_relay retired in BUS-4.2 (2026-05-26). Cross-peer
+// notification routing is now handled by the BUS-4.4 FDO bridge:
+// every Notify call publishes to `fdo/<app>` on the Mackes Bus,
+// and every peer subscribes via the standard Bus path.
 pub mod perf;
 pub mod remmina_sync;
 // NF-21.1 — owns the /etc/ssh/sshd_config.d/mackes-mesh.conf
@@ -214,7 +217,7 @@ pub enum RestartPolicy {
     /// one-shot timer workers like `media_sync`.
     Never,
     /// Restart only if the worker returned `Err`. Right for
-    /// long-running watchers (`clipboard`, `mdns`, `notification_relay`).
+    /// long-running watchers (`clipboard`, `mdns`, etc.).
     OnFailure,
     /// Restart on any return (Ok or Err). Right for "should never
     /// exit" workers like `notifications_server`.

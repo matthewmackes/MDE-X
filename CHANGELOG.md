@@ -5,6 +5,16 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-4.2 — GF-17 hard cut: notification_relay retired (2026-05-26)**
+- Deletes `crates/mackesd/src/workers/notification_relay.rs` —
+  the QNM-Shared per-peer `.qnm-notifications/` directory
+  mirror that pre-dated the Bus. Cross-peer notification
+  routing now flows: FDO Notify → mackesd → BUS-4.4 bridge →
+  `fdo/<app>` topic → BUS-1.4 file tree on GFS → every peer's
+  Bus subscription.
+- `grep -r notification_bus crates/` returns zero hits.
+- `BUS-4` migration sub-epic complete (4.1–4.6 all shipped).
+
 **BUS-4.4 — FDO notifications bridge to Bus (2026-05-26)**
 - Every `org.freedesktop.Notifications.Notify` call mackesd
   receives now also publishes to `fdo/<sanitized-app>` on the
