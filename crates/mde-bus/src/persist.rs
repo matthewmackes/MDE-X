@@ -211,6 +211,26 @@ impl Persist {
             )
             .map_err(|e| PersistError::Sql(format!("insert {ulid}: {e}")))?;
 
+        // BUS-7.1 — append a metadata-only line to today's audit
+        // JSONL. Best-effort: if the append fails we log + carry
+        // on (the message is already durably stored; the audit
+        // gap is recoverable from the SQLite index later).
+        let entry = crate::audit::AuditEntry {
+            publisher: publisher_id(),
+            ts_iso: chrono::Utc::now().to_rfc3339(),
+            topic: msg.topic.clone(),
+            priority: msg.priority.clone(),
+            ulid: msg.ulid.clone(),
+        };
+        if let Err(e) = crate::audit::append(&self.bus_root, &entry) {
+            tracing::warn!(
+                target: "mde_bus::persist",
+                error = %e,
+                ulid = %msg.ulid,
+                "audit log append failed — message persisted but audit gap"
+            );
+        }
+
         Ok(msg)
     }
 
@@ -363,6 +383,26 @@ impl DivergenceReport {
     pub fn is_clean(&self) -> bool {
         self.files_without_rows.is_empty() && self.rows_without_files.is_empty()
     }
+}
+
+/// Best-effort publisher identifier for audit entries. Reads
+/// `$HOSTNAME` env, then `/proc/sys/kernel/hostname`, then
+/// falls back to the literal `"mde-bus"` (same fallback chain
+/// the mDNS discovery hostname uses for symmetry).
+fn publisher_id() -> String {
+    if let Ok(v) = std::env::var("HOSTNAME") {
+        let t = v.trim();
+        if !t.is_empty() {
+            return t.to_string();
+        }
+    }
+    if let Ok(body) = std::fs::read_to_string("/proc/sys/kernel/hostname") {
+        let t = body.trim();
+        if !t.is_empty() {
+            return t.to_string();
+        }
+    }
+    "mde-bus".to_string()
 }
 
 fn priority_str(p: Priority) -> &'static str {

@@ -5,6 +5,19 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-7.1 — per-peer JSONL audit log (v6.x Mackes Bus, 2026-05-26)**
+- New `crates/mde-bus/src/audit.rs` ships an append-only audit
+  log at `~/.local/share/mde/bus/audit/<YYYY-MM-DD>.jsonl`. Each
+  line carries the metadata (publisher, ts_iso, topic, priority,
+  ULID) — never the body, which lives durably in the per-topic
+  file tree.
+- Daily UTC rotation via filename — no in-process clock thread
+  required. Directory lands 0700 + each file lands 0600 (the
+  mesh is flat-trust but local-user privacy still matters).
+- Wired into `Persist::write`: every publish appends one audit
+  line. Append failures log + continue — the message is
+  durably stored regardless.
+
 **BUS-4.5 + BUS-4.6 — lint coverage on Bus code (2026-05-26)**
 - `install-helpers/lint-voice.sh` now scans `crates/mde-bus` +
   `data/bus` on every pre-commit + CI run so Bus user-visible

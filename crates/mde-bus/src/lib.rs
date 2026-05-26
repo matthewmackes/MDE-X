@@ -22,6 +22,7 @@
 //! (BUS-1.4), subscription manifest (BUS-1.7), the full CLI (BUS-1.8),
 //! and the retention engine (BUS-1.9) on top of these primitives.
 
+pub mod audit;
 pub mod broker;
 pub mod cli;
 pub mod discovery;
