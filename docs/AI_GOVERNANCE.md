@@ -247,7 +247,17 @@ old prefix for grep/history. Migration designed under EPIC-PROC-3. (Q78)
 
 ---
 
-## 11. 1.0 Roadmap (MAXIMUM scope per Q91)
+## 11. 1.0 Roadmap (MAXIMUM scope per Q91 — NO INCOMPLETE RELEASES per §0.17)
+
+> **NO INCOMPLETE RELEASES** (operator directive 2026-05-26 +
+> CLAUDE.md §0.17 + memory [[feedback_no_incomplete_releases]]).
+> Every cut release ships EVERY locked item below. No minimal-1.0,
+> no scope-cut, no defer-to-1.1. The §11 roadmap below IS the cut
+> definition. When asked "what's the fastest path," reframe to
+> execution-pace (more parallel sessions, more bundles per session,
+> more HW bench passes) — never scope reductions. The only
+> legitimate path to revisit Q91 is an operator-typed "lift the
+> lock for X" / "amend Q91."
 
 MackesDE for Workgroups 1.0 ships when ALL of these are green:
 

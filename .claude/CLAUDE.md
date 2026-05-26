@@ -514,6 +514,53 @@ CLAUDE.md tier 2 and is mirrored in memory tier 1
 ([[feedback_platform_feature_locked]]). Memory wins if they
 contradict. Operator-issued lock-lifts override both.
 
+### 0.17 NO INCOMPLETE RELEASES (operator directive 2026-05-26)
+
+**Every cut release ships every locked §11 roadmap item from
+`docs/AI_GOVERNANCE.md`. There are no minimal releases, no
+scope-cut releases, no defer-to-next-minor releases.**
+
+This rule strengthens Q91 (1.0 = maximum scope) + §0.15 (HW bench
+required pre-release) + §0.16 (platform feature lock). It
+eliminates the "scope cut" escape hatch from the release pipeline:
+
+- **Never propose "lock a smaller 1.0"** when asked for the fastest
+  path to ship. The locked Q91 scope IS the cut definition; the
+  release plan is the whole §11 roadmap.
+- **Never recommend "defer X to 1.1"** as a way to accelerate.
+  Even if a remaining item is multi-bundle, multi-session, or
+  needs HW bench — the answer is "grind the locked scope," not
+  "shrink it."
+- **When the queue is long** and the operator asks "what's the
+  most direct path to completion": the answer reframes the
+  question as execution-pace (more parallel sessions, more
+  bundles per session, more HW bench passes) — NOT scope.
+- **On contradiction with the §0 master rule** ("Secure, Simple,
+  Centerless Workgroup"), this rule WINS. "Simple" means fewer
+  concepts in the design, not a smaller cut at release time.
+
+**Trigger phrases that should surface this rule before
+complying** (do NOT silently propose scope cuts):
+
+- "What's the fastest path to ship?"
+- "Can we defer X to 1.1?"
+- "Let's cut a minimal 1.0"
+- "Should we shrink scope?"
+- "Some of these are too big — what should we drop?"
+- "Lock a smaller 1.0"
+- "Pick the critical-path items only"
+
+For any of these, surface this rule first. Then offer execution-
+pace options (parallel-session coordination, multi-bundle work
+plans, HW bench acceleration) — never scope reductions.
+
+**The only legitimate path to revisit Q91** is the operator
+explicitly typing "lift the lock for X" or "amend Q91." Claude
+never proposes the amendment.
+
+See [[feedback_no_incomplete_releases]] for the operator
+directive that locked this rule.
+
 ---
 
 ## 1. Worklist Rule
