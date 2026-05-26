@@ -5,6 +5,34 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-3.1 + BUS-3.2 + BUS-3.3 — webhook ingress + GitHub adapter (v6.x Mackes Bus, 2026-05-26)**
+- New `crates/mde-bus/src/hooks/` module wires an axum HTTP
+  listener on `<overlay-ip>:8444`. Bind-scope is the auth
+  boundary — the kernel itself rejects underlay connections, so
+  "Nebula source-IP only" authentication needs zero in-process
+  middleware. Per-request flow: pick adapter, run Rust extractor,
+  walk YAML rule list, render Tera templates, POST to the local
+  ntfy broker on port 8443.
+- YAML schema at `~/.config/mde/bus-hooks.yaml` supports
+  `match.event` + `match.field.<key>` predicates and renders
+  `topic` / `priority` / `title` / `body` Tera templates against
+  per-adapter extracted fields. Strict rendering — typos in
+  field names surface as HTTP 422 at request time rather than
+  silent empty publishes.
+- GitHub adapter ships full event coverage: `push` (repo, branch,
+  pusher, commit_count, head_message), `pull_request` (action,
+  pr_number, pr_title, pr_user, pr_url), `issues` (action,
+  issue_number, issue_title, issue_user, issue_url), `release`
+  (action, tag, release_name, release_url). `data/bus/hooks/
+  github.yaml` ships the verbatim-includable rule set.
+- New `data/firewall/mackes-bus.xml` firewalld service definition
+  declares the two Bus ports (8443/tcp ntfy + 8444/tcp webhooks)
+  for operators who prefer explicit allow-listing on top of the
+  default bind-scope enforcement.
+- 32 new unit + integration tests cover the YAML schema, the
+  matcher, the publisher (with stub ntfy server), and the
+  end-to-end listener (with stub ntfy + ephemeral-port bind).
+
 **BUS-1.7 — subscription manifest + live-reload watcher (v6.x Mackes Bus, 2026-05-26)**
 - New per-peer `~/.local/share/mde/bus/subs.yaml` (seeded from
   `/usr/share/mde/bus/subs.yaml.tmpl`) drives delivery filtering.

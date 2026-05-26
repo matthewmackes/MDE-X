@@ -51,6 +51,22 @@ serde_yaml = "0.9"
 # Error enums — matches mackesd + mackes-nebula-https-tunnel versions.
 thiserror = "1"
 
+# BUS-3.1 + BUS-3.2 — webhook ingress HTTP server. `axum` 0.7 with
+# minimal features (http1 + tokio + JSON extractor); no tower-http
+# middleware needed since we route exactly one POST per adapter
+# and the listener binds to the Nebula overlay IP (the security
+# boundary is bind-scope, not in-process middleware).
+axum = { version = "0.7", default-features = false, features = ["http1", "tokio", "json"] }
+
+# BUS-3.2 — outbound HTTP to the local ntfy broker. Plain HTTP per
+# `docs/design/v6.x-mackes-bus.md` line 210 lock (no TLS — Nebula
+# is the transport encryption boundary); `default-features = false`
+# strips the entire TLS stack so we don't pull rustls/native-tls.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
+# BUS-3.2 — request body bytes type (extractor + tests).
+bytes = "1"
+
 [dev-dependencies]
 tempfile = "3"
 

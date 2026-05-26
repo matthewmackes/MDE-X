@@ -698,6 +698,25 @@ install -D -m 0644 data/ntfy/server.yml.tmpl \
 install -D -m 0644 data/bus/subs.yaml.tmpl \
     %{buildroot}%{_datadir}/mde/bus/subs.yaml.tmpl
 
+# BUS-3.1 + BUS-3.2 (v6.x Mackes Bus) — webhook ingress.
+# hooks.yaml.tmpl is the operator-facing seed that the per-peer
+# ~/.config/mde/bus-hooks.yaml starts from; the listener reads the
+# per-peer file on every inbound webhook so edits land without a
+# daemon restart. hooks/github.yaml ships the full BUS-3.3 rule
+# set the operator can include verbatim.
+install -D -m 0644 data/bus/hooks.yaml.tmpl \
+    %{buildroot}%{_datadir}/mde/bus/hooks.yaml.tmpl
+install -D -m 0644 data/bus/hooks/github.yaml \
+    %{buildroot}%{_datadir}/mde/bus/hooks/github.yaml
+
+# BUS-3.1 (v6.x Mackes Bus) — firewalld service definition for
+# the two Bus ports (8443/tcp ntfy + 8444/tcp webhooks). Operator
+# applies via `firewall-cmd --add-service=mackes-bus --zone=trusted`
+# when explicit firewalld allow-listing is preferred over the
+# default bind-scope-only security boundary.
+install -D -m 0644 data/firewall/mackes-bus.xml \
+    %{buildroot}%{_prefix}/lib/firewalld/services/mackes-bus.xml
+
 # DM-3 + DM-6 (v2.7) — regreet config sourced from the shared-tokens
 # theme dir. The .toml installs as %config(noreplace) so operator
 # edits survive upgrades. The greeter's CSS lives under
@@ -1214,6 +1233,11 @@ fi
 # headscale DERP-map example shipped under
 # %{_datadir}/%{name}/headscale/ is covered by the data catch-all.
 %{_unitdir}/mde-derper.service
+# BUS-3.1 — firewalld service definition. Installed inert; the
+# operator applies via `firewall-cmd --add-service=mackes-bus` if
+# explicit firewalld allow-listing is wanted on top of the
+# default bind-to-overlay-IP security boundary.
+%{_prefix}/lib/firewalld/services/mackes-bus.xml
 # MON-2 (v2.6) — Netdata health.d alert configs. %config(noreplace)
 # so operator edits to thresholds survive package upgrades; the
 # defaults match the v2.6 MON-2 design lock.

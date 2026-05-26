@@ -1,0 +1,103 @@
+# BUS-3 — webhook transform rules (Mackes Bus).
+#
+# Installed to /usr/share/mde/bus/hooks.yaml.tmpl by the mde RPM.
+# Copy to ~/.config/mde/bus-hooks.yaml on first run; the listener
+# reads the per-peer file on every inbound webhook so edits land
+# without a daemon restart.
+#
+# Layout:
+#
+#   adapters:
+#     <adapter_name>:
+#       rules:
+#         - name: <rule_name>
+#           match:
+#             event: <event_name>          # optional: matches the
+#                                          # per-adapter event
+#                                          # (X-GitHub-Event, etc.)
+#             field:                       # optional: equality on
+#               <key>: <expected_value>    # extracted template fields
+#           publish:
+#             topic: <topic>               # Tera-templated
+#             priority: default            # min/default/high/urgent
+#             title: <title>               # Tera-templated
+#             body: <body>                 # Tera-templated
+#
+# Built-in adapters expose pre-extracted template fields you can
+# reference in the topic / title / body Tera templates without
+# writing JSONPath. See `docs/help/bus-hooks.md` for the per-
+# adapter field reference.
+#
+# Authentication: the listener binds on the Nebula overlay IP
+# only, so the kernel rejects underlay connections at the socket
+# layer. There are no tokens or signatures — overlay membership
+# is the auth.
+
+adapters:
+
+  # GitHub.com / GitHub Enterprise webhooks.
+  # Configure repo webhooks to POST to http://<overlay-ip>:8444/hooks/github
+  github:
+    rules:
+      - name: github-push
+        match:
+          event: push
+        publish:
+          topic: gh/push
+          priority: default
+          title: "{{ repo }} push to {{ branch }}"
+          body: "{{ pusher }} pushed {{ commit_count }} commits"
+
+  # Gitea webhooks (BUS-3.4 expands).
+  # gitea:
+  #   rules:
+  #     - name: gitea-push
+  #       match:
+  #         event: push
+  #       publish:
+  #         topic: gitea/push
+  #         title: "{{ repo }} push to {{ branch }}"
+  #         body: "{{ pusher }} pushed {{ commit_count }} commits"
+
+  # Sonarr/Radarr webhooks (BUS-3.5 expands).
+  # sonarr:
+  #   rules:
+  #     - name: download-complete
+  #       match:
+  #         event: Download
+  #       publish:
+  #         topic: media/download
+  #         title: "Downloaded: {{ title }}"
+  #         body: "{{ quality }} — {{ size_human }}"
+
+  # UPS/NUT webhooks (BUS-3.6 expands).
+  # nut:
+  #   rules:
+  #     - name: grid-loss
+  #       match:
+  #         event: ONBATT
+  #       publish:
+  #         topic: power/grid-loss
+  #         priority: urgent
+  #         title: "{{ ups_name }} on battery"
+  #         body: "Grid lost at {{ ups_ts }}"
+
+  # Home Assistant webhooks (BUS-3.7 expands).
+  # home_assistant:
+  #   rules:
+  #     - name: automation-fired
+  #       match:
+  #         event: automation_triggered
+  #       publish:
+  #         topic: home/automation
+  #         title: "{{ automation_name }} triggered"
+  #         body: "{{ automation_detail }}"
+
+  # Generic JSON poster (BUS-3.7).
+  # generic:
+  #   rules:
+  #     - name: ping
+  #       publish:
+  #         topic: misc/ping
+  #         title: "{{ source }}"
+  #         body: "{{ message }}"

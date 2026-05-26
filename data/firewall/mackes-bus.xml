@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  BUS-3.1 — firewalld service definition for Mackes Bus webhook
+  ingress.
+
+  Declares the two ports the Bus exposes inside the Nebula overlay:
+
+    8443/tcp  — ntfy broker (publish + subscribe API; BUS-1.2)
+    8444/tcp  — webhook listener (inbound transform-rules engine;
+                BUS-3.1 + BUS-3.2)
+
+  The actual security boundary is the in-process bind: both
+  services bind to the Nebula overlay IP (read from
+  /var/lib/mackesd/nebula/overlay-ip), so the kernel itself
+  rejects connections on the underlay before they reach the
+  application. The firewall rule below is belt-and-suspenders
+  documentation that operators can apply to firewalld when they
+  want explicit allow-listing rather than relying on bind-scope
+  alone.
+
+  Installed by the mde RPM to /usr/lib/firewalld/services/
+  mackes-bus.xml. Apply with:
+
+      firewall-cmd --permanent --zone=trusted \
+                   --add-service=mackes-bus && \
+      firewall-cmd --reload
+
+  Per `docs/design/v6.x-mackes-bus.md` line 210 (encryption: none
+  — Nebula transport is enough); no TLS port lives in this list.
+-->
+<service>
+  <short>Mackes Bus (Nebula-only)</short>
+  <description>Mackes Bus — ntfy broker + webhook ingress on the Nebula overlay only. Bind-scope is the auth boundary; this service definition is for operators who prefer explicit firewalld allow-listing on the overlay interface.</description>
+  <port protocol="tcp" port="8443"/>
+  <port protocol="tcp" port="8444"/>
+</service>

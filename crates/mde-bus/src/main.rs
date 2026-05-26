@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
-use mde_bus::{broker, discovery, seed, subs, template::Renderer, topic::Registry};
+use mde_bus::{broker, discovery, hooks, seed, subs, template::Renderer, topic::Registry};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -207,6 +207,53 @@ async fn run_daemon() -> anyhow::Result<()> {
             (None, None)
         }
     };
+    // BUS-3.1 + BUS-3.2 — webhook ingress HTTP listener. Binds on
+    // <overlay_ip>:8444 only; bind-scope is the auth boundary
+    // (kernel rejects underlay connects). Skip reasons (no
+    // overlay IP, bind failed) log + continue — the outer
+    // supervisor re-evaluates on its next tick.
+    //
+    // The shutdown sender is held in this function's scope so it
+    // drops naturally when run_daemon returns — that triggers the
+    // axum graceful-shutdown path.
+    let (_hooks_shutdown_tx, _hooks_task, _hooks_local_addr) =
+        match overlay_ip_for_discovery.as_deref().map(str::parse::<std::net::IpAddr>) {
+            Some(Ok(ip_addr)) => {
+                let cfg = hooks::server::ListenerConfig::for_overlay_ip(
+                    &ip_addr.to_string(),
+                );
+                match hooks::run_listener(ip_addr, cfg).await? {
+                    hooks::ListenerOutcome::Running {
+                        task,
+                        shutdown_tx,
+                        local_addr,
+                    } => {
+                        tracing::info!(
+                            target: "mde_bus::hooks",
+                            local_addr = %local_addr,
+                            "webhook listener active"
+                        );
+                        (Some(shutdown_tx), Some(task), Some(local_addr))
+                    }
+                    hooks::ListenerOutcome::Skipped(reason) => {
+                        tracing::info!(
+                            target: "mde_bus::hooks",
+                            skip_reason = %reason,
+                            "webhook listener skipped — non-fatal"
+                        );
+                        (None, None, None)
+                    }
+                }
+            }
+            Some(Err(_)) | None => {
+                tracing::info!(
+                    target: "mde_bus::hooks",
+                    "webhook listener skipped — no overlay IP available yet"
+                );
+                (None, None, None)
+            }
+        };
+
     // Heartbeat tick — every 60s log a single line so operators can
     // see the daemon is alive in `journalctl -u mde-bus`.
     let mut ticker = tokio::time::interval(Duration::from_secs(60));

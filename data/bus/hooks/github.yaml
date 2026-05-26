@@ -1,0 +1,69 @@
+# BUS-3.3 — full GitHub adapter rule set.
+#
+# Operators who want every GitHub event routed by default can
+# include this file's `adapters.github.rules` block verbatim in
+# their `~/.config/mde/bus-hooks.yaml`. The included rules cover
+# the four event types BUS-3.3 ships extractors for:
+#
+#   push          → gh/push
+#   pull_request  → gh/pr  (action-suffixed in the title)
+#   issues        → gh/issue
+#   release       → gh/release
+#
+# Each rule references only template fields that the GitHub
+# adapter's Rust extractor guarantees on that event type. Template
+# rendering is strict — typos surface as 422 at request time, not
+# silent empty publishes.
+
+adapters:
+
+  github:
+    rules:
+
+      - name: github-push
+        match:
+          event: push
+        publish:
+          topic: gh/push
+          priority: default
+          title: "{{ repo }} push to {{ branch }}"
+          body: |
+            {{ pusher }} pushed {{ commit_count }} commit(s) to {{ repo }}@{{ branch }}.
+
+            {{ head_message }}
+
+      - name: github-pull-request
+        match:
+          event: pull_request
+        publish:
+          topic: gh/pr
+          priority: default
+          title: "{{ repo }} PR #{{ pr_number }} {{ action }}"
+          body: |
+            {{ pr_user }} {{ action }} PR #{{ pr_number }}: {{ pr_title }}
+
+            {{ pr_url }}
+
+      - name: github-issues
+        match:
+          event: issues
+        publish:
+          topic: gh/issue
+          priority: default
+          title: "{{ repo }} issue #{{ issue_number }} {{ action }}"
+          body: |
+            {{ issue_user }} {{ action }} issue #{{ issue_number }}: {{ issue_title }}
+
+            {{ issue_url }}
+
+      - name: github-release
+        match:
+          event: release
+        publish:
+          topic: gh/release
+          priority: high
+          title: "{{ repo }} release {{ tag }} {{ action }}"
+          body: |
+            {{ release_name }}
+
+            {{ release_url }}
