@@ -70,10 +70,17 @@ def run() -> int:
     while _RUNNING:
         now = time.monotonic()
 
-        # 5s: notification inbox
+        # 5s: notification inbox — RETIRED in DEAD-2.8 (2026-05-26).
+        # Bus owns notifications going forward (BUS-1..7); the
+        # mesh_notifications poll loop becomes a Bus subscription
+        # once BUS-4.4 FDO bridge lands. Until then the tick is
+        # a no-op (try/except fallback per NF-5.1 wholesale-retire).
         if now - last_5s >= 5:
-            from mackes.mesh_notifications import receive_loop_once
-            _safe("notif_inbox", receive_loop_once)
+            try:
+                from mackes.mesh_notifications import receive_loop_once  # type: ignore[import-not-found]
+                _safe("notif_inbox", receive_loop_once)
+            except ImportError:
+                pass  # mesh_notifications retired; Bus subscriber lands with BUS-4.4
             last_5s = now
 
         # 30s: vpn election + snapshot + mdns relay

@@ -1062,7 +1062,7 @@ call-end lifecycle, never at install or login.
 
 #### Wave 4 — Notifications module superseded by GF-17 bus
 
-- [ ] **DEAD-2.8: v5.1 — Delete `mackes/mesh_notifications.py` (superseded by GF-17 unified bus + `notification_relay.rs`)** *(depends on GF-17.5 alert_router rename)*
+- [✓] **DEAD-2.8: v5.1 — Delete `mackes/mesh_notifications.py` (superseded by v6.x Mackes Bus per BUS-4.2 hard cut; GF-17.5 dep itself superseded same-day)** *(shipped 2026-05-26 — session=opus-cw-2026-05-26-01:30; mesh.py consumer pre-wrapped; headless/cli.py + headless/daemon.py consumers wrapped in try/except ImportError per NF-5.1 wholesale-retire pattern (CLI degrades with a clear `mde-bus publish fdo/notify` hint when the module is gone; daemon notification-inbox tick becomes a no-op until BUS-4.4 FDO bridge rewires it); mesh_notifications.py + tests/test_mesh_notifications.py deleted (test file was not present); module-import smoke green; ruff clean; legacy-mesh + voice lints clean)*
   **As** the v5.1 cleanup pass,
   **I want** to delete the distributed `notify-send` python module,
   **so that** the codebase has one notification path — the GF-17 unified bus (`alert_router` + `<qnm_root>/<self>/mackesd/notifications/<ulid>.json`) + the live `notification_relay.rs` worker (DB sync).

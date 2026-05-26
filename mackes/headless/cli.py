@@ -497,8 +497,23 @@ def main(argv: Optional[list[str]] = None) -> int:
         return open_session(args.peer, layer=args.layer, user=args.user)
 
     # ---- notify ----
+    # mesh_notifications retired in DEAD-2.8 (2026-05-26 per Q14 +
+    # Q77 + BUS supersession). Notifications now route through the
+    # v6.x Mackes Bus (BUS-1..7). Once BUS-4.4 FDO bridge lands,
+    # this branch will rewire to `mde-bus publish fdo/notify ...`;
+    # until then, the command degrades to a one-line warning.
     if cmd == "notify":
-        from mackes.mesh_notifications import send
+        try:
+            from mackes.mesh_notifications import send  # type: ignore[import-not-found]
+        except ImportError:
+            print(
+                "mde notify: mesh_notifications retired (DEAD-2.8). "
+                "Send via `mde-bus publish fdo/notify <body>` once "
+                "BUS-4.4 FDO bridge ships, or use the system notifier "
+                "directly (`notify-send`).",
+                file=sys.stderr,
+            )
+            return 1
         target = "*" if args.all else args.peer
         for line in send(target, args.title, body=args.body,
                          urgency=args.urgency, icon=args.icon):
