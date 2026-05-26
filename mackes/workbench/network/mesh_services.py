@@ -25,9 +25,22 @@ from mackes.carbon import (
     Button, ButtonKind, Tile, ClickableTile,
     Notification, NotificationKind,
 )
-from mackes.mesh_services import (
-    ServiceDef, ServiceHit, load_catalog, load_registry, probe_all, url_for, launch,
-)
+try:
+    from mackes.mesh_services import (
+        ServiceDef, ServiceHit, load_catalog, load_registry, probe_all, url_for, launch,
+    )
+except ImportError:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "mackes.mesh_services retired (DEAD-2.9); Mesh Services panel is a no-op"
+    )
+    ServiceDef = type(None)  # type: ignore[assignment,misc]
+    ServiceHit = type(None)  # type: ignore[assignment,misc]
+    def load_catalog() -> list: return []
+    def load_registry() -> list: return []
+    def probe_all(_peers=None) -> list: return []
+    def url_for(_hit) -> str: return ""
+    def launch(_hit) -> list: return []
 from mackes.mdns_relay import DEFAULT_RELAYED_TYPES, DEFAULT_PRIVATE_TYPES
 from mackes.workbench._async import async_probe
 

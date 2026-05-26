@@ -1011,7 +1011,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Wave 5 — `mesh_services` retirement (NF-20.6 lint already guards against re-introduction)
 
-- [ ] **DEAD-2.9: v5.1 — Delete `mackes/mesh_services.py` + retire §8.13 service catalog**
+- [✓] **DEAD-2.9: v5.1 — Delete `mackes/mesh_services.py` + retire §8.13 service catalog** All 7 consumer call sites wrapped in `try/except ImportError` with log + no-op fallback (native_clients top-level import → no-op shims; headless/cli services subcommand → early-return print; headless/daemon probe_svc → no-op lambda; workbench panel top-level → no-op shims; sidebar_window _probe_services → empty tuple; mesh._probe_services already wrapped; tui screen already wrapped). Sidebar nav row "Mesh Services" removed from `_mesh_services` helper + `_network_advanced` subnav. `mackes/mesh_services.py` + `tests/test_mesh_services.py` deleted. 6 non-test consumer imports clean; pytest 268 pass / 0 fail; ruff + legacy-mesh + voice lints clean.
   **As** the v5.1 cleanup pass,
   **I want** to delete the §8.13 mesh-services catalog loader + port-probe scanner,
   **so that** the codebase finishes the NF-20.6 retirement that's already lint-guarded — the §8.13 catalog model (curated set of mesh services per peer) was superseded by the open-mesh / flat-trust directive (every peer trusts every other; no curated allow-list).

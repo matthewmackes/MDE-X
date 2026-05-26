@@ -93,7 +93,11 @@ def run() -> int:
             except Exception:  # noqa: BLE001
                 peer_names = []
             from mackes.mesh_fs import sync_mounts
-            from mackes.mesh_services import probe_all
+            try:
+                from mackes.mesh_services import probe_all
+            except ImportError:
+                def probe_all(_peers):  # type: ignore[no-redef]
+                    return None
             from mackes.mesh_ssh import sync_authorized_keys
             from mackes.native_clients import refresh_all
             _safe("mount_sync",  lambda: sync_mounts(peer_names))

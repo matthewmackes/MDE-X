@@ -457,10 +457,18 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # ---- services ----
     if cmd == "services":
-        from mackes.mesh_services import (
-            load_catalog, load_registry, launch,
-            cheatsheet_lines,
-        )
+        try:
+            from mackes.mesh_services import (
+                load_catalog, load_registry, launch,
+                cheatsheet_lines,
+            )
+        except ImportError:
+            print(
+                "(mesh-services catalog retired in DEAD-2.9 — every peer trusts every other; "
+                "no curated allow-list)",
+                file=sys.stderr,
+            )
+            return 0
         if args.svc_cmd == "list":
             for line in cheatsheet_lines():
                 print(line)

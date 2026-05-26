@@ -12,7 +12,18 @@ import json
 from typing import Iterable
 
 from mackes.logging import log_action
-from mackes.mesh_services import ServiceHit, load_registry, url_for
+try:
+    from mackes.mesh_services import ServiceHit, load_registry, url_for
+except ImportError:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "mackes.mesh_services retired (DEAD-2.9); native-client autoconfig disabled"
+    )
+    ServiceHit = type(None)  # type: ignore[assignment,misc]
+    def load_registry() -> list:  # type: ignore[no-redef]
+        return []
+    def url_for(_hit) -> str:  # type: ignore[no-redef]
+        return ""
 from mackes.state import HOME
 
 

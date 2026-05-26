@@ -253,10 +253,6 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         from mackes.workbench.network.mesh_ssh import MeshSshPanel
         return _wrap_in_scroller(MeshSshPanel())
 
-    def _mesh_services():
-        from mackes.workbench.network.mesh_services import MeshServicesPanel
-        return _wrap_in_scroller(MeshServicesPanel())
-
     def _firewall():
         from mackes.workbench.network.firewall import FirewallPanel
         return _wrap_in_scroller(FirewallPanel())
@@ -284,16 +280,12 @@ def _build_nav(state: MackesState, navigate: Callable[[str], None]) -> List[NavG
         def _f_meshssh():
             from mackes.workbench.network.mesh_ssh import MeshSshPanel
             return MeshSshPanel()
-        def _f_services():
-            from mackes.workbench.network.mesh_services import MeshServicesPanel
-            return MeshServicesPanel()
         def _f_firewall():
             from mackes.workbench.network.firewall import FirewallPanel
             return FirewallPanel()
         return _build_subnav_container([
             ("mesh_health",      "Mesh Health",      _f_health),
             ("mesh_ssh",         "Mesh SSH",         _f_meshssh),
-            ("mesh_services",    "Mesh Services",    _f_services),
             ("firewall",         "Firewall",         _f_firewall),
             ("vpn",              "VPN",              _f_vpn),
             ("qnm",              "QNM",              _f_qnm),
@@ -1003,7 +995,10 @@ class WorkbenchWindow(Gtk.ApplicationWindow):
             return ("mesh_vpn", str(online) if online else "")
 
         def _probe_services():
-            from mackes.mesh_services import load_registry
+            try:
+                from mackes.mesh_services import load_registry
+            except ImportError:
+                return ("mesh_services", "")
             n = len(load_registry())
             return ("mesh_services", str(n) if n else "")
 

@@ -57,6 +57,17 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   `mackesd_core::workers::wol::{normalize_mac, wake}` so Wake-on-LAN
   has a runtime entry point.  Operators who used `python -m mackes
   wol …` switch to `mackesd wake-peer aa:bb:cc:dd:ee:ff`.
+- Deleted `mackes/mesh_services.py` + `tests/test_mesh_services.py`
+  (DEAD-2.9). The §8.13 curated service-catalog model is retired —
+  superseded by the open-mesh / flat-trust directive (every peer
+  trusts every other; no curated allow-list). The "Mesh Services"
+  sidebar nav row is removed from the Workbench. Seven consumer
+  call sites (native_clients, headless/cli services subcommand,
+  headless/daemon probe_svc, workbench panel + sidebar probe,
+  mesh.py health probe, tui screen) are wrapped in `try/except
+  ImportError` with log + no-op fallback so any operator who still
+  imports the module path gets graceful degradation rather than a
+  crash.
 
 **Scope tightening (EPIC-MASTER-3)**
 - Fleet cap reduced from 16 to **8 peers** (Q3 of the 100-Q
