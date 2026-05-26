@@ -161,6 +161,11 @@ pub mod remmina_sync;
 // Replaces mesh_nebula.py::write_sshd_overlay_bind so the
 // Python module can fully retire (DEAD-2.14 plan).
 pub mod sshd_overlay_bind;
+// NF-21.3 — owns the firewalld preset that opens Nebula's
+// UDP/4242 (all peers) + TCP/443 (lighthouses) inbound. Replaces
+// mesh_nebula.py::apply_nebula_firewall_preset so the Python
+// helper can retire (DEAD-2.14 plan).
+pub mod firewall_preset;
 pub mod stun_gather;
 pub mod subprocess_tick;
 pub mod thumbnailer;

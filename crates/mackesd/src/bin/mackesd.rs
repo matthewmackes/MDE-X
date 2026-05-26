@@ -2119,7 +2119,8 @@ fn run_serve(
     use std::sync::Arc;
     use tokio::sync::RwLock;
     use mackesd_core::workers::{
-        clipboard::ClipboardWorker, fs_sync::FsSyncWorker, heartbeat::HeartbeatWorker,
+        clipboard::ClipboardWorker, firewall_preset::FirewallPresetWorker,
+        fs_sync::FsSyncWorker, heartbeat::HeartbeatWorker,
         mdns::MdnsWorker, mesh_router::MeshRouterWorker,
         notification_relay::NotificationRelayWorker,
         sshd_overlay_bind::SshdOverlayBindWorker, voice_config::VoiceConfigWorker,
@@ -2228,6 +2229,18 @@ fn run_serve(
             RestartPolicy::OnFailure,
         ));
         worker_names.lock().expect("worker_names mutex").push("sshd_overlay_bind".into());
+        // NF-21.3 — firewall_preset worker. Applies the Nebula
+        // firewalld preset (UDP/4242 inbound on all peers; TCP/443
+        // inbound additionally on lighthouses) on first tick + on
+        // every role-flip via the /var/lib/mackesd/nebula/role.host
+        // marker. Idempotent — firewall-cmd's ALREADY_ENABLED is
+        // treated as success. Replaces mesh_nebula.py::apply_nebula_firewall_preset
+        // so the Python helper can retire (DEAD-2.14 plan).
+        sup.spawn(Spawn::new(
+            FirewallPresetWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("firewall_preset".into());
         // mesh_router bootstraps with the per-transport
         // registry. Phase 12.18 D.2 (2026-05-23) — the NebulaHttps443
         // transport is registered at startup so the per-peer

@@ -44,8 +44,15 @@ infrastructure):
                                     helper kept only until consumers retire
                                     under EPIC-RETIRE-PY-WORKBENCH; no new
                                     callers should use it.
-    - apply_nebula_firewall_preset — nftables preset application;
-                                     tracked as NF-21.3
+    - apply_nebula_firewall_preset — RUST EQUIVALENT SHIPPED 2026-05-26
+                                     as crates/mackesd/src/workers/firewall_preset.rs
+                                     (NF-21.3 [✓] Done). The Rust worker
+                                     refines the preset to lighthouse-aware:
+                                     UDP/4242 inbound on all peers + TCP/443
+                                     inbound additionally on lighthouses
+                                     (`role.host` marker exists). Python
+                                     helper kept only until consumers retire
+                                     under EPIC-RETIRE-PY-WORKBENCH.
     - emit_lighthouse_event / emit_ca_rotation / emit_https_fallback_state
       / emit_cert_expiry_warning  — all four `_emit_toast` helpers are
                                     desktop-notification emitters that
