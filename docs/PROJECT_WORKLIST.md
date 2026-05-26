@@ -464,14 +464,14 @@ call-end lifecycle, never at install or login.
     - [✓] No operator override path (hard block per Q12).
     - [✓] Documents how to amend Q91 if scope needs revision. *(both the script body's refusal message + CLAUDE.md §0.6 step 0 name the "amend Q91 to drop <epic>" path as the legitimate route; never auto-proposed by Claude per §0.17)*
 
-- [ ] **TUNE-8: TUNE-HW-CHECKLIST — per-bullet HW acceptance.**
+- [✓] **TUNE-8: TUNE-HW-CHECKLIST — per-bullet HW acceptance.** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-X; per-bullet HW schema formalized in CLAUDE.md §0.15 (TUNE-6 commit d7e968db) with a worked HW-3 example block. `install-helpers/pre-cut-check.sh` (TUNE-7 commit c830f53d) extended in-place with an HW-* per-bullet awk pass: scans the WHOLE worklist (Active + Hardware Testing section since HW lives outside Active), tracks each `^- \[<mark>\] \*\*HW-` task header through to the next `^- \[` or section header, collects every indented `^    - \[<mark>\]` sub-bullet, and reports OPEN with reason "task-level" (header itself is open) or "per-bullet" (header is [✓] but at least one sub-bullet is open). Sub-bullet open marks scanned: `[ ]` / `[>]` / `[!]` — any non-[✓] sub-bullet under a task counts. Current state: HW-1..HW-4 all `[✓]` with no per-bullet sub-bullets → script reports zero HW_OPEN. Logic smoke-tested with a synthetic 3-task fixture (HW-5 [✓] with one open sub-bullet → reported "per-bullet"; HW-6 all [✓] → not reported; HW-7 [ ] with closed sub-bullets → reported "task-level") — all three cases handled correctly. The flush_and_reset awk function flushes the previous in-flight task on every new header so back-to-back HW tasks don't shadow each other. Future HW-5+ tasks for the operator's 8-peer bench fleet (§11 row 15 + Q13) will use per-bullet schema; this script catches incomplete bullets at cut time without further changes. Refusal message gains a dedicated "Open HW-* tasks" block listing each open task with its line number + open-reason ("task-level" vs "per-bullet").)*
   **As** the §0.15 HW bench gate,
   **I want** every HW-* task's acceptance bullets to require individual `[✓]` confirmation,
   **so that** cut-release can verify granular bench coverage mechanically.
   **Acceptance**:
-    - [ ] Worklist schema doc updated: HW-* tasks use per-bullet `[ ]`/`[✓]` toggles (already current format; formalize).
-    - [ ] pre-cut-check (TUNE-7) extends to verify every HW-* acceptance bullet for the target release is `[✓]`.
-    - [ ] Tested: cut with one HW bullet open fails; cut with all bullets `[✓]` proceeds.
+    - [✓] Worklist schema doc updated: HW-* tasks use per-bullet `[ ]`/`[✓]` toggles (already current format; formalize). *(CLAUDE.md §0.15 amendment shipped TUNE-6 with worked HW-3 schema example)*
+    - [✓] pre-cut-check (TUNE-7) extends to verify every HW-* acceptance bullet for the target release is `[✓]`. *(awk pass added; reports task-level + per-bullet failures distinctly)*
+    - [✓] Tested: cut with one HW bullet open fails; cut with all bullets `[✓]` proceeds. *(synthetic 3-task smoke verified; current real-worklist state has 0 HW opens so passes the HW portion of the gate)*
 
 - [ ] **TUNE-9: TUNE-LINT-11 — `lint-visual-citation.sh` (gate #11).**
   **As** the world-class-design enforcement layer,

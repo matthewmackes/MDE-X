@@ -137,23 +137,119 @@ for prefix in $ROADMAP_PREFIXES; do
     fi
 done
 
-TOTAL=$((OPEN_COUNT + INPROGRESS_COUNT))
+# TUNE-8 (Q13 of 25-Q tuning survey, 2026-05-26) — HW-* per-bullet
+# verification. HW tasks live in their own "Epic: Hardware Testing"
+# section OUTSIDE the Active block, so the prefix scan above doesn't
+# see them. §11 row 15 ("Operator's full 8-peer fleet HW bench
+# green") makes HW gating real for the cut; per-bullet schema means
+# each `[ ]` sub-bullet under an HW-* task must be `[✓]` before the
+# task counts as done.
+#
+# Behavior: scan the WHOLE worklist (Active + Hardware Testing
+# section). For each `^- \[<mark>\] \*\*HW-` task header found,
+# advance to the next blank line or next top-level list item +
+# collect every indented `^    - \[<mark>\]` sub-bullet within
+# that range. If the task header is `[ ]` OR any sub-bullet is
+# `[ ]`, the HW item counts as incomplete.
+#
+# Current state (2026-05-26): HW-1..HW-4 are all [✓] with no
+# per-bullet sub-bullets — the operator-typed bench-green
+# confirmations from the original task bodies. Future HW-5+
+# tasks (the 8-peer bench fleet per Q13) will use per-bullet
+# schema; this scan catches incomplete bullets at cut time.
+
+HW_OPEN=0
+HW_DETAIL=""
+
+# awk pass: emit "OPEN <line> <title>" for every HW-* task header
+# that's still `[ ]` OR has at least one `[ ]` sub-bullet. The
+# scan starts at the task header line + ends at the next list-
+# item header (`^- ` not nested) or section header.
+HW_RESULTS=$(awk '
+    function emit(line, title, reason) {
+        print "OPEN|" line "|" reason "|" title;
+    }
+    function flush_and_reset(   reason) {
+        if (in_task) {
+            if (task_open || bullet_open) {
+                reason = task_open ? "task-level" : "per-bullet";
+                emit(task_line, title, reason);
+            }
+            in_task = 0;
+        }
+    }
+    # HW-* task header — open mark.
+    /^- \[[ >!]\] \*\*HW-/ {
+        flush_and_reset();
+        in_task = 1;
+        task_line = NR;
+        task_open = 1;
+        bullet_open = 0;
+        match($0, /\*\*HW-[^*]+\*\*/);
+        title = substr($0, RSTART, RLENGTH);
+        gsub(/\*\*/, "", title);
+        next;
+    }
+    # HW-* task header — closed mark.
+    /^- \[✓\] \*\*HW-/ {
+        flush_and_reset();
+        in_task = 1;
+        task_line = NR;
+        task_open = 0;
+        bullet_open = 0;
+        match($0, /\*\*HW-[^*]+\*\*/);
+        title = substr($0, RSTART, RLENGTH);
+        gsub(/\*\*/, "", title);
+        next;
+    }
+    # End-of-task sentinels: next top-level list item OR section
+    # header. The 4-space-indented sub-bullets dont match `^- `.
+    in_task && /^- \[/ { flush_and_reset(); }
+    in_task && /^## / { flush_and_reset(); }
+    in_task && /^### / { flush_and_reset(); }
+    # Indented sub-bullet (4 spaces) inside the task body.
+    in_task && /^    - \[ \]/ { bullet_open = 1; }
+    in_task && /^    - \[>\]/ { bullet_open = 1; }
+    in_task && /^    - \[!\]/ { bullet_open = 1; }
+    END { flush_and_reset(); }
+' "$WORKLIST")
+
+if [ -n "$HW_RESULTS" ]; then
+    HW_OPEN=$(printf '%s\n' "$HW_RESULTS" | wc -l | tr -d ' ')
+    HW_DETAIL=$(printf '%s\n' "$HW_RESULTS" | awk -F'|' '
+        { printf("  %s (line %s, %s open)\n", $4, $2, $3) }
+    ')
+fi
+
+TOTAL=$((OPEN_COUNT + INPROGRESS_COUNT + HW_OPEN))
 
 if [ "$TOTAL" -gt 0 ]; then
     cat >&2 <<EOF
 $0: REFUSING THE CUT — §11 roadmap items still have open work.
 
-$OPEN_COUNT open / blocked tasks + $INPROGRESS_COUNT in-progress tasks
-across §11 roadmap epic prefixes. Per CLAUDE.md §0.17 (Q11 + Q12 of
-25-Q tuning survey, 2026-05-26) this is a HARD BLOCK with no operator
+$OPEN_COUNT open / blocked tasks + $INPROGRESS_COUNT in-progress
+tasks across §11 roadmap epic prefixes + $HW_OPEN open HW-* tasks
+(task-level OR per-bullet). Per CLAUDE.md §0.17 (Q11 + Q12 of 25-Q
+tuning survey, 2026-05-26) this is a HARD BLOCK with no operator
 override flag.
 
 Open epics:
 $(printf '%b' "$OPEN_PREFIXES")
+EOF
+    if [ "$HW_OPEN" -gt 0 ]; then
+        cat >&2 <<EOF
+
+Open HW-* tasks (§0.15 + Q13 per-bullet schema — bench-green required):
+${HW_DETAIL}
+EOF
+    fi
+    cat >&2 <<EOF
 
 The cut proceeds when one of these is true:
   (a) Every task above is marked [✓] in docs/PROJECT_WORKLIST.md
-      with the §0.8 Definition of Done satisfied.
+      with the §0.8 Definition of Done satisfied. For HW-* tasks,
+      every per-bullet AC sub-item must also be [✓] with
+      operator-confirmed bench results per §0.15.
   (b) The operator types "amend Q91 to drop <epic>" and that epic
       line is removed from docs/AI_GOVERNANCE.md §11 + this script's
       ROADMAP_PREFIXES list. (Lock-amendment per §0.16 operator-
@@ -164,5 +260,5 @@ EOF
     exit 1
 fi
 
-echo "$0: clean — every §11 roadmap epic prefix shows zero open work in the active worklist."
+echo "$0: clean — every §11 roadmap epic prefix + every HW-* task (task-level + per-bullet) shows zero open work."
 exit 0
