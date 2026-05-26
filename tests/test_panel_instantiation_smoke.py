@@ -198,9 +198,16 @@ def test_workbench_panel_constructs_headless(panel_cls):
 
 
 def test_panel_discovery_finds_meaningful_count():
-    """Sanity: we should discover >= 20 Workbench panels. If this
-    number drops it means a refactor lost a panel registration."""
-    assert len(PANELS) >= 20, (
-        f"only discovered {len(PANELS)} Workbench panels; expected >= 20. "
+    """Sanity: we should still discover the Bucket-E gap panels
+    (devices/keyboard, mouse, look_and_feel/appearance, etc. — the
+    ~14 surviving panels that haven't yet retired under
+    EPIC-RETIRE-PY-WORKBENCH). The original >= 20 floor predated
+    `.delete-ported.batch-1..4` (2026-05-26) which removed 41
+    Bucket-A panels; the floor drops to >= 10 so this smoke still
+    catches `*Panel(Gtk.Box)` registration breakage on the panels
+    that remain. The whole test file retires under `.delete-chrome`
+    when `mackes/workbench/` empties entirely."""
+    assert len(PANELS) >= 10, (
+        f"only discovered {len(PANELS)} Workbench panels; expected >= 10. "
         "Did a refactor break the `*Panel(Gtk.Box)` naming convention?"
     )

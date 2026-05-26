@@ -58,22 +58,27 @@ def test_from_mde_import_routes_to_mackes_module():
     assert mde_sway is mackes_sway
 
 
-def test_three_level_path_round_trips():
-    """Nested paths (mde.workbench.devices.power) reach the same
-    source file as mackes.workbench.devices.power. They register
-    as distinct module objects in sys.modules because the facade
-    pre-aliases only the top level, but the functions inside are
-    shared (both modules re-execute the same .py source — Python
-    caches the bytecode, not the module identity, across nested
-    aliases). Functional equivalence is the contract; module-
-    object identity is not."""
-    from mde.workbench.devices import power as mde_power
-    from mackes.workbench.devices import power as mackes_power
-    # The two module objects are distinct (Python's nested
-    # import semantics) but every public callable is the same
-    # source-level function — defined in the same .py file at
-    # the same lineno.
-    assert mde_power.__file__ == mackes_power.__file__
+def test_two_level_path_round_trips():
+    """`mde.audio` reaches the same source file as `mackes.audio`.
+    They register as distinct module objects in sys.modules because
+    the facade pre-aliases only the top level, but the functions
+    inside are shared (both modules re-execute the same .py source —
+    Python caches the bytecode, not the module identity, across
+    nested aliases). Functional equivalence is the contract;
+    module-object identity is not.
+
+    The original three-level form used `mde.workbench.devices.power`
+    + the matching mackes path; both retired with
+    `EPIC-RETIRE-PY-WORKBENCH.delete-ported.batch-4` (2026-05-26).
+    `mackes.audio` is the extracted-helpers home from batch-3 —
+    same facade contract, different source path.
+    """
+    from mde import audio as mde_audio
+    from mackes import audio as mackes_audio
+    # The two module objects are distinct (Python's nested import
+    # semantics) but the file they execute is the same .py source —
+    # at the same path on disk.
+    assert mde_audio.__file__ == mackes_audio.__file__
 
 
 def test_callable_through_facade():

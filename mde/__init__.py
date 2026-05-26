@@ -77,6 +77,8 @@ _FACADE_SUBMODULES: tuple[str, ...] = (
     "admin_session",
     "app",
     "app_mgmt",
+    "audio",
+    "help_utils",
     "birthright",
     "birthright_check",
     "birthright_rollback",
