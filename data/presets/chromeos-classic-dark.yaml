@@ -1,0 +1,54 @@
+# Classic ChromeOS — dark variant.
+#
+# Pre-2022 ChromeOS flat aesthetic. #202124 charcoal palette, Roboto
+# body + Intel One Mono code, 28 px rows, 4 px corners, 48 px Shelf,
+# solid Material You indigo (#4285f4) selection. The canonical visual
+# lock per Q41 of the 100-Q tightening survey (2026-05-25); see
+# docs/design/chromeos-classic-spec.md + AI_GOVERNANCE.md §6.
+
+name: chromeos-classic-dark
+display_name: "Classic ChromeOS — Dark"
+description: >
+  Pre-2022 ChromeOS dark aesthetic. Flat #202124 surfaces, Roboto
+  body, Intel One Mono code, 4 px corners, Material You indigo
+  selection. The MackesDE 1.0 default look.
+
+appearance:
+  gtk_theme:      "Adwaita-dark"
+  icon_theme:     "Mackes-Carbon"
+  cursor_theme:   "Adwaita"
+  cursor_size:    24
+  font_ui:        "Roboto 11"
+  font_monospace: "Intel One Mono 11"
+  wallpaper:      "/usr/share/mackes-shell/branding/standard-wallpaper.png"
+
+devices:
+  display_scaling:    "auto"
+  power_profile:      "balanced"
+  audio_default_sink: "pipewire"
+
+network:
+  qnm_enabled:           false
+  firewall_default_zone: "FedoraWorkstation"
+
+system:
+  workspace_count:       1
+  window_manager_theme:  "Adwaita-dark"
+  notifications_enabled: true
+  autostart_extras: []
+
+panel:
+  clock:
+    digital-layout:      1
+    digital-date-format: "%a %b %d"
+    digital-date-font:   "Roboto 10"
+    digital-time-format: "%I:%M %p"
+    digital-time-font:   "Roboto Bold 12"
+
+apps:
+  install: []
+  remove_bloat:
+    - gnome-tour
+
+snapshot:
+  initial_snapshot_name: "chromeos-classic-dark-baseline"

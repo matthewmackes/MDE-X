@@ -1,0 +1,54 @@
+# Classic ChromeOS — light variant.
+#
+# Pre-2022 ChromeOS flat aesthetic, light surfaces. #ffffff /
+# #f1f3f4 palette, Roboto body + Intel One Mono code, 28 px rows,
+# 4 px corners, 48 px Shelf, Material You indigo (#4285f4)
+# selection. Per Q41 + Q79 of the 100-Q tightening survey
+# (2026-05-25); paired with chromeos-classic-dark.
+
+name: chromeos-classic-light
+display_name: "Classic ChromeOS — Light"
+description: >
+  Pre-2022 ChromeOS light aesthetic. Flat white + light-grey
+  surfaces, Roboto body, Intel One Mono code, 4 px corners,
+  Material You indigo selection.
+
+appearance:
+  gtk_theme:      "Adwaita"
+  icon_theme:     "Mackes-Carbon"
+  cursor_theme:   "Adwaita"
+  cursor_size:    24
+  font_ui:        "Roboto 11"
+  font_monospace: "Intel One Mono 11"
+  wallpaper:      "/usr/share/mackes-shell/branding/standard-wallpaper.png"
+
+devices:
+  display_scaling:    "auto"
+  power_profile:      "balanced"
+  audio_default_sink: "pipewire"
+
+network:
+  qnm_enabled:           false
+  firewall_default_zone: "FedoraWorkstation"
+
+system:
+  workspace_count:       1
+  window_manager_theme:  "Adwaita"
+  notifications_enabled: true
+  autostart_extras: []
+
+panel:
+  clock:
+    digital-layout:      1
+    digital-date-format: "%a %b %d"
+    digital-date-font:   "Roboto 10"
+    digital-time-format: "%I:%M %p"
+    digital-time-font:   "Roboto Bold 12"
+
+apps:
+  install: []
+  remove_bloat:
+    - gnome-tour
+
+snapshot:
+  initial_snapshot_name: "chromeos-classic-light-baseline"

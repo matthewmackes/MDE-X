@@ -1315,15 +1315,19 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] Portal-24 design re-scoped — wallpaper is a static image by default; Bus `urgent` messages with `surface=wallpaper` tag paint the stripe.
     - [ ] BUS-2.6 spec updated to reflect the simpler model.
 
-- [ ] **EPIC-UI-PRESETS: Implement 4 visual presets — ChromeOS Classic Light + Dark + Ableton 12 Light + Dark** *(Q79)*
+- [>] **EPIC-UI-PRESETS: Implement 4 visual presets — ChromeOS Classic Light + Dark + Ableton 12 Light + Dark** *(Q79)* *(session=opus-cw-2026-05-26-00:10 — 3 of 4 YAMLs shipped; ableton-12-dark rename + Workbench selector deferred)*
   **As** the operator,
   **I want** to pick between two distinct aesthetic lineages, each with a light + dark variant,
   **so that** the platform supports both the cleanroom Classic + warmer Ableton vibes.
   **Acceptance** (each bench-observable):
-    - [ ] Four preset YAML files ship in `data/presets/`: `chromeos-classic-light.yaml`, `chromeos-classic-dark.yaml`, `ableton-12-light.yaml`, `ableton-12-dark.yaml`.
-    - [ ] Workbench Display panel exposes the preset selector.
-    - [ ] Retire hashbang / mackes / daylight / vanilla presets (or move to `data/presets/legacy/` for back-compat).
-    - [ ] Voice-and-tone lint vocabulary updates to reference the new preset names.
+    - [✓] `data/presets/chromeos-classic-dark.yaml` shipped (cited as MackesDE 1.0 default look in the preset description; Adwaita-dark GTK + Roboto + Intel One Mono).
+    - [✓] `data/presets/chromeos-classic-light.yaml` shipped (Adwaita GTK + Roboto + Intel One Mono).
+    - [✓] `data/presets/ableton-12-light.yaml` shipped (Orchis-Light + Roboto + Intel One Mono + audio-production app bundle).
+    - [✓] Preset loader smoke-test: `from mackes.presets import list_presets; ps = list_presets()` returns 4 entries (`ableton`, `ableton-12-light`, `chromeos-classic-dark`, `chromeos-classic-light`).
+    - [ ] **Open follow-on (EPIC-UI-PRESETS.rename):** rename `data/presets/ableton.yaml` → `data/presets/ableton-12-dark.yaml` + update `DEFAULT_PRESET_NAME` in `mackes/presets.py` from `"ableton"` to `"chromeos-classic-dark"`. Deferred because the rename touches the parallel session's recent `DEFAULT_PRESET_NAME = "ableton"` lock; pick up after a coord check.
+    - [ ] **Open follow-on (EPIC-UI-PRESETS.workbench):** Workbench Display panel exposes the preset selector. (Pairs with EPIC-UI-DENSITY.workbench in the same panel.)
+    - [ ] **Open follow-on (EPIC-UI-PRESETS.retire-legacy):** retire `hashbang` / `mackes` / `daylight` / `vanilla` preset names (already absent from `data/presets/`; legacy importer at `mackes/legacy_import.py:113` references them — sweep is a small follow-on).
+    - [ ] **Open follow-on (EPIC-UI-PRESETS.voice-lint):** voice-and-tone vocabulary additions for the new preset names. Pairs with EPIC-UI-MOTION.lint follow-on.
 
 #### EPIC-SYNC (storage + sync model)
 

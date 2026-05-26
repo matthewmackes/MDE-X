@@ -1,0 +1,71 @@
+# Ableton 12 — light variant.
+#
+# Ableton Live 12's light-mode aesthetic: warm light-grey panels,
+# off-white chrome, signature #ff7700 orange highlight. Paired with
+# ableton-12-dark (the legacy `ableton.yaml` shipped 2026-05-25
+# pending rename per Q79). Built for daylight production work.
+
+name: ableton-12-light
+display_name: "Ableton 12 — Light"
+description: >
+  Ableton Live 12 light UI. Warm light-grey panels, off-white chrome,
+  signature #ff7700 orange highlight. Curated for daylight audio +
+  creative work.
+
+appearance:
+  gtk_theme:      "Orchis-Light"
+  icon_theme:     "Mackes-Carbon"
+  cursor_theme:   "Adwaita"
+  cursor_size:    24
+  font_ui:        "Roboto 11"
+  font_monospace: "Intel One Mono 11"
+  wallpaper:      "/usr/share/mackes-shell/branding/standard-wallpaper.png"
+
+devices:
+  display_scaling:    "auto"
+  power_profile:      "performance"
+  audio_default_sink: "pipewire"
+
+network:
+  qnm_enabled:           false
+  firewall_default_zone: "FedoraWorkstation"
+
+system:
+  workspace_count:       1
+  window_manager_theme:  "Adwaita"
+  notifications_enabled: true
+  autostart_extras: []
+
+panel:
+  clock:
+    digital-layout:      1
+    digital-date-format: "%B %d, %Y"
+    digital-date-font:   "Roboto 10"
+    digital-time-format: "%I:%M %p"
+    digital-time-font:   "Roboto Bold 12"
+
+apps:
+  install:
+    - terminator
+    - vlc
+    - ardour
+    - carla
+    - qjackctl
+    - menulibre
+
+  remove_bloat:
+    - gnome-software
+    - gnome-tour
+    - gnome-maps
+    - gnome-music
+    - totem
+    - asunder
+    - parole
+    - pragha
+    - xfburn
+    - transmission-gtk
+    - claws-mail
+    - pidgin
+
+snapshot:
+  initial_snapshot_name: "ableton-12-light-baseline"
