@@ -656,7 +656,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # ---- help ----
     if cmd == "help":
-        from mackes.workbench.help import (
+        from mackes.help_utils import (
             list_topics_plain, render_topic_plain,
         )
         if args.topic is None:

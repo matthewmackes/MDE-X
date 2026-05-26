@@ -13,7 +13,7 @@ def build() -> Container:
         "or via `mackes help <topic>`.[/]\n"
     ))
     try:
-        from mackes.workbench.help import _discover_topics
+        from mackes.help_utils import _discover_topics
         topics = _discover_topics()
         body.compose_add_child(Static(
             f"[b]Available topics[/]  [#8d8d8d]({len(topics)})[/]"
