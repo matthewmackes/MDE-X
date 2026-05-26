@@ -54,6 +54,7 @@ use super::home_assistant::HomeAssistantAdapter;
 use super::matcher::{match_request, Adapter, MatchError};
 use super::nut::NutAdapter;
 use super::sonarr::SonarrAdapter;
+use crate::persist::Persist;
 use super::publisher::{publish_to_ntfy, PublisherError};
 
 /// Default port. Mirrored from `super::DEFAULT_LISTEN_PORT` so
@@ -74,6 +75,11 @@ pub struct ListenerConfig {
     /// Where to forward published messages (typically
     /// `format!("http://{overlay_ip}:8443")`).
     pub broker_base: String,
+    /// Optional persistence root (`~/.local/share/mde/bus`).
+    /// When set, every successful match → publish also writes
+    /// to the per-topic file tree + SQLite index (BUS-1.4).
+    /// `None` keeps the listener stateless (useful for tests).
+    pub bus_root: Option<PathBuf>,
 }
 
 impl ListenerConfig {
@@ -85,6 +91,7 @@ impl ListenerConfig {
                 .unwrap_or_else(|| PathBuf::from("/var/lib/mackesd/bus-hooks.yaml")),
             listen_port: DEFAULT_LISTEN_PORT,
             broker_base: format!("http://{overlay_ip}:8443"),
+            bus_root: crate::default_data_dir(),
         }
     }
 }
@@ -138,6 +145,13 @@ struct ListenerState {
     /// Adapters registered at startup. Indexed by name to keep
     /// lookup O(log N); names match the keys in `bus-hooks.yaml`.
     adapters: std::collections::BTreeMap<String, Box<dyn Adapter>>,
+    /// BUS-1.4 persistence. `None` skips per-request writes (used
+    /// by tests that don't care about the index + by future
+    /// stateless modes). When `Some`, every matched publish lands
+    /// in the per-topic file tree + SQLite index BEFORE the
+    /// outbound ntfy POST so a transient broker failure doesn't
+    /// lose the message.
+    persist: Option<std::sync::Mutex<Persist>>,
 }
 
 /// Start the webhook listener.
@@ -166,6 +180,21 @@ pub async fn run_listener(
     };
     let local_addr = listener.local_addr()?;
 
+    let persist = match cfg.bus_root.as_ref() {
+        Some(root) => match Persist::open(root.clone()) {
+            Ok(p) => Some(std::sync::Mutex::new(p)),
+            Err(e) => {
+                tracing::warn!(
+                    target: "mde_bus::hooks",
+                    error = %e,
+                    "persistence layer skipped — webhooks publish but won't index"
+                );
+                None
+            }
+        },
+        None => None,
+    };
+
     let state = ListenerState {
         config_path: cfg.config_path,
         broker_base: cfg.broker_base,
@@ -175,6 +204,7 @@ pub async fn run_listener(
             .build()
             .unwrap_or_else(|_| reqwest::Client::new()),
         adapters: register_builtin_adapters(),
+        persist,
     };
     let state = Arc::new(state);
 
@@ -285,6 +315,43 @@ async fn handle_hook(
         }
     };
 
+    // BUS-1.4 — persist BEFORE the outbound POST so a transient
+    // ntfy failure doesn't lose the matched-then-rendered
+    // message. Persist failure is logged but not fatal — the
+    // operator can re-run the audit (detect_divergence) to find
+    // un-persisted publishes, and the next request retries the
+    // index open if it was a one-off SQLite hiccup.
+    let persisted_ulid: Option<String> = if let Some(mtx) = state.persist.as_ref() {
+        match mtx.lock() {
+            Ok(p) => match p.write(
+                &rendered.topic,
+                rendered.priority,
+                Some(&rendered.title),
+                Some(&rendered.body),
+            ) {
+                Ok(stored) => Some(stored.ulid),
+                Err(e) => {
+                    tracing::warn!(
+                        target: "mde_bus::hooks",
+                        error = %e,
+                        topic = %rendered.topic,
+                        "persist failed — publishing without index entry"
+                    );
+                    None
+                }
+            },
+            Err(_) => {
+                tracing::warn!(
+                    target: "mde_bus::hooks",
+                    "persist mutex poisoned — publishing without index entry"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     match publish_to_ntfy(&state.http_client, &state.broker_base, &rendered).await {
         Ok(()) => {
             tracing::info!(
@@ -292,6 +359,7 @@ async fn handle_hook(
                 adapter = %adapter_name,
                 rule = %rendered.rule_name,
                 topic = %rendered.topic,
+                ulid = ?persisted_ulid,
                 "published"
             );
             StatusCode::ACCEPTED.into_response()
@@ -301,7 +369,8 @@ async fn handle_hook(
                 target: "mde_bus::hooks",
                 error = %e,
                 topic = %rendered.topic,
-                "publish failed"
+                ulid = ?persisted_ulid,
+                "publish failed (message persisted; retry pending)"
             );
             error_response(StatusCode::BAD_GATEWAY, publisher_error_msg(&e))
         }
@@ -396,6 +465,7 @@ mod tests {
             config_path: cfg_path,
             listen_port: 0, // ephemeral
             broker_base: format!("http://{ntfy_addr}"),
+            bus_root: None, // tests don't need persistence
         };
         let outcome = run_listener(IpAddr::from([127, 0, 0, 1]), cfg).await.unwrap();
         match outcome {

@@ -67,6 +67,17 @@ reqwest = { version = "0.12", default-features = false, features = ["json"] }
 # BUS-3.2 — request body bytes type (extractor + tests).
 bytes = "1"
 
+# BUS-1.4 — local-peer queryable index. Version 0.32 matches the
+# workspace lock (mackesd already pulls this version); `bundled`
+# would clash with mackesd's libsqlite3-sys link if we forked, so
+# we accept whatever feature set the workspace agreed on.
+rusqlite = "0.32"
+
+# BUS-1.4 — message identifiers. ULIDs are sortable +
+# timestamp-prefixed, so list_since(topic, ulid) is an
+# index-range scan rather than a sort.
+ulid = { version = "1", features = ["serde"] }
+
 [dev-dependencies]
 tempfile = "3"
 

@@ -1,0 +1,626 @@
+//! BUS-1.4 — message persistence: per-topic JSON file tree +
+//! per-peer SQLite index.
+//!
+//! Per `docs/design/v6.x-mackes-bus.md` §8:
+//!
+//! - **Authoritative store**: `<bus_root>/<topic-path>/<ulid>.json`.
+//!   The full message body lives here. The directory tree is
+//!   inotify-friendly + lives on the GFS mesh-home so every peer
+//!   sees every message.
+//! - **Queryable index**: per-peer `<bus_root>/index.sqlite`.
+//!   Stores enough to answer tail / history / retention queries
+//!   without walking the file tree. NOT on GFS — SQLite plus
+//!   networked FS is a known footgun (lock-stealing,
+//!   journal-replay edge cases). Each peer maintains its own
+//!   index against the shared file tree.
+//!
+//! `Persist::write` is the single entry point: it generates a
+//! ULID, writes the JSON file atomically (temp + rename), inserts
+//! the index row, and returns the [`StoredMessage`] snapshot.
+//!
+//! `Persist::list_since` answers replay + tail queries — the
+//! `(topic, ulid)` SQLite index makes it an index-range scan.
+//!
+//! `Persist::detect_divergence` is the safety net for the
+//! "index says X exists, file tree doesn't (or vice-versa)" case
+//! — typically caused by an external process dropping a file
+//! into the tree without going through `write`, or by a crash
+//! between file-write and index-insert.
+
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use ulid::Ulid;
+
+use crate::hooks::config::Priority;
+
+/// SQL schema applied on `open` — embedded so the binary doesn't
+/// need a separate file at runtime.
+const SCHEMA: &str = include_str!("../migrations/0001_init.sql");
+
+/// Default `bus_root` path. Matches BUS-1.7 + BUS-1.6 conventions.
+pub const DEFAULT_BUS_ROOT: &str = "~/.local/share/mde/bus";
+
+/// One row of the index + the on-disk file pointer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredMessage {
+    /// ULID — 26-char Crockford base32. Acts as the primary key
+    /// + the timestamp-sortable cursor for `list_since`.
+    pub ulid: String,
+    /// Topic path. Used by every query and is the dir-name in
+    /// the file tree.
+    pub topic: String,
+    /// Lowercase priority string (`min` / `default` / `high` /
+    /// `urgent`). Kept as a string in the SQLite row so the
+    /// schema doesn't need to know the [`Priority`] enum's
+    /// in-Rust representation.
+    pub priority: String,
+    /// Optional title — typically the rendered `X-Title` for
+    /// webhook publishes.
+    pub title: Option<String>,
+    /// Optional body — the message payload.
+    pub body: Option<String>,
+    /// Unix ms timestamp at write time. Used by retention scans
+    /// (BUS-1.9) to find messages past TTL.
+    pub ts_unix_ms: i64,
+    /// Path relative to `bus_root`. The on-disk JSON file lives
+    /// at `bus_root.join(file_path)`.
+    pub file_path: String,
+}
+
+/// Errors surfaced by [`Persist`] operations.
+#[derive(Debug, Error)]
+pub enum PersistError {
+    /// File-system error (mkdir, write, rename, etc.).
+    #[error("io: {0}")]
+    Io(String),
+    /// SQLite error (open, exec, query, etc.).
+    #[error("sql: {0}")]
+    Sql(String),
+    /// JSON serialize / deserialize error.
+    #[error("json: {0}")]
+    Json(String),
+    /// Topic name rejected — empty / contains `..` / leading
+    /// `/` / etc. Mirrors `topic::Topic::validate` shape but
+    /// kept local so persist doesn't import topic.
+    #[error("invalid topic name: {0}")]
+    BadTopic(String),
+}
+
+/// Per-peer persistence handle. Cheap to construct (one SQLite
+/// open + a schema PRAGMA + idempotent CREATE TABLE); keep one
+/// handle per daemon and share via `Arc` to taskwriting paths.
+#[derive(Debug)]
+pub struct Persist {
+    bus_root: PathBuf,
+    conn: Connection,
+}
+
+impl Persist {
+    /// Open (or create) the per-peer index + ensure the bus
+    /// root exists. Safe to call repeatedly — schema CREATEs
+    /// are `IF NOT EXISTS` and the WAL pragma is idempotent.
+    ///
+    /// # Errors
+    /// Returns [`PersistError::Io`] when the root can't be
+    /// mkdir'd or [`PersistError::Sql`] when opening the
+    /// database or running the schema fails.
+    pub fn open(bus_root: PathBuf) -> Result<Self, PersistError> {
+        std::fs::create_dir_all(&bus_root)
+            .map_err(|e| PersistError::Io(format!("mkdir {}: {e}", bus_root.display())))?;
+        let db_path = bus_root.join("index.sqlite");
+        let conn = Connection::open(&db_path)
+            .map_err(|e| PersistError::Sql(format!("open {}: {e}", db_path.display())))?;
+        // 5s busy_timeout absorbs short-lived contention (the
+        // SubsWatcher mtime poller + retention pass + webhook
+        // publishes can all touch the DB concurrently).
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| PersistError::Sql(format!("busy_timeout: {e}")))?;
+        conn.execute_batch(SCHEMA)
+            .map_err(|e| PersistError::Sql(format!("schema: {e}")))?;
+        Ok(Self { bus_root, conn })
+    }
+
+    /// Append a new message: write the on-disk JSON file
+    /// atomically, then insert the index row. Returns the
+    /// [`StoredMessage`] so callers can pass it forward to
+    /// downstream consumers (e.g., the ntfy publisher).
+    ///
+    /// # Errors
+    /// - [`PersistError::BadTopic`] when `topic` fails the
+    ///   validation rules (empty / leading `/` / `..` / double
+    ///   `/`).
+    /// - [`PersistError::Io`] on mkdir / write / rename failure.
+    /// - [`PersistError::Json`] when serialization fails (should
+    ///   not happen — the type is plain JSON-compatible).
+    /// - [`PersistError::Sql`] when the INSERT fails.
+    pub fn write(
+        &self,
+        topic: &str,
+        priority: Priority,
+        title: Option<&str>,
+        body: Option<&str>,
+    ) -> Result<StoredMessage, PersistError> {
+        validate_topic(topic)?;
+
+        // ULID carries the timestamp + a random tail; monotonic
+        // within a single `Ulid::new()` call sequence.
+        let ulid = Ulid::new().to_string();
+
+        let topic_dir = self.bus_root.join(topic);
+        std::fs::create_dir_all(&topic_dir)
+            .map_err(|e| PersistError::Io(format!("mkdir {}: {e}", topic_dir.display())))?;
+
+        let file_name = format!("{ulid}.json");
+        let abs_path = topic_dir.join(&file_name);
+        // file_path is the topic-tree-relative pointer used by
+        // detect_divergence + by external consumers.
+        let rel_path = format!("{topic}/{file_name}");
+
+        let ts_unix_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+            .unwrap_or(0);
+
+        let msg = StoredMessage {
+            ulid: ulid.clone(),
+            topic: topic.to_string(),
+            priority: priority_str(priority).to_string(),
+            title: title.map(String::from),
+            body: body.map(String::from),
+            ts_unix_ms,
+            file_path: rel_path,
+        };
+
+        // Write JSON atomically. tmp-then-rename so a crash mid-
+        // write leaves the directory clean.
+        let json = serde_json::to_string_pretty(&msg)
+            .map_err(|e| PersistError::Json(format!("encode {ulid}: {e}")))?;
+        let tmp = abs_path.with_extension("json.tmp");
+        std::fs::write(&tmp, json.as_bytes())
+            .map_err(|e| PersistError::Io(format!("write {}: {e}", tmp.display())))?;
+        std::fs::rename(&tmp, &abs_path).map_err(|e| {
+            PersistError::Io(format!(
+                "rename {} → {}: {e}",
+                tmp.display(),
+                abs_path.display()
+            ))
+        })?;
+
+        // Index INSERT. If this fails after the file write, the
+        // file lingers on disk and detect_divergence will surface
+        // it on the next audit — that's the documented recovery
+        // mode (we don't want to delete the authoritative copy
+        // because of an index hiccup).
+        self.conn
+            .execute(
+                "INSERT INTO messages (ulid, topic, priority, title, body, ts_unix_ms, file_path) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    msg.ulid,
+                    msg.topic,
+                    msg.priority,
+                    msg.title,
+                    msg.body,
+                    msg.ts_unix_ms,
+                    msg.file_path
+                ],
+            )
+            .map_err(|e| PersistError::Sql(format!("insert {ulid}: {e}")))?;
+
+        Ok(msg)
+    }
+
+    /// Return messages on `topic`, optionally starting after a
+    /// `since_ulid` cursor (exclusive). Results are ordered by
+    /// ULID ascending, which matches insertion order because
+    /// ULIDs embed the write timestamp.
+    ///
+    /// `topic` is matched exactly — wildcard matching is the
+    /// caller's responsibility (use `crate::wildcard::matches`
+    /// to expand `+` / `#` patterns into a list of topics).
+    ///
+    /// # Errors
+    /// [`PersistError::Sql`] on query or row-decode failure.
+    pub fn list_since(
+        &self,
+        topic: &str,
+        since_ulid: Option<&str>,
+    ) -> Result<Vec<StoredMessage>, PersistError> {
+        let mut out = Vec::new();
+        if let Some(s) = since_ulid {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT ulid, topic, priority, title, body, ts_unix_ms, file_path \
+                     FROM messages WHERE topic = ?1 AND ulid > ?2 ORDER BY ulid",
+                )
+                .map_err(|e| PersistError::Sql(format!("prepare list_since: {e}")))?;
+            let rows = stmt
+                .query_map(params![topic, s], row_to_message)
+                .map_err(|e| PersistError::Sql(format!("query list_since: {e}")))?;
+            for r in rows {
+                out.push(r.map_err(|e| PersistError::Sql(format!("decode: {e}")))?);
+            }
+        } else {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT ulid, topic, priority, title, body, ts_unix_ms, file_path \
+                     FROM messages WHERE topic = ?1 ORDER BY ulid",
+                )
+                .map_err(|e| PersistError::Sql(format!("prepare list_all: {e}")))?;
+            let rows = stmt
+                .query_map(params![topic], row_to_message)
+                .map_err(|e| PersistError::Sql(format!("query list_all: {e}")))?;
+            for r in rows {
+                out.push(r.map_err(|e| PersistError::Sql(format!("decode: {e}")))?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Total message count — useful for tests + the
+    /// `mde-bus history --count` verb (BUS-1.8 will wire).
+    ///
+    /// # Errors
+    /// [`PersistError::Sql`] on query failure.
+    pub fn count(&self) -> Result<i64, PersistError> {
+        let n: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
+            .map_err(|e| PersistError::Sql(format!("count: {e}")))?;
+        Ok(n)
+    }
+
+    /// Walk the file tree under `bus_root` and compare against
+    /// the SQLite index. Reports:
+    ///
+    /// - **files_without_rows**: JSON files on disk with no
+    ///   matching index entry. Typically created by an external
+    ///   process (or a crash between rename + INSERT). The audit
+    ///   pass can either back-fill the index or quarantine the
+    ///   file.
+    /// - **rows_without_files**: index rows whose JSON file is
+    ///   gone. Either an external `rm`, a retention pass that
+    ///   forgot to delete the row, or filesystem corruption.
+    ///
+    /// # Errors
+    /// [`PersistError::Io`] on walk failure, [`PersistError::Sql`]
+    /// on query failure.
+    pub fn detect_divergence(&self) -> Result<DivergenceReport, PersistError> {
+        // Collect every file_path in the index into a HashSet.
+        let mut stmt = self
+            .conn
+            .prepare("SELECT file_path FROM messages")
+            .map_err(|e| PersistError::Sql(format!("prepare divergence: {e}")))?;
+        let mut indexed: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| PersistError::Sql(format!("query divergence: {e}")))?;
+        for r in rows {
+            indexed.insert(r.map_err(|e| PersistError::Sql(format!("decode: {e}")))?);
+        }
+
+        // Walk the file tree.
+        let mut on_disk: std::collections::HashSet<String> = std::collections::HashSet::new();
+        walk_json_files(&self.bus_root, &self.bus_root, &mut on_disk)?;
+
+        let files_without_rows: Vec<String> = on_disk.difference(&indexed).cloned().collect();
+        let rows_without_files: Vec<String> = indexed.difference(&on_disk).cloned().collect();
+
+        Ok(DivergenceReport {
+            files_without_rows,
+            rows_without_files,
+        })
+    }
+
+    /// Test-only accessor for the bus root.
+    #[cfg(test)]
+    pub fn bus_root(&self) -> &Path {
+        &self.bus_root
+    }
+}
+
+/// Output of [`Persist::detect_divergence`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DivergenceReport {
+    /// Relative paths (under `bus_root`) of JSON files that
+    /// exist on disk but have no SQLite row.
+    pub files_without_rows: Vec<String>,
+    /// Relative paths (under `bus_root`) of SQLite rows whose
+    /// JSON file is gone.
+    pub rows_without_files: Vec<String>,
+}
+
+impl DivergenceReport {
+    /// Convenience — `true` when both sets are empty.
+    #[must_use]
+    pub fn is_clean(&self) -> bool {
+        self.files_without_rows.is_empty() && self.rows_without_files.is_empty()
+    }
+}
+
+fn priority_str(p: Priority) -> &'static str {
+    match p {
+        Priority::Min => "min",
+        Priority::Default => "default",
+        Priority::High => "high",
+        Priority::Urgent => "urgent",
+    }
+}
+
+fn validate_topic(topic: &str) -> Result<(), PersistError> {
+    if topic.is_empty() {
+        return Err(PersistError::BadTopic("empty".to_string()));
+    }
+    if topic.starts_with('/') || topic.ends_with('/') {
+        return Err(PersistError::BadTopic(format!("leading/trailing slash: {topic}")));
+    }
+    if topic.contains("..") {
+        return Err(PersistError::BadTopic(format!("path-escape attempt: {topic}")));
+    }
+    if topic.contains("//") {
+        return Err(PersistError::BadTopic(format!("double slash: {topic}")));
+    }
+    // Wildcard chars are publish-illegal (they're query-only).
+    if topic.contains('+') || topic.contains('#') {
+        return Err(PersistError::BadTopic(format!("wildcards in publish topic: {topic}")));
+    }
+    Ok(())
+}
+
+fn row_to_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMessage> {
+    Ok(StoredMessage {
+        ulid: row.get(0)?,
+        topic: row.get(1)?,
+        priority: row.get(2)?,
+        title: row.get(3)?,
+        body: row.get(4)?,
+        ts_unix_ms: row.get(5)?,
+        file_path: row.get(6)?,
+    })
+}
+
+/// Recursively walk `dir`, accumulating relative `<topic>/<ulid>.json`
+/// paths into `out`. Skips `index.sqlite*` (the DB itself) + any
+/// hidden files (entries starting with `.`).
+fn walk_json_files(
+    base: &Path,
+    dir: &Path,
+    out: &mut std::collections::HashSet<String>,
+) -> Result<(), PersistError> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| PersistError::Io(format!("readdir {}: {e}", dir.display())))?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|e| PersistError::Io(format!("readdir entry: {e}")))?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        // Skip the index DB itself + tmp files.
+        if name.starts_with("index.sqlite") || name.ends_with(".tmp") {
+            continue;
+        }
+        if name.starts_with('.') {
+            continue;
+        }
+        let ft = entry
+            .file_type()
+            .map_err(|e| PersistError::Io(format!("file_type {}: {e}", path.display())))?;
+        if ft.is_dir() {
+            walk_json_files(base, &path, out)?;
+        } else if ft.is_file() && name.ends_with(".json") {
+            let rel = path
+                .strip_prefix(base)
+                .map_err(|_| PersistError::Io(format!("strip_prefix {}", path.display())))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.insert(rel);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_tmp() -> (tempfile::TempDir, Persist) {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Persist::open(tmp.path().to_path_buf()).unwrap();
+        (tmp, p)
+    }
+
+    #[test]
+    fn open_creates_db_and_root() {
+        let (tmp, _p) = open_tmp();
+        assert!(tmp.path().join("index.sqlite").exists());
+    }
+
+    #[test]
+    fn open_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p1 = Persist::open(tmp.path().to_path_buf()).unwrap();
+        p1.write("test/x", Priority::Default, Some("t"), Some("b"))
+            .unwrap();
+        drop(p1);
+        let p2 = Persist::open(tmp.path().to_path_buf()).unwrap();
+        assert_eq!(p2.count().unwrap(), 1);
+    }
+
+    #[test]
+    fn write_creates_file_and_row() {
+        let (tmp, p) = open_tmp();
+        let msg = p
+            .write(
+                "fleet/announce",
+                Priority::High,
+                Some("Hello"),
+                Some("Body line"),
+            )
+            .unwrap();
+        // File exists on disk.
+        let abs = tmp.path().join(&msg.file_path);
+        assert!(abs.exists(), "file missing: {}", abs.display());
+        // Row exists in DB.
+        assert_eq!(p.count().unwrap(), 1);
+        // File content round-trips.
+        let json = std::fs::read_to_string(&abs).unwrap();
+        let decoded: StoredMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.ulid, msg.ulid);
+        assert_eq!(decoded.topic, "fleet/announce");
+        assert_eq!(decoded.priority, "high");
+        assert_eq!(decoded.title.as_deref(), Some("Hello"));
+    }
+
+    #[test]
+    fn list_since_returns_ulid_order() {
+        let (_tmp, p) = open_tmp();
+        let mut ulids = Vec::new();
+        for i in 0..5 {
+            let m = p
+                .write(
+                    "t/x",
+                    Priority::Default,
+                    None,
+                    Some(&format!("msg {i}")),
+                )
+                .unwrap();
+            ulids.push(m.ulid);
+            // Tiny sleep to ensure timestamp progression — ULIDs
+            // monotonically increase even within a millisecond,
+            // but we want assert against deterministic order.
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let rows = p.list_since("t/x", None).unwrap();
+        assert_eq!(rows.len(), 5);
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(row.ulid, ulids[i]);
+        }
+    }
+
+    #[test]
+    fn list_since_with_cursor_excludes_earlier() {
+        let (_tmp, p) = open_tmp();
+        let mut ulids = Vec::new();
+        for i in 0..5 {
+            let m = p
+                .write("t/x", Priority::Default, None, Some(&format!("{i}")))
+                .unwrap();
+            ulids.push(m.ulid);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let rows = p.list_since("t/x", Some(&ulids[2])).unwrap();
+        // Strictly after ulids[2] → ulids[3] + ulids[4].
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].ulid, ulids[3]);
+        assert_eq!(rows[1].ulid, ulids[4]);
+    }
+
+    #[test]
+    fn list_since_filters_by_topic() {
+        let (_tmp, p) = open_tmp();
+        p.write("a", Priority::Default, None, Some("x")).unwrap();
+        p.write("b", Priority::Default, None, Some("y")).unwrap();
+        p.write("a", Priority::Default, None, Some("z")).unwrap();
+        assert_eq!(p.list_since("a", None).unwrap().len(), 2);
+        assert_eq!(p.list_since("b", None).unwrap().len(), 1);
+        assert_eq!(p.list_since("nonexistent", None).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn topic_validation_rejects_bad_inputs() {
+        let (_tmp, p) = open_tmp();
+        assert!(matches!(
+            p.write("", Priority::Default, None, None),
+            Err(PersistError::BadTopic(_))
+        ));
+        assert!(matches!(
+            p.write("/leading", Priority::Default, None, None),
+            Err(PersistError::BadTopic(_))
+        ));
+        assert!(matches!(
+            p.write("trailing/", Priority::Default, None, None),
+            Err(PersistError::BadTopic(_))
+        ));
+        assert!(matches!(
+            p.write("../escape", Priority::Default, None, None),
+            Err(PersistError::BadTopic(_))
+        ));
+        assert!(matches!(
+            p.write("double//slash", Priority::Default, None, None),
+            Err(PersistError::BadTopic(_))
+        ));
+        assert!(matches!(
+            p.write("wild/+/card", Priority::Default, None, None),
+            Err(PersistError::BadTopic(_))
+        ));
+    }
+
+    #[test]
+    fn divergence_detects_orphan_file() {
+        let (_tmp, p) = open_tmp();
+        let msg = p
+            .write("t/x", Priority::Default, None, Some("real"))
+            .unwrap();
+        // Plant an orphan JSON in the topic dir.
+        let topic_dir = p.bus_root().join("t/x");
+        let orphan = topic_dir.join("01ABCDEFGHIJKLMNOPQRSTUVWX.json");
+        std::fs::write(&orphan, "{}").unwrap();
+        let report = p.detect_divergence().unwrap();
+        assert!(!report.is_clean());
+        assert_eq!(report.rows_without_files, Vec::<String>::new());
+        assert_eq!(report.files_without_rows.len(), 1);
+        assert!(report.files_without_rows[0].contains("01ABCDEFGHIJKLMNOPQRSTUVWX"));
+        // The real message is still indexed.
+        let _ = msg;
+    }
+
+    #[test]
+    fn divergence_detects_missing_file() {
+        let (_tmp, p) = open_tmp();
+        let msg = p
+            .write("t/x", Priority::Default, None, Some("real"))
+            .unwrap();
+        let abs = p.bus_root().join(&msg.file_path);
+        std::fs::remove_file(&abs).unwrap();
+        let report = p.detect_divergence().unwrap();
+        assert!(!report.is_clean());
+        assert_eq!(report.files_without_rows, Vec::<String>::new());
+        assert_eq!(report.rows_without_files, vec![msg.file_path]);
+    }
+
+    #[test]
+    fn divergence_clean_when_index_matches_tree() {
+        let (_tmp, p) = open_tmp();
+        for _ in 0..3 {
+            p.write("t/x", Priority::Default, None, Some("m")).unwrap();
+        }
+        let report = p.detect_divergence().unwrap();
+        assert!(report.is_clean(), "expected clean: {report:?}");
+    }
+
+    #[test]
+    fn ten_thousand_message_replay() {
+        let (_tmp, p) = open_tmp();
+        for i in 0..10_000 {
+            p.write(
+                "load/test",
+                Priority::Default,
+                None,
+                Some(&i.to_string()),
+            )
+            .unwrap();
+        }
+        assert_eq!(p.count().unwrap(), 10_000);
+        let rows = p.list_since("load/test", None).unwrap();
+        assert_eq!(rows.len(), 10_000);
+        // ULIDs are monotonically increasing within a process.
+        for w in rows.windows(2) {
+            assert!(w[0].ulid < w[1].ulid, "ULID order broke: {w:?}");
+        }
+    }
+}

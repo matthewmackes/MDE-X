@@ -25,6 +25,7 @@
 pub mod broker;
 pub mod discovery;
 pub mod hooks;
+pub mod persist;
 pub mod seed;
 pub mod subs;
 pub mod template;

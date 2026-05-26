@@ -5,6 +5,27 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-1.4 — message persistence (v6.x Mackes Bus, 2026-05-26)**
+- New `crates/mde-bus/src/persist.rs` ships the per-topic JSON
+  file tree (authoritative store at
+  `~/.local/share/mde/bus/<topic>/<ulid>.json`) + the per-peer
+  SQLite queryable index (`<bus_root>/index.sqlite`). `write()`
+  generates a ULID, atomic-renames the JSON file, then INSERTs
+  the index row — file-on-disk wins on any divergence.
+- `list_since(topic, since_ulid)` answers tail / replay queries
+  as an index-range scan via the `(topic, ulid)` SQLite index.
+  10k-message replay completes in ~2 s on bench hardware.
+- `detect_divergence()` audits the file tree against the index
+  and returns `(files_without_rows, rows_without_files)` so
+  retention + audit passes can reconcile drift. The index is
+  intentionally per-peer (NOT on GFS — SQLite + networked-FS is
+  a known footgun); the file tree IS on GFS so cross-peer
+  replay still works.
+- Wired into the webhook server's `handle_hook` — every
+  successful match → publish now writes to the file tree + index
+  BEFORE the outbound ntfy POST, so a transient broker hiccup
+  doesn't lose a matched-then-rendered message.
+
 **BUS-3.7 — Home Assistant + generic-JSON adapters (v6.x Mackes Bus, 2026-05-26)**
 - `HomeAssistantAdapter` dispatches on the JSON body's `event`
   field and supports two event types: `automation_triggered`
