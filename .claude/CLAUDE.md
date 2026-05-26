@@ -50,12 +50,42 @@ the v3.x cuts and the rulebook only caught up here.
 
 ### 0.3 Staging hygiene
 
-- Prefer `git add <file>` with explicit paths over `git add -A` / `.`.
+- **Use `git add -- <file>` with explicit pathspecs** (Q15 of 25-Q
+  tuning survey, 2026-05-26). The `--` separator removes pathspec
+  ambiguity when a filename collides with a flag-like string;
+  explicit paths prevent the same-session-stages-sibling-work
+  failure mode that [[feedback_check_pre_staged]] documents.
+  Never use `git add -A` / `git add .` / `git add -u` —
+  pre-staged work from a parallel /ship session gets silently
+  bundled. Even single-file edits use the explicit form.
+- **`git commit <file...>` over `git add` + `git commit`** when
+  publishing only your bundle's files in an environment where
+  other paths may be staged by sibling sessions. The pathspec
+  form ignores the index for unnamed paths.
 - Never commit a file that likely contains secrets. Warn first.
 - Never modify `git config`.
 - Never touch `mackes/__init__.py:__version__`, `pyproject.toml`,
   `setup.py`, or `packaging/fedora/mackes-shell.spec` versions manually —
   they're bumped via the cut-release flow (see §0.6).
+
+**Push-conflict auto-resolution** (Q16 of 25-Q, 2026-05-26):
+when `git push` rejects on non-fast-forward, automatically run
+`git fetch origin main` + `git rebase origin/main` (or `git pull
+--rebase origin main`) + re-push. The /ship loop must not stop
+on a routine non-fast-forward. Two-file classes get
+auto-resolved on rebase conflict:
+
+- **`docs/PROJECT_WORKLIST.md`** — accept both sides
+  (worklist additions never structurally conflict; sibling marks
+  + your marks are independent line edits). On rebase conflict,
+  read both versions + manually splice the new additions; never
+  drop a sibling's `[>] session=...` marker or `[✓]` close-out.
+- **`CHANGELOG.md`** — same treatment for the top entry block.
+  Sibling's entries + your entries are independent line additions;
+  splice both into the next-version block.
+
+For any other conflicted file: stop the loop, surface the
+conflict to the operator. Don't guess.
 
 ### 0.4 Commit message format
 
@@ -281,10 +311,32 @@ Before running any of these, pause and confirm:
 - **Pre-commit hook failed** → fix the issue; re-stage; make a **new**
   commit. Don't `--amend`.
 - **Remote rejected push (non-fast-forward)** →
-  `git fetch origin main`; merge or rebase; resolve conflicts; re-run
-  the push.
+  `git fetch origin main`; merge or rebase; resolve conflicts per
+  §0.3 auto-resolve rules for worklist + CHANGELOG; re-run the
+  push. The loop continues — don't stop for routine pull-rebase
+  cycles.
 - **`make rpm` failed** → diagnose, fix, re-run; don't push the
   half-built tree.
+
+**Auto-fix policy** (Q17 of 25-Q tuning survey, 2026-05-26):
+when any pre-commit gate fails (lint, test, ruff, cargo check,
+RPM build, voice-tone, public-port, etc.), **auto-fix without
+asking** as long as the fix is in your bundle's scope. There is
+no retry cap on the auto-fix loop itself; the loop continues
+until the gate passes or you detect a same-fix-same-failure
+pattern.
+
+**Soft-escape on 3× same-fix-same-failure** (Q17 same lock):
+track each (failing-gate, attempted-fix) pair within a single
+bundle's pre-commit cycle. If the same fix produces the same
+failure 3 times in a row, stop the auto-fix loop + surface to
+the operator: "TUNE-6 SOFT-ESCAPE: <gate> failed 3× with the
+same fix; need operator review." This prevents infinite loops
+on architecturally-incompatible failures (e.g., a test asserts
+something my fix can't satisfy).
+
+The soft-escape counter resets per-bundle — don't carry across
+bundles. Different bundles are independent escape contexts.
 
 ### 0.11 Visual / design work uses a PR-based branch lane (WF-1, 2026-05-21)
 
@@ -379,27 +431,45 @@ This rule supersedes "looks done if the tests pass" — passing
 tests on an unreachable module is exactly the failure mode v3.x
 exposed.
 
-### 0.13 Quarterly retirement audit (Q65, 2026-05-25)
+### 0.13 Continuous retirement audit (Q20 of 25-Q, 2026-05-26)
 
-The retirement queue (DEAD-N epics) operates in two layers:
+**REPLACES** the quarterly cadence locked at Q65 (100-Q,
+2026-05-25). The retirement queue now operates in three layers:
 
 1. **Inline-per-epic** — every new epic explicitly names what it
    makes obsolete and retires it in the same cut (NF-5.1 + BUS-4
    precedent; BUS replaced GF-17 in one cut, gluster replaced the
    SSHFS-of-peer-dirs model alongside its own GF-* worklist).
-2. **Quarterly fallback audit** — every three months, a fresh
-   DEAD-N epic captures what the inline layer missed. The audit
-   pass is the [[iteration]] skill's "worklist rescue" mode
-   applied to retirement: scan for dead modules (`pub mod foo;`
-   with zero external refs), misleading `[✓]` marks where the
-   wiring didn't land, mockup-only "shipped" features, and
-   deferred markers (`lands in a follow-up`, `wired in Phase N`,
-   `deferred to`).
+2. **Continuous per-/ship-cycle audit** (NEW per Q20, 2026-05-26)
+   — every /ship invocation runs a lightweight retirement scan
+   over the worklist + the modules touched in this session. Look
+   for:
+   - misleading `[✓]` marks where the wiring didn't land (the
+     v3.x dead-module failure mode that §0.12 + DoD gate #7 are
+     upstream prevention for)
+   - mockup-only "shipped" features
+   - deferred markers (`lands in a follow-up`, `wired in Phase
+     N`, `deferred to`) that have aged past their stated trigger
+   - `pub mod foo;` declarations with zero external refs
+     (TUNE-3's lint-runtime-reachability.sh enforces this
+     automatically once landed; until then, a manual mental
+     check on every module-introducing diff)
+   - SUPERSEDED memory files still in the live load path
+     (TUNE-1's hygiene pattern: archive + banner)
+   If the scan surfaces an actionable retirement, add a DEAD-N
+   sub-task to the worklist + ship the retirement in the same
+   /ship cycle if it's small + non-colliding.
+3. **Quarterly fallback audit** (RETAINED as backstop) — every
+   three months, a fresh DEAD-N epic captures what the
+   continuous pass missed. Smaller scope now that the
+   per-cycle audit catches the obvious cases. First audit
+   landed before the 1.0 cut; subsequent every-3-months.
 
-This rule replaces "retirement happens when we notice" — the
-quarterly cadence is the forcing function. Calendar trigger:
-first audit lands before the MackesDE for Workgroups 1.0 cut;
-subsequent every-3-months.
+This rule supersedes Q65's "quarterly only" framing — Q20
+moves the primary forcing function from calendar-cadence to
+every-/ship-cycle continuous-pass, with the quarterly audit
+staying as a backstop. The continuous pass catches drift
+between epics; the quarterly catches drift between sessions.
 
 ### 0.14 Authority hierarchy (Q67, 2026-05-25)
 
@@ -445,6 +515,39 @@ This rule supersedes the previous "HW carve-out never blocks
 cuts" framing in `.claude/CLAUDE.md` §0.7 + the two memory
 files; both should be amended to reference §0.15 as the new
 governing rule.
+
+**Per-bullet HW acceptance** (Q13 of 25-Q tuning survey,
+2026-05-26): every HW-* task body uses per-bullet `[ ]` / `[✓]`
+toggles on its acceptance criteria — not a single task-level
+`[ ]` / `[✓]`. This is already the platform's standard worklist
+schema for multi-bullet tasks; Q13 formalizes it for HW-* so
+TUNE-7's `make pre-cut-check` can verify granular coverage
+mechanically rather than guessing from a coarse task-level
+mark.
+
+The cut-release flow's step 0 (per §0.6) — once TUNE-7 ships
+the `make pre-cut-check` script — will refuse to cut if any
+single HW-* acceptance bullet for the target release is still
+`[ ]`. The check is binary per-bullet, no partial credit.
+Operators harvest the remaining bullets via `grep -A 20
+"^### Hardware Testing" docs/PROJECT_WORKLIST.md` to see the
+last-mile checklist.
+
+**HW-* schema example** (formalized 2026-05-26 per Q13):
+
+```markdown
+- [ ] **HW-3: v1.0 — bench install on operator's primary peer**
+  **Acceptance** (each bench-observable):
+    - [ ] `mde-installer` boots from USB without errors on Lenovo X1 G10
+    - [ ] First-login wizard completes without operator intervention
+    - [ ] Nebula enrollment + mesh-home FUSE mount green within 90s
+    - [ ] Bus broker visible to second peer within 30s
+    - [ ] All four presets render correctly
+```
+
+Each `[ ]` bullet gets the operator's `[✓]` mark independently;
+the task-level `[ ]` flips to `[✓]` only when every sub-bullet
+is checked.
 
 ### 0.16 Platform feature lock (2026-05-26)
 
@@ -510,7 +613,7 @@ may re-lock or open a new scoping window explicitly.
 
 **Standing exceptions (2026-05-26):**
 
-Three carve-outs from the lock are in effect through the next cut:
+Four carve-outs from the lock are in effect through the next cut:
 
 1. **BUS-1..BUS-7 build authorized** — /ship may drain BUS-*
    autonomously. See [[project_v6_x_mackes_bus]].
@@ -522,6 +625,41 @@ Three carve-outs from the lock are in effect through the next cut:
    plan is to run HW-1..HW-4 once the queue is fully drained
    (right before the cut), not per-bundle. The cut-release
    shorthand step 0 still gates the actual cut on bench-green.
+4. **All §11 1.0-roadmap epics build authorized** (Q14 of 25-Q,
+   2026-05-26) — /ship has standing auth to drain every locked
+   §11 epic (TUNE-*, BUS-*, GF-*, DEAD-*, INST-*, DM-*, CR-*,
+   AIR-*, MON-*, Portal-*, VOIP-*, EPIC-RETIRE-*,
+   EPIC-MASTER-*, EPIC-UI-*, NF-*, MESH-*, CONTAINER-*) without
+   per-epic confirmation. **The single exclusion is HW-***
+   (hardware bench items remain operator-typed per §0.15).
+   Visual commits still keep the Q6 cite-required gate per
+   commit (cite the design-doc + Material 3 reference target;
+   TUNE-9 will enforce mechanically).
+
+**No session budget** (Q18 of 25-Q, 2026-05-26): /ship runs
+until blocked by a real obstacle (missing operator facts,
+required-approval destructive action outside §0.9, worklist
+drained, operator interrupt). There is no "stop after N
+bundles" / "stop after N commits" cap. The loop continues per
+the /ship skill's "continue without confirmation unless
+blocked" workflow.
+
+**Mid-flight survey-lift recording** (Q19 of 25-Q, 2026-05-26):
+when the operator lifts the lock mid-/ship-cycle for a specific
+scope (e.g., "lift the lock for VOIP-21"), record the lift
+inline below in the "Net-new additions during the lock
+window" list with this template:
+
+```
+- **YYYY-MM-DD — <TASK-ID>** (<one-line scope description>).
+  Operator-issued lift, recorded in
+  [[feedback_platform_feature_locked]]. Lock re-engaged
+  immediately after.
+```
+
+Re-engage the lock the moment the lifted scope's worklist
+entry closes. Don't let a lift cascade into "well, while
+we're at it, ..." scope creep.
 
 **Net-new additions during the lock window:**
 
@@ -596,6 +734,24 @@ never proposes the amendment.
 
 See [[feedback_no_incomplete_releases]] for the operator
 directive that locked this rule.
+
+**Hard-block via `make pre-cut-check`** (Q11 + Q12 of 25-Q
+tuning survey, 2026-05-26): when TUNE-7 lands the
+`install-helpers/pre-cut-check.sh` script + the matching
+Makefile target, §0.6 cut-release shorthand step 0 invokes
+`make pre-cut-check` and refuses to proceed if the script
+exits non-zero. The script greps the worklist for each §11
+roadmap-item epic prefix + verifies every task under those
+prefixes is `[✓]` (or carries the per-bullet `[✓]` schema
+per §0.15 for HW-* tasks). Per Q12: **no operator override
+path**. The lock is mechanical, not advisory. The legitimate
+path to cut past an open §11 item is to amend Q91 (operator
+types "amend Q91 to drop <item>"); the script never bypasses.
+
+Until TUNE-7 ships, §0.17 is enforced by manual cross-check
+against AI_GOVERNANCE.md §11 at cut time — `cut release` will
+refuse manually if any §11 item is open. The TUNE-7 script
+just mechanizes what's already operator-policy.
 
 ---
 

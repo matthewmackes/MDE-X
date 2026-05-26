@@ -441,17 +441,17 @@ call-end lifecycle, never at install or login.
     - [ ] Voice lint clean on full repo before merge.
     - [ ] Updated `docs/design/voice-and-tone.md` documents the new patterns + Wayland exception.
 
-- [ ] **TUNE-6: TUNE-AUTONOMY — CLAUDE.md §0.3/0.10/0.13/0.15/0.16/0.17 amendments.**
+- [✓] **TUNE-6: TUNE-AUTONOMY — CLAUDE.md §0.3/0.10/0.13/0.15/0.16/0.17 amendments.** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-X; 6 CLAUDE.md sections amended in one bundle to reflect the 25-Q tuning survey's autonomy expansions. §0.3 (Staging hygiene) gains the strict `git add -- <file>` rule with Q15 anchor + the explicit ban on `-A` / `.` / `-u` shortcuts + a "git commit <file...> over git add+commit" preference for sibling-collision environments + a new "Push-conflict auto-resolution" paragraph naming `docs/PROJECT_WORKLIST.md` + `CHANGELOG.md` as the two auto-mergeable files (accept-both-sides on rebase conflict; any other conflict stops the loop). §0.10 (When a commit/push fails) gains the auto-fix-without-asking rule for in-scope gate failures + the 3×-same-fix soft-escape per Q17 (counter resets per-bundle). §0.13 (was Quarterly retirement audit) restructured to three-layer model per Q20: inline-per-epic + NEW continuous-per-/ship-cycle pass + retained quarterly fallback; spells out the per-cycle scan targets (misleading [✓] marks, mockup-only ships, aged-out deferral markers, dead pub mod foo declarations, SUPERSEDED memory files); flags TUNE-3 as the mechanical enforcement of the runtime-reachability check. §0.15 (Pre-release HW bench gate) gains the per-bullet HW acceptance lock per Q13 + a worked example HW-3 schema; spells out the mechanical interaction with TUNE-7's `make pre-cut-check` (binary per-bullet, no partial credit). §0.16 (Platform feature lock) Standing exceptions list gains a 4th carve-out: "All §11 1.0-roadmap epics build authorized" per Q14 with the explicit HW-* exclusion + the Q6 visual-citation gate carve-out; gains a new "No session budget" paragraph per Q18 (loop runs until real blocker) + a "Mid-flight survey-lift recording" paragraph per Q19 with template + a re-engage-immediately discipline. §0.17 (NO INCOMPLETE RELEASES) gains a "Hard-block via make pre-cut-check" paragraph per Q11+Q12 with explicit "no operator override path" framing + a "until TUNE-7 ships" interim note. All 6 amendments cite their Q-IDs verbatim + cross-reference adjacent rules. Voice + legacy-mesh + dbus-shape lints clean. The amended `.claude/CLAUDE.md` lands in this commit + propagates to every clone of the repo (the file IS tracked despite the `.claude/` directory mostly containing local-only artifacts).)*
   **As** the platform's autonomy contract,
   **I want** the §0 rulebook to reflect the 25-Q survey's autonomy expansions,
   **so that** AI partners reading the rulebook see the current contract.
   **Acceptance**:
-    - [ ] §0.3 amended: strict per-file `git add -- <file>` staging discipline; auto-rebase on push reject; auto-resolve CHANGELOG/worklist conflicts.
-    - [ ] §0.10 amended: auto-fix anything, no retry cap (with soft-escape after detection of same-fix-same-failure 3×).
-    - [ ] §0.13 amended: continuous retirement audit on every /ship cycle replaces quarterly cadence.
-    - [ ] §0.15 amended: per-bullet HW acceptance checklist required.
-    - [ ] §0.16 amended: standing auth for all §11 epics (excluding HW-*); no session budget; mid-flight survey-lift recording template.
-    - [ ] §0.17 amended: cross-reference `make pre-cut-check` hard block per Q11+Q12.
+    - [✓] §0.3 amended: strict per-file `git add -- <file>` staging discipline; auto-rebase on push reject; auto-resolve CHANGELOG/worklist conflicts.
+    - [✓] §0.10 amended: auto-fix anything, no retry cap (with soft-escape after detection of same-fix-same-failure 3×).
+    - [✓] §0.13 amended: continuous retirement audit on every /ship cycle replaces quarterly cadence.
+    - [✓] §0.15 amended: per-bullet HW acceptance checklist required.
+    - [✓] §0.16 amended: standing auth for all §11 epics (excluding HW-*); no session budget; mid-flight survey-lift recording template.
+    - [✓] §0.17 amended: cross-reference `make pre-cut-check` hard block per Q11+Q12.
 
 - [ ] **TUNE-7: TUNE-CUT-PRECHECK — `make pre-cut-check` + hard-block flow.**
   **As** the §0.17 NO INCOMPLETE RELEASES enforcement,
