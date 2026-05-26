@@ -1094,7 +1094,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Wave 9 — Rust worker absence-canaries + Nebula python audit
 
-- [ ] **DEAD-2.13: v5.1 — Repurpose `nats.rs` + `derp.rs` as absence-canaries OR delete entirely**
+- [✓] **DEAD-2.13: v5.1 — Repurpose `nats.rs` + `derp.rs` as absence-canaries OR delete entirely** (Option A — delete-outright path chosen).
   **As** the v5.1 cleanup pass,
   **I want** to repurpose the Rust status-probe modules into "should-be-absent" canaries (alert if NATS/DERP services unexpectedly running on a v2.5+ peer), OR delete the modules outright if the canary value is low,
   **so that** the codebase reflects the v2.5 Nebula-only / v5.1 GF-17-bus reality — both NATS and DERP were tailscale-stack components axed in v2.5 NF-* + retired in v5.1 DEAD-2.10. The current `derp.rs` + `nats.rs` are read-only status helpers for the (deleted) Workbench Mesh VPN panel; they have no live consumer.

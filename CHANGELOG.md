@@ -45,6 +45,13 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   FUSE backend. The canonical XDG-dir FUSE mount of mesh-home is
   the templated systemd unit `data/systemd/mde-mesh-mount@.service`
   (GF-4.1). DEAD-2.3 retired the sole external consumer.
+- Deleted `crates/mackesd/src/workers/{nats,derp}.rs` (Option A:
+  delete-outright path of DEAD-2.13). Both files were status-probe
+  helpers for substrates that v2.5 axed (NATS bucket-sync,
+  Tailscale DERP relay); the only consumer was the retired
+  Workbench Mesh VPN panel. `pub mod nats;` + `pub mod derp;` also
+  removed from `crates/mackesd/src/workers/mod.rs`. Rationale: v2.5
+  Nebula-only / v6.x Mackes Bus replaced both substrates.
 
 **Scope tightening (EPIC-MASTER-3)**
 - Fleet cap reduced from 16 to **8 peers** (Q3 of the 100-Q
