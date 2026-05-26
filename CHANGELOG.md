@@ -52,6 +52,11 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   Workbench Mesh VPN panel. `pub mod nats;` + `pub mod derp;` also
   removed from `crates/mackesd/src/workers/mod.rs`. Rationale: v2.5
   Nebula-only / v6.x Mackes Bus replaced both substrates.
+- Deleted `mackes/mesh_wol.py` + `tests/test_mesh_wol.py` (DEAD-2.5).
+  New `mackesd wake-peer <mac>` subcommand wires the Rust port
+  `mackesd_core::workers::wol::{normalize_mac, wake}` so Wake-on-LAN
+  has a runtime entry point.  Operators who used `python -m mackes
+  wol …` switch to `mackesd wake-peer aa:bb:cc:dd:ee:ff`.
 
 **Scope tightening (EPIC-MASTER-3)**
 - Fleet cap reduced from 16 to **8 peers** (Q3 of the 100-Q

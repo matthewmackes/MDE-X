@@ -394,6 +394,24 @@ enum Cmd {
         #[command(subcommand)]
         sub: VoiceCmd,
     },
+
+    /// DEAD-2.5 (v5.1) — Wake-on-LAN. Fires the magic packet at the
+    /// broadcast address for the given MAC. Wires
+    /// `mackesd_core::workers::wol::wake` so the Rust port of the
+    /// retired `mackes/mesh_wol.py` has a runtime entry point.
+    WakePeer {
+        /// Target MAC in any canonical form: `aa:bb:cc:dd:ee:ff`,
+        /// `aa-bb-cc-dd-ee-ff`, or `aabbccddeeff`.
+        mac: String,
+        /// Broadcast address to fire at. Defaults to the limited
+        /// broadcast.
+        #[clap(long, default_value = "255.255.255.255")]
+        broadcast: String,
+        /// Destination UDP port. Standard ports are 7 + 9; 9 is the
+        /// historical default and what every mainboard expects.
+        #[clap(long, default_value_t = 9)]
+        port: u16,
+    },
 }
 
 /// VV-1 / VV-1.5 — `mackesd voice <sub>` subcommands.
@@ -1526,6 +1544,19 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+        }
+        Cmd::WakePeer { mac, broadcast, port } => {
+            // DEAD-2.5 — wire mackesd_core::workers::wol so the Rust
+            // port has a runtime entry point. Replaces the retired
+            // Python `mesh_wol.wake_peer` for the MAC-already-known
+            // case; hostname resolution is the operator's job until
+            // a PeerStore lookup helper lands.
+            let Some(mac_bytes) = mackesd_core::workers::wol::normalize_mac(&mac) else {
+                anyhow::bail!("wake-peer: could not parse MAC {mac:?}");
+            };
+            mackesd_core::workers::wol::wake(mac_bytes, &broadcast, port)
+                .context("wake-peer: send magic packet")?;
+            println!("wake-peer: sent magic packet to {mac} via {broadcast}:{port}");
         }
         Cmd::PeerCard { peer, dry_run } => {
             // PC-3.a — operator-driven trigger for the peer-card

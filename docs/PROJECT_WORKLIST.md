@@ -961,7 +961,7 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] `make test-nodeps` passes; `make lint` clean.
     - [ ] CHANGELOG entry cites `mdns.rs` as the canonical mDNS surface.
 
-- [ ] **DEAD-2.5: v5.1 — Delete `mackes/mesh_wol.py` (superseded by `wol.rs` Rust worker)** *(depends on DEAD-2.3)*
+- [✓] **DEAD-2.5: v5.1 — Delete `mackes/mesh_wol.py` (superseded by `wol.rs` Rust worker)** *(depends on DEAD-2.3)* `mackesd wake-peer <mac>` subcommand wires `mackesd_core::workers::wol::{normalize_mac, wake}` so the Rust port has a runtime entry point before the python module retires. `mackes/mesh_wol.py` + `tests/test_mesh_wol.py` deleted; pytest 270 pass / 0 fail; ruff clean.
   **As** the v5.1 cleanup pass,
   **I want** to delete the python Wake-on-LAN module,
   **so that** the codebase has one WoL implementation — DEAD-2.3 retires the sole external consumer (mesh_performance.py); `tests/test_mesh_wol.py` consumer also retires.
