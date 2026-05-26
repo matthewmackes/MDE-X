@@ -17,6 +17,13 @@ path = "src/main.rs"
 name = "mde-portal-full"
 path = "src/portal_full_main.rs"
 
+# Portal-35 — `mde://` URI dispatcher. Registered as the
+# `x-scheme-handler/mde` handler so `xdg-open mde://...` routes
+# through `dev.mackes.MDE.Portal.OpenUri` on the running portal.
+[[bin]]
+name = "mde-open"
+path = "src/mde_open_main.rs"
+
 [dependencies]
 # v6.0 Portal-1 — same Iced + layer-shell pair as mde-panel + mde-popover.
 # `svg` for Carbon icon rendering; `image` for app thumbnails (Portal-7 Aero-peek).

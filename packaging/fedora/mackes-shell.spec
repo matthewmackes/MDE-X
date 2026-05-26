@@ -858,6 +858,20 @@ install -D -m 0755 target/release/mde-portal \
 install -m 0644 data/systemd/user/mde-portal.service \
     %{buildroot}%{_userunitdir}/
 
+# Portal-16 — mde-portal-full scratchpad surface (Iced regular window;
+# sway scratchpad rules in data/sway/config place it offscreen until
+# the Dock's nav clicks raise it via `scratchpad show`).
+install -D -m 0755 target/release/mde-portal-full \
+    %{buildroot}%{_bindir}/mde-portal-full
+
+# Portal-35 — mde-open URI dispatcher. Registered as the
+# `x-scheme-handler/mde` handler so external apps can route deep links
+# through `xdg-open mde://...` → `dev.mackes.MDE.Portal.OpenUri`.
+install -D -m 0755 target/release/mde-open \
+    %{buildroot}%{_bindir}/mde-open
+install -D -m 0644 data/applications/mde-open.desktop \
+    %{buildroot}%{_datadir}/applications/mde-open.desktop
+
 # v4.0.1 BUG-4 — mde-files (Iced mesh-first Artifact Manager,
 # crates/mde-files/, forked from pop-os/cosmic-files). Replaces
 # cosmic-files as the default inode/directory handler; the .desktop
@@ -1206,6 +1220,9 @@ fi
 %{_datadir}/applications/mde-workbench.desktop
 %{_bindir}/mde-panel
 %{_bindir}/mde-popover
+%{_bindir}/mde-portal-full
+%{_bindir}/mde-open
+%{_datadir}/applications/mde-open.desktop
 %{_bindir}/mde-files
 %{_datadir}/applications/mde-files.desktop
 %{_bindir}/mde-session

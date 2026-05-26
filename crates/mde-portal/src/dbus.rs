@@ -15,6 +15,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::interface;
 
+use crate::uri::{parse_mde_uri, Action};
+
 /// Shared runtime state the D-Bus handlers can read + mutate.
 #[derive(Debug, Default, Clone)]
 pub struct PortalState {
@@ -63,9 +65,71 @@ impl PortalState {
     }
 
     /// Activate the lock-screen surface (Portal-25).
+    ///
+    /// Spawns `mde-popover lock` so the visual lock layer shows over
+    /// every other surface. The popover is a separate process so a
+    /// crash in the lock UI can't take Portal-full down.
     async fn lock(&self) -> zbus::fdo::Result<()> {
-        tracing::info!("Portal.Lock");
-        Ok(())
+        tracing::info!("Portal.Lock: spawning mde-popover lock");
+        match tokio::process::Command::new("mde-popover").arg("lock").spawn() {
+            Ok(_child) => Ok(()),
+            Err(e) => {
+                tracing::warn!(error = %e, "Portal.Lock: spawn failed");
+                Err(zbus::fdo::Error::Failed(format!(
+                    "spawn mde-popover lock: {e}"
+                )))
+            }
+        }
+    }
+
+    /// Parse a `mde://` URI and dispatch the resulting action (Portal-35).
+    ///
+    /// Returns the parsed action as a string for callers that want to
+    /// log what was dispatched. Unknown URIs log a warning and return
+    /// the original input — the call never errors out so external
+    /// apps that emit slightly-malformed URIs don't crash Portal.
+    async fn open_uri(&self, uri: &str) -> zbus::fdo::Result<String> {
+        let action = parse_mde_uri(uri);
+        tracing::info!(uri, action = ?action, "Portal.OpenUri");
+        match action {
+            Action::Goto { ref layer, .. } => {
+                portal_full_goto(layer).await;
+            }
+            Action::Lock => {
+                let _ = tokio::process::Command::new("mde-popover").arg("lock").spawn();
+            }
+            Action::Focus => {
+                // Future: raise Portal-full via swayipc. Currently a no-op
+                // because the scratchpad-show wiring lives in the Dock.
+            }
+            Action::ToggleDnd => {
+                let mut inner = self.inner.lock().await;
+                inner.dnd_enabled = !inner.dnd_enabled;
+            }
+            Action::Restart => {
+                let _ = tokio::process::Command::new("systemctl")
+                    .args(["--user", "restart", "mde-portal"])
+                    .spawn();
+            }
+            Action::OpenApp(ref id) => {
+                let _ = tokio::process::Command::new("gtk-launch").arg(id).spawn();
+            }
+            Action::OpenFile(ref path) => {
+                let _ = tokio::process::Command::new("xdg-open")
+                    .arg(path)
+                    .spawn();
+            }
+            Action::Peer { .. } => {
+                // Cross-peer dispatch: the local Portal can't act on a
+                // sibling node. Drop the call — once the Mackes Bus
+                // (BUS-1..7) lands we'll forward via mesh RPC.
+                tracing::warn!(uri, "Portal.OpenUri: peer routing not yet wired");
+            }
+            Action::Unknown(ref raw) => {
+                tracing::warn!(uri = %raw, "Portal.OpenUri: unknown verb");
+            }
+        }
+        Ok(crate::uri::action_to_uri(&parse_mde_uri(uri)))
     }
 
     /// Toggle mesh-wide Do-Not-Disturb on or off.
@@ -113,6 +177,22 @@ impl PortalState {
 )]
 trait PortalFull {
     async fn goto(&self, layer: &str) -> zbus::Result<()>;
+}
+
+/// zbus-generated async proxy for the main `dev.mackes.MDE.Portal` interface.
+/// Used by `mde-open` to forward a parsed URI to the running portal.
+#[zbus::proxy(
+    interface = "dev.mackes.MDE.Portal",
+    default_service = "dev.mackes.MDE.Portal",
+    default_path = "/dev/mackes/MDE/Portal"
+)]
+pub trait Portal {
+    async fn open_uri(&self, uri: &str) -> zbus::Result<String>;
+    async fn goto(&self, layer: &str) -> zbus::Result<()>;
+    async fn lock(&self) -> zbus::Result<()>;
+    async fn focus(&self) -> zbus::Result<()>;
+    async fn toggle_dnd(&self) -> zbus::Result<bool>;
+    async fn restart(&self) -> zbus::Result<()>;
 }
 
 /// Forward a `Goto(layer)` call to the `mde-portal-full` surface.
@@ -199,5 +279,36 @@ mod tests {
     async fn portal_full_goto_does_not_panic_when_service_absent() {
         // Service is not running in tests; the function should return silently.
         portal_full_goto("hub").await;
+    }
+
+    #[tokio::test]
+    async fn open_uri_known_verb_returns_canonical_form() {
+        let state = PortalState::new();
+        let res = state.open_uri("mde://hub").await.unwrap();
+        assert_eq!(res, "mde://hub");
+    }
+
+    #[tokio::test]
+    async fn open_uri_dnd_toggles_state() {
+        let state = PortalState::new();
+        assert!(!state.dnd_enabled().await);
+        let _ = state.open_uri("mde://dnd-toggle").await.unwrap();
+        assert!(state.dnd_enabled().await);
+        let _ = state.open_uri("mde://dnd-toggle").await.unwrap();
+        assert!(!state.dnd_enabled().await);
+    }
+
+    #[tokio::test]
+    async fn open_uri_unknown_does_not_error() {
+        let state = PortalState::new();
+        let res = state.open_uri("mde://flubber").await;
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn open_uri_wrong_scheme_is_handled() {
+        let state = PortalState::new();
+        let res = state.open_uri("https://example.com").await;
+        assert!(res.is_ok());
     }
 }
