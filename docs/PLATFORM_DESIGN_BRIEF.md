@@ -2,7 +2,7 @@
 
 **Audience:** AI design partners (Claude sessions) before helping
 design or build features in this repo.
-**Last refreshed:** 2026-05-25
+**Last refreshed:** 2026-05-25 (post-BUS lock)
 **Status:** Living document — update when the platform's identity
 or methods shift, not for routine feature work.
 
@@ -492,18 +492,87 @@ context.
 
 ## 7. Direction (active scope, 2026-05-25)
 
-### 7.1 In flight — v5.0/v5.1/v5.2 (storage + notifications)
+### 7.1 In flight — v5.0/v5.1/v5.2 (storage + retirements)
 - **v5.0** — GlusterFS mesh-home: 29 of 35 GF-* tasks shipped; 6
   HW carve-outs remain (mesh-files badges, KDC2 drop folder,
   applet status line, Workbench panel, quota banner, split-brain
   bench tests)
-- **v5.1** — Mesh notification bus + focus modes: 1 of 11 GF-17.*
-  shipped (the design doc); 10 implementation tasks queued
 - **v5.1** — Gluster control surface: 10 GF-16.* tasks queued
   (pause/throttle, action notifications, coalescing, class policy,
-  DND pierce, origin xattr, decommission notifications, etc.)
+  DND pierce, origin xattr, decommission notifications, etc.).
+  **Note:** notification-routing portions are SUPERSEDED by BUS-*
+  (see §7.5); residual GF-16 work is the gluster operator-control
+  layer only
+- **v5.1** — ~~Mesh notification bus + focus modes (GF-17)~~
+  **SUPERSEDED 2026-05-25 by v6.x Mackes Bus (BUS-4.2 hard cut)**.
+  GF-17 tasks retain their state for historical context until
+  BUS-4.2 lands; on that commit they convert to `[~]` Retired
 - **v5.1/v5.2** — DEAD-2.* mesh module retirement queue: 15 tasks
   across 10 dependency waves
+
+### 7.1.b In flight — v6.x Mackes Bus (BIG NEW LOCK 2026-05-25)
+**Status:** Design-locked via 104-Q poll across 26 rounds (largest
+single-platform lock in the repo). Awaiting operator "execute" /
+"iterate" / "ship the Bus" before implementation. Bound by the cut
+drain rule.
+
+**What it is:** the **single bus** for every event the mesh
+produces — notifications, alerts, clipboard sync, FDO desktop
+notifications, webhook ingress, mesh-internal pub/sub. Built on
+self-hosted **ntfy** brokers running on every peer over Nebula,
+with persistence on GlusterFS mesh-home + per-topic file tree at
+`~/.local/share/mde/bus/<topic-path>/<ulid>.json`.
+
+**What it replaces in one v6.x cut:**
+- v5.1 GF-17 mesh notification bus → **hard cut**, delete + rewrite
+  callers
+- v2.6 MON Netdata alert routing → **parallel-write window**;
+  `~/.local/share/mde/alerts/` JSONL preserved for external
+  consumers
+- Standalone FDO `org.freedesktop.Notifications` → **bridged to
+  `fdo/<app>` topics** (every desktop notification auto-captures
+  into Bus audit + replay)
+- Any per-app clipboard sync → **`clipboard/sync` topic** + new
+  `mde-clipd` daemon (`wlr-data-control-unstable-v1`)
+
+**Topic model:** slash hierarchy (`fleet/sec`, `peer/$host/alerts`,
+`mon/cpu`); MQTT wildcards (`+` / `#`); self-serve creation; 12
+curated defaults seeded on first run.
+
+**Priority → surface map:**
+- `min` → silent log only (no Breadcrumb segment)
+- `default` → Portal notification tray + dock badge
+- `high` → status-zone slide-up strip + sound + persistent until ack
+- `urgent` → Theater takeover (full-screen) + sound + Wallpaper
+  banner stripe + phone push
+
+**Sub-epics (parallel, no enforced order):**
+- **BUS-1** Foundation — `mde-bus` crate, broker, persistence, CLI,
+  templating (Tera + `{{exec}}` + `{{include}}` + curated mesh vars)
+- **BUS-2** Surfaces — Breadcrumb / tray / strip / Theater /
+  wallpaper / `mde://` URL handler / single DND toggle
+- **BUS-3** Webhooks — ntfy publisher + YAML rules + 6 built-in
+  adapters (GitHub, Gitea, Sonarr/Radarr, UPS/NUT, Home Assistant,
+  generic JSON)
+- **BUS-4** Migration — GF-17 hard cut + MON parallel-write + FDO
+  bridge
+- **BUS-5** Clipboard — `mde-clipd` + Super+V centered popover +
+  KDC2 round-trip + tag pinning
+- **BUS-6** Advanced routing — rooms + first-to-ack + correlation
+  engine + DM-by-active-peer + broadcast snooze + phone dedup
+- **BUS-7** Federation + audit + Workbench Mesh > Bus subpage
+
+**Key resolutions baked into the lock:**
+- Single DND toggle + per-topic mute/snooze (REPLACES the v5.1
+  3-mode focus catalog work/quiet/off)
+- `override=dnd` tag bypasses everything
+- Fleet-wide DND sync (DND on any peer mutes all peers)
+- Phone reach via dual KDC2 + ntfy mobile app, deduplicated by ULID
+- Topic ACL via passcode tier 2 → **CUT** (violates flat-trust)
+- E2E body encryption per topic → **CUT** (Nebula transport is
+  enough)
+- Cron / scheduled publish → **CUT** (use systemd timers)
+- Calendar / SMS / Piper TTS / geofence → all **CUT**
 
 ### 7.2 In flight — v2.6 (visual + monitoring)
 - **CR-*** — ChromeOS Classic visual retrofit (26-Q lock)
@@ -578,11 +647,13 @@ should flag them rather than silently extend them.
 | # | Pattern | Tension | Status |
 |---|---|---|---|
 | 9 | **mesh_router + mackes-transport** abstraction with Nebula-only world | 4 TransportKind variants + scorer + capability model, but only Nebula has 3 modes + KdcTls for phones. Abstraction may be over-engineered | Live; justified by KDC2 |
-| 10 | **Polling-instead-of-event-bus** (shipped) | Original GF-2.5 design called for `nebula_supervisor::EnrollmentCompleted` event subscription; shipped as filesystem polling of QNM-Shared. Pattern repeats: GF-2.6 (peer detach), GF-17 (attendance) | Established convention now |
-| 11 | **mded `Notify` writes to BOTH local DB AND fires `notify-send`** | Two side effects from one call; consumers may double-process. v5.1 GF-17 router introduces a third write (mesh-replicated JSON) — three side effects | Locked v5.1 |
-| 12 | **Two parallel sync substrates**: QNM-Shared (Syncthing-era, all coordination) + gluster mesh-home (v5.0, XDG dirs) | QNM-Shared is NOT inside the gluster volume; they use different replication mechanisms. Confusing for new contributors | Active; no plan to unify |
+| 10 | **Polling-instead-of-event-bus** (shipped) | Original GF-2.5 design called for `nebula_supervisor::EnrollmentCompleted` event subscription; shipped as filesystem polling of QNM-Shared. Pattern repeats: GF-2.6 (peer detach), GF-17 (attendance) | Established convention; **partially superseded** by BUS pub/sub once it ships |
+| 11 | **mded `Notify` writes to BOTH local DB AND fires `notify-send`** | Two side effects from one call; consumers may double-process. With BUS the pattern collapses into one publish (BUS-4.4 bridge) | **Resolved by BUS-4.4** once it ships |
+| 12 | **Three parallel sync substrates**: QNM-Shared (Syncthing-era, all coordination), gluster mesh-home (v5.0, XDG dirs), ntfy/Bus (v6.x, events+clipboard) | Three different replication mechanisms on the same peers, each with different latency/durability/scope guarantees | Active; no plan to unify (Bus uses GFS for index + file tree, ntfy for transport) |
 | 13 | **Subprocess legacy layer** (`media_sync.rs` supervises `media_sync_daemon.py`) | Rust worker drives Python subprocess; transitional pattern | Live during the v2.0→v5.x migration |
 | 14 | **D-Bus methods return JSON strings** (not strongly typed) | Cross-language ease but loses type safety; consumers parse JSON every call | Established convention |
+| 14b | **`{{exec 'cmd'}}` in Bus templates** (Tera) | Any peer with the mesh passcode can publish a template that shells on every render-target peer. Designed flat-trust amplifier | Locked + documented in `docs/design/v6.x-mackes-bus.md` §10 |
+| 14c | **GF-17 superseded same-day as locked** | 5-Q lock + design doc + 11 worklist tasks shipped 2026-05-25; SAME-DAY 104-Q BUS lock retires it. Hard-cut, no migration window | Process pattern — design churn is normal here; treat any "just locked" epic as potentially superseded if a larger system-level lock follows |
 
 ### 8.3 Design-system drift
 
@@ -609,7 +680,7 @@ should flag them rather than silently extend them.
 | # | Pattern | Why unusual | Discussion |
 |---|---|---|---|
 | 25 | **14,983-line worklist** | Most teams use Jira / Linear / GitHub Issues. The single-file pattern survives only because the operator + Claude pair can fit it in context | Works for now; may need section archival as it grows |
-| 26 | **523-Q design-survey locks** | v6.0 Portal alone has 573 decisions across 10 survey rounds. Most projects use 5-10 design decisions per epic | Effective for pre-empting design churn; expensive to reverse |
+| 26 | **523-Q + 104-Q design-survey locks** | v6.0 Portal has 573 decisions across 10 rounds; Mackes Bus has 104 across 26 rounds (largest per-platform lock). Most projects use 5-10 design decisions per epic | Effective for pre-empting design churn; expensive to reverse |
 | 27 | **Voice-and-tone lint script** | Enforces verb discipline + forbidden-strings list. Most projects rely on review | Catches drift; mandatory for any user-visible string touch |
 | 28 | **Legacy-mesh-vocabulary lint** | Catches net-new `tailscale\|headscale\|derper` references. Tribal-knowledge-as-lint | Pragmatic regression detection; pattern worth imitating for future deprecations |
 | 29 | **§0.8 runtime-reachability gate** | "Every public function the task introduces must be invocable from a runtime entry point." Most projects don't formalize this | Direct response to v3.x dead-modules audit; should be respected on every commit |
