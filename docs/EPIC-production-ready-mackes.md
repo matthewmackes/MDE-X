@@ -132,7 +132,8 @@ Today `ci.yml` fails on every push (pre-existing).
   peers (NF-* open-mesh lock 2026-05-23). Revisit only on operator
   request.
 - Mesh capacity status — visible in Conky as the mesh approaches
-  `MESH_CAP` (16 peers).
+  `MESH_CAP` (**8 peers** per Q3 of the 100-Q tightening survey
+  2026-05-25; was 16-peer cap from v12).
 
 ---
 
