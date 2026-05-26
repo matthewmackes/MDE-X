@@ -1350,7 +1350,7 @@ def apply_netdata_monitor(_preset: Preset) -> List[str]:
         "    memory mode = dbengine\n"
         "    page cache size = 32\n"
         "    dbengine multihost disk space = 256\n"
-        "    # ~7 days of per-second metrics on a 16-peer fleet.\n"
+        "    # ~7 days of per-second metrics on an 8-peer fleet (Q3 lock).\n"
         "    # Tune via `update every` if disk pressure hits.\n"
         "    update every = 1\n"
         "    history = 604800\n"

@@ -89,7 +89,7 @@ class FleetRunHistoryPanel(Gtk.Box):
         self._suppress_filter_signals = False
         self._build()
         # 11.9 reliability: build_inventory + list_playbooks + list_runs
-        # together take ~7 s on a 16-peer mesh. Off-main-thread.
+        # together take ~3.5 s on an 8-peer mesh (Q3 lock; was 16-peer / 7s). Off-main-thread.
         from mackes.workbench._async import async_probe
         async_probe(self._gather_refresh_state, self._apply_refresh,
                     on_error=self._apply_refresh_error)

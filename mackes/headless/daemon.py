@@ -11,8 +11,8 @@ This is the process that systemd's `mackes-node.service` starts. It owns:
   - Mesh-VPN snapshot (every 30s)
 
 All loops run in a single Python thread on simple time slices — no
-threading needed for a workstation-scale mesh (≤16 peers, modest event
-rate).
+threading needed for a workstation-scale mesh (≤8 peers per Q3 lock;
+was ≤16 — tightened 2026-05-25; modest event rate).
 """
 from __future__ import annotations
 

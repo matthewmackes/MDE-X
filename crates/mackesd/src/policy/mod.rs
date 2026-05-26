@@ -57,8 +57,9 @@ pub enum Policy {
         /// Stable rule identifier.
         id: String,
         /// 4-digit extension (`1NNN`). Generator default is the
-        /// lexicographic index of `node_id` in the 16-peer cap,
-        /// so `1001`..`1016`; operator override goes here.
+        /// lexicographic index of `node_id` in the 8-peer cap
+        /// (Q3 lock 2026-05-25; was 16-peer), so `1001`..`1008`;
+        /// operator override goes here.
         extension: String,
         /// Target peer's stable node id (e.g. `peer:alice-laptop`).
         node_id: String,

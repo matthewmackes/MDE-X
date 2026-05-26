@@ -106,8 +106,9 @@ class FleetInventoryPanel(Gtk.Box):
         self._selected: set[str] = set()
         self._build()
         # 11.9 reliability: build_inventory() probes every peer
-        # (Tailscale + ansible state files); takes 8 s+ on a 16-peer
-        # mesh. Off-main-thread; the status box stays empty until the
+        # (Nebula + ansible state files; Tailscale retired in v2.5);
+        # takes ~4 s on an 8-peer mesh (Q3 lock; was 16-peer / 8s).
+        # Off-main-thread; the status box stays empty until the
         # probe lands.
         from mackes.workbench._async import async_probe
         async_probe(build_inventory, self._apply_refresh,

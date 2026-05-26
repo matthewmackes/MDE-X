@@ -96,7 +96,8 @@ pub struct VoiceDesired {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PeerEntry {
     /// 4-digit extension assigned to this peer (the `1NNN`
-    /// pattern, `1001`..`1016` for the 16-peer cap).
+    /// pattern, `1001`..`1008` for the 8-peer cap per Q3 of the
+    /// 100-Q tightening survey 2026-05-25; was `1001`..`1016`).
     pub extension: String,
     /// Stable node id — comment-only on the dispatcher row; the
     /// routing target is `mesh_address` below.

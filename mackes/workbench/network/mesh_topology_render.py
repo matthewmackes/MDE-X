@@ -187,7 +187,7 @@ def hit_test_node(nodes: dict[str, Node], x: float, y: float,
 def hit_test_edge(layout: Layout, x: float, y: float,
                   tolerance: float = 6.0) -> Edge | None:
     """Return the edge whose line passes within `tolerance` of
-    `(x, y)`, or None. Naive O(E) walk — fine at the v12 16-peer scale."""
+    `(x, y)`, or None. Naive O(E) walk — fine at the 8-peer scale (Q3 lock; was v12 16-peer)."""
     for e in layout.edges:
         if e.a not in layout.nodes or e.b not in layout.nodes:
             continue

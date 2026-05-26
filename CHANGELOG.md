@@ -5,6 +5,18 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**Fleet-cap code refs (EPIC-MASTER-3.code, 2026-05-26)**
+- All 8 in-code "16-peer" references updated to "8-peer" per Q3.
+  Every hit was a doc-comment (timing estimate, scope mention, or
+  Rust doc explaining extension-number allocation); no hardcoded
+  caps existed. Touched: birthright.py, workbench/{network,fleet}/*
+  (3 files), headless/daemon.py, mackesd/src/policy/mod.rs,
+  mde-voice-config/src/lib.rs, mde-alert-emit/src/main.rs. Extension
+  allocation pattern doc updated from `1001..1016` to `1001..1008`
+  in mackesd/src/policy + mde-voice-config.
+
+
+
 (Operator-locked 2026-05-25 via 100-Q tightening survey: the next
 release is **MackesDE for Workgroups 1.0** — full rebrand + version
 reset per Q71 + Q72. The v4.0 line below subsumes into the 1.0 cut;

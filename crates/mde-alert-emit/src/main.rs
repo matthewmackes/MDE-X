@@ -72,7 +72,8 @@ pub struct AlertEvent {
     /// worker on each peer appends its node-id once it has
     /// surfaced the event to the FDO notification daemon, so
     /// any peer rendering an alert view can show "seen by 4
-    /// of 16 peers" without re-querying.
+    /// of 8 peers" without re-querying (Q3 lock 2026-05-25;
+    /// was 16-peer cap).
     pub seen_by: Vec<String>,
 }
 
