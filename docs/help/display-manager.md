@@ -95,8 +95,12 @@ the full mesh diagnostic page (post-login).
 
 - `/etc/regreet/regreet.toml` — operator-tunable config; survives
   package upgrades (`%config(noreplace)`).
-- `/usr/share/mde/regreet/regreet.css` — immutable theme; replaced
-  on every package upgrade.
+- `/usr/share/mde/theme/greeter.css` — greeter stylesheet; `@import`s
+  `tokens.css` from the same dir so a single token change ripples
+  through the greeter alongside the panel + Workbench (DM-6).
+- `/usr/share/mde/theme/tokens.css` — shared design tokens
+  (colors, fonts, spacing). Single source of truth for cross-
+  process theming.
 - `/usr/share/mde/greetd/config.toml` — greetd substrate config;
   `apply_display_manager()` (DM-5) copies it into place at
   install-time, replacing Fedora's stock `/etc/greetd/config.toml`.

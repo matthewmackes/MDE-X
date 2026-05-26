@@ -691,14 +691,23 @@ install -D -m 0644 data/greetd/config.toml \
 install -D -m 0644 data/ntfy/server.yml.tmpl \
     %{buildroot}%{_datadir}/mde/ntfy/server.yml.tmpl
 
-# DM-3 (v2.7) — regreet config + stylesheet. The .toml installs as
-# %config(noreplace) so operator edits survive package upgrades;
-# the .css ships under /usr/share/mde/regreet/ (immutable theme)
-# and is sourced from regreet.toml via an absolute path.
+# DM-3 + DM-6 (v2.7) — regreet config sourced from the shared-tokens
+# theme dir. The .toml installs as %config(noreplace) so operator
+# edits survive upgrades. The greeter's CSS lives under
+# /usr/share/mde/theme/ alongside tokens.css so a single hex change
+# in tokens.css ripples to greeter + panel + Workbench.
 install -D -m 0644 data/regreet/regreet.toml \
     %{buildroot}%{_sysconfdir}/regreet/regreet.toml
-install -D -m 0644 data/regreet/regreet.css \
-    %{buildroot}%{_datadir}/mde/regreet/regreet.css
+# DM-6 — shared design-tokens dir. tokens.css + greeter.css live
+# here as the single source of truth for cross-process theming.
+# Note: tokens.css ALSO ships under /usr/share/mde/data/css/ via
+# the broad `cp -r data/css ...` line above for the panel's
+# legacy reader path; the duplication is harmless (same bytes,
+# `%{_datadir}/%{name}/` catch-all owns both).
+install -D -m 0644 data/css/tokens.css \
+    %{buildroot}%{_datadir}/mde/theme/tokens.css
+install -D -m 0644 data/css/greeter.css \
+    %{buildroot}%{_datadir}/mde/theme/greeter.css
 
 # KDC2-1.10 — Connect routing policy default. Ships as a
 # %config(noreplace) so operator edits survive package upgrades.

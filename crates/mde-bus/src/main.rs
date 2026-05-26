@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
-use mde_bus::{broker, seed, template::Renderer, topic::Registry};
+use mde_bus::{broker, discovery, seed, template::Renderer, topic::Registry};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -103,14 +103,14 @@ async fn run_daemon() -> anyhow::Result<()> {
     // restart cycle when prereqs land.
     let broker_cfg = broker::BrokerConfig::default();
     let broker_outcome = broker::start_if_ready(&broker_cfg).await?;
-    let mut broker_child = match broker_outcome {
+    let (mut broker_child, overlay_ip_for_discovery) = match broker_outcome {
         broker::BrokerOutcome::Running { child, overlay_ip } => {
             tracing::info!(
                 topics = reg.len(),
                 overlay_ip = %overlay_ip,
                 "mackes-bus daemon ready (broker live); awaiting shutdown"
             );
-            Some(child)
+            (Some(child), Some(overlay_ip))
         }
         broker::BrokerOutcome::Skipped(reason) => {
             tracing::info!(
@@ -118,9 +118,49 @@ async fn run_daemon() -> anyhow::Result<()> {
                 skip_reason = %reason,
                 "mackes-bus daemon ready (broker skipped — non-fatal); awaiting shutdown"
             );
-            None
+            (None, None)
         }
     };
+
+    // BUS-1.3 — zeroconf discovery. Register `_mackes-bus._tcp.local.`
+    // and browse for peers. Only run when the broker is live so we
+    // don't advertise a port nothing's listening on. Missing overlay
+    // IP or mdns-sd init failure logs the skip and continues.
+    let discovery_handle: Option<discovery::DiscoveryHandle> =
+        match overlay_ip_for_discovery.as_deref().map(str::parse::<std::net::IpAddr>) {
+            Some(Ok(ip_addr)) => {
+                let instance_name = hostname_for_discovery();
+                let cfg = discovery::DiscoveryConfig::new(instance_name, ip_addr);
+                let registry = discovery::PeerRegistry::new();
+                match discovery::DiscoveryHandle::start(&cfg, registry) {
+                    Ok(handle) => {
+                        tracing::info!(
+                            target: "mde_bus::discovery",
+                            "mDNS service active"
+                        );
+                        Some(handle)
+                    }
+                    Err(reason) => {
+                        tracing::info!(
+                            target: "mde_bus::discovery",
+                            skip_reason = %reason,
+                            "mDNS registration skipped — non-fatal"
+                        );
+                        None
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                tracing::warn!(
+                    target: "mde_bus::discovery",
+                    error = %e,
+                    raw = ?overlay_ip_for_discovery,
+                    "overlay IP failed to parse; skipping mDNS registration"
+                );
+                None
+            }
+            None => None,
+        };
     // Heartbeat tick — every 60s log a single line so operators can
     // see the daemon is alive in `journalctl -u mde-bus`.
     let mut ticker = tokio::time::interval(Duration::from_secs(60));
@@ -175,7 +215,36 @@ async fn run_daemon() -> anyhow::Result<()> {
         tracing::info!("terminating ntfy broker child");
         let _ = child.kill().await;
     }
+    // BUS-1.3 — unregister the mDNS service so peers see us drop in
+    // real time, not after the cache TTL expires.
+    if let Some(handle) = discovery_handle {
+        tracing::info!("unregistering mDNS service");
+        handle.shutdown();
+    }
     Ok(())
+}
+
+/// Resolve a friendly instance name for this peer's mDNS
+/// announcement. Honors `$MDE_BUS_INSTANCE` (tests/scripts), then
+/// `$HOSTNAME` (commonly set by the shell), then reads
+/// `/proc/sys/kernel/hostname` (kernel-owned source of truth),
+/// then falls back to the stable string `"mde-bus"`.
+fn hostname_for_discovery() -> String {
+    for var in ["MDE_BUS_INSTANCE", "HOSTNAME"] {
+        if let Ok(v) = std::env::var(var) {
+            let trimmed = v.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    if let Ok(body) = std::fs::read_to_string("/proc/sys/kernel/hostname") {
+        let trimmed = body.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    "mde-bus".to_string()
 }
 
 fn run_topic(op: TopicOp) -> anyhow::Result<()> {

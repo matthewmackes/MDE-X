@@ -3786,6 +3786,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs 5.0.1",
+ "mdns-sd",
  "serde",
  "serde_json",
  "tempfile",

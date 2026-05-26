@@ -20,6 +20,11 @@
 
 [appearance]
 greeting_msg = "Mackes Desktop Environment"
+# DM-6 — read the greeter's GTK CSS from the shared-tokens dir
+# so a single hex change in `data/css/tokens.css` ripples to the
+# greeter alongside the panel + Workbench. The greeter.css file
+# `@import`s tokens.css then overrides regreet-specific selectors.
+style = "/usr/share/mde/theme/greeter.css"
 # Read sessions exclusively from the MDE-curated dir. DM-5's
 # `apply_display_manager()` step creates this dir and symlinks
 # `mde.desktop` into it; nothing else lands there.

@@ -23,6 +23,7 @@
 //! and the retention engine (BUS-1.9) on top of these primitives.
 
 pub mod broker;
+pub mod discovery;
 pub mod seed;
 pub mod template;
 pub mod topic;

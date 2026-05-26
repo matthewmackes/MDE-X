@@ -5,6 +5,18 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-1.3 — mDNS service registration over Nebula (v6.x Mackes Bus, 2026-05-26)**
+- `mde-bus daemon` now registers `_mackes-bus._tcp.local.` via
+  `mdns-sd`, advertising `<overlay-ip>:8443` + TXT records
+  (`host=<hostname>`, `proto=mackes-bus/1`). Browsing the same
+  service type populates a shared `PeerRegistry` that BUS-1.8's
+  CLI verbs (`mde-bus peers`) can read.
+- Registration is gated on the broker being live (no
+  advertise-with-nothing-listening race); shutdown unregisters
+  cleanly so peers see drops in real time, not after the cache
+  TTL. Missing overlay-IP / failed mdns-sd init / unparseable IP
+  all log a single skip line and continue.
+
 **DM-6 — shared design-tokens dir (2026-05-26)**
 - New `/usr/share/mde/theme/{tokens.css,greeter.css}` install path.
   `greeter.css` `@import`s `tokens.css` so a single hex change in

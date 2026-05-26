@@ -38,6 +38,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 # XDG paths (~/.local/share/mde/bus/...) match the rest of the workspace.
 dirs = "5"
 
+# BUS-1.3 — zeroconf discovery. Same version mackesd uses for its
+# LAN-discovery worker so the workspace lint doesn't flip on
+# multiple-version drift.
+mdns-sd = "0.11"
+
 # Error enums — matches mackesd + mackes-nebula-https-tunnel versions.
 thiserror = "1"
 

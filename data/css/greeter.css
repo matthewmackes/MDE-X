@@ -1,23 +1,32 @@
-/* DM-3 (v2.7) — regreet greeter styling.
+/* DM-6 (v2.7) — regreet greeter stylesheet.
  *
- * GTK4 CSS applied on top of the regreet default theme. Realizes
- * the visual side of the 10-Q DM survey locks: charcoal background,
- * Roboto type, indigo accents, three power glyphs bottom-right,
- * no user-list (type-username-every-time enforces it).
+ * Sourced by /etc/regreet/regreet.toml's `[appearance] style` key.
+ * Imports the shared design tokens so a single hex change in
+ * `data/css/tokens.css` ripples to the greeter without hand-syncing
+ * three CSS files (greeter / panel / Workbench).
  *
- * The Classic ChromeOS visual lock (see
- * project_chromeos_classic_visual_lock memory) governs every
- * surface — the greeter included. Colors + density mirror the
- * desktop's so the boot-theater → greeter → desktop sequence
- * reads as one continuous environment.
+ * Per DM-6 acceptance: NO symlinks (RPM verification breaks on
+ * dangling symlinks); the cross-file connection is a runtime CSS
+ * `@import` against the installed path.
+ *
+ * The tokens.css file is large + carries every Classic ChromeOS
+ * variable. The greeter only consumes a handful (background,
+ * accent, body color, mono fallbacks); the rest are harmless
+ * unused declarations.
+ *
+ * Supersedes the standalone `data/regreet/regreet.css` shipped in
+ * DM-3 — the greeter now reads from `/usr/share/mde/theme/greeter.css`
+ * instead of its own embedded copy of the palette.
  */
 
-/* ── Window chrome ─────────────────────────────────────────── */
+@import url("file:///usr/share/mde/theme/tokens.css");
+
+/* ── Window chrome (background + base body color) ───────────── */
 window,
 .background {
     background-color: #1d1d1f;
     color: #e8eaed;
-    font-family: "Roboto", sans-serif;
+    font-family: "Roboto", "Cantarell", system-ui, sans-serif;
     font-size: 14px;
 }
 
@@ -85,7 +94,7 @@ button.suggested-action {
     min-width: 44px;
     min-height: 44px;
     padding: 8px;
-    border-radius: 22px; /* circular hit target */
+    border-radius: 22px;
 }
 
 /* ── Session picker dropdown ───────────────────────────────── */
@@ -118,4 +127,32 @@ label.error {
     color: #f28b82;
     font-size: 13px;
     margin-top: 8px;
+}
+
+/* ── DM-7 mesh-status chip (3 states) ───────────────────────
+ * The chip widget itself lands when DM-7 ships; these rules
+ * are pre-staged so the chip falls into the locked palette
+ * without an extra commit. Selectors match the chip's three
+ * .chip-{online,joining,offline} classes.
+ */
+.mesh-status-chip {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    margin: 8px;
+}
+
+.mesh-status-chip.chip-online {
+    background-color: rgba(91, 106, 245, 0.18);
+    color: #5b6af5;
+}
+
+.mesh-status-chip.chip-joining {
+    background-color: rgba(251, 188, 5, 0.18);
+    color: #fbbc05;
+}
+
+.mesh-status-chip.chip-offline {
+    background-color: rgba(154, 160, 166, 0.18);
+    color: #9aa0a6;
 }
