@@ -1,8 +1,15 @@
-"""Pure-helper tests for the Phase 12.8 mesh GUI panels.
+"""Pure-helper tests for the mesh wizard passcode validator.
 
-Tests live in the no-GTK helpers (slug lookup, diff builder, passcode
-validator) so they run under the `_run_without_pytest.py` shim and
-real pytest alike.
+The Phase 12.8 workbench mesh-control + mesh-history tests that used
+to live here were retired with `EPIC-RETIRE-PY-WORKBENCH.delete-ported.batch-2`
+on 2026-05-26 — the `mackes/workbench/network/mesh_control.py` +
+`mesh_history.py` panels were deleted in favor of the Iced
+`crates/mde-workbench/src/panels/mesh_control.rs` +
+`mesh_history.rs` equivalents (Rust-side coverage lives there).
+
+What survives here: the 3 `passcode_validator_*` tests that exercise
+`mackes/wizard/pages/mesh_passcode.py` — wizard code is NOT being
+retired, so these stay.
 """
 from __future__ import annotations
 
@@ -32,60 +39,3 @@ def test_passcode_validator_rejects_non_url_safe():
     assert not passcode_is_valid("aaaaaaaaaaaaaa=a")
     # Multi-byte chars are out.
     assert not passcode_is_valid("aaaaaaaaaaaaaaña")
-
-
-def test_mesh_control_tab_lookup_round_trip():
-    from mackes.workbench.network.mesh_control import (
-        TABS, slug_for_tab, tab_index_for_slug,
-    )
-    for i, (slug, _label, _mod, _cls) in enumerate(TABS):
-        assert tab_index_for_slug(slug) == i, f"{slug} -> {i}"
-        assert slug_for_tab(i) == slug, f"{i} -> {slug}"
-
-
-def test_mesh_control_tab_lookup_falls_back_safely():
-    from mackes.workbench.network.mesh_control import (
-        slug_for_tab, tab_index_for_slug,
-    )
-    # Unknown slugs map to index 0 (the Health tab); out-of-range
-    # indexes map to the first slug.
-    assert tab_index_for_slug("does-not-exist") == 0
-    assert tab_index_for_slug("") == 0
-    assert slug_for_tab(-1) == "health"
-    assert slug_for_tab(10_000) == "health"
-
-
-def test_mesh_history_diff_emits_unified_diff_when_payloads_differ():
-    from mackes.workbench.network.mesh_history import build_diff_lines
-    diff = build_diff_lines(
-        {"a": 1, "b": 2},
-        {"a": 1, "b": 3},
-        "rev-1", "rev-2",
-    )
-    assert diff, "expected non-empty diff for differing payloads"
-    joined = "\n".join(diff)
-    assert "rev-1" in joined
-    assert "rev-2" in joined
-    assert any("-" in line or "+" in line for line in diff)
-
-
-def test_mesh_history_diff_handles_identical_payloads():
-    from mackes.workbench.network.mesh_history import build_diff_lines
-    same = {"k": "v"}
-    diff = build_diff_lines(same, same, "rev-a", "rev-b")
-    assert diff == []
-
-
-def test_mesh_history_diff_handles_non_json_payloads():
-    """Non-JSON-serializable payloads fall back to ``str()`` without
-    raising — keeps the diff viewer robust against legacy revisions."""
-    from mackes.workbench.network.mesh_history import build_diff_lines
-
-    class Unserializable:
-        def __repr__(self):
-            return "Unser()"
-
-    diff = build_diff_lines(Unserializable(), Unserializable(),
-                            "rev-1", "rev-2")
-    # Identical repr -> empty diff (but no exception).
-    assert diff == []
