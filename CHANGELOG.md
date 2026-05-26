@@ -17,6 +17,20 @@ all in-flight epics ship together per Q91 maximum-scope lock. See
   indeterminate blue progress) per the operator's
   `Mackes DE Bootsplash.html` design lock 2026-05-25.
 
+**Mesh module audits (DEAD-2.14 + DEAD-2.15)**
+- `mackes/mesh_nebula.py` audit landed (DEAD-2.14): partial-coverage
+  path. Top-of-file comment block maps 14 exports across 5 Rust
+  equivalents + 4 NF-21.x gaps (sshd-overlay-bind worker, lighthouse-
+  relayed WoL, nftables firewall preset, Bus migration of 4 toast
+  emitters). 5-step retirement plan documented. New NF-21.1..4
+  worklist entries created as follow-ons.
+- `mackes/mesh.py` umbrella pruned (DEAD-2.15): `_LAYERS` tuple
+  shrinks from 8 to 4 — removed `thumbnailer` (DEAD-2.2), `services`
+  (DEAD-2.9), `sync` (DEAD-2.10), `browser` (DEAD-2.11). Top-of-tuple
+  comment block names the retirement-wave per layer. Remaining 4:
+  vpn, ssh, fs, notifications. Umbrella fully retires when DEAD-2.8
+  + DEAD-2.12 land (only ssh + vpn remain).
+
 **More mesh-tree retirements (DEAD-2.10 + DEAD-2.11)**
 - Deleted `mackes/mesh_sync.py` + `mackes/mesh_nats.py` — NATS-
   substrate bucket-sync stack. Replaced by gluster mesh-home

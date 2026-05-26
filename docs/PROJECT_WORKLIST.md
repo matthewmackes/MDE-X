@@ -1109,7 +1109,7 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] `install-helpers/lint-legacy-mesh.sh` clean.
     - [ ] CHANGELOG entry cites the v2.5 Nebula-only lock as the rationale ("DERP/NATS status helpers retired; both substrates axed in v2.5").
 
-- [ ] **DEAD-2.14: v5.1 — Audit `mackes/mesh_nebula.py` coverage vs Rust `nebula_supervisor`; delete python if coverage complete**
+- [✓] **DEAD-2.14: v5.1 — Audit `mackes/mesh_nebula.py` coverage vs Rust `nebula_supervisor`; delete python if coverage complete** *(shipped 2026-05-26 — session=opus-cw-2026-05-26-00:30; partial-coverage path per task body; comment block added at top of mesh_nebula.py mapping 14 exports across 5 Rust-equivalents + 4 NF-21.x gaps; effective consumers reduced to 3 after DEAD-2.5+2.10 (mesh_media, mesh_ssh panel, tests); 5-step retirement plan documented in source-doc-block; NF-21.x follow-on tasks land below)*
   **As** the v5.1 cleanup pass,
   **I want** to confirm that every operator-facing surface in the python `mesh_nebula.py` wrapper (NF-5.3 + NF-13) is covered by the Rust `nebula_supervisor` + `nebula_csr_watcher` workers + `dev.mackes.MDE.Nebula.Status` D-Bus surface,
   **so that** I can either delete `mesh_nebula.py` (preferred — one Nebula implementation) or document the remaining coverage gap as a follow-up task.
@@ -1123,7 +1123,7 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### Wave 10 — Umbrella + section sweep
 
-- [ ] **DEAD-2.15: v5.1 — Audit `mackes/mesh.py` umbrella after Waves 1-9 land; retire if no longer earning its keep**
+- [✓] **DEAD-2.15: v5.1 — Audit `mackes/mesh.py` umbrella after Waves 1-9 land; retire if no longer earning its keep** *(shipped 2026-05-26 — session=opus-cw-2026-05-26-00:30; option-B "umbrella still earns its keep" path: 4 of 8 layers remain (vpn, ssh, fs, notifications); 4 dead-layer rows pruned from `_LAYERS` tuple (thumbnailer / services / sync / browser); top-of-tuple comment block lists retirement waves per layer + flags when DEAD-2.8 + DEAD-2.12 land the umbrella shrinks to vpn+ssh only and option-A "delete the umbrella entirely" becomes appropriate; module-smoke green; ruff clean)*
   **As** the v5.1 cleanup pass after Waves 1-9 complete,
   **I want** to audit whether the `mackes/mesh.py` umbrella (which today probes 8 mesh layers: vpn, ssh, services, fs, sync, notifications, browser, thumbnailer) still earns its place,
   **so that** if 7 of its 8 layers are gone (vpn retired in NF-5.1; services in DEAD-2.9; fs in DEAD-2.12; sync in DEAD-2.10; notifications in DEAD-2.8; browser in DEAD-2.11; thumbnailer in DEAD-2.2) — only `ssh` remains — the umbrella can be deleted and consumers can call `mesh_ssh.py` directly. Otherwise document the retained value.
@@ -1133,6 +1133,37 @@ locked work appears under **Active** with `[ ] Open`.
     - [ ] **If umbrella still earns its keep:** prune the dead-layer rows from `health()`; add a top-of-file comment block listing what layers were retired in which Wave; THIS task closes with the prune.
     - [ ] `make test-nodeps` passes; `make lint` clean; `install-helpers/lint-legacy-mesh.sh` clean.
     - [ ] CHANGELOG entry summarizes the retirement count: "v5.1 retired N python mesh modules + M Rust worker modules; mesh tree is now <X> source files (was <Y>)."
+
+### NF-21.1..NF-21.4 — Nebula python-wrapper retirement gaps (surfaced by DEAD-2.14 audit, 2026-05-26)
+
+> Surfaced by the DEAD-2.14 mesh_nebula.py coverage audit
+> (2026-05-26). These are the 4 functions in `mackes/mesh_nebula.py`
+> that have NO current Rust equivalent. When all four land, the
+> module can fully retire (DEAD-2.14 → completion).
+
+- [ ] **NF-21.1: v1.0/1.1 — mackesd worker manages sshd Nebula-overlay-bind drop-in** *(blocks mesh_nebula.py::write_sshd_overlay_bind retirement)*
+  **As** mackesd,
+  **I want** to manage `/etc/ssh/sshd_config.d/mackes-mesh.conf` per the overlay-IP publishing flow,
+  **so that** `mesh_nebula.py::write_sshd_overlay_bind` retires.
+  **Acceptance:** new `crates/mackesd/src/workers/sshd_overlay_bind.rs` worker writes the drop-in + reloads sshd via the Shell.Workers D-Bus surface on every overlay-ip change.
+
+- [ ] **NF-21.2: v1.0/1.1 — mackesd lighthouse-relayed WoL** *(blocks mesh_nebula.py::wol_via_lighthouse retirement)*
+  **As** the operator,
+  **I want** to issue a Wake-on-LAN packet THROUGH a specific lighthouse instead of from the local peer,
+  **so that** waking a desktop from a roaming laptop on a different LAN works.
+  **Acceptance:** `mackesd wake-peer <mac> --via <lighthouse-id>` shells a remote WoL via Nebula direct connect to the lighthouse + the lighthouse emits the magic packet on its local broadcast domain.
+
+- [ ] **NF-21.3: v1.0/1.1 — mackesd applies the Nebula firewall preset** *(blocks mesh_nebula.py::apply_nebula_firewall_preset retirement)*
+  **As** mackesd,
+  **I want** the nftables firewall preset (open Nebula UDP/4242 + TCP/443 inbound on lighthouses) applied at startup + on enrolment,
+  **so that** `mesh_nebula.py::apply_nebula_firewall_preset` retires + lighthouses self-configure.
+  **Acceptance:** new `crates/mackesd/src/workers/firewall_preset.rs` worker applies the locked preset; idempotent on re-run; routes through admin_session for privileged nftables ops.
+
+- [ ] **NF-21.4: v6.x — emit_* toast helpers migrate to Bus publish** *(blocks mesh_nebula.py::emit_lighthouse_event + emit_ca_rotation + emit_https_fallback_state + emit_cert_expiry_warning retirement; depends on BUS-4.4 FDO bridge)*
+  **As** the platform,
+  **I want** the 4 Nebula-event toast emitters in mesh_nebula.py to publish to `nebula/<event>` Bus topics instead,
+  **so that** Bus owns notification routing per Q20 + Q96 + BUS-4.4.
+  **Acceptance:** each of the 4 `emit_*` helpers replaced by a thin `mde-bus publish nebula/<event> <payload>` shell-out OR a direct Rust publish from `nebula_supervisor`. mesh_nebula.py loses the 4 functions; mesh_media + mesh_ssh consumers updated.
 
 ### EPIC-MASTER + RETIRE + UI + SYNC + BUS-EXT + PROC + SEC + SCOPE: 100-Q tightening survey aftermath (locked 2026-05-25)
 

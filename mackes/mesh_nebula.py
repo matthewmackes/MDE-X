@@ -10,6 +10,60 @@ sshd config snippets, emit WoL via the lighthouse relay.
 Per the open-mesh / flat-trust directive (2026-05-23), every
 service on a paired peer is reachable from every other peer.
 The helpers here don't introduce ACLs.
+
+DEAD-2.14 audit (2026-05-26 — coverage check vs Rust nebula
+infrastructure):
+
+  Status: PARTIAL COVERAGE — module kept; deletion deferred.
+
+  Functions with Rust equivalent (can migrate consumers when
+  the parallel Rust effort surfaces a stable D-Bus surface):
+    - current_overlay_ip          → read /var/lib/mackesd/nebula/overlay-ip
+                                    (GF-1.3.a) directly; trivial migration
+    - lighthouse_addresses        → mackesd Nebula.Status::ListLighthouses
+                                    (future, not yet on the D-Bus surface)
+    - nebula_peer_ips             → dev.mackes.MDE.Nebula.Status::ListPeers
+    - published_services_summary  → flat-trust + Nebula direct connect
+                                    (services concept retired with mesh_services
+                                    per DEAD-2.9; this helper is essentially dead)
+    - reload_sshd                 → mackesd-side service-reload via
+                                    Shell.Workers (already exists)
+
+  Functions with NO Rust equivalent yet (= NF-21.x follow-on
+  needed before mesh_nebula.py can fully retire):
+    - write_sshd_overlay_bind     — needs a mackesd worker to manage the
+                                    sshd drop-in; tracked as NF-21.1
+    - wol_via_lighthouse          — wol.rs Rust worker already exists
+                                    (DEAD-2.5 wired `mackesd wake-peer`);
+                                    needs a way to issue WoL THROUGH a
+                                    specific lighthouse, not just locally;
+                                    tracked as NF-21.2
+    - apply_nebula_firewall_preset — nftables preset application;
+                                     tracked as NF-21.3
+    - emit_lighthouse_event / emit_ca_rotation / emit_https_fallback_state
+      / emit_cert_expiry_warning  — all four `_emit_toast` helpers are
+                                    desktop-notification emitters that
+                                    will retire when BUS-4.x lands
+                                    (notifications go to Bus topics);
+                                    tracked as NF-21.4 (waits on BUS-4.4
+                                    FDO bridge)
+
+  Effective consumers post-DEAD-2 Wave 6+7:
+    - mesh_media.py     — uses nebula_peer_ips (could migrate to D-Bus)
+    - workbench/network/mesh_ssh.py — uses several functions; will
+                          retire entirely under EPIC-RETIRE-PY-WORKBENCH
+    - tests/test_mesh_nebula.py — keep alongside the module
+
+  Retirement plan (becomes a separate DEAD-2.14.* sub-epic once
+  NF-21.1..21.4 land):
+    1. Migrate mesh_media to D-Bus (small follow-on)
+    2. Retire python workbench (EPIC-RETIRE-PY-WORKBENCH / Q49 → 1.0)
+    3. Migrate emit_* helpers to BUS publish (BUS-4.4)
+    4. Migrate write_sshd_overlay_bind + apply_nebula_firewall_preset
+       + wol_via_lighthouse to mackesd workers (NF-21.1..21.3)
+    5. Delete mesh_nebula.py + tests
+
+  Until then, the module stays — consumers above keep importing it.
 """
 from __future__ import annotations
 

@@ -479,15 +479,33 @@ def _tcp_open(host: str, port: int, *, timeout: float = 1.0) -> bool:
 
 
 # (layer-name, probe-callable, cache-ttl-seconds)
+#
+# DEAD-2.15 prune (2026-05-26): 4 retired layers removed from active
+# probing. The probe functions themselves stay (their try/except guards
+# now return "missing" cleanly when the retired module is absent) but
+# pruning the tuple keeps health() output tidy. Retired probes:
+#
+#   - thumbnailer (DEAD-2.2, mesh_thumbnailer.py deleted)
+#   - services    (DEAD-2.9, mesh_services.py deleted)
+#   - sync        (DEAD-2.10, mesh_sync.py deleted)
+#   - browser     (DEAD-2.11, mesh_browser.py deleted)
+#
+# Remaining layers (4 of 8):
+#   - vpn          — substrate changed Tailscale → Nebula in v2.5
+#                    (NF-*); the probe still flags health correctly
+#   - ssh          — mesh_ssh.py is keep-list, no retirement
+#   - fs           — mesh_fs.py retires under DEAD-2.12 (HW-gated v5.2)
+#   - notifications — mesh_notifications.py retires under DEAD-2.8
+#                     (depends on BUS-4.2 hard cut)
+#
+# When DEAD-2.8 + DEAD-2.12 land, the umbrella shrinks to just
+# vpn + ssh, and DEAD-2.15's option-A "delete the umbrella entirely"
+# becomes the appropriate next step.
 _LAYERS: tuple[tuple[str, Callable[[], LayerHealth], float], ...] = (
     ("vpn",            _probe_vpn,            5.0),
     ("ssh",            _probe_ssh,            10.0),
-    ("services",       _probe_services,       30.0),
     ("fs",             _probe_fs,             10.0),
-    ("sync",           _probe_sync,           10.0),
     ("notifications",  _probe_notifications,  15.0),
-    ("browser",        _probe_browser,        60.0),
-    ("thumbnailer",    _probe_thumbnailer,    300.0),
 )
 
 
