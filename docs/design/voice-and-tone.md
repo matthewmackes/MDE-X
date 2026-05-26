@@ -203,9 +203,23 @@ Every user-visible string in:
 - `mackes/wizard/` (onboarding copy)
 - `docs/help/*.md` (in-app help)
 - `data/applications/*.desktop` (app launchers)
+- `data/bus/*.tmpl` + `data/bus/hooks/*.yaml` (Bus message
+  template titles + bodies — see BUS-4.5)
 - The `CHANGELOG.md` user-facing summary lines
 - GitHub Release notes
 - README.md feature copy
+
+**Bus-specific guidance (BUS-4.5, 2026-05-26):**
+
+- Webhook adapter rule titles render as ntfy `X-Title` headers
+  — keep them under ~60 chars so phone push previews don't
+  truncate ("`<repo> push to <branch>`" not "`<pusher> just
+  pushed <commit_count> commits to <branch>!`").
+- Use full priority words (`high`, `urgent`) in operator-facing
+  YAML config, never abbreviations (`hi`, `urg`).
+- Bus quota warnings say "Bus storage at X MB / Y MB soft
+  limit" — state the facts, then the next step in the body
+  ("Consider lowering per-topic TTL or retiring noisy topics.").
 
 Internal-only strings (debug logs, panic messages, dev assertions,
 test fixtures) are out of scope.

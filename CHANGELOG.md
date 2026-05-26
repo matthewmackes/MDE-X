@@ -5,6 +5,19 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**BUS-4.5 + BUS-4.6 — lint coverage on Bus code (2026-05-26)**
+- `install-helpers/lint-voice.sh` now scans `crates/mde-bus` +
+  `data/bus` on every pre-commit + CI run so Bus user-visible
+  strings (rendered titles, body templates, hooks YAML samples)
+  get the voice-tone audit alongside the GUI crates.
+- `docs/design/voice-and-tone.md` gains a Bus-specific guidance
+  section: keep webhook titles under ~60 chars (phone push
+  truncation), full priority words in operator YAML, quota
+  warnings state-fact-then-next-step.
+- `install-helpers/lint-legacy-mesh.sh` already scans `crates/`
+  broadly — Bus + future `mde-clipd` are covered without any
+  script change.
+
 **BUS-2.1 — priority → surface dispatcher (v6.x Mackes Bus, 2026-05-26)**
 - New `crates/mde-bus/src/surface.rs` ships the `Surfaces` trait
   (four methods, one per priority class) + the `dispatch(msg,

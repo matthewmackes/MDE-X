@@ -40,7 +40,7 @@ if [ $# -gt 0 ]; then
 else
     # All paths get the forbidden-strings checks (marketing words,
     # lorem ipsum, etc. shouldn't appear ANYWHERE).
-    SCAN_PATHS="crates/mde-applets crates/mde-drawer crates/mde-files crates/mde-kdc crates/mde-logout-dialog crates/mde-panel crates/mde-peer-card crates/mde-popover crates/mde-session crates/mde-wizard crates/mde-workbench mackes/workbench mackes/wizard data/applications"
+    SCAN_PATHS="crates/mde-applets crates/mde-bus crates/mde-drawer crates/mde-files crates/mde-kdc crates/mde-logout-dialog crates/mde-panel crates/mde-peer-card crates/mde-popover crates/mde-session crates/mde-wizard crates/mde-workbench mackes/workbench mackes/wizard data/applications data/bus"
     # v4.0.2 cleanup: verb-discipline scans run only against active
     # surfaces. `mackes/workbench/*` and `mackes/wizard/*` are the
     # legacy v1.x GTK Python tree being retired by CB-1.x — their
