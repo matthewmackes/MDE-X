@@ -411,7 +411,9 @@ call-end lifecycle, never at install or login.
     - [ ] Snapshot-allow-list captures any pre-existing violations at lint-introduction.
     - [ ] Lint clean on full repo before merge.
 
-- [ ] **TUNE-3: TUNE-LINT-14 — `lint-runtime-reachability.sh` (gate #14).**
+- [✓] **TUNE-3: TUNE-LINT-14 — `lint-runtime-reachability.sh` (gate #14).** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-W; new `install-helpers/lint-runtime-reachability.sh` (~130 LOC) + `install-helpers/lint-runtime-reachability.allowlist` (69 lines incl. header + 53 entries). Walks every `pub mod foo;` declaration in `crates/*/src/lib.rs` + `crates/*/src/*/mod.rs`; requires at least one external `foo::` reference OR a `pub use foo` re-export. The pub-use-from-decl-file case is accepted (the re-export IS reachability). Snapshot allow-list captures 53 pre-existing dead modules (mde-peer-card enrich/, mde-kdc-proto plugins/, mackesd settings/, mackesd workers/, scattered) — these are the v3.x dead-panel audit's residue. New TUNE-3.b opens to track cleanup; the allow-list shrinks as modules wire up or delete. CLAUDE.md §0.7 gate #14 documented. Wall time ~60-120s on full repo. Clean.)*
+
+- [ ] **TUNE-3.b: dead-module cleanup follow-on** *(new epic — opens 2026-05-26 from TUNE-3 lint allow-list)*. 53 pre-existing dead modules need wiring or deletion before the allow-list can be empty. Each module is a candidate for either: (a) actual runtime wiring (most likely for mde-peer-card enrich/ + mde-kdc-proto plugins/ — they have working code, just no dispatcher), (b) hard delete (if the work is genuinely orphaned). See `install-helpers/lint-runtime-reachability.allowlist` for the inventory. Suggested chunking: one cleanup task per source-tree subdirectory (mde-peer-card-enrich, mde-kdc-proto-plugins, mackesd-settings, mackesd-workers, scattered). Optional for 1.0 cut — depends on whether dead modules constitute a §0.17 "incomplete" failure. AI partner judgment per the master rule.
   **As** the platform's runtime-reachability discipline,
   **I want** automated detection of dead `pub mod foo;` declarations,
   **so that** §0.8 gate 7 doesn't depend on manual grep.

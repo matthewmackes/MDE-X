@@ -1,0 +1,69 @@
+# Snapshot allow-list for install-helpers/lint-runtime-reachability.sh.
+# Captured 2026-05-26 at lint introduction (TUNE-3 / 25-Q Q10).
+#
+# Each line below is a PRE-EXISTING dead module the lint would
+# flag but is grandfathered. Cleanup tracked in TUNE-3.b
+# (see worklist). This file shrinks as modules are wired up or
+# deleted.
+#
+# Format: <file>:<module-name> per line.
+# Lines starting with `#` are comments; blank lines ignored.
+#
+# To add a NEW entry (only with operator approval — the lint
+# is the platform's dead-code defense): append the file:module
+# pair AND open a worklist task referencing TUNE-3.b for its
+# eventual cleanup.
+
+crates/mackesd/src/settings/mod.rs:automount
+crates/mackesd/src/settings/mod.rs:display
+crates/mackesd/src/settings/mod.rs:keybinds
+crates/mackesd/src/settings/mod.rs:power
+crates/mackesd/src/settings/mod.rs:wallpaper
+crates/mackesd/src/transport/mod.rs:mesh_shunt
+crates/mackesd/src/workers/mod.rs:ansible_pull
+crates/mackesd/src/workers/mod.rs:media_sync
+crates/mackesd/src/workers/mod.rs:perf
+crates/mackesd/src/workers/mod.rs:remmina_sync
+crates/mackesd/src/workers/mod.rs:thumbnailer
+crates/mde-panel/src/lib.rs:toplevels_sub
+crates/mde-peer-card/src/enrich/mod.rs:hwdb
+crates/mde-peer-card/src/enrich/mod.rs:ifixit
+crates/mde-peer-card/src/enrich/mod.rs:lhdb
+crates/mde-peer-card/src/enrich/mod.rs:openbench
+crates/mde-peer-card/src/enrich/mod.rs:wikidata
+crates/mde-workbench/src/panels/mod.rs:apps_install
+crates/mde-workbench/src/panels/mod.rs:apps_installed
+crates/mde-workbench/src/panels/mod.rs:apps_remove
+crates/mde-workbench/src/panels/mod.rs:apps_sources
+crates/mde-workbench/src/panels/mod.rs:datetime
+crates/mde-workbench/src/panels/mod.rs:default_apps
+crates/mde-workbench/src/panels/mod.rs:displays
+crates/mde-workbench/src/panels/mod.rs:drift
+crates/mde-workbench/src/panels/mod.rs:firewall
+crates/mde-workbench/src/panels/mod.rs:fleet_revisions
+crates/mde-workbench/src/panels/mod.rs:health_check
+crates/mde-workbench/src/panels/mod.rs:help_index
+crates/mde-workbench/src/panels/mod.rs:home
+crates/mde-workbench/src/panels/mod.rs:hub
+crates/mde-workbench/src/panels/mod.rs:inventory
+crates/mde-workbench/src/panels/mod.rs:logs
+crates/mde-workbench/src/panels/mod.rs:mesh_control
+crates/mde-workbench/src/panels/mod.rs:mesh_history
+crates/mde-workbench/src/panels/mod.rs:mesh_join
+crates/mde-workbench/src/panels/mod.rs:mesh_pending
+crates/mde-workbench/src/panels/mod.rs:panel_apps
+crates/mde-workbench/src/panels/mod.rs:playbooks
+crates/mde-workbench/src/panels/mod.rs:printers
+crates/mde-workbench/src/panels/mod.rs:remote_desktop
+crates/mde-workbench/src/panels/mod.rs:removable
+crates/mde-workbench/src/panels/mod.rs:repair
+crates/mde-workbench/src/panels/mod.rs:resources
+crates/mde-workbench/src/panels/mod.rs:run_history
+crates/mde-workbench/src/panels/mod.rs:service_publishing
+crates/mde-workbench/src/panels/mod.rs:snapshots
+crates/mde-workbench/src/panels/mod.rs:sound
+crates/mde-workbench/src/panels/mod.rs:sync_status
+crates/mde-workbench/src/panels/mod.rs:system_update
+crates/mde-workbench/src/panels/mod.rs:themes
+crates/mde-workbench/src/panels/mod.rs:wifi
+crates/mde-workbench/src/panels/mod.rs:window_manager

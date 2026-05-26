@@ -266,6 +266,18 @@ Before every commit, when applicable:
     `*_tests.rs`) excluded so test fixtures can use placeholders.
     Snapshot allow-list empty at lint introduction — no pre-
     existing violations.
+14. **Runtime-reachability lint** (added 2026-05-26 per Q10 of
+    the 25-Q + TUNE-3): `install-helpers/lint-runtime-reachability.sh`
+    (if any `mod.rs` or `lib.rs` is touched). Walks every `pub mod
+    foo;` declaration in `crates/*/src/lib.rs` + `crates/*/src/*/mod.rs`;
+    requires at least one external `foo::` reference OR a
+    `pub use foo::*` re-export. Catches the dead-module failure
+    mode the v3.x audit (2026-05-22) surfaced by hand. Snapshot
+    allow-list at `install-helpers/lint-runtime-reachability.allowlist`
+    captures 53 pre-existing dead modules at lint introduction
+    (TUNE-3.b cleanup epic tracks each entry; file shrinks over
+    time). Any net-new dead module is a regression. Wall time
+    ~60-120 s on the full repo.
 
 If a pre-commit hook fails, the commit did **not** happen — fix the
 issue, re-stage, and create a **new** commit. Never `--amend` in that
