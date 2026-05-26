@@ -502,6 +502,15 @@ Three carve-outs from the lock are in effect through the next cut:
   administration UI under VoIP Settings). Operator-issued lift,
   recorded in [[feedback_platform_feature_locked]]. Lock re-
   engaged immediately after.
+- **2026-05-26 — Portal-41..Portal-59** (Round 12 i3/sway
+  integration tightening, 25-Q survey + 19 new worklist tasks).
+  Operator-issued lift for "review i3 documentation and our
+  design" survey. Locks captured in
+  `docs/design/v6.0-mde-portal.md` §16 and
+  [[project_v6_0_mde_portal]] Round 12 section. Amends R3-Q44
+  i3 contract (Mod+r) + supersedes R5-Q23 (scratchpad badge) +
+  reframes R4-Q67 (5th micro-button). Lock re-engaged after
+  Portal-59 lifts close 2026-05-26.
 
 **Why this rule:** the active worklist already represents 324
 items across 15+ epics. Continuing to add scope while draining is
