@@ -16,7 +16,7 @@ pub const PRESETS: &[Preset] = &[
         id: "mackes",
         display_name: "Mackes",
         accent_hex: "#2B9AF3",
-        blurb: "IBM-blue Carbon-system feel; safe for shared machines.",
+        blurb: "IBM-blue Material-Symbols feel; safe for shared machines.",
     },
     Preset {
         id: "daylight",

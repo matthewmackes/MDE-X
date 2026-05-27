@@ -23,7 +23,7 @@ pub struct BirthrightStep {
 pub const STEPS: &[BirthrightStep] = &[
     BirthrightStep {
         id: "themes",
-        label: "Install themes (Carbon · PatternFly · GNOME)",
+        label: "Install themes (Material · PatternFly · GNOME)",
         default_on: true,
     },
     BirthrightStep {

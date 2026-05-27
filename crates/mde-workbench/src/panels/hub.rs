@@ -3,8 +3,8 @@
 //! Routes to when the operator clicks the "Maintain" sidebar
 //! group header without picking a specific panel. Renders a 2×3
 //! tile grid: Snapshots / Debloat / Health Check / Repair /
-//! Drift / Logs. Each tile is a clickable card with a Carbon
-//! glyph + the panel name + a short description.
+//! Drift / Logs. Each tile is a clickable card with a Material
+//! Symbols glyph + the panel name + a short description.
 //!
 //! Chrome influence (per Phase 0.8): Win11 Settings landing
 //! grid — square tiles, single accent per zone, 12 px gap.
