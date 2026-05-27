@@ -12,7 +12,7 @@
 //! click-jump via swayipc (R3-Q23), `+` new-workspace (R3-Q24).
 //! Hover Aero-peek is Portal-5.c.
 //!
-//! **Nav buttons** (Portal-4): 36 px Carbon glyphs, domain-color chevrons
+//! **Nav buttons** (Portal-4): 36 px Material Symbols glyphs, domain-color chevrons
 //! (R10-Q46), tonal-inversion active indicator (R10-Q15), count badge
 //! (R10-Q3), right-click (R10-Q5).
 //!
@@ -174,7 +174,7 @@ impl NavButton {
         NavButton::Settings,
     ];
 
-    /// Carbon icon for this button (monochrome glyph).
+    /// Material Symbols icon for this button (monochrome glyph).
     pub fn icon(self) -> Icon {
         match self {
             NavButton::Apps => Icon::Apps,
@@ -1231,7 +1231,7 @@ fn sweep_color_for_app(app: &DockApp) -> (f32, f32, f32) {
         .iter()
         .any(|s| is_bus_segment_alive(s, now))
     {
-        return (0.20, 0.69, 1.0); // Carbon blue 40
+        return (0.20, 0.69, 1.0); // Material blue 40
     }
     (0.357, 0.416, 0.961) // indigo accent fallback
 }
@@ -1456,7 +1456,7 @@ fn build_layout_prompt_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     if !layout_prompt_visible(state, now) {
         return iced::widget::Space::new(0.0, Length::Fill).into();
     }
-    // Background uses the platform-default Carbon-blue / indigo for
+    // Background uses the platform-default Material-blue / indigo for
     // v1.0. The tag's `group_color` is preserved in state for a
     // future tint pass that mirrors Portal-56's border-tinting hex
     // → Color conversion; until that lands, all banners share the
@@ -1516,7 +1516,7 @@ fn build_layout_prompt_segment<'a>(app: &DockApp) -> Element<'a, Message> {
 /// zero-width space so the breadcrumb layout doesn't reflow.
 ///
 /// When visible, renders the LRU front entry's auto-derived name
-/// (Portal-41's `<num>: <app_id>`) in the platform's Carbon blue.
+/// (Portal-41's `<num>: <app_id>`) in the platform's Material blue.
 /// The full Round 12 design colors the segment with the owning-tag
 /// color (R12-Q21) once Portal-56 ships the per-workspace tinting
 /// worker — until then the fallback is the platform default. Click
@@ -1533,7 +1533,7 @@ fn build_prev_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Mes
     let Some((prev_num, prev_name)) = app.visited_workspaces_lru.first().cloned() else {
         return iced::widget::Space::new(0.0, Length::Fill).into();
     };
-    // Fallback color until Portal-56 ships per-tag tinting. Carbon
+    // Fallback color until Portal-56 ships per-tag tinting. Material
     // blue is the platform default workspace focus color, same as
     // `data/sway/config:60 client.focused`.
     let _ = fg; // kept for future tag-color fallback path
@@ -2072,11 +2072,11 @@ pub fn is_bus_segment_alive(
 #[must_use]
 pub fn bus_priority_color(priority: &str) -> Color {
     match priority {
-        // Carbon red 30 — urgent
+        // Material red 30 — urgent
         "urgent" => Color { r: 0.91, g: 0.30, b: 0.36, a: 1.0 },
-        // Carbon orange 30 — high
+        // Material orange 30 — high
         "high" => Color { r: 0.93, g: 0.55, b: 0.21, a: 1.0 },
-        // Carbon blue 40 — default
+        // Material blue 40 — default
         "default" => Color { r: 0.20, g: 0.69, b: 1.0, a: 1.0 },
         _ => COLOR_INDIGO,
     }
@@ -2091,7 +2091,7 @@ pub fn bus_priority_color(priority: &str) -> Color {
 pub fn bus_segment_color(topic: BusSegmentTopic, priority: &str) -> Color {
     match topic {
         BusSegmentTopic::Clipboard => {
-            // Carbon grey 50 — neutral, distinct from any priority
+            // Material grey 50 — neutral, distinct from any priority
             // color so clipboard adds don't compete for attention.
             Color { r: 0.55, g: 0.55, b: 0.55, a: 1.0 }
         }
@@ -2139,15 +2139,15 @@ fn first_taxonomy_mark(marks: &[String]) -> Option<&str> {
 /// pill stays opaque so it reads cleanly on every Dock background.
 fn mark_pill_color(mark: &str) -> Option<Color> {
     match mark {
-        // editor=#42be65 — Carbon green 40
+        // editor=#42be65 — Material green 40
         "editor" => Some(Color { r: 0.259, g: 0.745, b: 0.396, a: 1.0 }),
-        // web=#33b1ff — Carbon blue 40
+        // web=#33b1ff — Material blue 40
         "web" => Some(Color { r: 0.200, g: 0.694, b: 1.000, a: 1.0 }),
-        // shell=#8d8d8d — Carbon grey 50
+        // shell=#8d8d8d — Material grey 50
         "shell" => Some(Color { r: 0.553, g: 0.553, b: 0.553, a: 1.0 }),
-        // mail=#ff8389 — Carbon red 30
+        // mail=#ff8389 — Material red 30
         "mail" => Some(Color { r: 1.000, g: 0.514, b: 0.537, a: 1.0 }),
-        // chat=#be95ff — Carbon purple 30
+        // chat=#be95ff — Material purple 30
         "chat" => Some(Color { r: 0.745, g: 0.584, b: 1.000, a: 1.0 }),
         _ => None,
     }

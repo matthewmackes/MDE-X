@@ -19,7 +19,7 @@ use crate::migration::SCHEMA_VERSION;
 /// 4. `title`              — primary user-visible label.
 /// 5. `subtitle`           — secondary label (optional).
 /// 6. `body`               — long-form text (optional).
-/// 7. `icon`               — Carbon glyph name or icon resource ref.
+/// 7. `icon`               — Material Symbols glyph name or icon resource ref.
 /// 8. `tags`               — Portal-18 tag handles.
 /// 9. `metadata`           — untyped map for forward-compat / enrich.
 /// 10. `children`          — composition (R5-Q10).
@@ -52,7 +52,7 @@ pub struct Card {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
 
-    /// Optional icon ref — Carbon glyph name or path.
+    /// Optional icon ref — Material Symbols glyph name or path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
 

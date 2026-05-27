@@ -492,14 +492,14 @@ fn build_hub_layer(state: &PortalFull) -> Element<'_, Message> {
 }
 
 /// Portal-17.a — render one tag card with optional color tint.
-/// Carbon-blue indigo if no `group_color`; the tag's hex when
+/// Material-blue 40 default if no `group_color`; the tag's hex when
 /// set + parseable. Left-click → `HubTagClicked` for cascade
 /// expansion (Portal-17.b). Right-click → `HubTagRightClicked`
 /// for the iconic context menu (Portal-17.c).
 fn hub_tag_card<'a>(name: &str, group_color: Option<&str>) -> Element<'a, Message> {
     let tint = group_color
         .and_then(hub_parse_hex)
-        .unwrap_or(Color { r: 0.20, g: 0.69, b: 1.0, a: 1.0 }); // Carbon blue 40 default
+        .unwrap_or(Color { r: 0.20, g: 0.69, b: 1.0, a: 1.0 }); // Material blue 40 default (#33b1ff)
     let name_owned = name.to_string();
     let name_for_left = name_owned.clone();
     let name_for_right = name_owned.clone();

@@ -96,6 +96,7 @@ crates/mde-portal/src/app.rs:3415
 # const docstring, hex-parser tests, Edit-tag form #42be65 fixtures
 # (re-anchored 2026-05-27 after Portal-18.b modal landed).
 crates/mde-portal/src/portal_full_main.rs:144
+crates/mde-portal/src/portal_full_main.rs:502
 crates/mde-portal/src/portal_full_main.rs:413
 crates/mde-portal/src/portal_full_main.rs:550
 crates/mde-portal/src/portal_full_main.rs:900
