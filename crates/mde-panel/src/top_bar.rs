@@ -14,8 +14,8 @@
 //! - **Surface:** dark glass (#0e0e10 @ 92 % alpha when the
 //!   compositor exposes blur; opaque otherwise). Hairline 1 px
 //!   at the top edge in `rgba(244,244,244,0.06)`.
-//! - **Accent:** `#2b9af3` (PatternFly blue-400 — Carbon
-//!   `interactive-04` lock). Greyscale elsewhere; hover lifts
+//! - **Accent:** `#2b9af3` (PatternFly blue-400 — Material
+//!   blue 60 equivalent). Greyscale elsewhere; hover lifts
 //!   with a 14 %-alpha underglow of the accent.
 //! - **Typography:** Red Hat Mono for the clock + tabular numerics,
 //!   Red Hat Text 12 px / 500 weight for labels.
@@ -99,7 +99,7 @@ pub fn count_scratchpad(raw: &str) -> u32 {
 /// touching the bar's edges.
 pub const ZONE_PADDING_X: u16 = 12;
 
-/// Accent — Carbon `interactive-04` / PatternFly blue-400.
+/// Accent — Material blue 60 / PatternFly blue-400.
 const ACCENT: Color = Color {
     r: 0.169,
     g: 0.604,
@@ -107,7 +107,7 @@ const ACCENT: Color = Color {
     a: 1.0,
 };
 
-/// Foreground text — Carbon `text-01`.
+/// Foreground text — Material on-surface (primary text).
 const FG_TEXT: Color = Color {
     r: 0.957,
     g: 0.957,
@@ -115,7 +115,7 @@ const FG_TEXT: Color = Color {
     a: 1.0,
 };
 
-/// Muted helper text — Carbon `text-helper`.
+/// Muted helper text — Material on-surface-variant.
 const FG_MUTED: Color = Color {
     r: 0.659,
     g: 0.659,
@@ -237,7 +237,7 @@ pub fn view<'a>(
     // inner button; the right-click maps to a new
     // `Message::StartRightClicked` that opens the admin-menu
     // popover.
-    // v4.0.1 BUG-13: Start button now renders the Carbon `menu`
+    // v4.0.1 BUG-13: Start button now renders the Material `menu`
     // SVG glyph via PanelIcon::Start instead of the "M" letter
     // stand-in. Keep `state.start_label` in the StatusBarState for
     // backward-compat — the test set_applet_text_routes_to_correct_field
@@ -293,7 +293,7 @@ pub fn view<'a>(
     // and notification-bell. Click fires Message::ClipboardClicked,
     // routed to `mde-popover clipboard` (same surface as Super+V).
     // It's a static icon (no applet text stream); the glyph is the
-    // Unicode clipboard codepoint U+1F4CB until the BUG-13 Carbon
+    // Unicode clipboard codepoint U+1F4CB until the BUG-13 Material
     // SVG wiring lands.
     // v4.0.1 WB-2.d (2026-05-23) — tray row consults
     // state.visible_applets to decide which applets render.
@@ -538,10 +538,10 @@ fn workspace_chip_row<'a>(
     .into()
 }
 
-/// One workspace chip. Numeric Carbon glyph at 16 px (or 14 if
+/// One workspace chip. Numeric Material Symbols glyph at 16 px (or 14 if
 /// the rendered chip looks too tall against the panel height).
 /// Focused chip background = Q2 indigo; others use zone_button_style
-/// hover chrome. Has-windows chips include a small Carbon
+/// hover chrome. Has-windows chips include a small Material
 /// `circle--solid` dot at 6 px next to the number.
 fn workspace_chip<'a>(
     num: i32,
@@ -614,7 +614,7 @@ fn workspace_chip_focused_style(_theme: &Theme, _status: button::Status) -> butt
 /// v4.0.1 BUG-16 — Desktop Layout cluster. Five Snap-Layouts-style
 /// buttons that apply a tile arrangement to the focused workspace
 /// via `Message::DesktopLayoutSelected`. Each button is a 14 px
-/// Carbon SVG; the cluster shares a single accent color (Q2
+/// Material Symbols SVG; the cluster shares a single accent color (Q2
 /// indigo on hover) per the Phase 0.8 Ableton single-accent-per-
 /// zone rule.
 fn desktop_layout_cluster_view<'a>() -> Element<'a, Message> {
@@ -637,7 +637,7 @@ fn desktop_layout_cluster_view<'a>() -> Element<'a, Message> {
     .into()
 }
 
-/// One Desktop Layout button — Carbon SVG glyph painted in
+/// One Desktop Layout button — Material Symbols SVG glyph painted in
 /// FG_MUTED at rest per BUG-16's acceptance criterion; the
 /// zone_button_style provides the hover affordance via a
 /// background tint. Fires `Message::DesktopLayoutSelected(kind)`.
@@ -663,7 +663,7 @@ fn desktop_layout_button<'a>(
         .into()
 }
 
-/// v4.0.1 BUG-13.a — tray button that renders a Carbon SVG icon
+/// v4.0.1 BUG-13.a — tray button that renders a Material Symbols SVG icon
 /// before the live text payload from the applet. Replaces the
 /// plain text rendering of `tray_button` for the chips whose
 /// applet binaries dropped their leading Unicode glyph (audio /
@@ -706,7 +706,7 @@ fn tray_button_with_icon<'a>(
 /// outside the AppletKind enum because there's no applet
 /// subprocess feeding text into it.
 ///
-/// v4.0.1 BUG-13: now renders the Carbon `copy` glyph SVG via
+/// v4.0.1 BUG-13: now renders the Material `copy` glyph SVG via
 /// `PanelIcon::Clipboard` instead of the Unicode U+1F4CB
 /// codepoint that earlier shipped as a placeholder.
 fn clipboard_button<'a>() -> Element<'a, Message> {
@@ -729,7 +729,7 @@ fn clipboard_button<'a>() -> Element<'a, Message> {
 }
 
 /// v4.0.1 WM-2.a — minimized-windows tray button + badge.
-/// Renders the Carbon `view--off` glyph + the scratchpad count
+/// Renders the Material `visibility-off` glyph + the scratchpad count
 /// as a small chip; click fires `Message::MinimizedClicked`
 /// which spawns `mde-popover minimized`. Only inserted into the
 /// tray when `scratchpad_count > 0` so the surface stays clean

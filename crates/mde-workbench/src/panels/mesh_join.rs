@@ -3,7 +3,7 @@
 //!
 //! CB-1.8 partial: replaces the v1.x
 //! `mackes/workbench/network/mesh_join.py` (which itself was
-//! a thin Carbon wrapper around the wizard's MeshJoinPage).
+//! a thin GTK wrapper around the wizard's MeshJoinPage).
 //! v2.0.0 routes joining through `mded enroll --passcode
 //! <16-char>` (the same subcommand the CLI uses), so the
 //! panel collapses to: passcode text input + Enroll button +

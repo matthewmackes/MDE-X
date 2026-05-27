@@ -26,7 +26,7 @@ use mde_theme::{mde_icon, FontSize, Icon, IconSize, Palette, TypeRole};
 /// Well-known applet ids the operator can toggle. Locked in
 /// code (not in `panel.toml`) — adding a new applet means a
 /// code change here + a tray-button arm in mde-panel's
-/// `top_bar.rs`. The display label + Carbon icon track those
+/// `top_bar.rs`. The display label + Material Symbols icon track those
 /// arms.
 pub const APPLETS: &[(&str, &str, Icon)] = &[
     ("audio", "Audio", Icon::Sound),
