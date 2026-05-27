@@ -250,7 +250,7 @@ pub fn empty_state<'a, Message: Clone + 'a>(
     // the slot as empty space so the body block centers
     // consistently across panels that opt out of the icon.
     //
-    // v4.0.1 BUG-13.c: prefer the baked Carbon SVG via
+    // v4.0.1 BUG-13.c: prefer the baked Material Symbols SVG via
     // `Icon::svg_bytes()` (every variant now resolves to Some).
     // The Unicode fallback_glyph path stays as a safety net for
     // any future variant that ships an unbaked Icon.

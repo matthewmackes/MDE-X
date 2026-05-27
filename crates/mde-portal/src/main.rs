@@ -5,8 +5,9 @@
 //!
 //! Portal-3 adds the font stack: Intel One Mono as the Iced default
 //! font (resolved via fontconfig, installed by `intel-one-mono-fonts`),
-//! Symbols Nerd Font Mono as icon-glyph fallback, and the Carbon icon
-//! system wired via `mde_theme::mde_icon` / `fonts::resolve_icon`.
+//! Symbols Nerd Font Mono as icon-glyph fallback, and the Material
+//! Symbols icon system wired via `mde_theme::mde_icon` /
+//! `fonts::resolve_icon`.
 //! Portal-4 onward uses `resolve_icon` for nav-button glyphs.
 //!
 //! Portal-2 ships the Dock (AllScreens, 56 px, theme-adaptive bg).
@@ -29,7 +30,7 @@ mod app;
 // Portal-31 — startup scan of ~/.local/share/mde/cards/ + one-line summary log.
 pub mod card_index;
 pub mod dbus;
-// Portal-3 — font + Carbon icon theme layer.
+// Portal-3 — font + Material Symbols icon theme layer.
 pub mod fonts;
 // Portal-9.a — sysfs status polling (battery / network / backlight).
 pub mod status;

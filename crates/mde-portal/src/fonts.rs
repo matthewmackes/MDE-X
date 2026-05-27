@@ -12,19 +12,21 @@
 //! absent (dev machine without the package) Iced degrades to its built-in
 //! font gracefully.
 //!
-//! ## Carbon icon set
+//! ## Material Symbols icon set
 //!
-//! `mde_theme::icons` is the canonical Carbon icon enum. Portal surfaces
-//! import `mde_theme::icons::{Icon, IconSize}` and call [`icon_glyph`] to
-//! get the Unicode fallback for a given semantic icon; Portal-4 onward
-//! will switch the call sites to SVG bytes via UX-8.a.
+//! `mde_theme::icons` is the canonical Material Symbols icon enum.
+//! Portal surfaces import `mde_theme::icons::{Icon, IconSize}` and
+//! call [`icon_glyph`] to get the Unicode fallback for a given
+//! semantic icon; Portal-4 onward switches the call sites to SVG
+//! bytes via UX-8.a.
 //!
 //! ## Nerd Glyph fallback
 //!
 //! `NERD_SYMBOLS_FONT` names the Symbols Nerd Font Mono family, which
-//! provides icon codepoints (U+E000..U+F8FF + extensions) for any Carbon
-//! icon that hasn't yet received real SVG bytes.  Iced's font cascade falls
-//! through to this family when the primary font lacks a glyph.
+//! provides icon codepoints (U+E000..U+F8FF + extensions) for any
+//! Material Symbols icon that hasn't yet received real SVG bytes.
+//! Iced's font cascade falls through to this family when the primary
+//! font lacks a glyph.
 
 use iced::Font;
 
@@ -33,7 +35,7 @@ use iced::Font;
 pub const INTEL_ONE_MONO: &str = "Intel One Mono";
 
 /// Secondary font family for icon glyphs — Symbols Nerd Font Mono.
-/// Provides U+E000..U+F8FF Nerd glyph block for Carbon icon fallback.
+/// Provides U+E000..U+F8FF Nerd glyph block for Material Symbols icon fallback.
 /// Deployed by `Requires: symbols-nerd-font-mono-fonts` in the RPM spec.
 pub const NERD_SYMBOLS_FONT: &str = "Symbols Nerd Font Mono";
 
@@ -52,7 +54,7 @@ pub const FONT_NERD_SYMBOLS: Font = Font::with_name(NERD_SYMBOLS_FONT);
 ///
 /// Delegates to `mde_theme::mde_icon` — the semantic mapping is
 /// owned by `mde-theme` so call sites stay stable across icon-set
-/// migrations (Carbon → Material Symbols shipped EPIC-UI-MATERIAL.svg-swap).
+/// migrations (Material Symbols shipped EPIC-UI-MATERIAL.svg-swap).
 /// Portal-4 nav buttons call this for their 20 px icon glyphs.
 pub fn resolve_icon(icon: mde_theme::Icon, size: mde_theme::IconSize) -> mde_theme::ResolvedIcon {
     mde_theme::mde_icon(icon, size)
@@ -84,7 +86,7 @@ mod tests {
     fn resolve_icon_delegates_to_mde_theme() {
         let resolved = resolve_icon(mde_theme::Icon::Fleet, mde_theme::IconSize::Nav);
         // Resolved icon has a Unicode fallback codepoint (non-empty).
-        assert!(!resolved.fallback_glyph.is_empty(), "Carbon icon must have a Unicode fallback");
+        assert!(!resolved.fallback_glyph.is_empty(), "Material Symbols icon must have a Unicode fallback");
     }
 
     #[test]

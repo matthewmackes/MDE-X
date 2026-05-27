@@ -1135,9 +1135,9 @@ impl App {
 /// leaked the CB-1.x substep id to the operator — the Phase 0.7
 /// audit grep that the iteration skill added on 2026-05-23
 /// promoted it from passive marker to actionable finding. This
-/// renderer uses the standard UX-6 EmptyState (Carbon tools icon
-/// + curated panel label + Back-to-group CTA wired through
-/// `Message::SelectGroup`).
+/// renderer uses the standard UX-6 EmptyState (Material Symbols
+/// tools icon + curated panel label + Back-to-group CTA wired
+/// through `Message::SelectGroup`).
 fn panel_under_construction(view: View) -> Element<'static, Message> {
     let palette = mde_theme::Palette::dark();
     let group = view.group();
