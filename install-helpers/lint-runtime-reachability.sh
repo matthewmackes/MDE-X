@@ -82,7 +82,21 @@ for decl_file in $DECL_FILES; do
         # consumers).
         pub_use_hits="$(grep -rn --include='*.rs' "pub use ${name}\\b" crates/ 2>/dev/null | head -3)"
 
-        if [ -z "$hits" ] && [ -z "$pub_use_hits" ]; then
+        # Also accept aliased imports: `<name> as <alias>` inside
+        # a `use crate::foo::{...}` block re-binds the module
+        # under a new identifier — consumers then write
+        # `<alias>::Type`, not `<name>::Type`, so the original
+        # name appears only at the alias site. The mde-workbench
+        # panels use this pattern (`use crate::panels::{
+        # apps_install as apps_install_panel, ... };`).
+        # Restrict to `\b<name> as ` so we don't false-positive on
+        # `apps_install_complete as foo` matching `apps_install`.
+        as_alias_hits="$(grep -rn --include='*.rs' "\\b${name} as " crates/ 2>/dev/null | \
+                grep -v "^${own_file}:" | \
+                grep -v "^${own_mod_file}:" | \
+                head -3)"
+
+        if [ -z "$hits" ] && [ -z "$pub_use_hits" ] && [ -z "$as_alias_hits" ]; then
             # Check allow-list file before recording violation.
             allowlist_key="${decl_file}:${name}"
             if [ -f "$ALLOWLIST_FILE" ] && grep -v '^[[:space:]]*#' "$ALLOWLIST_FILE" | grep -v '^[[:space:]]*$' | grep -Fxq "${allowlist_key}"; then

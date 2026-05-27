@@ -1,37 +1,17 @@
+# Snapshot allow-list for lint-runtime-reachability.sh
+# (TUNE-3 / 25-Q Q10). The lint was extended 2026-05-27 to
+# also accept aliased imports (`<name> as <alias>`), which
+# cleared 36 of the 37 prior false-positive entries (the
+# mde-workbench panel set imported via `apps_install as
+# apps_install_panel` etc.). Cleanup tracked in TUNE-3.b
+# — this file shrinks as remaining orphan modules are
+# wired or deleted.
+#
+# Format: one <file>:<module-name> per line.
+
+# KDC2-4.3 mesh-shunt fan-out helper. Pure-fn injection of
+# neighbor phone records into the local DiscoveryRegistry.
+# Awaiting wiring into the mackesd reconcile tick (KDC2-4.x
+# residue — KDC2 file-transfer was retired but phone-pair
+# handling persists). Decision deferred to TUNE-3.b.
 crates/mackesd/src/transport/mod.rs:mesh_shunt
-crates/mde-workbench/src/panels/mod.rs:apps_install
-crates/mde-workbench/src/panels/mod.rs:apps_installed
-crates/mde-workbench/src/panels/mod.rs:apps_remove
-crates/mde-workbench/src/panels/mod.rs:apps_sources
-crates/mde-workbench/src/panels/mod.rs:datetime
-crates/mde-workbench/src/panels/mod.rs:default_apps
-crates/mde-workbench/src/panels/mod.rs:displays
-crates/mde-workbench/src/panels/mod.rs:drift
-crates/mde-workbench/src/panels/mod.rs:firewall
-crates/mde-workbench/src/panels/mod.rs:fleet_revisions
-crates/mde-workbench/src/panels/mod.rs:health_check
-crates/mde-workbench/src/panels/mod.rs:help_index
-crates/mde-workbench/src/panels/mod.rs:home
-crates/mde-workbench/src/panels/mod.rs:hub
-crates/mde-workbench/src/panels/mod.rs:inventory
-crates/mde-workbench/src/panels/mod.rs:logs
-crates/mde-workbench/src/panels/mod.rs:mesh_control
-crates/mde-workbench/src/panels/mod.rs:mesh_history
-crates/mde-workbench/src/panels/mod.rs:mesh_join
-crates/mde-workbench/src/panels/mod.rs:mesh_pending
-crates/mde-workbench/src/panels/mod.rs:panel_apps
-crates/mde-workbench/src/panels/mod.rs:playbooks
-crates/mde-workbench/src/panels/mod.rs:printers
-crates/mde-workbench/src/panels/mod.rs:remote_desktop
-crates/mde-workbench/src/panels/mod.rs:removable
-crates/mde-workbench/src/panels/mod.rs:repair
-crates/mde-workbench/src/panels/mod.rs:resources
-crates/mde-workbench/src/panels/mod.rs:run_history
-crates/mde-workbench/src/panels/mod.rs:service_publishing
-crates/mde-workbench/src/panels/mod.rs:snapshots
-crates/mde-workbench/src/panels/mod.rs:sound
-crates/mde-workbench/src/panels/mod.rs:sync_status
-crates/mde-workbench/src/panels/mod.rs:system_update
-crates/mde-workbench/src/panels/mod.rs:themes
-crates/mde-workbench/src/panels/mod.rs:wifi
-crates/mde-workbench/src/panels/mod.rs:window_manager
