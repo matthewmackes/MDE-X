@@ -29,6 +29,12 @@ pub enum TopicOp {
     Match {
         /// MQTT-style pattern (`+` single-level, `#` multi-level).
         pattern: String,
+        /// Emit JSON Lines instead of plain text. Each line is a
+        /// `{name, priority, description}` object so `jq` pipes
+        /// can carry forward the registry metadata, not just the
+        /// matched topic name.
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
 }
 
@@ -60,10 +66,20 @@ pub fn run(op: TopicOp) -> Result<()> {
                 }
             }
         }
-        TopicOp::Match { pattern } => {
+        TopicOp::Match { pattern, json } => {
             for t in reg.iter() {
                 if crate::wildcard::matches(&pattern, &t.name) {
-                    println!("{}", t.name);
+                    if json {
+                        let priority_str = format!("{:?}", t.priority_default).to_lowercase();
+                        let val = serde_json::json!({
+                            "name": t.name,
+                            "priority": priority_str,
+                            "description": t.description,
+                        });
+                        println!("{val}");
+                    } else {
+                        println!("{}", t.name);
+                    }
                 }
             }
         }
@@ -102,6 +118,19 @@ mod tests {
     fn match_verb_runs_without_error() {
         run(TopicOp::Match {
             pattern: "mon/+".to_string(),
+            json: false,
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn match_verb_json_path_runs() {
+        // Exercise the JSON branch of the match dispatcher;
+        // `mon/+` matches the four seeded mon/* topics, all of
+        // which round-trip through the json! macro cleanly.
+        run(TopicOp::Match {
+            pattern: "mon/+".to_string(),
+            json: true,
         })
         .unwrap();
     }
