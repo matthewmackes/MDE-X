@@ -4,8 +4,8 @@
 # orange highlight. Built for focus, flow, and audio production work
 # on Linux (Bitwig Studio, Ardour, Carla).
 
-name: ableton
-display_name: "Ableton"
+name: ableton-12-dark
+display_name: "Ableton 12 Dark"
 description: >
   Ableton Live-inspired dark UI. Warm near-black surfaces, muted gray
   text, and the signature #ff7700 orange highlight. Curated for audio

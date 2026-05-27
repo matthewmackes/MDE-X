@@ -11,7 +11,11 @@ def test_base_css_resolves():
 
 
 def test_every_accent_resolves():
-    for preset in ("ableton",):
+    # EPIC-UI-PRESETS.rename (2026-05-26): ableton → ableton-12-dark
+    # as part of the Q79 four-preset lock. Only ableton-12-dark
+    # ships an accent CSS today; the three ChromeOS Classic preset
+    # variants use the platform default accent (no per-preset CSS).
+    for preset in ("ableton-12-dark",):
         p = _resolve_css("accents", f"{preset}.css")
         assert p is not None, f"missing accent for {preset}"
 
