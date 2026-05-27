@@ -39,6 +39,10 @@ pub enum MuteOp {
         /// Override the manifest path.
         #[arg(long)]
         manifest: Option<PathBuf>,
+        /// Emit JSON Lines instead of plain-text. Each line is a
+        /// JSON-quoted topic string suitable for piping to `jq`.
+        #[arg(long, default_value_t = false)]
+        json: bool,
     },
 }
 
@@ -102,11 +106,19 @@ pub async fn run(op: MuteOp) -> Result<()> {
                 println!("not muted: {topic}");
             }
         }
-        MuteOp::List { manifest } => {
+        MuteOp::List { manifest, json } => {
             let path = resolve_manifest_path(manifest)?;
             let m = read_or_default(&path)?;
             for t in &m.mute {
-                println!("{t}");
+                if json {
+                    // JSON-encoded string per line — guarantees
+                    // proper quoting of topics with special chars.
+                    let s = serde_json::to_string(t)
+                        .unwrap_or_else(|_| format!("{t:?}"));
+                    println!("{s}");
+                } else {
+                    println!("{t}");
+                }
             }
         }
     }
