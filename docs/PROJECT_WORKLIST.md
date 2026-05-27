@@ -15241,16 +15241,12 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `crates/mde-theme/src/components/{button,input,toggle,
   spinner,skeleton}.rs`; updated Iced view calls.
 
-- [!] **UX-7.a: Control-state sweep + focus-ring render —
-  BLOCKED on UX-PRE Iced 0.14 (flipped [>]→[!] 2026-05-23
-  for hygiene; the in-progress state misled the Phase 0
-  rescue pass into thinking work was active)** — (a) **BLOCKED
-  on UX-PRE** — Render
+- [ ] **UX-7.a: Control-state sweep + focus-ring render — (flipped `[!]` → `[ ]` 2026-05-27 ship-CH: the chain on UX-PRE remains but UX-PRE is no longer upstream-blocked. UX-7.a (a) lands once UX-PRE.b mde-portal API port lands per the §0.12 split — `iced::widget::button::Status::Focused` exists in 0.14 + the focus-ring render becomes a one-liner on the variant_button style fn).** — (a) **CHAINED on UX-PRE.b** — Render
   the 2 px accent focus ring on `crate::controls::variant_button`
   when the button holds keyboard focus. iced 0.13's button
   doesn't expose `ButtonStatus::Focused`; resolves when
-  UX-PRE Iced 0.14 lands (upstream softbuffer / Rust 1.95
-  blocker). (b) **DONE 2026-05-22** — Swept every panel's
+  UX-PRE Iced 0.14 lands (the API surface is in 0.14 — not an
+  upstream blocker, an API-port chain). (b) **DONE 2026-05-22** — Swept every panel's
   `button(text(...))` call site to `variant_button(label,
   ButtonVariant::*, on_press, palette)`. Grep confirms zero
   remaining `iced::widget::button(` calls outside
@@ -15331,10 +15327,7 @@ Iced-side style constants (introduce `crates/mde-theme/` if needed).
   Outputs: `crates/mde-logout-dialog/`; `crates/mde-workbench/src/
   notification_center.rs`; Iced animation subscriptions.
 
-- [!] **UX-9.a: Motion wiring BLOCKED on iced 0.13 lacking
-  animation primitives (no Subscription-driven interpolation
-  api); chains on UX-PRE Iced 0.14 — flipped [>]→[!]
-  2026-05-23 for hygiene.** Phase A locked tokens land
+- [ ] **UX-9.a: Motion wiring chains on UX-PRE Iced 0.14 API port (flipped `[!]` → `[ ]` 2026-05-27 ship-CH: UX-PRE is no longer upstream-blocked; the Subscription-driven interpolation API exists in iced 0.14, the wiring lands once UX-PRE.b mde-portal API port lands).** Phase A locked tokens land
   2026-05-22; Phase B consumer wiring needs the upstream
   animation api.
   Use the locked tokens in `mde_theme::motion` to actually
@@ -15577,7 +15570,7 @@ Last updated: 2026-05-21 — Claude Opus 4.7 (50-question lock survey
 > body). A single electric-indigo accent. No decoration without
 > purpose; no shadow without altitude; no motion without meaning.*
 
-- [!] **UX-PRE: Iced 0.13 → 0.14 workspace bump — v2.2 prereq, BLOCKED on upstream softbuffer + winit fixes (the toolchain pin was a previous hypothesis that proved insufficient)** *(2026-05-27 status: rustup INSTALLED; rustc 1.94.0 active per the workspace `rust-toolchain.toml` pin. Re-probe via a `/tmp/iced-014-probe` minimal fixture against `iced = "0.14"` + `softbuffer = 0.4.8` confirms BOTH original failure modes still fire on 1.94: (1) softbuffer 0.4.8 `make_dispatch!` macro E0004 non-exhaustive match — same error as on 1.95; the "1.94 fixes softbuffer" hypothesis from the 2026-05-23 lift was wrong. softbuffer master/HEAD has the same bug. (2) Forcing softbuffer 0.4.7 to bypass (1) exposes winit 0.30.13 E0282 type-inference errors (63 errors) — UX-PRE's "second wall" still in place. **Real blocker is upstream**: softbuffer 0.4.9+ with the match-arm fix has NOT shipped on crates.io as of 2026-05-27 (latest still 0.4.8); winit 0.30.14+ with the type-inference fix also pending. Chain stays `[!]` until BOTH upstream releases ship, OR operator approves an iced 0.13 retreat (originally declined per [[feedback_rustup_pending]] — operator wants focus-ring + motion in 1.0). Per [[feedback_hold_for_1_0_cut]] this remains a 1.0-shipping blocker; the queue continues to drain other §11 items in parallel.)* —
+- [ ] **UX-PRE: Iced 0.13 → 0.14 workspace bump — v2.2 prereq (split per §0.12 into UX-PRE.a deps + UX-PRE.b–f per-crate API port; flipped `[!]` → `[ ]` 2026-05-27 ship-CH after evidence-based re-probe contradicted the upstream-blocker hypothesis)** *(2026-05-27 second re-probe via `/tmp/mde-iced14-probe` git worktree of the FULL workspace: bumped every `iced = "0.13"` → `iced = "0.14"` + `iced_layershell = "0.13.7"` → `iced_layershell = "0.18"` + added the new mandatory `wayland` feature flag (iced 0.14 broke default-feature inclusion of x11/wayland; operator gets a compile-time `compile_error!` without it). `cargo check --workspace --all-targets --keep-going` runs CLEAN through every dep — softbuffer 0.4.8 + winit 0.30.13 (the supposedly-broken versions) compile fine in the iced 0.14 dep graph on system rustc 1.95 AND rustup 1.94. **The upstream-blocker hypothesis was wrong.** What's actually broken is the workspace's consumer code against iced 0.14's renamed/restructured API: ~200 errors across 5 crates, mechanical patterns. Breakdown: 128 errors `iced_layershell::Application` trait → 0.18 builder pattern (`iced_layershell::application(...).run()`); 19 `Space::with_width/_height` → builder-method API; 17 `iced::keyboard::on_key_press` renamed/moved; 7 `Space::new(w, h)` → 0-arg constructor; 5 `iced::widget::horizontal_space` renamed; 4 `run_with` method gone; 3 closure-signature changes; 1 each: scrollable::Id, scroll_to, text_input::focus, container.snap field, Palette.warning field, Subscription.run_with_id, BootFn trait. Per-crate error counts: mde-portal 108, mde-popover 57, mde-voice-hud 20, mde-wizard 19, mde-iced-components 2. UX-7.a + UX-9.a unblock at the same time — they were chained on UX-PRE, not on upstream.)* —
   Re-probe 2026-05-23 against `iced = "0.14"` +
   `iced_layershell = "0.18.1"` (the latest combo on crates.io):
   - **softbuffer 0.4.8** still fails compile under Rust 1.95 with
@@ -15635,6 +15628,18 @@ Last updated: 2026-05-21 — Claude Opus 4.7 (50-question lock survey
   (breaking-API migration, ~12 crates).
   Outputs: workspace-wide `Cargo.toml` updates; migration notes
   in `docs/design/v2.2-iced-014-migration.md`.
+
+- [ ] **UX-PRE.a: workspace Cargo.toml deps bump (iced 0.13 → 0.14 + iced_layershell 0.13.7 → 0.18 + wayland feature flag)** *(opens 2026-05-27 from UX-PRE split per §0.12. Atomic Cargo.toml-only commit that bumps every consumer crate's iced + iced_layershell + adds the new mandatory wayland feature flag. Bench-observable: `grep "iced = " crates/*/Cargo.toml` returns only `0.14`. Ships ALONGSIDE UX-PRE.b..f source-port commits — per §0.12 the workspace must compile at every commit, so .a + .b..f land together as one push (or .b..f land first inside a worktree + then merge to main in a single squashed commit). The probe at /tmp/mde-iced14-probe in ship-CH proved the dep-graph compiles green at 0.14 + 0.18; the work is the API-port at the consumer-code layer.)*
+
+- [ ] **UX-PRE.b: mde-portal iced 0.14 + iced_layershell 0.18 API port** *(opens 2026-05-27 from UX-PRE split per §0.12; the LARGEST sub-port — 108 errors per the ship-CH probe enumeration)*. Files: `crates/mde-portal/src/{app,main,portal_full_main,workspace,marquee,typewriter,...}.rs`. Patterns to port: `impl iced_layershell::Application for App` → `iced_layershell::application(...)` builder; `Space::new(w, h)` → `Space::new().width(w).height(h)`; `Space::with_height/_width` → builder methods; `iced::keyboard::on_key_press(...)` → renamed/moved API surface; `iced::widget::horizontal_space` → renamed; closure signature changes (0 → 1 arg in subscriptions); `container::Style.snap` new field; `Palette.warning` new field; `Subscription::run_with_id` removed. Acceptance: `cargo check -p mde-portal --all-targets` returns 0 errors; visual snapshots unchanged (or regressed only with UX-23 snapshot baseline update).
+
+- [ ] **UX-PRE.c: mde-popover iced 0.14 + iced_layershell 0.18 API port** *(opens 2026-05-27 from UX-PRE split per §0.12; 57 errors)*. Files: `crates/mde-popover/src/{audio,minimized,expose,snap_assist,window_actions,app_switcher,weather,watermark,icon_mapper,...}.rs`. Same API-port patterns as UX-PRE.b. Acceptance: `cargo check -p mde-popover --all-targets` returns 0 errors.
+
+- [ ] **UX-PRE.d: mde-voice-hud iced 0.14 + iced_layershell 0.18 API port** *(opens 2026-05-27 from UX-PRE split per §0.12; 20 errors)*. Files: `crates/mde-voice-hud/src/*.rs`. Same API-port patterns. Acceptance: `cargo check -p mde-voice-hud --all-targets` returns 0 errors.
+
+- [ ] **UX-PRE.e: mde-wizard iced 0.14 API port** *(opens 2026-05-27 from UX-PRE split per §0.12; 19 errors)*. Files: `crates/mde-wizard/src/*.rs`. Same API-port patterns. Acceptance: `cargo check -p mde-wizard --all-targets` returns 0 errors.
+
+- [ ] **UX-PRE.f: mde-iced-components iced 0.14 API port** *(opens 2026-05-27 from UX-PRE split per §0.12; 2 errors — the smallest sub-port)*. Files: `crates/mde-iced-components/src/lib.rs:99 (Space::new), :193 (container::Style.snap)`. Acceptance: `cargo check -p mde-iced-components --all-targets` returns 0 errors.
 
 - [✓] **UX-10: Brand identity spec doc — landed 2026-05-21
   (UX-28 rescope path)** — **Rescoped per UX-28 review:** the
