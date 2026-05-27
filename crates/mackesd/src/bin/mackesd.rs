@@ -2875,6 +2875,27 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("workspace_router".into());
 
+        // Portal-44 (v6.0 R12-Q4) — per-tag default_layout
+        // enforcement. Subscribes to sway window::new events;
+        // flips a single-window tag-owned workspace to the
+        // owning tag's `default_layout` (splith / splitv /
+        // tabbed / stacked).
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::tag_layout::TagLayoutWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("tag_layout".into());
+
+        // Portal-54 (v6.0 R12-Q16) — per-tag autostart.
+        // Subscribes to sway workspace::init events; fires
+        // `exec <cmd>` for each app_id in the owning tag's
+        // `autostart` list, once per workspace per mded-lifetime.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::tag_autostart::TagAutostartWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("tag_autostart".into());
+
         // The reconcile worker runs on its own OS thread (kept on
         // std::thread so its sync rusqlite calls don't block the
         // tokio scheduler). Still surfaced via Shell.Workers so

@@ -204,6 +204,16 @@ pub mod auto_mark;
 // fires `move workspace to output <name>` when the tag has a
 // `preferred_output` field set.
 pub mod workspace_router;
+// Portal-44 (v6.0 R12-Q4, 2026-05-26) — per-tag default_layout
+// enforcement. Subscribes to sway window::new events; flips the
+// new window's workspace to the owning tag's `default_layout`
+// when it's the only window AND the current layout differs.
+pub mod tag_layout;
+// Portal-54 (v6.0 R12-Q16, 2026-05-26) — per-tag autostart.
+// Subscribes to sway workspace::init events; fires `exec <cmd>` for
+// each app_id in the owning tag's `autostart` list, once per
+// workspace per mded-lifetime.
+pub mod tag_autostart;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores
