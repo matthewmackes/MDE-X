@@ -24,7 +24,7 @@
 use std::time::Duration;
 
 use futures_util::StreamExt as _;
-use mackes_mesh_types::TagStore;
+use mackes_mesh_types::{TagStore, WorkspaceOverridesFile};
 use swayipc_async::{Connection, EventType};
 
 use super::{ShutdownToken, Worker};
@@ -134,21 +134,42 @@ async fn handle_new_window(conn: &mut Connection, container: &swayipc_async::Nod
     let Some(ws_num) = workspace_num_for_con_id(&tree, con_id) else {
         return;
     };
-    let store = match TagStore::load_default() {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::debug!(error = %e, "tag_layout tag-store load failed; skipping");
-            return;
+    // Portal-50.b.consumer (R12-Q11): per-workspace override wins
+    // over the tag's default_layout. Load the workspaces.json file
+    // fresh so operator edits via Portal-50's ✕ button take effect
+    // immediately. Falls back to the tag default when no override
+    // is set for this workspace.
+    let override_layout = WorkspaceOverridesFile::load_default()
+        .ok()
+        .and_then(|f| f.layout_override(ws_num).map(str::to_string));
+    let desired_string: String;
+    let desired: &str = match override_layout.as_deref() {
+        Some(layout) => {
+            // Override exists — use it directly, skip tag lookup.
+            desired_string = layout.to_string();
+            &desired_string
+        }
+        None => {
+            // No override — fall back to the owning tag's default.
+            let store = match TagStore::load_default() {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(error = %e, "tag_layout tag-store load failed; skipping");
+                    return;
+                }
+            };
+            let Some(owning) = find_owning_tag(&store, ws_num) else {
+                return;
+            };
+            let Some(layout) = owning.default_layout.clone() else {
+                return;
+            };
+            desired_string = layout;
+            &desired_string
         }
     };
-    let Some(owning) = find_owning_tag(&store, ws_num) else {
-        return;
-    };
-    let Some(desired) = owning.default_layout.as_deref() else {
-        return;
-    };
     if !is_recognised_layout(desired) {
-        tracing::debug!(workspace = ws_num, %desired, "tag_layout default unrecognised; skipping");
+        tracing::debug!(workspace = ws_num, %desired, "tag_layout desired layout unrecognised; skipping");
         return;
     }
     // Only apply on the very first window in the workspace —
@@ -164,9 +185,14 @@ async fn handle_new_window(conn: &mut Connection, container: &swayipc_async::Nod
         return;
     }
     let cmd = layout_command(desired);
+    let source = if override_layout.is_some() {
+        "workspace-override"
+    } else {
+        "tag-default"
+    };
     match conn.run_command(&cmd).await {
-        Ok(_) => tracing::debug!(workspace = ws_num, %desired, "tag_layout applied"),
-        Err(e) => tracing::warn!(workspace = ws_num, %desired, error = %e, "tag_layout command failed"),
+        Ok(_) => tracing::debug!(workspace = ws_num, %desired, source, "tag_layout applied"),
+        Err(e) => tracing::warn!(workspace = ws_num, %desired, source, error = %e, "tag_layout command failed"),
     }
 }
 
@@ -178,6 +204,23 @@ async fn handle_new_window(conn: &mut Connection, container: &swayipc_async::Nod
 #[must_use]
 pub fn is_recognised_layout(name: &str) -> bool {
     matches!(name, "splith" | "splitv" | "tabbed" | "stacked")
+}
+
+/// Portal-50.b.consumer (R12-Q11): pure-function precedence
+/// helper. Per-workspace override wins; tag default falls back
+/// when override is None.
+///
+/// `None` from this function means "no opinion; let sway pick"
+/// (no override + no tag default + no owning tag).
+///
+/// Exposed as `pub` so the precedence contract can be tested
+/// without a sway connection.
+#[must_use]
+pub fn resolve_desired_layout<'a>(
+    override_layout: Option<&'a str>,
+    tag_default: Option<&'a str>,
+) -> Option<&'a str> {
+    override_layout.or(tag_default)
 }
 
 /// Build the swayipc command string for `layout <name>`.
@@ -273,5 +316,43 @@ mod tests {
         // gate via `is_recognised_layout`. Lock the contract so
         // an upstream bug surfaces in tests.
         assert_eq!(layout_command("garbage"), "layout garbage");
+    }
+
+    /// Portal-50.b.consumer: per-workspace override wins over the
+    /// tag's default_layout. Mirrors the bench-acceptance:
+    /// "with workspaces.json `{"1":{"layout_override":"tabbed"}}`
+    /// + Dev `default_layout = "splith"` → ws1 with one window
+    /// gets tabbed, not splith."
+    #[test]
+    fn resolve_desired_layout_override_wins() {
+        assert_eq!(
+            resolve_desired_layout(Some("tabbed"), Some("splith")),
+            Some("tabbed")
+        );
+    }
+
+    /// Tag default wins when no override is set.
+    #[test]
+    fn resolve_desired_layout_falls_back_to_tag_default() {
+        assert_eq!(
+            resolve_desired_layout(None, Some("splith")),
+            Some("splith")
+        );
+    }
+
+    /// No opinion when both sources are unset.
+    #[test]
+    fn resolve_desired_layout_none_when_neither_set() {
+        assert_eq!(resolve_desired_layout(None, None), None);
+    }
+
+    /// Override-only (no tag default) still wins. This covers the
+    /// case where the operator declined for a tagless workspace
+    /// (though in practice Portal-50's spawn-gate requires the
+    /// workspace be tag-owned; the override survives the tag
+    /// being un-set later).
+    #[test]
+    fn resolve_desired_layout_override_only() {
+        assert_eq!(resolve_desired_layout(Some("tabbed"), None), Some("tabbed"));
     }
 }
