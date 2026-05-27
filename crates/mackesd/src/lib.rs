@@ -17,6 +17,11 @@ pub mod audit;
 // subcommand (NF-2.6). The whole module lands together per
 // §0.12; no scaffold-only commit.
 pub mod ca;
+// HYP-8.5 (v6.5) — operator-edited config-file modules. Currently
+// hosts the tag-manifest schema + loader (`~/.config/mde/tags/`).
+// Future v6.5 config families (Hyprland-side per-peer overrides,
+// etc.) land here as siblings.
+pub mod config;
 // v2.0.0 Phase 12.1.2 — fleet deploy layer reservation. When Phase G
 // submodules (push, rollback, ansible_pull orchestration) actually
 // ship with real code, `pub mod deploy;` + `crates/mackesd/src/deploy/`

@@ -2230,6 +2230,50 @@ fn run_serve(
         let shutdown = Arc::new(AtomicBool::new(false));
         install_signal_handlers(Arc::clone(&shutdown)).context("installing signal handlers")?;
 
+        // HYP-8.5 — load operator tag manifests on startup +
+        // publish one Bus event per loaded tag. Fail-open: missing
+        // dir → 0 tags loaded → no events. Per-file parse failures
+        // log + skip in `load_tag_manifests`, the daemon never
+        // crashes on a malformed manifest.
+        if let Some(tags_dir) = mackesd_core::config::default_manifests_dir() {
+            match mackesd_core::config::load_tag_manifests(&tags_dir) {
+                Ok(manifests) => {
+                    tracing::info!(
+                        path = %tags_dir.display(),
+                        count = manifests.len(),
+                        "tag_manifest: loaded operator manifests",
+                    );
+                    for m in &manifests {
+                        // Best-effort Bus publish — broker may not be
+                        // up yet during the early startup phase, but
+                        // the spawn-detached shell-out makes that a
+                        // silent no-op rather than a daemon crash.
+                        let topic = "event/config/tags/loaded".to_string();
+                        let body = format!(
+                            r#"{{"name":"{}","apps":{},"layout":"{}","autostart":{}}}"#,
+                            m.name.replace('"', "\\\""),
+                            m.apps.len(),
+                            m.layout.replace('"', "\\\""),
+                            m.autostart,
+                        );
+                        let _ = std::process::Command::new("mde-bus")
+                            .arg("publish")
+                            .arg(&topic)
+                            .arg("--body-flag")
+                            .arg(&body)
+                            .spawn();
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = %tags_dir.display(),
+                        error = %e,
+                        "tag_manifest: directory load failed (expected on first boot)",
+                    );
+                }
+            }
+        }
+
         // v3.0.3 — async supervisor for Phase B workers. The
         // legacy reconcile worker stays on its own std::thread
         // because its sync rusqlite calls would block the tokio

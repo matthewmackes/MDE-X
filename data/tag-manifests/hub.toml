@@ -1,0 +1,12 @@
+# HYP-8.5 — Default tag manifest: Hub
+#
+# General-purpose / catch-all tag. No app filter so windows that
+# don't belong to a more-specific tag land here. Charcoal border
+# matches the Classic ChromeOS surface tone so untagged windows
+# read as "neutral" rather than emphasized.
+
+name = "hub"
+apps = []
+layout = "mde"
+border_color = "#3c4043"
+autostart = false

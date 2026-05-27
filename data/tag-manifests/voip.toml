@@ -1,0 +1,12 @@
+# HYP-8.5 — Default tag manifest: VOIP
+#
+# Hosts the Mackes Voice HUD + dial-pad surfaces. Border color
+# is the Q2-locked indigo so call windows visually match the
+# primary-action accent across the platform. Autostart so the
+# Voice HUD is up before the operator opens their first call.
+
+name = "voip"
+apps = ["org.mde.voice.hud", "org.mde.voice.dial"]
+layout = "splith"
+border_color = "#5b6af5"
+autostart = true

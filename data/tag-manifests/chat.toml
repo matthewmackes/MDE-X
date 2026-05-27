@@ -1,0 +1,13 @@
+# HYP-8.5 — Default tag manifest: Chat
+#
+# Messaging surfaces — both desktop chat clients and the MDE-side
+# voice/SMS apps that share thread bubbles. Splitv (vertical
+# split) suits the typical "sidebar + thread" layout chat clients
+# render. Purple border per the design-system semantic for
+# personal communications.
+
+name = "chat"
+apps = ["org.mde.voice.sms", "Element", "telegramdesktop", "signal-desktop"]
+layout = "splitv"
+border_color = "#8a3ffc"
+autostart = false

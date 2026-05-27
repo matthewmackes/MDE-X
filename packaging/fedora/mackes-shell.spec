@@ -677,6 +677,20 @@ install -D -m 0644 data/sway/config.d/mackes-defaults.conf \
 # HYP-27.a policies inline.
 install -D -m 0644 data/hyprland.conf %{buildroot}%{_datadir}/mde/hyprland.conf
 
+# HYP-8.5 (v6.5) — default tag manifests. Six curated tags
+# (voip/dev/hub/web/media/chat) shipped under /usr/share/mde/
+# tag-manifests/; the birthright wizard step (HYP-8.5.birthright
+# follow-on) copies them to ~/.config/mde/tags/ on first login.
+# mded's tag_manifest loader (`crates/mackesd/src/config/
+# tag_manifest.rs`) reads from ~/.config/mde/tags/ at startup +
+# publishes `event/config/tags/loaded` per tag on the bus.
+install -D -m 0644 data/tag-manifests/voip.toml  %{buildroot}%{_datadir}/mde/tag-manifests/voip.toml
+install -D -m 0644 data/tag-manifests/dev.toml   %{buildroot}%{_datadir}/mde/tag-manifests/dev.toml
+install -D -m 0644 data/tag-manifests/hub.toml   %{buildroot}%{_datadir}/mde/tag-manifests/hub.toml
+install -D -m 0644 data/tag-manifests/web.toml   %{buildroot}%{_datadir}/mde/tag-manifests/web.toml
+install -D -m 0644 data/tag-manifests/media.toml %{buildroot}%{_datadir}/mde/tag-manifests/media.toml
+install -D -m 0644 data/tag-manifests/chat.toml  %{buildroot}%{_datadir}/mde/tag-manifests/chat.toml
+
 # DM-2 (v2.7, 2026-05-25) — greetd substrate config. Wires
 # `cage -s -- regreet` as greetd's default_session on vt 1
 # with no [initial_session] block (always prompt; no

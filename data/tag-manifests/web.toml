@@ -1,0 +1,12 @@
+# HYP-8.5 — Default tag manifest: Web
+#
+# Browser-focused workspace. Covers Firefox + Chromium + the
+# common alternatives. Tabbed layout so multiple browser windows
+# stack rather than tile (matching browser UX expectations). Blue
+# border ties the tag to the canonical "web" visual.
+
+name = "web"
+apps = ["firefox", "chromium", "google-chrome", "qutebrowser"]
+layout = "tabbed"
+border_color = "#1a73e8"
+autostart = false

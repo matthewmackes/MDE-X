@@ -1,0 +1,13 @@
+# HYP-8.5 — Default tag manifest: Dev
+#
+# Developer-focused workspace. Curated `apps` covers the typical
+# terminal + editor + browser triad; operators add their own
+# entries via the Settings UI (HYP-8.6). Green border tints the
+# focused window so devs can spot which workspace is active from
+# across the monitor.
+
+name = "dev"
+apps = ["foot", "code", "firefox"]
+layout = "splith"
+border_color = "#42be65"
+autostart = false

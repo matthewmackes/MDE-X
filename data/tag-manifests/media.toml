@@ -1,0 +1,12 @@
+# HYP-8.5 — Default tag manifest: Media
+#
+# Video + music players. Tabbed so multiple media windows
+# (player + library + cast picker) stack into one workspace cell.
+# Orange border matches the Carbon-Material "media" semantic
+# color category.
+
+name = "media"
+apps = ["mpv", "vlc", "celluloid", "io.bassi.Amberol", "org.gnome.Music"]
+layout = "tabbed"
+border_color = "#ff832b"
+autostart = false
