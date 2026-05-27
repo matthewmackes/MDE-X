@@ -42,6 +42,10 @@ pub mod typewriter;
 // Pure helpers consumed by the Dock view to render the 15-second
 // hue-sweep baseline below the breadcrumb row.
 pub mod breath_line;
+// Portal-14.c (R4-Q60, 2026-05-27) — marquee scroll for long labels.
+// Pure helpers consumed by breadcrumb segments to scroll labels
+// exceeding the segment's viewport.
+pub mod marquee;
 // Portal-35 — `mde://` URI scheme parser + action dispatcher.
 pub mod uri;
 // Portal-5 — swayipc workspace integration.

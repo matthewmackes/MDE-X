@@ -1538,26 +1538,45 @@ fn build_prev_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Mes
     // `data/sway/config:60 client.focused`.
     let _ = fg; // kept for future tag-color fallback path
     let segment_color = COLOR_INDIGO;
-    let truncated: String = if prev_name.chars().count() > 16 {
-        let prefix: String = prev_name.chars().take(15).collect();
-        format!("{prefix}…")
-    } else {
-        prev_name
-    };
-    let full_label = format!("‹ {truncated}");
-    // Portal-14.a.consumers (2026-05-27): typewriter reveal of the
-    // prev-workspace label, using `last_workspace_change` as the
-    // spawned_at. Each workspace flip restamps the field, so the
-    // reveal replays on every switch. last_workspace_change is
-    // guaranteed Some here — the visibility guard above proves it.
+    // Portal-14.c (R4-Q60): drop the prior 16-char truncation in
+    // favor of marquee-scroll over the full workspace name. The
+    // typewriter reveal runs first on each workspace flip; once
+    // it has revealed the full label, the marquee primitive takes
+    // over and scrolls long labels through a 16-char viewport so
+    // the operator can read names that exceed the breadcrumb width.
+    const PREV_WS_VIEWPORT_CHARS: usize = 16;
+    let full_label = format!("‹ {prev_name}");
     let label = match app.last_workspace_change {
-        Some(spawned_at) => crate::typewriter::typewriter_visible_text(
-            &full_label,
-            spawned_at,
-            now,
-            crate::typewriter::DEFAULT_CHARS_PER_SEC,
-        )
-        .to_string(),
+        Some(spawned_at) => {
+            let revealed = crate::typewriter::typewriter_visible_text(
+                &full_label,
+                spawned_at,
+                now,
+                crate::typewriter::DEFAULT_CHARS_PER_SEC,
+            );
+            let typewriter_done = revealed.chars().count() >= full_label.chars().count();
+            if typewriter_done
+                && crate::marquee::marquee_active(&full_label, PREV_WS_VIEWPORT_CHARS)
+            {
+                // Marquee clock starts the instant typewriter completes.
+                // The Dock's existing 33 ms tick already drives re-renders
+                // for the typewriter; marquee reuses that subscription.
+                let typewriter_ms = (full_label.chars().count() as f64 * 1000.0
+                    / crate::typewriter::DEFAULT_CHARS_PER_SEC)
+                    .ceil() as i64;
+                let marquee_started_at =
+                    spawned_at + chrono::Duration::milliseconds(typewriter_ms.max(0));
+                crate::marquee::marquee_visible_window(
+                    &full_label,
+                    PREV_WS_VIEWPORT_CHARS,
+                    marquee_started_at,
+                    now,
+                    crate::marquee::DEFAULT_CHARS_PER_SEC,
+                )
+            } else {
+                revealed.to_string()
+            }
+        }
         None => full_label,
     };
     mouse_area(
