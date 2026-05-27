@@ -32,6 +32,15 @@ pub enum CorrelateOp {
     },
     /// Print the resolved config path.
     Path,
+    /// Validate the config — flag common issues (empty sources,
+    /// empty emits, zero windows, duplicate rule names, empty
+    /// names). Prints findings; exits non-zero when any issue is
+    /// found so CI / pre-commit hooks can gate on it.
+    Validate {
+        /// Override the config path.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn resolve_config_path(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -64,6 +73,32 @@ pub fn run(op: CorrelateOp) -> Result<()> {
             let path = correlate::default_config_path()
                 .ok_or_else(|| anyhow!("no $HOME / $XDG_CONFIG_HOME"))?;
             println!("{}", path.display());
+        }
+        CorrelateOp::Validate { config } => {
+            let path = resolve_config_path(config)?;
+            let cfg = correlate::load_default(&path)
+                .with_context(|| format!("load {}", path.display()))?;
+            let issues = correlate::validate_config(&cfg);
+            if issues.is_empty() {
+                println!("OK — {} rules validated, 0 issues", cfg.rules.len());
+                return Ok(());
+            }
+            for issue in &issues {
+                match issue.rule_index {
+                    Some(i) => println!("[rule {i}: {name}] {msg}",
+                        name = issue.rule_name,
+                        msg = issue.message,
+                    ),
+                    None => println!("[{name}] {msg}",
+                        name = issue.rule_name,
+                        msg = issue.message,
+                    ),
+                }
+            }
+            return Err(anyhow!(
+                "correlate validate: {} issue(s) found",
+                issues.len()
+            ));
         }
     }
     Ok(())

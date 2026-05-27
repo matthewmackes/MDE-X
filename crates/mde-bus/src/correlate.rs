@@ -180,6 +180,97 @@ pub fn load_default(path: &std::path::Path) -> Result<CorrelateConfig, Correlate
     serde_yaml::from_str(&body).map_err(|e| CorrelateLoadError::Parse(e.to_string()))
 }
 
+/// One validation finding produced by [`validate_config`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationIssue {
+    /// Zero-based rule index in the config's `rules:` list. `None`
+    /// for cross-rule issues (e.g. duplicate rule names where the
+    /// finding spans multiple entries).
+    pub rule_index: Option<usize>,
+    /// Rule name when the issue is per-rule; empty string when
+    /// `rule_index` is None.
+    pub rule_name: String,
+    /// Human-readable problem description, surfaced verbatim to
+    /// the operator via the CLI's `validate` verb.
+    pub message: String,
+}
+
+/// Pure-fn — walk every rule + flag common configuration problems.
+/// Returns an empty Vec when the config is clean. Issues are
+/// returned in declaration order so the operator sees them
+/// surface-by-surface.
+///
+/// Caught classes:
+///   - Empty `name` (rule headers in templates / audit need a non-
+///     empty identifier).
+///   - Empty `sources` list (a rule with no sources can never
+///     fire; almost always a YAML typo).
+///   - Empty `emits` (synthesized publish would land on the empty
+///     topic).
+///   - `window_seconds == 0` (zero-window rules require all
+///     sources to fire in the same millisecond — usable as an edge
+///     case via [`evaluate_rule_zero_window_requires_exact_now`]
+///     test fixture, but in operator config this is almost always
+///     a typo).
+///   - Duplicate rule names (audit + log lines key on
+///     `rule_name` — two rules with the same name make the audit
+///     trail ambiguous).
+#[must_use]
+pub fn validate_config(cfg: &CorrelateConfig) -> Vec<ValidationIssue> {
+    let mut issues = Vec::new();
+    // Per-rule checks.
+    for (i, rule) in cfg.rules.iter().enumerate() {
+        if rule.name.is_empty() {
+            issues.push(ValidationIssue {
+                rule_index: Some(i),
+                rule_name: rule.name.clone(),
+                message: "rule.name is empty".to_string(),
+            });
+        }
+        if rule.sources.is_empty() {
+            issues.push(ValidationIssue {
+                rule_index: Some(i),
+                rule_name: rule.name.clone(),
+                message: "rule.sources is empty (rule can never fire)".to_string(),
+            });
+        }
+        if rule.emits.is_empty() {
+            issues.push(ValidationIssue {
+                rule_index: Some(i),
+                rule_name: rule.name.clone(),
+                message: "rule.emits is empty (synthesized topic would be the empty string)".to_string(),
+            });
+        }
+        if rule.window_seconds == 0 {
+            issues.push(ValidationIssue {
+                rule_index: Some(i),
+                rule_name: rule.name.clone(),
+                message: "rule.window_seconds is 0 (requires all sources in the same millisecond)".to_string(),
+            });
+        }
+    }
+    // Cross-rule: duplicate names.
+    let mut seen: std::collections::BTreeMap<String, Vec<usize>> = std::collections::BTreeMap::new();
+    for (i, rule) in cfg.rules.iter().enumerate() {
+        if !rule.name.is_empty() {
+            seen.entry(rule.name.clone()).or_default().push(i);
+        }
+    }
+    for (name, indices) in seen {
+        if indices.len() > 1 {
+            issues.push(ValidationIssue {
+                rule_index: None,
+                rule_name: name.clone(),
+                message: format!(
+                    "duplicate rule name {name:?} at indices {:?} — audit trail would be ambiguous",
+                    indices,
+                ),
+            });
+        }
+    }
+    issues
+}
+
 /// Errors loading the correlation config.
 #[derive(Debug)]
 pub enum CorrelateLoadError {
@@ -355,6 +446,106 @@ rules:
         let p = std::path::Path::new("/nonexistent/path/bus-correlate.yaml");
         let cfg = load_default(p).unwrap();
         assert!(cfg.rules.is_empty());
+    }
+
+    #[test]
+    fn validate_clean_config_returns_empty() {
+        let cfg = CorrelateConfig {
+            rules: vec![sample_rule()],
+        };
+        assert!(validate_config(&cfg).is_empty());
+    }
+
+    #[test]
+    fn validate_empty_sources_flags_issue() {
+        let cfg = CorrelateConfig {
+            rules: vec![CorrelateRule {
+                name: "bad".to_string(),
+                sources: vec![],
+                window_seconds: 60,
+                emits: "x".to_string(),
+                priority: Priority::Default,
+            }],
+        };
+        let issues = validate_config(&cfg);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("rule.sources is empty"));
+        assert_eq!(issues[0].rule_index, Some(0));
+        assert_eq!(issues[0].rule_name, "bad");
+    }
+
+    #[test]
+    fn validate_empty_emits_flags_issue() {
+        let cfg = CorrelateConfig {
+            rules: vec![CorrelateRule {
+                name: "bad".to_string(),
+                sources: vec!["a".to_string()],
+                window_seconds: 60,
+                emits: String::new(),
+                priority: Priority::Default,
+            }],
+        };
+        let issues = validate_config(&cfg);
+        assert!(issues.iter().any(|i| i.message.contains("rule.emits is empty")));
+    }
+
+    #[test]
+    fn validate_zero_window_flags_issue() {
+        let cfg = CorrelateConfig {
+            rules: vec![CorrelateRule {
+                name: "bad".to_string(),
+                sources: vec!["a".to_string()],
+                window_seconds: 0,
+                emits: "x".to_string(),
+                priority: Priority::Default,
+            }],
+        };
+        let issues = validate_config(&cfg);
+        assert!(issues.iter().any(|i| i.message.contains("window_seconds is 0")));
+    }
+
+    #[test]
+    fn validate_duplicate_names_flags_issue() {
+        let cfg = CorrelateConfig {
+            rules: vec![
+                sample_rule(),
+                sample_rule(), // same name as the first
+            ],
+        };
+        let issues = validate_config(&cfg);
+        // 1 issue: duplicate-name (the rules themselves are valid).
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("duplicate rule name"));
+        assert!(issues[0].rule_index.is_none());
+    }
+
+    #[test]
+    fn validate_empty_name_flags_issue_but_doesnt_dup_track() {
+        let cfg = CorrelateConfig {
+            rules: vec![
+                CorrelateRule {
+                    name: String::new(),
+                    sources: vec!["a".to_string()],
+                    window_seconds: 60,
+                    emits: "x".to_string(),
+                    priority: Priority::Default,
+                },
+                CorrelateRule {
+                    name: String::new(),
+                    sources: vec!["b".to_string()],
+                    window_seconds: 60,
+                    emits: "y".to_string(),
+                    priority: Priority::Default,
+                },
+            ],
+        };
+        let issues = validate_config(&cfg);
+        // 2 issues (one per empty-name rule); empty names are
+        // explicitly excluded from the duplicate-name check so
+        // operators see the "name is empty" finding, not a
+        // confusing "duplicate empty name" finding.
+        assert_eq!(issues.len(), 2);
+        assert!(issues.iter().all(|i| i.message.contains("rule.name is empty")));
     }
 
     #[test]
