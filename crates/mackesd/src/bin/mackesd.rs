@@ -2833,6 +2833,22 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("bus_supervisor".into());
 
+        // Portal-41 (v6.0 R12-Q1) — auto-derived workspace names.
+        // Subscribes to sway's window-event stream, debounces 200 ms,
+        // and renames the focused workspace to `<num>: <app_id>`
+        // whenever the focused window changes. Operator-set names
+        // (anything not matching the `<num>` or `<num>: …` pattern)
+        // are preserved. Backs off + retries on swayipc connect
+        // failure (sway not running yet at mackesd boot, sway
+        // restarted, $SWAYSOCK missing); the supervisor's
+        // OnFailure policy still wraps the outer Err path for
+        // completeness.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::workspace_namer::WorkspaceNamerWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("workspace_namer".into());
+
         // The reconcile worker runs on its own OS thread (kept on
         // std::thread so its sync rusqlite calls don't block the
         // tokio scheduler). Still surfaced via Shell.Workers so

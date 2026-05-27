@@ -186,6 +186,11 @@ pub mod wol;
 // paces clean-exit restarts. Broker + mDNS + persistence land
 // inside the binary in BUS-1.2/1.3/1.4.
 pub mod bus_supervisor;
+// Portal-41 (v6.0 R12-Q1, 2026-05-26) — auto-derived workspace names.
+// Subscribes to sway's Window event stream; debounces 200 ms; renames
+// the focused workspace to `<num>: <app_id>` whenever the focused
+// window changes. Operator-set names are preserved.
+pub mod workspace_namer;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores
