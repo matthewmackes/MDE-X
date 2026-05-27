@@ -54,12 +54,12 @@ infrastructure):
                                      helper kept only until consumers retire
                                      under EPIC-RETIRE-PY-WORKBENCH.
     - emit_lighthouse_event / emit_ca_rotation / emit_https_fallback_state
-      / emit_cert_expiry_warning  — all four `_emit_toast` helpers are
-                                    desktop-notification emitters that
-                                    will retire when BUS-4.x lands
-                                    (notifications go to Bus topics);
-                                    tracked as NF-21.4 (waits on BUS-4.4
-                                    FDO bridge)
+      / emit_cert_expiry_warning  — NF-21.4 (2026-05-27) — all four
+                                    helpers now publish to `nebula/<event>`
+                                    Bus topics via the `mde-bus publish`
+                                    CLI. Bus owns notification routing per
+                                    BUS-4.4 + Q20 + Q96; toasts.jsonl path
+                                    retired.
 
   Effective consumers post-DEAD-2 Wave 6+7:
     - mesh_media.py     — uses nebula_peer_ips (could migrate to D-Bus)
@@ -80,6 +80,7 @@ infrastructure):
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -323,93 +324,108 @@ def published_services_summary() -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────
-# NF-16 notification emitters (toasts → ~/.cache/mde/toasts.jsonl)
+# NF-16 notification emitters (NF-21.4 migrated to Bus 2026-05-27)
 # ─────────────────────────────────────────────────────────────────
 #
-# The Iced toast applet at crates/mde-popover/src/toasts.rs tails
-# ~/.cache/mde/toasts.jsonl + stacks up to STACK_LIMIT=3 toasts
-# above the panel. These emitters write JSON-line events; the
-# applet's `Kind` field maps to ToastKind { Info, Success, Warn,
-# Error }. Failures are best-effort — a missing cache dir or
-# disk-full doesn't crash the caller.
-
-import json
-
-
-TOASTS_PATH = Path(
-    os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
-) / "mde" / "toasts.jsonl"
+# The 4 `emit_*` helpers now publish to `nebula/<event>` Bus
+# topics via the `mde-bus publish` CLI per BUS-4.4 + Q20 + Q96.
+# Bus owns notification routing; the legacy
+# `~/.cache/mde/toasts.jsonl` path retired with this migration.
+# Subscribers (mde-popover toasts applet, BUS-2.x surfaces) read
+# from the per-topic file tree under `<XDG_DATA_HOME>/mde/bus/`.
+# Failures are best-effort — missing `mde-bus` binary or shell-out
+# error returns False without crashing the caller.
 
 
-def _emit_toast(kind: str, title: str, body: str = "",
-                visible_ms: int = 5000) -> bool:
-    """Append one JSON line to the toast stream. Returns True on
-    success, False on filesystem error (caller is expected to
-    treat the toast as best-effort).
+def _publish_to_bus(topic: str, priority: str, title: str, body: str = "") -> bool:
+    """NF-21.4 (2026-05-27) — shell-out to `mde-bus publish` so
+    Bus owns notification routing per Q20 + Q96 + BUS-4.4. Returns
+    True on success, False on any subprocess error or missing
+    binary (caller treats the publish as best-effort, just like
+    the legacy `_emit_toast` path did for filesystem errors).
+
+    Replaces the prior `~/.cache/mde/toasts.jsonl` append path —
+    Bus is now the single authoritative routing layer; legacy
+    consumers that polled the jsonl file should subscribe to
+    `nebula/#` instead.
     """
+    import subprocess  # noqa: PLC0415 — local import keeps the
+                       # module-level surface small + avoids
+                       # importing subprocess for callers that
+                       # don't trigger an emit.
     try:
-        TOASTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with TOASTS_PATH.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps({
-                "kind": kind,
-                "title": title,
-                "body": body,
-                "visible_ms": visible_ms,
-                "created_at": int(__import__("time").time()),
-            }) + "\n")
-        return True
-    except OSError:
+        result = subprocess.run(
+            [
+                "mde-bus", "publish", topic,
+                "--priority", priority,
+                "--title", title,
+                "--body-flag", body,
+                "--no-broker",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
 def emit_lighthouse_event(promoted: bool) -> bool:
-    """NF-16.1 — subtle informational toast on
-    promotion/demotion to/from the lighthouse role.
+    """NF-16.1 — subtle informational publish on
+    promotion/demotion to/from the lighthouse role. Publishes
+    to `nebula/lighthouse` at default priority per NF-21.4.
     """
     if promoted:
-        return _emit_toast(
-            "info",
+        return _publish_to_bus(
+            "nebula/lighthouse",
+            "default",
             "Lighthouse active",
             "This peer is now serving as a lighthouse for the mesh.",
         )
-    return _emit_toast(
-        "info",
+    return _publish_to_bus(
+        "nebula/lighthouse",
+        "default",
         "Lighthouse stepped down",
         "This peer is no longer serving as a lighthouse.",
     )
 
 
 def emit_ca_rotation(success: bool, error_detail: str = "") -> bool:
-    """NF-16.2 — per-peer toast when the mesh CA rotates.
-    Success path: info toast confirming the new cert
-    propagated. Failure path: error toast pointing to the
-    recovery doc.
+    """NF-16.2 — per-peer publish when the mesh CA rotates.
+    Success path: default-priority publish confirming the new
+    cert propagated. Failure path: high-priority publish pointing
+    to the recovery doc. NF-21.4 routes to `nebula/ca-rotation`.
     """
     if success:
-        return _emit_toast(
-            "info",
+        return _publish_to_bus(
+            "nebula/ca-rotation",
+            "default",
             "Mesh CA rotated",
             "Your peer cert was re-issued under the new CA epoch.",
         )
     body = "See docs/help/mesh-recovery.md for recovery steps."
     if error_detail:
         body = f"{error_detail}\n\n{body}"
-    return _emit_toast("error", "CA rotation failed", body)
+    return _publish_to_bus("nebula/ca-rotation", "high", "CA rotation failed", body)
 
 
 def emit_https_fallback_state(active: bool) -> bool:
-    """NF-16.3 — transition-only event when the TCP/443
+    """NF-16.3 — transition-only publish when the TCP/443
     fallback flips Active / Inactive. Honors the Q12 lock:
-    transition event, not a persistent banner.
+    transition event, not a persistent banner. NF-21.4 routes
+    to `nebula/https-fallback`.
     """
     if active:
-        return _emit_toast(
-            "warn",
+        return _publish_to_bus(
+            "nebula/https-fallback",
+            "high",
             "Mesh in firewall mode",
             "UDP path lost — falling over to TCP/443 (covert tunnel).",
         )
-    return _emit_toast(
-        "info",
+    return _publish_to_bus(
+        "nebula/https-fallback",
+        "default",
         "Direct UDP mesh restored",
         "Covert TCP/443 fallback stood down.",
     )
@@ -417,23 +433,24 @@ def emit_https_fallback_state(active: bool) -> bool:
 
 def emit_cert_expiry_warning(peer_name: str, days_remaining: int) -> bool:
     """NF-16.4 — early warning when a peer's cert is approaching
-    expiry. < 24 h escalates to error severity (the consumer
-    paints it as a persistent banner); 1-7 days is a warn.
+    expiry. < 24 h escalates to urgent priority; 1-7 days is
+    high. NF-21.4 routes to `nebula/cert-expiry`.
     """
     if days_remaining < 1:
-        return _emit_toast(
-            "error",
+        return _publish_to_bus(
+            "nebula/cert-expiry",
+            "urgent",
             f"{peer_name} cert expired",
             "Re-enroll the peer or rotate the CA to restore reachability.",
-            visible_ms=0,  # 0 = persistent in the applet's convention
         )
     if days_remaining <= 7:
-        return _emit_toast(
-            "warn",
+        return _publish_to_bus(
+            "nebula/cert-expiry",
+            "high",
             f"{peer_name} cert expires in {days_remaining}d",
             "Plan a CA rotation or peer re-enrollment soon.",
         )
-    # Already > 7 days — don't toast.
+    # Already > 7 days — don't publish.
     return False
 
 
@@ -567,7 +584,6 @@ __all__ = [
     "LIGHTHOUSE_CONFIG_PATH",
     "SSHD_DROPIN_DIR",
     "SSHD_DROPIN_PATH",
-    "TOASTS_PATH",
     "current_overlay_ip",
     "emit_ca_rotation",
     "emit_cert_expiry_warning",

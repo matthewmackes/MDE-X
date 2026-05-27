@@ -240,98 +240,118 @@ def test_bind_target_for_returns_none_pre_enrollment(monkeypatch):
 
 
 # ─────────────────────────────────────────────────────────────────
-# NF-16 toast emitters
+# NF-16 / NF-21.4 — Bus publish emitters (migrated 2026-05-27)
 # ─────────────────────────────────────────────────────────────────
+#
+# emit_* helpers now shell-out to `mde-bus publish`; tests mock
+# subprocess.run to capture the argv + assert topic + priority.
 
 
-def test_emit_lighthouse_event_promoted_writes_info_toast(tmp_path, monkeypatch):
+def _make_bus_capture(monkeypatch):
+    """Install a subprocess.run mock that captures invocations
+    and returns rc=0. Returns the captured list — append-target
+    for the test's later assertions.
+    """
+    import subprocess
+    captured = []
+
+    class _FakeCompleted:
+        returncode = 0
+
+    def _fake_run(argv, **kw):
+        captured.append((argv, kw))
+        return _FakeCompleted()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    return captured
+
+
+def test_emit_lighthouse_event_promoted_publishes_default(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     assert mesh_nebula.emit_lighthouse_event(promoted=True) is True
-    line = toast_path.read_text().strip()
-    payload = json.loads(line)
-    assert payload["kind"] == "info"
-    assert payload["title"] == "Lighthouse active"
+    argv, _ = captured[0]
+    assert argv[0:2] == ["mde-bus", "publish"]
+    assert argv[2] == "nebula/lighthouse"
+    assert "--priority" in argv and argv[argv.index("--priority") + 1] == "default"
+    assert "Lighthouse active" in argv
 
 
-def test_emit_lighthouse_event_demoted_writes_info_toast(tmp_path, monkeypatch):
+def test_emit_lighthouse_event_demoted_publishes_default(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     mesh_nebula.emit_lighthouse_event(promoted=False)
-    payload = json.loads(toast_path.read_text().strip())
-    assert payload["kind"] == "info"
-    assert "stepped down" in payload["title"]
+    argv, _ = captured[0]
+    assert argv[2] == "nebula/lighthouse"
+    assert "stepped down" in " ".join(argv)
 
 
-def test_emit_ca_rotation_success_writes_info(tmp_path, monkeypatch):
+def test_emit_ca_rotation_success_publishes_default(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     mesh_nebula.emit_ca_rotation(success=True)
-    payload = json.loads(toast_path.read_text().strip())
-    assert payload["kind"] == "info"
-    assert "rotated" in payload["title"]
+    argv, _ = captured[0]
+    assert argv[2] == "nebula/ca-rotation"
+    assert argv[argv.index("--priority") + 1] == "default"
+    assert "rotated" in " ".join(argv)
 
 
-def test_emit_ca_rotation_failure_writes_error_with_recovery_pointer(tmp_path, monkeypatch):
+def test_emit_ca_rotation_failure_publishes_high(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     mesh_nebula.emit_ca_rotation(success=False, error_detail="permission denied")
-    payload = json.loads(toast_path.read_text().strip())
-    assert payload["kind"] == "error"
-    assert "permission denied" in payload["body"]
-    assert "mesh-recovery.md" in payload["body"]
+    argv, _ = captured[0]
+    assert argv[2] == "nebula/ca-rotation"
+    assert argv[argv.index("--priority") + 1] == "high"
+    body = argv[argv.index("--body-flag") + 1]
+    assert "permission denied" in body
+    assert "mesh-recovery.md" in body
 
 
-def test_emit_https_fallback_state_active_warns(tmp_path, monkeypatch):
+def test_emit_https_fallback_state_active_publishes_high(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     mesh_nebula.emit_https_fallback_state(active=True)
-    payload = json.loads(toast_path.read_text().strip())
-    assert payload["kind"] == "warn"
-    assert payload["title"] == "Mesh in firewall mode"
+    argv, _ = captured[0]
+    assert argv[2] == "nebula/https-fallback"
+    assert argv[argv.index("--priority") + 1] == "high"
+    assert "firewall mode" in " ".join(argv)
 
 
-def test_emit_https_fallback_state_inactive_info(tmp_path, monkeypatch):
+def test_emit_https_fallback_state_inactive_publishes_default(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     mesh_nebula.emit_https_fallback_state(active=False)
-    payload = json.loads(toast_path.read_text().strip())
-    assert payload["kind"] == "info"
-    assert "Direct UDP" in payload["title"]
+    argv, _ = captured[0]
+    assert argv[2] == "nebula/https-fallback"
+    assert argv[argv.index("--priority") + 1] == "default"
+    assert "Direct UDP" in " ".join(argv)
 
 
-def test_emit_cert_expiry_warning_expired_is_persistent_error(tmp_path, monkeypatch):
+def test_emit_cert_expiry_warning_expired_publishes_urgent(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     mesh_nebula.emit_cert_expiry_warning("birch", days_remaining=0)
-    payload = json.loads(toast_path.read_text().strip())
-    assert payload["kind"] == "error"
-    assert payload["visible_ms"] == 0  # persistent per the applet convention
+    argv, _ = captured[0]
+    assert argv[2] == "nebula/cert-expiry"
+    assert argv[argv.index("--priority") + 1] == "urgent"
 
 
-def test_emit_cert_expiry_warning_within_7d_warns(tmp_path, monkeypatch):
+def test_emit_cert_expiry_warning_within_7d_publishes_high(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     mesh_nebula.emit_cert_expiry_warning("oak", days_remaining=3)
-    payload = json.loads(toast_path.read_text().strip())
-    assert payload["kind"] == "warn"
-    assert "3d" in payload["title"]
+    argv, _ = captured[0]
+    assert argv[2] == "nebula/cert-expiry"
+    assert argv[argv.index("--priority") + 1] == "high"
+    assert "3d" in " ".join(argv)
 
 
-def test_emit_cert_expiry_warning_beyond_7d_noop(tmp_path, monkeypatch):
+def test_emit_cert_expiry_warning_beyond_7d_noop(monkeypatch):
     from mackes import mesh_nebula
-    toast_path = tmp_path / "toasts.jsonl"
-    monkeypatch.setattr(mesh_nebula, "TOASTS_PATH", toast_path)
+    captured = _make_bus_capture(monkeypatch)
     assert mesh_nebula.emit_cert_expiry_warning("pine", days_remaining=30) is False
-    assert not toast_path.exists()
+    assert captured == []
 
 
 # ─────────────────────────────────────────────────────────────────
