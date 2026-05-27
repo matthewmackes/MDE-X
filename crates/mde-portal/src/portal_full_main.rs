@@ -414,7 +414,18 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
             state.hub_right_click_target = None;
         }
         Message::HubMenuLayoutChooser(tag_name) => {
-            tracing::info!(%tag_name, "portal-full: HubMenu → LayoutChooser (Portal-44 hand-off)");
+            // Portal-44.b — fast-path gesture that opens the Edit-
+            // tag modal scoped to layout selection. Re-uses the
+            // Portal-18.b modal (which already includes the 5-
+            // option layout chooser row) rather than duplicating
+            // it as a separate modal. The operator can change other
+            // tag fields from this entry too — the menu item is
+            // just a faster gesture to the same surface. Closes the
+            // Portal-44 UI surface that shipped with backend-only
+            // enforcement (no operator affordance) before this
+            // commit.
+            tracing::info!(%tag_name, "portal-full: HubMenu → LayoutChooser — opening Edit-tag modal");
+            state.editing_tag = Some(seed_edit_form(&state.user_tags, &tag_name));
             state.hub_right_click_target = None;
         }
         Message::HubMenuWindowRules(tag_name) => {
@@ -2204,6 +2215,24 @@ mod tests {
         assert_eq!(toggle_tristate(None), Some(true));
         assert_eq!(toggle_tristate(Some(true)), Some(false));
         assert_eq!(toggle_tristate(Some(false)), None);
+    }
+
+    #[test]
+    fn hub_menu_layout_chooser_opens_edit_tag_modal() {
+        // Portal-44.b — the LayoutChooser menu item is a fast-path
+        // gesture that opens the same Edit-tag modal as the
+        // EditTag item. After firing, editing_tag should be Some
+        // with the seeded form, and the right-click target should
+        // be cleared.
+        let mut state = PortalFull::default();
+        assert!(state.editing_tag.is_none());
+        let _ = update(
+            &mut state,
+            Message::HubMenuLayoutChooser("Dev".to_string()),
+        );
+        let form = state.editing_tag.as_ref().unwrap();
+        assert_eq!(form.original_name, "Dev");
+        assert!(state.hub_right_click_target.is_none());
     }
 
     #[test]
