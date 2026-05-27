@@ -29,6 +29,12 @@ pub struct HistoryArgs {
     /// Print at most this many messages (most-recent N).
     #[arg(long)]
     pub count: Option<usize>,
+    /// Reverse output ordering — print newest first. Default is
+    /// chronological (oldest first). Useful when scanning a noisy
+    /// topic visually: the most recent message lands at the top
+    /// of the terminal instead of scrolling off-screen.
+    #[arg(long, default_value_t = false)]
+    pub reverse: bool,
     /// Override the bus-root directory (defaults to
     /// `<XDG_DATA_HOME>/mde/bus`).
     #[arg(long)]
@@ -63,6 +69,14 @@ pub async fn run(args: HistoryArgs) -> Result<()> {
     if let Some(n) = args.count {
         let start = rows.len().saturating_sub(n);
         rows = rows.split_off(start);
+    }
+    // `--reverse` flips the output to newest-first. Applied AFTER
+    // the `--count` slice so the operator still gets "the last N
+    // messages" — just printed top-down newest instead of bottom-
+    // up oldest. The underlying `list_since` is always ULID-
+    // ordered ascending; this is purely a print-order toggle.
+    if args.reverse {
+        rows.reverse();
     }
     for m in &rows {
         if args.json {
@@ -100,6 +114,7 @@ mod tests {
             since: None,
             before: None,
             count: None,
+            reverse: false,
             bus_root: Some(tmp.path().to_path_buf()),
             json: false,
         };
@@ -125,6 +140,7 @@ mod tests {
             since: None,
             before: None,
             count: Some(3),
+            reverse: false,
             bus_root: Some(tmp.path().to_path_buf()),
             json: false,
         };
@@ -158,6 +174,39 @@ mod tests {
             since: None,
             before: Some(cursor),
             count: None,
+            reverse: false,
+            bus_root: Some(tmp.path().to_path_buf()),
+            json: false,
+        };
+        run(args).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reverse_flag_runs_without_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Persist::open(tmp.path().to_path_buf()).unwrap();
+        for i in 0..3 {
+            p.write("t/x", Priority::Default, None, Some(&i.to_string())).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // Confirm the underlying ordering invariant the `--reverse`
+        // flag flips. `list_since` always returns ULID-ascending; a
+        // simple Vec::reverse on the result is enough to satisfy
+        // "newest first" because ULID is monotonic in timestamp.
+        let asc = p.list_since("t/x", None).unwrap();
+        let mut desc = asc.clone();
+        desc.reverse();
+        assert_eq!(asc.len(), 3);
+        assert_eq!(desc.len(), 3);
+        assert_eq!(desc[0].ulid, asc[2].ulid);
+        assert_eq!(desc[2].ulid, asc[0].ulid);
+        // Now run the verb with --reverse to confirm dispatch path.
+        let args = HistoryArgs {
+            topic: "t/x".to_string(),
+            since: None,
+            before: None,
+            count: None,
+            reverse: true,
             bus_root: Some(tmp.path().to_path_buf()),
             json: false,
         };
