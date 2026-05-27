@@ -263,14 +263,11 @@ enum Message {
     /// the focused card + clears the buffer.
     HubTypeAheadActivate,
     /// Portal-17.b.activate — operator clicked a cascade-column
-    /// member entry. The String payload carries the rendered
-    /// label (`format_cascade_member(member)`) for logging +
-    /// downstream activation; the handler logs + clears the
-    /// cascade stack (visual confirmation the click registered).
-    /// Per-target activation (App → spawn, Workspace → focus,
-    /// Peer → mesh nav, …) lands in Portal-17.b.activate.targets
-    /// once each target surface is wired.
-    HubCascadeMemberClicked(String),
+    /// member entry. The TagMember payload carries the typed
+    /// member so the handler can dispatch on variant:
+    /// App → spawn the binary, Workspace → swayipc focus, others
+    /// → log-only until each target surface lands.
+    HubCascadeMemberClicked(mackes_mesh_types::TagMember),
     /// Portal-18.b — Edit-tag modal name field edited.
     EditTagNameChanged(String),
     /// Portal-18.b — Edit-tag modal group_color field edited.
@@ -420,13 +417,44 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
                 )
             };
         }
-        Message::HubCascadeMemberClicked(label) => {
-            // Portal-17.b.activate — log + clear the cascade so
-            // the operator sees the click register. Per-target
-            // activation is the .targets follow-on once each
-            // surface (sway focus, app spawn, mesh nav, container
-            // shell) is wired.
-            tracing::info!(%label, "portal-full: cascade member clicked");
+        Message::HubCascadeMemberClicked(member) => {
+            // Portal-17.b.activate.targets — dispatch on variant.
+            // App: spawn the binary fire-and-forget so the click
+            // doesn't block the Iced update loop. Workspace:
+            // swayipc focus via an inline blocking call to the
+            // swayipc-async runtime (portal-full binary doesn't
+            // include the main mde-portal `workspace` module).
+            // Other variants land when their target surface (peer
+            // card / container shell / file opener / etc.) is wired.
+            use mackes_mesh_types::TagMember;
+            match &member {
+                TagMember::App { app_id } => {
+                    tracing::info!(%app_id, "portal-full: cascade activates app");
+                    let app_id = app_id.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = std::process::Command::new(&app_id).spawn() {
+                            tracing::warn!(%app_id, error = %e, "spawn failed");
+                        }
+                    });
+                }
+                TagMember::Workspace { num } => {
+                    tracing::info!(workspace = num, "portal-full: cascade focuses workspace");
+                    let num = *num;
+                    std::thread::spawn(move || {
+                        let cmd = format!("workspace number {num}");
+                        // Use swaymsg subprocess instead of pulling
+                        // swayipc-async into portal-full — both target
+                        // the same IPC socket so the command lands
+                        // identically. Fire-and-forget; failure logs.
+                        if let Err(e) = std::process::Command::new("swaymsg").arg(&cmd).spawn() {
+                            tracing::warn!(workspace = num, error = %e, "swaymsg spawn failed");
+                        }
+                    });
+                }
+                _ => {
+                    tracing::info!(?member, "portal-full: cascade member clicked (no target surface yet)");
+                }
+            }
             state.hub_cascade_stack.clear();
         }
         Message::HubTypeAheadActivate => {
@@ -762,12 +790,12 @@ fn build_hub_cascade_columns(state: &PortalFull) -> Element<'_, Message> {
             Some(members) if !members.is_empty() => {
                 for member in members {
                     let label = format_cascade_member(member);
-                    let label_for_msg = label.clone();
+                    let member_for_msg = member.clone();
                     rows.push(
                         iced::widget::mouse_area(
                             text(label).size(11.0).color(FG_DIM),
                         )
-                        .on_press(Message::HubCascadeMemberClicked(label_for_msg))
+                        .on_press(Message::HubCascadeMemberClicked(member_for_msg))
                         .into(),
                     );
                 }
@@ -1897,12 +1925,17 @@ mod tests {
 
     #[test]
     fn cascade_member_clicked_clears_stack() {
+        // Use a Zone variant so the test stays log-only (no
+        // process spawn / no sway connection attempt — Portal-17.b
+        // .activate.targets dispatches App + Workspace, others log).
         let mut state = PortalFull::default();
         state.hub_cascade_stack.push("Dev".to_string());
         state.hub_cascade_stack.push("Personal".to_string());
         let _ = update(
             &mut state,
-            Message::HubCascadeMemberClicked("App: foot".to_string()),
+            Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::Zone {
+                name: "dock-tray".to_string(),
+            }),
         );
         assert!(state.hub_cascade_stack.is_empty());
     }
@@ -1913,7 +1946,27 @@ mod tests {
         // No stack — handler shouldn't panic + state stays clean.
         let _ = update(
             &mut state,
-            Message::HubCascadeMemberClicked("Workspace #5".to_string()),
+            Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::Contact {
+                ulid: "01TESTULIDXYZ".to_string(),
+            }),
+        );
+        assert!(state.hub_cascade_stack.is_empty());
+    }
+
+    #[test]
+    fn cascade_member_app_variant_clears_stack() {
+        // App variant DOES fire a thread::spawn for the binary
+        // launch — verify the cascade still clears even when the
+        // spawn fails (the test fixture's "nonexistent-binary" is
+        // unlikely to be in PATH, but the spawn happens fire-and-
+        // forget so the test doesn't block on its outcome).
+        let mut state = PortalFull::default();
+        state.hub_cascade_stack.push("Dev".to_string());
+        let _ = update(
+            &mut state,
+            Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::App {
+                app_id: "nonexistent-binary-for-cascade-test".to_string(),
+            }),
         );
         assert!(state.hub_cascade_stack.is_empty());
     }
