@@ -35,6 +35,18 @@ pub enum AuditOp {
         /// `default` / `high` / `urgent`). Case-sensitive lower.
         #[arg(long)]
         priority: Option<String>,
+        /// Filter: keep only entries whose ISO timestamp's date
+        /// portion is >= this value. Expected form is `YYYY-MM-DD`
+        /// (10 chars). Pure string prefix comparison — ISO dates
+        /// are sort-friendly so this works without parsing.
+        #[arg(long)]
+        since_date: Option<String>,
+        /// Filter: keep only entries whose ISO timestamp's date
+        /// portion is <= this value. Same `YYYY-MM-DD` form +
+        /// inclusive semantics as `--since-date`. Composable with
+        /// `--since-date` for an explicit date range.
+        #[arg(long)]
+        until_date: Option<String>,
         /// Emit JSON Lines instead of TSV — one JSON object per
         /// audit entry, suitable for piping to `jq` or other
         /// JSON-aware tooling. Each line is a complete
@@ -52,23 +64,31 @@ fn resolve_bus_root(arg: Option<PathBuf>) -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("no $HOME / $XDG_DATA_HOME — pass --bus-root"))
 }
 
-/// Pure-fn — apply the three CLI filters (publisher / topic /
-/// priority) to a flat slice of audit entries. Each filter is
-/// `Option<&str>`; `None` means "don't filter on this field." The
-/// returned Vec contains references into the input slice — no
-/// allocation per kept entry.
+/// Pure-fn — apply the five CLI filters (publisher / topic /
+/// priority / since_date / until_date) to a flat slice of audit
+/// entries. Each filter is `Option<&str>`; `None` means "don't
+/// filter on this field." The returned Vec contains references
+/// into the input slice — no allocation per kept entry.
+///
+/// `since_date` and `until_date` expect `YYYY-MM-DD` strings;
+/// the predicate is a pure string prefix comparison against
+/// `e.ts_iso[..10]` since ISO 8601 dates are sort-friendly.
 #[must_use]
 pub fn apply_filters<'a>(
     entries: &'a [audit::AuditEntry],
     publisher: Option<&str>,
     topic_pattern: Option<&str>,
     priority: Option<&str>,
+    since_date: Option<&str>,
+    until_date: Option<&str>,
 ) -> Vec<&'a audit::AuditEntry> {
     entries
         .iter()
         .filter(|e| publisher.is_none_or(|p| e.publisher == p))
         .filter(|e| topic_pattern.is_none_or(|pat| crate::wildcard::matches(pat, &e.topic)))
         .filter(|e| priority.is_none_or(|p| e.priority == p))
+        .filter(|e| since_date.is_none_or(|d| e.ts_iso.len() >= 10 && &e.ts_iso[..10] >= d))
+        .filter(|e| until_date.is_none_or(|d| e.ts_iso.len() >= 10 && &e.ts_iso[..10] <= d))
         .collect()
 }
 
@@ -81,6 +101,8 @@ pub fn run(op: AuditOp) -> Result<()> {
             publisher,
             topic,
             priority,
+            since_date,
+            until_date,
             json,
         } => {
             let root = resolve_bus_root(bus_root)?;
@@ -91,6 +113,8 @@ pub fn run(op: AuditOp) -> Result<()> {
                 publisher.as_deref(),
                 topic.as_deref(),
                 priority.as_deref(),
+                since_date.as_deref(),
+                until_date.as_deref(),
             );
             let slice: &[_] = if tail == 0 || tail >= filtered.len() {
                 &filtered[..]
@@ -126,9 +150,13 @@ mod tests {
     use super::*;
 
     fn entry(publisher: &str, topic: &str, priority: &str, ulid: &str) -> audit::AuditEntry {
+        entry_at("2026-05-27T12:00:00Z", publisher, topic, priority, ulid)
+    }
+
+    fn entry_at(ts_iso: &str, publisher: &str, topic: &str, priority: &str, ulid: &str) -> audit::AuditEntry {
         audit::AuditEntry {
             publisher: publisher.to_string(),
-            ts_iso: "2026-05-27T12:00:00Z".to_string(),
+            ts_iso: ts_iso.to_string(),
             topic: topic.to_string(),
             priority: priority.to_string(),
             ulid: ulid.to_string(),
@@ -145,6 +173,8 @@ mod tests {
             publisher: None,
             topic: None,
             priority: None,
+            since_date: None,
+            until_date: None,
             json: false,
         });
         assert!(r.is_ok());
@@ -158,7 +188,7 @@ mod tests {
             entry("fedora", "fleet/announce", "default", "u2"),
             entry("github", "mon/cpu", "high", "u3"),
         ];
-        let kept = apply_filters(&entries, Some("github"), None, None);
+        let kept = apply_filters(&entries, Some("github"), None, None, None, None);
         assert_eq!(kept.len(), 2);
         assert_eq!(kept[0].ulid, "u1");
         assert_eq!(kept[1].ulid, "u3");
@@ -171,7 +201,7 @@ mod tests {
             entry("fedora", "mon/disk", "default", "u2"),
             entry("fedora", "fleet/announce", "default", "u3"),
         ];
-        let kept = apply_filters(&entries, None, Some("mon/#"), None);
+        let kept = apply_filters(&entries, None, Some("mon/#"), None, None, None);
         assert_eq!(kept.len(), 2);
         assert_eq!(kept[0].ulid, "u1");
         assert_eq!(kept[1].ulid, "u2");
@@ -184,7 +214,7 @@ mod tests {
             entry("fedora", "t", "high", "u2"),
             entry("fedora", "t", "urgent", "u3"),
         ];
-        let kept = apply_filters(&entries, None, None, Some("urgent"));
+        let kept = apply_filters(&entries, None, None, Some("urgent"), None, None);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].ulid, "u3");
     }
@@ -198,7 +228,7 @@ mod tests {
             entry("github", "fleet/announce", "high", "u4"),
         ];
         // Want github + mon/* + high → u2 only.
-        let kept = apply_filters(&entries, Some("github"), Some("mon/#"), Some("high"));
+        let kept = apply_filters(&entries, Some("github"), Some("mon/#"), Some("high"), None, None);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].ulid, "u2");
     }
@@ -209,7 +239,69 @@ mod tests {
             entry("a", "t1", "default", "u1"),
             entry("b", "t2", "high", "u2"),
         ];
-        let kept = apply_filters(&entries, None, None, None);
+        let kept = apply_filters(&entries, None, None, None, None, None);
         assert_eq!(kept.len(), 2);
+    }
+
+    #[test]
+    fn filter_since_date_keeps_only_at_or_after() {
+        let entries = vec![
+            entry_at("2026-05-24T08:00:00Z", "p", "t", "default", "u1"),
+            entry_at("2026-05-25T12:00:00Z", "p", "t", "default", "u2"),
+            entry_at("2026-05-26T20:00:00Z", "p", "t", "default", "u3"),
+        ];
+        let kept = apply_filters(&entries, None, None, None, Some("2026-05-25"), None);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0].ulid, "u2");
+        assert_eq!(kept[1].ulid, "u3");
+    }
+
+    #[test]
+    fn filter_until_date_keeps_only_at_or_before() {
+        let entries = vec![
+            entry_at("2026-05-24T08:00:00Z", "p", "t", "default", "u1"),
+            entry_at("2026-05-25T12:00:00Z", "p", "t", "default", "u2"),
+            entry_at("2026-05-26T20:00:00Z", "p", "t", "default", "u3"),
+        ];
+        let kept = apply_filters(&entries, None, None, None, None, Some("2026-05-25"));
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0].ulid, "u1");
+        assert_eq!(kept[1].ulid, "u2");
+    }
+
+    #[test]
+    fn filter_date_range_combines_since_and_until() {
+        let entries = vec![
+            entry_at("2026-05-23T08:00:00Z", "p", "t", "default", "u1"),
+            entry_at("2026-05-24T08:00:00Z", "p", "t", "default", "u2"),
+            entry_at("2026-05-25T12:00:00Z", "p", "t", "default", "u3"),
+            entry_at("2026-05-26T20:00:00Z", "p", "t", "default", "u4"),
+            entry_at("2026-05-27T01:00:00Z", "p", "t", "default", "u5"),
+        ];
+        let kept = apply_filters(
+            &entries,
+            None,
+            None,
+            None,
+            Some("2026-05-24"),
+            Some("2026-05-26"),
+        );
+        assert_eq!(kept.len(), 3);
+        assert_eq!(kept[0].ulid, "u2");
+        assert_eq!(kept[2].ulid, "u4");
+    }
+
+    #[test]
+    fn filter_date_with_malformed_ts_drops_entry() {
+        // ts_iso shorter than 10 chars → string-prefix check
+        // can't compare safely, so the predicate drops the row.
+        // Operators relying on date filters won't see corrupt rows.
+        let entries = vec![
+            entry_at("short", "p", "t", "default", "u1"),
+            entry_at("2026-05-25T12:00:00Z", "p", "t", "default", "u2"),
+        ];
+        let kept = apply_filters(&entries, None, None, None, Some("2026-05-20"), None);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].ulid, "u2");
     }
 }
