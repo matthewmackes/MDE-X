@@ -402,6 +402,119 @@ pub fn pulse_topic_dir() -> Option<std::path::PathBuf> {
     )
 }
 
+/// BUS-2.2.a — resolve the on-disk topic directory for the
+/// `fleet/announce` notification topic. Same BUS-1.4
+/// `<bus_root>/<topic>` layout as `pulse_topic_dir`.
+#[must_use]
+pub fn announce_topic_dir() -> Option<std::path::PathBuf> {
+    let data_home = dirs::data_dir()?;
+    Some(
+        data_home
+            .join("mde")
+            .join("bus")
+            .join("fleet")
+            .join("announce"),
+    )
+}
+
+/// BUS-2.2.a — Iced `Subscription` over the `fleet/announce`
+/// Bus topic. Same file-poll pattern as `bus_pulse_subscription`
+/// (500 ms cadence, ULID-seen tracking, BTreeSet cap). Emits
+/// `Message::BusAnnounceSegment` per new ULID.
+pub fn bus_announce_subscription() -> Subscription<Message> {
+    Subscription::run_with_id(
+        "mde-portal-bus-announce",
+        async_stream::stream! {
+            let mut seen: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
+            let topic_dir = match announce_topic_dir() {
+                Some(p) => p,
+                None => {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    }
+                }
+            };
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let entries = match std::fs::read_dir(&topic_dir) {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                let mut new_msgs: Vec<crate::app::BusAnnounceSegment> = Vec::new();
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    let Some(ulid_str) = name.strip_suffix(".json") else {
+                        continue;
+                    };
+                    if seen.contains(ulid_str) {
+                        continue;
+                    }
+                    seen.insert(ulid_str.to_string());
+                    if let Some(msg) = parse_announce_file(&path, ulid_str) {
+                        new_msgs.push(msg);
+                    }
+                }
+                if !new_msgs.is_empty() && seen.len() != new_msgs.len() {
+                    for msg in new_msgs {
+                        yield Message::BusAnnounceSegment(msg);
+                    }
+                }
+                if seen.len() > 1000 {
+                    let drop_count = seen.len() / 2;
+                    let to_drop: Vec<String> =
+                        seen.iter().take(drop_count).cloned().collect();
+                    for ulid in to_drop {
+                        seen.remove(&ulid);
+                    }
+                }
+            }
+        },
+    )
+}
+
+/// BUS-2.2.a — parse a BUS-1.4 StoredMessage JSON file from
+/// `fleet/announce`. The outer envelope carries `priority` +
+/// optional `title` + optional `body` directly (no inner-JSON
+/// extraction like the urgent-pulse payload). Returns None on
+/// any malformed input — non-announce traffic on this topic
+/// doesn't crash the subscription.
+pub fn parse_announce_file(
+    path: &std::path::Path,
+    ulid: &str,
+) -> Option<crate::app::BusAnnounceSegment> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let outer: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let priority = outer
+        .get("priority")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .to_string();
+    if priority == "min" {
+        // Silent per design lock — no segment for min-priority
+        // announcements. Skip emission.
+        return None;
+    }
+    let title = outer
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let body = outer
+        .get("body")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    Some(crate::app::BusAnnounceSegment {
+        ulid: ulid.to_string(),
+        priority,
+        title,
+        body,
+        spawned_at: chrono::Local::now(),
+    })
+}
+
 /// Portal-57.b — parse a `StoredMessage`-style JSON file, extract
 /// the `body` field (the publisher's JSON payload), parse that for
 /// the urgent-pulse envelope, and lift into an `UrgentPulse`.

@@ -77,6 +77,12 @@ pub const LAYOUT_PROMPT_TTL_SECS: i64 = 8;
 /// returns to its normal render.
 pub const URGENT_PULSE_TTL_MS: i64 = 1200;
 
+/// BUS-2.2.a: TTL for `fleet/announce` breadcrumb segments. Set
+/// well past the 200 ms exit-condition so operators have time to
+/// read the message before it auto-dismisses; a follow-up
+/// BUS-2.2.dismiss task may add explicit click-to-dismiss.
+pub const BUS_ANNOUNCE_TTL_SECS: i64 = 6;
+
 /// Height of the Dock strip in logical pixels (Portal-2 lock).
 pub const DOCK_HEIGHT_PX: u32 = 56;
 
@@ -264,6 +270,11 @@ pub enum Message {
     /// for the TTL window; mini-tree cells matching the pulse's
     /// workspace render in tier-red.
     UrgentPulse(UrgentPulse),
+    /// BUS-2.2.a: a new Bus message arrived from `fleet/announce`.
+    /// Pushed into `DockApp::bus_announce_segments` for the TTL
+    /// window; rendered as a priority-tinted pill near the host
+    /// segment.
+    BusAnnounceSegment(BusAnnounceSegment),
     /// User clicked a workspace cell — focus it via swayipc (R3-Q23).
     FocusWorkspace(String),
     /// User clicked `+` — switch to the next unused workspace number.
@@ -367,6 +378,30 @@ pub struct DockApp {
     /// cells with a workspace_num matching any active pulse render
     /// in tier-red.
     recent_pulses: Vec<UrgentPulse>,
+    /// BUS-2.2.a: recent breadcrumb segments from the Bus
+    /// `fleet/announce` topic. Each entry stays alive for
+    /// [`BUS_ANNOUNCE_TTL_SECS`] seconds. Rendered as a transient
+    /// pill near the host segment, tinted by priority class.
+    bus_announce_segments: Vec<BusAnnounceSegment>,
+}
+
+/// BUS-2.2.a: one breadcrumb segment from the Bus
+/// `fleet/announce` topic. Held in `DockApp::bus_announce_segments`
+/// for the TTL window so the breadcrumb renderer can show the
+/// transient pill near the host segment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BusAnnounceSegment {
+    /// ULID from the BUS-1.4 message envelope.
+    pub ulid: String,
+    /// Priority class (`urgent` / `high` / `default` / `min` —
+    /// `min` is filtered at the parser, never lands here).
+    pub priority: String,
+    /// Optional title.
+    pub title: Option<String>,
+    /// Optional body.
+    pub body: Option<String>,
+    /// Local timestamp at observe. Drives TTL.
+    pub spawned_at: chrono::DateTime<chrono::Local>,
 }
 
 /// Portal-57.b (R12-Q22): one urgent-pulse event in flight. Held in
@@ -425,6 +460,7 @@ impl Default for DockApp {
             current_sway_mode: None,
             layout_prompt: None,
             recent_pulses: Vec::new(),
+            bus_announce_segments: Vec::new(),
         }
     }
 }
@@ -619,6 +655,19 @@ impl iced_layershell::Application for DockApp {
                     self.recent_pulses.drain(..overflow);
                 }
             }
+            Message::BusAnnounceSegment(segment) => {
+                // BUS-2.2.a: record the breadcrumb + sweep expired
+                // entries. Cap at 8 (Dock breadcrumb has limited
+                // horizontal space; older segments evict).
+                let now = chrono::Local::now();
+                self.bus_announce_segments
+                    .retain(|s| is_bus_segment_alive(s, now));
+                self.bus_announce_segments.push(segment);
+                if self.bus_announce_segments.len() > 8 {
+                    let overflow = self.bus_announce_segments.len() - 8;
+                    self.bus_announce_segments.drain(..overflow);
+                }
+            }
             Message::FocusWorkspace(name) => {
                 return Task::perform(
                     crate::workspace::focus_workspace(name),
@@ -803,6 +852,7 @@ impl iced_layershell::Application for DockApp {
             crate::workspace::mode_subscription(),
             crate::workspace::binding_subscription(),
             crate::workspace::bus_pulse_subscription(),
+            crate::workspace::bus_announce_subscription(),
             clock_subscription(),
             snapshot_subscription(),
             status_subscription(),
@@ -819,6 +869,7 @@ impl iced_layershell::Application for DockApp {
         let ws_seg = build_workspace_segment(self, fg);
         let prev_ws_seg = build_prev_workspace_segment(self, fg);
         let layout_prompt_seg = build_layout_prompt_segment(self);
+        let bus_announce_seg = build_bus_announce_segments(self);
         let host_seg = build_hostname_segment(self, fg);
         let running_zone = build_running_zone(self, fg);
         let status_seg = build_status_segment(self, fg);
@@ -832,6 +883,7 @@ impl iced_layershell::Application for DockApp {
                 ws_seg,
                 prev_ws_seg,
                 layout_prompt_seg,
+                bus_announce_seg,
                 host_seg,
                 running_zone,
                 iced::widget::horizontal_space(),
@@ -1057,6 +1109,74 @@ fn build_mode_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     .align_y(iced::alignment::Vertical::Center)
     .padding(Padding::from([2, 8]))
     .into()
+}
+
+/// BUS-2.2.a — Dock breadcrumb segments for `fleet/announce`
+/// notifications. Renders one priority-tinted pill per alive
+/// segment in `DockApp::bus_announce_segments`. Text combines
+/// title + body in `<title>: <body>` form (either may be None);
+/// segments with neither title nor body collapse to the topic
+/// label as a fallback.
+///
+/// Currently renders plain text; typewriter entry (R4-Q22 +
+/// R4-Q28 tick audio) ships as BUS-2.2.typewriter when
+/// Portal-14 typewriter primitive is available.
+fn build_bus_announce_segments<'a>(app: &DockApp) -> Element<'a, Message> {
+    let now = chrono::Local::now();
+    let alive: Vec<&BusAnnounceSegment> = app
+        .bus_announce_segments
+        .iter()
+        .filter(|s| is_bus_segment_alive(s, now))
+        .collect();
+    if alive.is_empty() {
+        return iced::widget::Space::new(0.0, Length::Fill).into();
+    }
+    let mut pills: Vec<Element<'a, Message>> = Vec::new();
+    for segment in alive {
+        let label = format_bus_segment_label(segment);
+        let tint = bus_priority_color(&segment.priority);
+        pills.push(
+            container(text(label).size(11.0).color(Color::WHITE))
+                .style(move |_theme: &Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(tint)),
+                    border: iced::Border {
+                        radius: iced::border::Radius::from(4.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .height(Length::Fill)
+                .align_y(iced::alignment::Vertical::Center)
+                .padding(Padding::from([2, 8]))
+                .into(),
+        );
+    }
+    iced::widget::row(pills)
+        .spacing(4)
+        .align_y(iced::Alignment::Center)
+        .into()
+}
+
+/// BUS-2.2.a: pure helper — build the segment's display label
+/// from optional title + body. Falls back to the literal string
+/// "fleet/announce" when neither is set (operator published an
+/// empty announce). Long combined strings truncate to 60 chars
+/// with `…` so the breadcrumb row doesn't blow out the Dock
+/// width.
+#[must_use]
+pub fn format_bus_segment_label(segment: &BusAnnounceSegment) -> String {
+    let combined = match (segment.title.as_deref(), segment.body.as_deref()) {
+        (Some(t), Some(b)) if !t.is_empty() && !b.is_empty() => format!("{t}: {b}"),
+        (Some(t), _) if !t.is_empty() => t.to_string(),
+        (_, Some(b)) if !b.is_empty() => b.to_string(),
+        _ => "fleet/announce".to_string(),
+    };
+    if combined.chars().count() > 60 {
+        let prefix: String = combined.chars().take(59).collect();
+        format!("{prefix}…")
+    } else {
+        combined
+    }
 }
 
 /// Portal-50 (R12-Q11) — prompt-on-change layout banner segment.
@@ -1662,6 +1782,35 @@ pub fn workspace_has_active_pulse(
     now: chrono::DateTime<chrono::Local>,
 ) -> bool {
     active_pulse_con_id_for_workspace(ws_num, pulses, running_windows, now).is_some()
+}
+
+/// BUS-2.2.a: pure helper — `true` if the bus-announce segment
+/// is still within its TTL at `now`. Expired segments are swept
+/// out on the next BusAnnounceSegment message + on every render.
+#[must_use]
+pub fn is_bus_segment_alive(
+    segment: &BusAnnounceSegment,
+    now: chrono::DateTime<chrono::Local>,
+) -> bool {
+    let elapsed = now.signed_duration_since(segment.spawned_at);
+    elapsed.num_seconds() >= 0 && elapsed.num_seconds() < BUS_ANNOUNCE_TTL_SECS
+}
+
+/// BUS-2.2.a: pure helper — map a priority class string
+/// (`urgent` / `high` / `default` / anything else) to its
+/// breadcrumb-pill tint Color. Unknown classes fall back to the
+/// platform-default indigo.
+#[must_use]
+pub fn bus_priority_color(priority: &str) -> Color {
+    match priority {
+        // Carbon red 30 — urgent
+        "urgent" => Color { r: 0.91, g: 0.30, b: 0.36, a: 1.0 },
+        // Carbon orange 30 — high
+        "high" => Color { r: 0.93, g: 0.55, b: 0.21, a: 1.0 },
+        // Carbon blue 40 — default
+        "default" => Color { r: 0.20, g: 0.69, b: 1.0, a: 1.0 },
+        _ => COLOR_INDIGO,
+    }
 }
 
 /// Portal-57.b.click (R12-Q22): pure helper — return the con_id of
@@ -3079,6 +3228,187 @@ mod tests {
         // No matching con_id in windows → no.
         let empty_windows: Vec<WindowInfo> = Vec::new();
         assert!(!workspace_has_active_pulse(3, &pulses, &empty_windows, now));
+    }
+
+    // ── BUS-2.2.a Dock breadcrumb tests ─────────────────────────────────────
+
+    fn make_bus_segment(priority: &str, title: Option<&str>, body: Option<&str>) -> BusAnnounceSegment {
+        BusAnnounceSegment {
+            ulid: "01HZAZTESTBUSULID12345".to_string(),
+            priority: priority.to_string(),
+            title: title.map(String::from),
+            body: body.map(String::from),
+            spawned_at: chrono::Local::now(),
+        }
+    }
+
+    /// Segment alive within TTL; expires after.
+    #[test]
+    fn bus_segment_lifetime_respects_ttl() {
+        let segment = make_bus_segment("default", Some("hi"), Some("everyone"));
+        let now = segment.spawned_at;
+        assert!(is_bus_segment_alive(&segment, now));
+        // 4 s in → still alive.
+        let later = now + chrono::Duration::seconds(4);
+        assert!(is_bus_segment_alive(&segment, later));
+        // 7 s in → expired (TTL is 6 s).
+        let past = now + chrono::Duration::seconds(7);
+        assert!(!is_bus_segment_alive(&segment, past));
+    }
+
+    /// Priority → tint lookup covers all four locked classes +
+    /// falls back to indigo for anything else.
+    #[test]
+    fn bus_priority_color_locks_four_classes_plus_fallback() {
+        assert_eq!(
+            bus_priority_color("urgent"),
+            Color { r: 0.91, g: 0.30, b: 0.36, a: 1.0 }
+        );
+        assert_eq!(
+            bus_priority_color("high"),
+            Color { r: 0.93, g: 0.55, b: 0.21, a: 1.0 }
+        );
+        assert_eq!(
+            bus_priority_color("default"),
+            Color { r: 0.20, g: 0.69, b: 1.0, a: 1.0 }
+        );
+        // Unknown priority → indigo fallback.
+        assert_eq!(bus_priority_color("unknown"), COLOR_INDIGO);
+        // `min` should never reach the renderer (filtered at
+        // parse), but the lookup tolerates it via the fallback.
+        assert_eq!(bus_priority_color("min"), COLOR_INDIGO);
+    }
+
+    /// `format_bus_segment_label` combines title + body when both
+    /// present; falls back gracefully for partial / empty inputs;
+    /// truncates long combined strings.
+    #[test]
+    fn format_bus_segment_label_handles_combinations() {
+        let with_both = make_bus_segment("default", Some("Backup"), Some("complete"));
+        assert_eq!(format_bus_segment_label(&with_both), "Backup: complete");
+
+        let title_only = make_bus_segment("default", Some("Deploy started"), None);
+        assert_eq!(format_bus_segment_label(&title_only), "Deploy started");
+
+        let body_only = make_bus_segment("default", None, Some("alert message"));
+        assert_eq!(format_bus_segment_label(&body_only), "alert message");
+
+        let empty = make_bus_segment("default", None, None);
+        assert_eq!(format_bus_segment_label(&empty), "fleet/announce");
+
+        let empty_strings = make_bus_segment("default", Some(""), Some(""));
+        assert_eq!(format_bus_segment_label(&empty_strings), "fleet/announce");
+
+        // Truncation: 100-char body should truncate to 59 + ellipsis.
+        let long_body = "x".repeat(100);
+        let long = make_bus_segment("default", None, Some(&long_body));
+        let label = format_bus_segment_label(&long);
+        assert!(label.ends_with('…'));
+        assert_eq!(label.chars().count(), 60);
+    }
+
+    /// `Message::BusAnnounceSegment` appends to state + sweeps
+    /// expired entries.
+    #[test]
+    fn bus_announce_message_appends_to_state() {
+        let mut app = DockApp::default();
+        let seg = make_bus_segment("urgent", Some("alert"), Some("disk full"));
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::BusAnnounceSegment(seg),
+        );
+        assert_eq!(app.bus_announce_segments.len(), 1);
+        assert_eq!(app.bus_announce_segments[0].priority, "urgent");
+    }
+
+    /// Buffer cap: 12 segments queued → 8 retained, oldest dropped.
+    #[test]
+    fn bus_announce_buffer_caps_at_8() {
+        let mut app = DockApp::default();
+        for i in 0..12 {
+            let title = format!("msg-{i}");
+            let _ = iced_layershell::Application::update(
+                &mut app,
+                Message::BusAnnounceSegment(make_bus_segment(
+                    "default",
+                    Some(&title),
+                    None,
+                )),
+            );
+        }
+        assert!(app.bus_announce_segments.len() <= 8);
+        // Latest survives.
+        assert_eq!(
+            app.bus_announce_segments
+                .last()
+                .and_then(|s| s.title.as_deref()),
+            Some("msg-11")
+        );
+    }
+
+    /// `parse_announce_file` extracts the StoredMessage envelope
+    /// fields directly (priority + title + body live on the outer
+    /// object — unlike the urgent-pulse payload which nests a JSON
+    /// string in `body`).
+    #[test]
+    fn parse_announce_file_extracts_envelope() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("01HZAZ123.json");
+        let outer = serde_json::json!({
+            "ulid": "01HZAZ123",
+            "topic": "fleet/announce",
+            "priority": "high",
+            "title": "Backup started",
+            "body": "peer-A → peer-B",
+            "ts_unix_ms": 1700000000000_i64,
+            "file_path": "fleet/announce/01HZAZ123.json",
+        });
+        std::fs::write(&path, outer.to_string()).unwrap();
+        let seg = crate::workspace::parse_announce_file(&path, "01HZAZ123").unwrap();
+        assert_eq!(seg.priority, "high");
+        assert_eq!(seg.title.as_deref(), Some("Backup started"));
+        assert_eq!(seg.body.as_deref(), Some("peer-A → peer-B"));
+        assert_eq!(seg.ulid, "01HZAZ123");
+    }
+
+    /// `min` priority messages are silently filtered — design lock
+    /// says `min produces no segment (silent)`.
+    #[test]
+    fn parse_announce_file_filters_min_priority() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("01HZAZ456.json");
+        let outer = serde_json::json!({
+            "ulid": "01HZAZ456",
+            "priority": "min",
+            "title": "quiet event",
+            "body": null,
+        });
+        std::fs::write(&path, outer.to_string()).unwrap();
+        assert!(crate::workspace::parse_announce_file(&path, "01HZAZ456").is_none());
+    }
+
+    /// Missing priority defaults to `default`.
+    #[test]
+    fn parse_announce_file_defaults_priority() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("01HZAZ789.json");
+        let outer = serde_json::json!({
+            "ulid": "01HZAZ789",
+            "title": "no priority field",
+            "body": null,
+        });
+        std::fs::write(&path, outer.to_string()).unwrap();
+        let seg = crate::workspace::parse_announce_file(&path, "01HZAZ789").unwrap();
+        assert_eq!(seg.priority, "default");
+    }
+
+    /// Malformed JSON returns None — subscription stays alive.
+    #[test]
+    fn parse_announce_file_returns_none_on_malformed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("bad.json");
+        std::fs::write(&path, "not json").unwrap();
+        assert!(crate::workspace::parse_announce_file(&path, "bad").is_none());
     }
 
     // ── Portal-57.b.click tests ─────────────────────────────────────────────
