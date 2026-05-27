@@ -198,6 +198,12 @@ pub mod workspace_namer;
 // The cross-peer zbus surface from the original Portal-48 spec is
 // deferred to Portal-48.b per Q20+Q96 Bus-migration lock.
 pub mod auto_mark;
+// Portal-42 (v6.0 R12-Q2, 2026-05-26) — tag-driven workspace output
+// assignment. Subscribes to sway workspace::init events; looks up the
+// owning tag for each new workspace from Portal-18.a's tag store;
+// fires `move workspace to output <name>` when the tag has a
+// `preferred_output` field set.
+pub mod workspace_router;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores

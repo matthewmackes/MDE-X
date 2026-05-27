@@ -2862,6 +2862,19 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("auto_mark".into());
 
+        // Portal-42 (v6.0 R12-Q2) — tag-driven workspace output
+        // assignment. Subscribes to sway workspace::init events;
+        // looks up the owning tag from Portal-18.a's tag store;
+        // fires `move workspace to output <name>` when the tag
+        // has a `preferred_output` set. Untagged workspaces +
+        // tags without preferred_output keep sway's natural
+        // placement.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::workspace_router::WorkspaceRouterWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("workspace_router".into());
+
         // The reconcile worker runs on its own OS thread (kept on
         // std::thread so its sync rusqlite calls don't block the
         // tokio scheduler). Still surfaced via Shell.Workers so
