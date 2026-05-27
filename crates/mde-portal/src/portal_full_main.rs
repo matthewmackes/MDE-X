@@ -1097,6 +1097,13 @@ const FG_DIM: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.4 };
 /// closes 4 inline drift sites + lets the design-tokens lint
 /// shrink its mde-portal allowlist by the same number.
 const ACCENT_INDIGO: Color = Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 };
+/// Raised-surface backdrop for modal cards, menu pills, and
+/// inactive-state buttons (the visual layer ABOVE the CHARCOAL
+/// ground but below the ACCENT_INDIGO emphasis). Charcoal-tinted
+/// ~5% lighter than CHARCOAL itself. Used in 7+ sites across
+/// portal_full_main; the extraction follows the TUNE-10.b
+/// allow-list-shrink direction.
+const SURFACE_RAISED: Color = Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 };
 
 /// Portal-17.a — the 6 locked system tags. Order is the design
 /// lock from R10-Q16 + 'Recent' retired per R3-Q20.
@@ -1233,7 +1240,7 @@ fn build_hub_cascade_columns(state: &PortalFull) -> Element<'_, Message> {
         columns.push(
             container(column(rows).spacing(4))
                 .style(|_theme: &Theme| iced::widget::container::Style {
-                    background: Some(iced::Background::Color(Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 })),
+                    background: Some(iced::Background::Color(SURFACE_RAISED)),
                     border: iced::Border {
                         radius: iced::border::Radius::from(8.0),
                         ..Default::default()
@@ -1265,7 +1272,7 @@ fn build_hub_typeahead_indicator(state: &PortalFull) -> Element<'_, Message> {
     };
     container(text(label).size(12.0).color(Color::WHITE))
         .style(|_theme: &Theme| iced::widget::container::Style {
-            background: Some(iced::Background::Color(Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 })),
+            background: Some(iced::Background::Color(SURFACE_RAISED)),
             border: iced::Border {
                 radius: iced::border::Radius::from(6.0),
                 ..Default::default()
@@ -1418,7 +1425,7 @@ fn build_edit_tag_modal(state: &PortalFull) -> Element<'_, Message> {
         let bg = if is_selected {
             ACCENT_INDIGO
         } else {
-            Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 }
+            SURFACE_RAISED
         };
         layout_row.push(
             button(text(label).size(12.0).color(Color::WHITE))
@@ -1474,7 +1481,7 @@ fn build_edit_tag_modal(state: &PortalFull) -> Element<'_, Message> {
         .spacing(8),
     )
     .style(|_theme: &Theme| iced::widget::container::Style {
-        background: Some(iced::Background::Color(Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 })),
+        background: Some(iced::Background::Color(SURFACE_RAISED)),
         border: iced::Border {
             radius: iced::border::Radius::from(10.0),
             ..Default::default()
@@ -1576,7 +1583,7 @@ fn build_edit_window_rule_modal(state: &PortalFull) -> Element<'_, Message> {
         .spacing(8),
     )
     .style(|_theme: &Theme| iced::widget::container::Style {
-        background: Some(iced::Background::Color(Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 })),
+        background: Some(iced::Background::Color(SURFACE_RAISED)),
         border: iced::Border {
             radius: iced::border::Radius::from(10.0),
             ..Default::default()
@@ -1605,7 +1612,7 @@ fn tristate_button<'a>(
         Some(false) => "off",
     };
     let bg = match state {
-        None => Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 },
+        None => SURFACE_RAISED,
         Some(true) => ACCENT_INDIGO,
         Some(false) => Color { r: 0.50, g: 0.18, b: 0.18, a: 1.0 },
     };
@@ -1681,7 +1688,7 @@ fn build_hub_menu_overlay<'a>(state: &PortalFull) -> Element<'a, Message> {
     }
     container(column(items).spacing(2))
         .style(|_theme: &Theme| iced::widget::container::Style {
-            background: Some(iced::Background::Color(Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 })),
+            background: Some(iced::Background::Color(SURFACE_RAISED)),
             border: iced::Border {
                 radius: iced::border::Radius::from(8.0),
                 color: Color { r: 1.0, g: 1.0, b: 1.0, a: 0.12 },
