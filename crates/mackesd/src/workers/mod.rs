@@ -251,6 +251,12 @@ pub mod session_persist;
 // mtime-poll-detected TOML changes. Hub right-click modal +
 // Control panel CRUD UIs ship as Portal-53.b/.c.
 pub mod window_rules;
+// HYP-8.5.watch (v6.5, 2026-05-27) — mtime-poll watcher on
+// `~/.config/mde/tags/` that publishes `event/config/tags/loaded`
+// + `event/config/tags/unloaded` on per-file diffs at 5 s cadence.
+// Pairs with HYP-8.5's startup wire to give the operator runtime
+// reload of tag manifests without daemon restart.
+pub mod tag_manifest_watcher;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores

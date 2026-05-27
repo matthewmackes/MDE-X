@@ -3087,6 +3087,24 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("window_rules".into());
 
+        // HYP-8.5.watch (v6.5) — tag-manifest watcher. Polls
+        // `~/.config/mde/tags/` every 5 s; publishes
+        // `event/config/tags/loaded` on new + edited files and
+        // `event/config/tags/unloaded` on removed files. Pairs
+        // with the run_serve startup load (HYP-8.5) to give
+        // operators runtime reload of tag policy without
+        // restarting mackesd. Skips entirely when neither
+        // $XDG_CONFIG_HOME nor $HOME is set (vanishingly rare).
+        if let Some(watcher) =
+            mackesd_core::workers::tag_manifest_watcher::TagManifestWatcherWorker::from_default_dir()
+        {
+            sup.spawn(Spawn::new(watcher, RestartPolicy::OnFailure));
+            worker_names
+                .lock()
+                .expect("worker_names mutex")
+                .push("tag_manifest_watcher".into());
+        }
+
         // The reconcile worker runs on its own OS thread (kept on
         // std::thread so its sync rusqlite calls don't block the
         // tokio scheduler). Still surfaced via Shell.Workers so
