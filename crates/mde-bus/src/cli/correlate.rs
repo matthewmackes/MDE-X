@@ -46,6 +46,18 @@ pub enum CorrelateOp {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// Print the count of configured rules. Symmetric with the
+    /// `audit count` + `persist count` verbs — completes the
+    /// aggregate-count pattern across every mde-bus list-style
+    /// surface.
+    Count {
+        /// Override the config path.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Emit `{"count":N}` instead of the bare integer.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 fn resolve_config_path(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -122,6 +134,17 @@ pub fn run(op: CorrelateOp) -> Result<()> {
                 issues.len()
             ));
         }
+        CorrelateOp::Count { config, json } => {
+            let path = resolve_config_path(config)?;
+            let cfg = correlate::load_default(&path)
+                .with_context(|| format!("load {}", path.display()))?;
+            let n = cfg.rules.len();
+            if json {
+                println!("{{\"count\":{n}}}");
+            } else {
+                println!("{n}");
+            }
+        }
     }
     Ok(())
 }
@@ -164,5 +187,44 @@ mod tests {
         if correlate::default_config_path().is_some() {
             assert!(run(CorrelateOp::Path).is_ok());
         }
+    }
+
+    #[test]
+    fn count_on_missing_config_returns_zero() {
+        // Missing file → empty rules vec → count 0 → no error.
+        let p = std::path::PathBuf::from("/nonexistent/path/bus-correlate.yaml");
+        let r = run(CorrelateOp::Count {
+            config: Some(p.clone()),
+            json: false,
+        });
+        assert!(r.is_ok());
+        let r_json = run(CorrelateOp::Count {
+            config: Some(p),
+            json: true,
+        });
+        assert!(r_json.is_ok());
+    }
+
+    #[test]
+    fn count_with_existing_config_succeeds() {
+        let tmp = std::env::temp_dir().join(format!("mde-bus-correlate-count-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("bus-correlate.yaml");
+        std::fs::write(
+            &path,
+            "rules:\n  - name: a\n    sources: [x]\n    window_seconds: 60\n    emits: y\n    priority: high\n  - name: b\n    sources: [m]\n    window_seconds: 30\n    emits: n\n    priority: default\n",
+        )
+        .unwrap();
+        let r = run(CorrelateOp::Count {
+            config: Some(path.clone()),
+            json: false,
+        });
+        assert!(r.is_ok());
+        let r_json = run(CorrelateOp::Count {
+            config: Some(path),
+            json: true,
+        });
+        assert!(r_json.is_ok());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
