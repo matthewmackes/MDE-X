@@ -465,6 +465,36 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
                         }
                     });
                 }
+                TagMember::Tray { bus_name } => {
+                    tracing::info!(%bus_name, "portal-full: cascade activates SNI tray entry");
+                    let bus_name = bus_name.clone();
+                    std::thread::spawn(move || {
+                        // StatusNotifierItem spec: clients listen
+                        // for the `Activate(x, y)` method on the
+                        // canonical /StatusNotifierItem object
+                        // path; `0 0` coordinates are the standard
+                        // "click came from no specific point"
+                        // signal (the SNI then surfaces its own
+                        // menu or window).
+                        if let Err(e) = std::process::Command::new("gdbus")
+                            .args([
+                                "call",
+                                "-e",
+                                "-d",
+                                &bus_name,
+                                "-o",
+                                "/StatusNotifierItem",
+                                "-m",
+                                "org.kde.StatusNotifierItem.Activate",
+                                "0",
+                                "0",
+                            ])
+                            .spawn()
+                        {
+                            tracing::warn!(%bus_name, error = %e, "gdbus SNI Activate spawn failed");
+                        }
+                    });
+                }
                 TagMember::Container { name } => {
                     tracing::info!(%name, "portal-full: cascade opens container shell via foot");
                     let name = name.clone();
@@ -1997,6 +2027,22 @@ mod tests {
             &mut state,
             Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::File {
                 path: "/nonexistent/path/for/cascade/test.txt".to_string(),
+            }),
+        );
+        assert!(state.hub_cascade_stack.is_empty());
+    }
+
+    #[test]
+    fn cascade_member_tray_variant_clears_stack() {
+        // Tray variant fires `gdbus call ... Activate 0 0`. Spawn
+        // is fire-and-forget; cascade clears even if the bus name
+        // doesn't exist on the session bus.
+        let mut state = PortalFull::default();
+        state.hub_cascade_stack.push("Tray".to_string());
+        let _ = update(
+            &mut state,
+            Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::Tray {
+                bus_name: "org.freedesktop.StatusNotifier-nonexistent-bus-1".to_string(),
             }),
         );
         assert!(state.hub_cascade_stack.is_empty());
