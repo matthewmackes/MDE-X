@@ -5,6 +5,42 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**v6.5 Hyprland migration — baseline ships (2026-05-27)**
+- `/usr/share/mde/hyprland.conf` lands with every locked
+  baseline policy inline: 4 px window corners (HYP-19), blur on
+  Portal layer-shell namespace only (HYP-20), built-in `default`
+  animation curve only — no custom M3 beziers (HYP-23), 100/120/
+  150 ms motion grid across 5 animation lines (HYP-24), tearing
+  off globally (HYP-26), VRR on by default (HYP-27.a), VOIP
+  fullscreenstate windowrulev2 for `class:^(org.mde.voice.*)$`
+  (HYP-25.a). HYP-5.a closes the foundation; HYP-5.b/c/d/e
+  follow-ons (birthright wizard step + GFS replication + EDID
+  monitor overlays + hyprctl reload watcher) open for later
+  ships.
+- Greeter session entry renamed from "Mackes Desktop
+  Environment" to "MDE Hyprland" via
+  `data/wayland-sessions/mde-hyprland.desktop`; Exec env-forces
+  `MDE_COMPOSITOR=hyprland` so mde-session launches Hyprland
+  instead of the legacy sway default that lingers in the source
+  until HYP-3 retires `swayipc-async` (HYP-29).
+- `docs/help/wayland.md` rewritten for v6.5 Hyprland — "Status
+  line on v6.5" replaces the v2.0.0 sway-lock framing; "Common
+  operator tasks via hyprctl" section ships canonical operator
+  commands (`hyprctl clients`, `dispatch renameworkspace`,
+  `dispatch movetoworkspace`, `rules`, `reload`, `getoption`);
+  per-peer monitor overlay path documented; "Allow tearing for
+  games" section explains the windowrulev2 immediate-presentation
+  opt-in for game classes.
+- `docs/help/keyboard-shortcuts.md` gains a "Compositor
+  (Hyprland, v6.5+)" section listing the v6.5 keybinding set +
+  workspace/layout dispatcher mapping; legacy v1.x XFCE/i3
+  baseline shrunk to a brief subsection (HYP-30).
+- Worklist hygiene: Portal-46/47/48.b/51/58 acceptance bodies
+  re-pointed to Hyprland mechanics (`hyprctl dispatch submap`
+  for tag-mode, `hyprctl clients`/`--batch` for templates,
+  `togglesplit`/`togglegroup`/`swapwindow` for Hub drag-to-tile;
+  HYP-33 partial close).
+
 **BUS-4.2 — GF-17 hard cut: notification_relay retired (2026-05-26)**
 - Deletes `crates/mackesd/src/workers/notification_relay.rs` —
   the QNM-Shared per-peer `.qnm-notifications/` directory
