@@ -1090,6 +1090,13 @@ fn parse_optional_i32(s: &str) -> Result<Option<i32>, mackes_mesh_types::WindowR
 const CHARCOAL: Color = Color { r: 0.125, g: 0.129, b: 0.141, a: 1.0 };
 const FG: Color = Color::WHITE;
 const FG_DIM: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.4 };
+/// Q2-locked indigo accent (#5b6af5). Used for primary-action
+/// buttons (Apply), active-state highlights (layout chooser
+/// selected option, tristate enabled), and other emphasis points
+/// across modals + the Hub menu. Extracting to a single const
+/// closes 4 inline drift sites + lets the design-tokens lint
+/// shrink its mde-portal allowlist by the same number.
+const ACCENT_INDIGO: Color = Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 };
 
 /// Portal-17.a — the 6 locked system tags. Order is the design
 /// lock from R10-Q16 + 'Recent' retired per R3-Q20.
@@ -1289,7 +1296,7 @@ fn build_hub_multi_select_indicator(state: &PortalFull) -> Element<'_, Message> 
         chips.push(
             container(text(tag_name.clone()).size(11.0).color(Color::WHITE))
                 .style(|_theme: &Theme| iced::widget::container::Style {
-                    background: Some(iced::Background::Color(Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 })),
+                    background: Some(iced::Background::Color(ACCENT_INDIGO)),
                     border: iced::Border {
                         radius: iced::border::Radius::from(6.0),
                         ..Default::default()
@@ -1409,7 +1416,7 @@ fn build_edit_tag_modal(state: &PortalFull) -> Element<'_, Message> {
         let label = if option.is_empty() { "no default" } else { *option };
         let option_owned = option.to_string();
         let bg = if is_selected {
-            Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 }
+            ACCENT_INDIGO
         } else {
             Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 }
         };
@@ -1432,7 +1439,7 @@ fn build_edit_tag_modal(state: &PortalFull) -> Element<'_, Message> {
         button(text("Apply").size(13.0).color(Color::WHITE))
             .on_press(Message::SaveTagEdit)
             .style(|_theme: &Theme, _status| iced::widget::button::Style {
-                background: Some(iced::Background::Color(Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 })),
+                background: Some(iced::Background::Color(ACCENT_INDIGO)),
                 text_color: Color::WHITE,
                 border: iced::Border {
                     radius: iced::border::Radius::from(6.0),
@@ -1529,7 +1536,7 @@ fn build_edit_window_rule_modal(state: &PortalFull) -> Element<'_, Message> {
         button(text("Apply").size(13.0).color(Color::WHITE))
             .on_press(Message::ApplyWindowRuleEdit)
             .style(|_theme: &Theme, _status| iced::widget::button::Style {
-                background: Some(iced::Background::Color(Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 })),
+                background: Some(iced::Background::Color(ACCENT_INDIGO)),
                 text_color: Color::WHITE,
                 border: iced::Border {
                     radius: iced::border::Radius::from(6.0),
@@ -1599,7 +1606,7 @@ fn tristate_button<'a>(
     };
     let bg = match state {
         None => Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 },
-        Some(true) => Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 },
+        Some(true) => ACCENT_INDIGO,
         Some(false) => Color { r: 0.50, g: 0.18, b: 0.18, a: 1.0 },
     };
     button(text(format!("{label}: {suffix}")).size(12.0).color(Color::WHITE))
