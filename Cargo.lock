@@ -4048,6 +4048,7 @@ dependencies = [
  "futures-util",
  "iced",
  "iced_layershell",
+ "mackes-mesh-types",
  "mde-card",
  "mde-theme",
  "serde",

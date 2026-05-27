@@ -65,6 +65,12 @@ pub const PREV_WS_LRU_CAP: usize = 5;
 /// resets on every focus change).
 pub const PREV_WS_SEGMENT_TTL_SECS: i64 = 5;
 
+/// Portal-50 (R12-Q11): TTL for the prompt-on-change layout banner.
+/// Click ✓ / ✕ or the timer firing dismisses the banner. Repeated
+/// layout flips within the TTL window collapse — last layout wins —
+/// because each flip overwrites the active `LayoutPromptState`.
+pub const LAYOUT_PROMPT_TTL_SECS: i64 = 8;
+
 /// Height of the Dock strip in logical pixels (Portal-2 lock).
 pub const DOCK_HEIGHT_PX: u32 = 56;
 
@@ -218,6 +224,25 @@ pub enum Message {
     /// returned to the default). `None` clears the mode segment;
     /// `Some(name)` renders it on the far-left of the Dock.
     ModeChanged(Option<String>),
+    /// Portal-50 (R12-Q11): sway emitted a binding-executed event with
+    /// the command string. The Dock parses it for `layout` directives +
+    /// may raise the prompt-on-change layout banner.
+    BindingExecuted(String),
+    /// Portal-50 (R12-Q11): user clicked the ✓ button on the
+    /// prompt-on-change layout banner. Updates the owning tag's
+    /// `default_layout` field in tag.json + dismisses the banner.
+    MakeTagDefaultLayout {
+        /// Tag name the prompt belongs to.
+        tag_name: String,
+        /// New layout to write as the tag default.
+        layout: String,
+    },
+    /// Portal-50 (R12-Q11): user clicked the ✕ button on the
+    /// prompt-on-change layout banner, OR the 8 s TTL fired. Clears
+    /// the banner from state. ✕ click signaling "keep this layout
+    /// per-workspace only" lives behind Portal-50.b (workspaces.json
+    /// override).
+    DismissLayoutPrompt,
     /// User clicked a workspace cell — focus it via swayipc (R3-Q23).
     FocusWorkspace(String),
     /// User clicked `+` — switch to the next unused workspace number.
@@ -311,6 +336,30 @@ pub struct DockApp {
     /// mode (no mode segment rendered); `Some(name)` = render the
     /// far-left `MODE: <name>` segment in the Dock breadcrumb.
     current_sway_mode: Option<String>,
+    /// Portal-50 (R12-Q11): active prompt-on-change layout banner.
+    /// `None` = no banner; `Some(state)` = banner visible until the
+    /// TTL fires or the operator clicks ✓ / ✕.
+    layout_prompt: Option<LayoutPromptState>,
+}
+
+/// Portal-50 (R12-Q11): state of the active prompt-on-change layout
+/// banner. Held by `DockApp::layout_prompt` while a banner is alive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LayoutPromptState {
+    /// Workspace where the binding fired.
+    pub workspace_num: i32,
+    /// Layout name the operator just switched to (`splith` /
+    /// `splitv` / `tabbed` / `stacked`).
+    pub new_layout: String,
+    /// Name of the owning tag (the prompt says "Make <tag>
+    /// default?").
+    pub tag_name: String,
+    /// Tag's `group_color` hex string (e.g. `#42be65`); falls back
+    /// to platform-default when None.
+    pub tag_color: Option<String>,
+    /// Timestamp when the banner was spawned. Used with
+    /// [`LAYOUT_PROMPT_TTL_SECS`] to compute auto-dismiss.
+    pub spawned_at: chrono::DateTime<chrono::Local>,
 }
 
 impl Default for DockApp {
@@ -330,6 +379,7 @@ impl Default for DockApp {
             visited_workspaces_lru: Vec::new(),
             last_workspace_change: None,
             current_sway_mode: None,
+            layout_prompt: None,
         }
     }
 }
@@ -473,6 +523,30 @@ impl iced_layershell::Application for DockApp {
                 // change. None clears the segment (back to default);
                 // Some(name) raises the far-left segment.
                 self.current_sway_mode = next;
+            }
+            Message::BindingExecuted(command) => {
+                // Portal-50 (R12-Q11): sway just executed a binding-
+                // bound command. If it was a `layout <name>` directive
+                // AND the focused workspace is tag-owned AND the new
+                // layout differs from the tag's default → spawn the
+                // prompt-on-change banner.
+                if let Some(prompt) = compute_layout_prompt(self, &command) {
+                    self.layout_prompt = Some(prompt);
+                }
+            }
+            Message::MakeTagDefaultLayout { tag_name, layout } => {
+                // Portal-50 (R12-Q11): ✓ click — write the new layout
+                // as the owning tag's default_layout, then dismiss
+                // the banner.
+                if let Err(e) = update_tag_default_layout(&tag_name, &layout) {
+                    tracing::warn!(tag = %tag_name, %layout, error = %e, "MakeTagDefaultLayout: tag-store update failed");
+                }
+                self.layout_prompt = None;
+            }
+            Message::DismissLayoutPrompt => {
+                // Portal-50 (R12-Q11): ✕ click or auto-dismiss timer.
+                // Per-workspace override write lives in Portal-50.b.
+                self.layout_prompt = None;
             }
             Message::FocusWorkspace(name) => {
                 return Task::perform(
@@ -656,6 +730,7 @@ impl iced_layershell::Application for DockApp {
             crate::workspace::workspace_subscription(),
             crate::workspace::window_subscription(),
             crate::workspace::mode_subscription(),
+            crate::workspace::binding_subscription(),
             clock_subscription(),
             snapshot_subscription(),
             status_subscription(),
@@ -671,6 +746,7 @@ impl iced_layershell::Application for DockApp {
         let mode_seg = build_mode_segment(self);
         let ws_seg = build_workspace_segment(self, fg);
         let prev_ws_seg = build_prev_workspace_segment(self, fg);
+        let layout_prompt_seg = build_layout_prompt_segment(self);
         let host_seg = build_hostname_segment(self, fg);
         let running_zone = build_running_zone(self, fg);
         let status_seg = build_status_segment(self, fg);
@@ -683,6 +759,7 @@ impl iced_layershell::Application for DockApp {
                 mode_seg,
                 ws_seg,
                 prev_ws_seg,
+                layout_prompt_seg,
                 host_seg,
                 running_zone,
                 iced::widget::horizontal_space(),
@@ -898,6 +975,77 @@ fn build_mode_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     )
     .style(move |_theme: &Theme| iced::widget::container::Style {
         background: Some(iced::Background::Color(cyan)),
+        border: iced::Border {
+            radius: iced::border::Radius::from(4.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .height(Length::Fill)
+    .align_y(iced::alignment::Vertical::Center)
+    .padding(Padding::from([2, 8]))
+    .into()
+}
+
+/// Portal-50 (R12-Q11) — prompt-on-change layout banner segment.
+///
+/// Sits between the mini-tree and the hostname segment, similar
+/// placement to Portal-43's previous-workspace cell. Renders only
+/// when `app.layout_prompt` is `Some(state)` AND the TTL hasn't
+/// expired yet. Shape: `Make <tag>? <new_layout> ✓ ✕` in the tag's
+/// `group_color` (or the platform default when None).
+///
+/// Click ✓ → `Message::MakeTagDefaultLayout` writes the new layout
+/// to tag.json + dismisses the banner.
+/// Click ✕ → `Message::DismissLayoutPrompt` clears the banner only
+/// (Portal-50.b will add the per-workspace override write).
+///
+/// Auto-dismiss happens on the next render after the TTL expires —
+/// the 1 s clock subscription drives this implicitly within ~1 s
+/// of the deadline.
+fn build_layout_prompt_segment<'a>(app: &DockApp) -> Element<'a, Message> {
+    let now = chrono::Local::now();
+    let Some(state) = app.layout_prompt.as_ref() else {
+        return iced::widget::Space::new(0.0, Length::Fill).into();
+    };
+    if !layout_prompt_visible(state, now) {
+        return iced::widget::Space::new(0.0, Length::Fill).into();
+    }
+    // Background uses the platform-default Carbon-blue / indigo for
+    // v1.0. The tag's `group_color` is preserved in state for a
+    // future tint pass that mirrors Portal-56's border-tinting hex
+    // → Color conversion; until that lands, all banners share the
+    // platform accent (consistent + safe against malformed hex).
+    let bg = COLOR_INDIGO;
+    let _tag_color_for_future_tint = state.tag_color.as_deref();
+    let tag_name = state.tag_name.clone();
+    let layout = state.new_layout.clone();
+    let prompt_label = format!("Make {tag_name} default? {layout}");
+    let yes_btn: Element<'a, Message> = mouse_area(
+        text("✓").size(13.0).color(Color::WHITE),
+    )
+    .on_press(Message::MakeTagDefaultLayout {
+        tag_name: tag_name.clone(),
+        layout: layout.clone(),
+    })
+    .into();
+    let no_btn: Element<'a, Message> = mouse_area(
+        text("✕").size(13.0).color(Color::WHITE),
+    )
+    .on_press(Message::DismissLayoutPrompt)
+    .into();
+    container(
+        iced::widget::row![
+            text(prompt_label).size(11.0).color(Color::WHITE),
+            iced::widget::horizontal_space().width(Length::Fixed(8.0)),
+            yes_btn,
+            iced::widget::horizontal_space().width(Length::Fixed(4.0)),
+            no_btn,
+        ]
+        .align_y(iced::Alignment::Center),
+    )
+    .style(move |_theme: &Theme| iced::widget::container::Style {
+        background: Some(iced::Background::Color(bg)),
         border: iced::Border {
             radius: iced::border::Radius::from(4.0),
             ..Default::default()
@@ -1285,6 +1433,77 @@ fn mini_tree_visible_workspaces(workspaces: &[WorkspaceInfo]) -> impl Iterator<I
     workspaces
         .iter()
         .filter(|w| w.num >= 0 && w.num != PARKED_WORKSPACE_NUM)
+}
+
+/// Portal-50 (R12-Q11): pure helper — decide whether the binding
+/// command should raise the prompt-on-change layout banner.
+/// Returns `Some(LayoutPromptState)` when:
+///   1. `command` parses as `layout <splith|splitv|tabbed|stacked>`.
+///   2. The focused workspace is owned by a tag (Portal-18.a
+///      tag-store membership).
+///   3. The owning tag's `default_layout` differs from the new
+///      layout (or is unset — counts as "different").
+///
+/// Returns `None` otherwise — natural no-op for layout-cycle binds
+/// on untagged workspaces or tags that don't pin a default.
+///
+/// The function reads the tag store fresh per call. Portal-50 fires
+/// at human-keystroke rate (a few per minute at peak), so the
+/// extra JSON parse is bounded.
+pub fn compute_layout_prompt(app: &DockApp, command: &str) -> Option<LayoutPromptState> {
+    let new_layout = crate::workspace::parse_layout_command(command)?.to_string();
+    let focused = app.workspaces.iter().find(|w| w.focused)?;
+    if focused.num == PARKED_WORKSPACE_NUM {
+        return None;
+    }
+    let store = mackes_mesh_types::TagStore::load_default().ok()?;
+    let owning = store
+        .tags
+        .iter()
+        .find(|t| {
+            t.members.iter().any(|m| matches!(
+                m,
+                mackes_mesh_types::TagMember::Workspace { num } if *num == focused.num
+            ))
+        })?;
+    let tag_default = owning.default_layout.as_deref().unwrap_or("");
+    if tag_default == new_layout {
+        return None;
+    }
+    Some(LayoutPromptState {
+        workspace_num: focused.num,
+        new_layout,
+        tag_name: owning.name.clone(),
+        tag_color: owning.group_color.clone(),
+        spawned_at: chrono::Local::now(),
+    })
+}
+
+/// Portal-50 (R12-Q11): pure helper — `true` if the layout-prompt
+/// banner should still be visible at `now`. Visible while
+/// `now - state.spawned_at < LAYOUT_PROMPT_TTL_SECS`.
+#[must_use]
+pub fn layout_prompt_visible(
+    state: &LayoutPromptState,
+    now: chrono::DateTime<chrono::Local>,
+) -> bool {
+    let elapsed = now.signed_duration_since(state.spawned_at);
+    elapsed.num_seconds() >= 0 && elapsed.num_seconds() < LAYOUT_PROMPT_TTL_SECS
+}
+
+/// Portal-50 (R12-Q11): writes the tag's `default_layout` to disk
+/// via `mackes_mesh_types::TagStore` atomic save. Returns an error
+/// if the tag store can't be loaded or saved.
+pub fn update_tag_default_layout(
+    tag_name: &str,
+    new_layout: &str,
+) -> Result<(), mackes_mesh_types::TagStoreError> {
+    let mut store = mackes_mesh_types::TagStore::load_default()?;
+    if let Some(tag) = store.find_by_name_mut(tag_name) {
+        tag.default_layout = Some(new_layout.to_string());
+    }
+    store.save_default()?;
+    Ok(())
 }
 
 /// Portal-49 (R12-Q9): pure helper — return the first taxonomy mark
@@ -2568,6 +2787,134 @@ mod tests {
         assert_eq!(mode_change_to_message("DEFAULT"), Some("DEFAULT".to_string()));
         assert_eq!(mode_change_to_message(""), Some("".to_string()));
         assert_eq!(mode_change_to_message("resize"), Some("resize".to_string()));
+    }
+
+    // ── Portal-50 (R12-Q11) prompt-on-change layout banner tests ──────────
+
+    fn make_layout_prompt_state(workspace_num: i32, layout: &str) -> LayoutPromptState {
+        LayoutPromptState {
+            workspace_num,
+            new_layout: layout.to_string(),
+            tag_name: "Dev".to_string(),
+            tag_color: Some("#42be65".to_string()),
+            spawned_at: chrono::Local::now(),
+        }
+    }
+
+    /// Banner visible at spawn-time + within TTL; auto-dismiss after.
+    #[test]
+    fn layout_prompt_respects_ttl() {
+        let now = chrono::Local::now();
+        let state = make_layout_prompt_state(1, "tabbed");
+        assert!(layout_prompt_visible(&state, now));
+        // 4 s in → still visible.
+        let four_s = now + chrono::Duration::seconds(4);
+        assert!(layout_prompt_visible(&state, four_s));
+        // 9 s in → expired (TTL is 8 s).
+        let nine_s = now + chrono::Duration::seconds(9);
+        assert!(!layout_prompt_visible(&state, nine_s));
+    }
+
+    /// `DismissLayoutPrompt` clears the banner.
+    #[test]
+    fn dismiss_message_clears_banner() {
+        let mut app = DockApp::default();
+        app.layout_prompt = Some(make_layout_prompt_state(1, "tabbed"));
+        let _ = iced_layershell::Application::update(&mut app, Message::DismissLayoutPrompt);
+        assert!(app.layout_prompt.is_none());
+    }
+
+    /// `MakeTagDefaultLayout` clears the banner (the tag-store
+    /// update may fail when tag.json doesn't exist; the banner
+    /// still dismisses).
+    #[test]
+    fn make_default_clears_banner() {
+        let mut app = DockApp::default();
+        app.layout_prompt = Some(make_layout_prompt_state(1, "tabbed"));
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::MakeTagDefaultLayout {
+                tag_name: "Dev".to_string(),
+                layout: "tabbed".to_string(),
+            },
+        );
+        assert!(app.layout_prompt.is_none());
+    }
+
+    /// `BindingExecuted` with a non-layout command leaves
+    /// `layout_prompt` alone.
+    #[test]
+    fn binding_executed_non_layout_command_is_no_op() {
+        let mut app = DockApp::default();
+        assert!(app.layout_prompt.is_none());
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::BindingExecuted("focus left".to_string()),
+        );
+        assert!(app.layout_prompt.is_none());
+    }
+
+    /// `compute_layout_prompt` returns None when:
+    ///   - parse fails (non-layout command).
+    ///   - no focused workspace.
+    ///   - focused workspace is the parked slot.
+    /// (Tag-store interaction is tested live via the bench
+    /// acceptance — verifying it here would mock TagStore which
+    /// isn't worth the complexity for an integration test.)
+    #[test]
+    fn compute_layout_prompt_skips_non_layout_commands() {
+        let app = DockApp::default();
+        assert!(compute_layout_prompt(&app, "focus left").is_none());
+        assert!(compute_layout_prompt(&app, "workspace number 2").is_none());
+        assert!(compute_layout_prompt(&app, "layout toggle split").is_none());
+    }
+
+    #[test]
+    fn compute_layout_prompt_skips_with_no_focused_workspace() {
+        let app = DockApp::default();
+        // Empty workspaces list → no focused → no prompt.
+        assert!(compute_layout_prompt(&app, "layout tabbed").is_none());
+    }
+
+    #[test]
+    fn compute_layout_prompt_skips_parked_workspace() {
+        let mut app = DockApp::default();
+        app.workspaces = vec![make_ws(PARKED_WORKSPACE_NUM, "99", true, true, "eDP-1")];
+        assert!(compute_layout_prompt(&app, "layout tabbed").is_none());
+    }
+
+    /// `parse_layout_command` recognises the four locked layout
+    /// names + strips leading `[con_id=N]` criterion blocks.
+    #[test]
+    fn parse_layout_command_recognises_locked_names() {
+        use crate::workspace::parse_layout_command;
+        assert_eq!(parse_layout_command("layout splith"), Some("splith"));
+        assert_eq!(parse_layout_command("layout splitv"), Some("splitv"));
+        assert_eq!(parse_layout_command("layout tabbed"), Some("tabbed"));
+        assert_eq!(parse_layout_command("layout stacked"), Some("stacked"));
+        // `stacking` is the legacy form sway accepts; map to `stacked`.
+        assert_eq!(parse_layout_command("layout stacking"), Some("stacked"));
+        // Leading whitespace + criterion blocks stripped.
+        assert_eq!(parse_layout_command("  layout splith"), Some("splith"));
+        assert_eq!(
+            parse_layout_command("[con_id=42] layout tabbed"),
+            Some("tabbed")
+        );
+    }
+
+    #[test]
+    fn parse_layout_command_rejects_non_pin_forms() {
+        use crate::workspace::parse_layout_command;
+        // Toggle forms don't pin a specific layout.
+        assert!(parse_layout_command("layout toggle split").is_none());
+        // Non-layout commands.
+        assert!(parse_layout_command("focus left").is_none());
+        assert!(parse_layout_command("workspace number 2").is_none());
+        // Unknown layout name.
+        assert!(parse_layout_command("layout invalid").is_none());
+        // Empty input.
+        assert!(parse_layout_command("").is_none());
+        assert!(parse_layout_command("   ").is_none());
     }
 
     /// Portal-43 + Portal-59 interaction: focusing the parked workspace

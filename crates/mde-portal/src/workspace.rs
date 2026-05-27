@@ -262,6 +262,73 @@ pub fn window_subscription() -> Subscription<Message> {
     )
 }
 
+/// Portal-50 (R12-Q11) — Iced `Subscription` over sway's
+/// `EventType::Binding`. Emits `Message::BindingExecuted(command)`
+/// for every keybinding-triggered command — typically Mod+w
+/// (layout cycle), Mod+e (layout toggle), Mod+s (stacking), etc.
+/// The Dock parses the command string for `layout` directives + may
+/// surface the prompt-on-change layout banner.
+///
+/// Same retry pattern as `workspace_subscription`: dedicated
+/// connection, 3 s backoff on failure.
+pub fn binding_subscription() -> Subscription<Message> {
+    Subscription::run_with_id(
+        "mde-portal-binding",
+        async_stream::stream! {
+            loop {
+                let event_conn = match Connection::new().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "swayipc binding event connect failed; retrying in 3s");
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        continue;
+                    }
+                };
+                let mut events = match event_conn.subscribe([EventType::Binding]).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "binding subscribe failed; retrying in 3s");
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        continue;
+                    }
+                };
+                while let Some(event_result) = events.next().await {
+                    if let Ok(swayipc_async::Event::Binding(bind_ev)) = event_result {
+                        yield Message::BindingExecuted(bind_ev.binding.command.clone());
+                    }
+                }
+                tracing::debug!("swayipc binding event stream ended; reconnecting");
+            }
+        },
+    )
+}
+
+/// Portal-50 (R12-Q11) — pure helper that extracts the layout name
+/// from a sway command string like `layout splith` or
+/// `layout toggle split` (only the first form is recognised; toggle
+/// forms return None since they don't pin a specific layout).
+/// Returns `Some(name)` only for the 4 recognised forms.
+#[must_use]
+pub fn parse_layout_command(cmd: &str) -> Option<&'static str> {
+    let trimmed = cmd.trim();
+    // Strip leading sway-criterion blocks like `[con_id=42] layout ...`.
+    let after_criteria = match trimmed.find(']') {
+        Some(idx) => trimmed[idx + 1..].trim_start(),
+        None => trimmed,
+    };
+    let mut tokens = after_criteria.split_whitespace();
+    if tokens.next() != Some("layout") {
+        return None;
+    }
+    match tokens.next()? {
+        "splith" => Some("splith"),
+        "splitv" => Some("splitv"),
+        "tabbed" => Some("tabbed"),
+        "stacked" | "stacking" => Some("stacked"),
+        _ => None,
+    }
+}
+
 /// Portal-45 (R12-Q5) — Iced `Subscription` that emits
 /// `Message::ModeChanged(Option<String>)` on every sway binding-mode
 /// transition. `None` for the `"default"` mode (no mode segment
