@@ -8,28 +8,28 @@
 //! size / weight tokens come from `mde-theme` — zero hardcoded
 //! literals.
 //!
-//! Carbon-glyph swap-in lands with UX-8 (icon system). Until
-//! then the controls render with single-Unicode placeholders
+//! Material Symbols glyph swap-in lands with UX-8 (icon system).
+//! Until then the controls render with single-Unicode placeholders
 //! (`−` / `□` / `×`) that match the v8.7 panel-side fallback.
 //!
 //! Acceptance fields per the worklist UX-4 entry:
 //!   (a) 48 px height, surface background, 1 px divider border ✓
-//!   (b) "MDE Workbench" wordmark (Carbon icon + 14 sp medium
-//!       text), left-aligned ✓
+//!   (b) "MDE Workbench" wordmark (Material Symbols icon + 14 sp
+//!       medium text), left-aligned ✓
 //!   (c) min/max/close with accent-tinted hover ✓
 //!   (d) SHADOW_2 elevation — applied to the header surface as
 //!       the visible elevation under sway tiling (window frame
 //!       itself is borderless under sway by default).
 //!
 //! v4.0.1 BUG-20 (2026-05-23) — brand-strip parity with the sway
-//! titlebar / start-menu Workbench tile: prepended the Carbon
-//! `Workbench` glyph + expanded the wordmark from "MDE" to "MDE
-//! Workbench" so the in-app header reads the same as the WM-drawn
-//! title above it and the start-menu's pinned tile that launched
-//! the window. Operator photo evidence: screenshots from
-//! 2026-05-23 showed two sibling surfaces drifting (sway title:
-//! "MDE Workbench" + icon, iced header: bare "MDE"). User
-//! directive: "Copy the branding from one interface to another."
+//! titlebar / start-menu Workbench tile: prepended the Workbench
+//! glyph + expanded the wordmark from "MDE" to "MDE Workbench"
+//! so the in-app header reads the same as the WM-drawn title above
+//! it and the start-menu's pinned tile that launched the window.
+//! Operator photo evidence: screenshots from 2026-05-23 showed two
+//! sibling surfaces drifting (sway title: "MDE Workbench" + icon,
+//! iced header: bare "MDE"). User directive: "Copy the branding
+//! from one interface to another."
 
 use iced::widget::button::{self, Status as ButtonStatus};
 use iced::widget::{container, row, svg as widget_svg, text, Space};
@@ -56,7 +56,7 @@ const CONTROL_WIDTH: f32 = 40.0;
 /// page heading below it.
 pub const WORDMARK: &str = "MDE Workbench";
 
-/// Carbon Workbench glyph rendered to the left of the wordmark.
+/// Workbench glyph (Material Symbols) rendered to the left of the wordmark.
 /// Matches the icon the start-menu pinned-tile row uses for the
 /// Workbench shortcut so the brand reads consistently across
 /// chrome surfaces.
@@ -98,10 +98,10 @@ pub fn view<'a, Message: Clone + 'a>(
         })
         .color(palette.text.into_iced_color());
 
-    // v4.0.1 BUG-20 — Carbon Workbench glyph to the left of the
-    // wordmark. Mirrors the icon the start-menu pinned-tile row
-    // shows for the Workbench shortcut so the brand reads the
-    // same across chrome surfaces.
+    // v4.0.1 BUG-20 — Workbench glyph (Material Symbols) to the
+    // left of the wordmark. Mirrors the icon the start-menu
+    // pinned-tile row shows for the Workbench shortcut so the
+    // brand reads the same across chrome surfaces.
     let brand_icon_resolved = mde_icon(Icon::Workbench, IconSize::Inline);
     let brand_icon: Element<'a, Message> =
         if let Some(svg_bytes) = brand_icon_resolved.svg_bytes() {
@@ -133,9 +133,9 @@ pub fn view<'a, Message: Clone + 'a>(
 
     // v4.0.1 BUG-13.c: window controls now route through
     // `control_button` which prefers `Icon::svg_bytes()` for the
-    // Carbon glyph and falls back to fallback_glyph text only if
-    // the variant isn't baked. WindowMinimize/Maximize/Close all
-    // resolve to Some so the SVG render path always wins today.
+    // Material Symbols glyph and falls back to fallback_glyph text
+    // only if the variant isn't baked. WindowMinimize/Maximize/Close
+    // all resolve to Some so the SVG render path always wins today.
     let controls = row![
         control_button(Icon::WindowMinimize, min_action, palette, false),
         control_button(Icon::WindowMaximize, max_action, palette, false),
@@ -292,17 +292,17 @@ mod tests {
     }
 
     #[test]
-    fn brand_icon_is_carbon_workbench_glyph() {
+    fn brand_icon_is_material_workbench_glyph() {
         // The Icon::Workbench variant must resolve to baked
         // SVG bytes — same source the start-menu pinned-tile
-        // row uses. If the Carbon catalog ever drops the
-        // glyph this test fails loudly instead of the header
+        // row uses. If the Material Symbols catalog ever drops
+        // the glyph this test fails loudly instead of the header
         // silently falling back to the text glyph and drifting
         // away from the start-menu tile.
         let resolved = mde_icon(Icon::Workbench, IconSize::Inline);
         assert!(
             resolved.svg_bytes().is_some(),
-            "Icon::Workbench must ship as a baked Carbon SVG so the\n             header brand-strip matches the start-menu tile"
+            "Icon::Workbench must ship as a baked Material Symbols SVG so the\n             header brand-strip matches the start-menu tile"
         );
     }
 
