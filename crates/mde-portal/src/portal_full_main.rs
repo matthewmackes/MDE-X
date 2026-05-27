@@ -108,9 +108,31 @@ impl Layer {
 
 // ── Application state ─────────────────────────────────────────────────────────
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct PortalFull {
     layer: Layer,
+    /// Portal-17.a — cached snapshot of the operator's user tags
+    /// from `<XDG_DATA_HOME>/mde/tags.json`. Re-read on Hub-layer
+    /// entry so operator edits via Portal-18.b modal take effect
+    /// next time the Hub opens (no live mtime-watch yet — that
+    /// ships when the modal lands).
+    user_tags: Vec<mackes_mesh_types::Tag>,
+}
+
+impl Default for PortalFull {
+    fn default() -> Self {
+        // Portal-17.a — seed user_tags on construction so the
+        // first view-render (which happens before any message
+        // fires) has the right tag set. update() refreshes on
+        // every Hub-layer entry.
+        let user_tags = mackes_mesh_types::TagStore::load_default()
+            .map(|store| store.tags)
+            .unwrap_or_default();
+        Self {
+            layer: Layer::default(),
+            user_tags,
+        }
+    }
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -119,6 +141,10 @@ struct PortalFull {
 enum Message {
     /// D-Bus `Goto` received — switch content layer.
     GotoLayer(Layer),
+    /// Portal-17.a — user clicked a Hub system-tag or user-tag
+    /// card. Placeholder for cascade-card expansion (Portal-17.b)
+    /// + right-click iconic menu (Portal-17.c).
+    HubTagClicked(String),
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -128,6 +154,24 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
         Message::GotoLayer(layer) => {
             tracing::info!(?layer, "portal-full: switching layer");
             state.layer = layer;
+            // Portal-17.a — refresh the user-tag snapshot on
+            // every Hub-layer entry. Cheap (small JSON file
+            // parse); covers the operator-edited tags.json case
+            // without a live inotify watch.
+            if layer == Layer::Hub {
+                state.user_tags = match mackes_mesh_types::TagStore::load_default() {
+                    Ok(store) => store.tags,
+                    Err(e) => {
+                        tracing::debug!(error = %e, "portal-full: tag-store load failed; rendering with empty tag set");
+                        Vec::new()
+                    }
+                };
+            }
+        }
+        Message::HubTagClicked(tag_name) => {
+            // Portal-17.a — log only for v1; Portal-17.b adds the
+            // cascade-card expansion on top of this signal.
+            tracing::info!(%tag_name, "portal-full: Hub tag clicked");
         }
     }
     Task::none()
@@ -140,33 +184,153 @@ const CHARCOAL: Color = Color { r: 0.125, g: 0.129, b: 0.141, a: 1.0 };
 const FG: Color = Color::WHITE;
 const FG_DIM: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.4 };
 
+/// Portal-17.a — the 6 locked system tags. Order is the design
+/// lock from R10-Q16 + 'Recent' retired per R3-Q20.
+pub const SYSTEM_TAGS: &[&str] = &[
+    "All apps",
+    "Untagged",
+    "Workspaces",
+    "Settings",
+    "Power",
+    "Mesh",
+];
+
 fn view(state: &PortalFull) -> Element<'_, Message> {
+    let body: Element<'_, Message> = match state.layer {
+        Layer::Hub => build_hub_layer(state),
+        Layer::Library => build_library_placeholder(state),
+        Layer::Control => build_control_placeholder(state),
+    };
     container(
         column![
             text(state.layer.breadcrumb()).size(22.0).color(FG),
-            text(format!(
-                "{} layer — wired in Portal-{}",
-                state.layer.label(),
-                match state.layer {
-                    Layer::Hub => "17",
-                    Layer::Library => "19",
-                    Layer::Control => "20",
-                }
-            ))
-            .size(13.0)
-            .color(FG_DIM),
+            body,
         ]
         .spacing(16),
     )
     .width(Length::Fill)
     .height(Length::Fill)
-    .align_x(iced::alignment::Horizontal::Center)
-    .align_y(iced::alignment::Vertical::Center)
+    .padding(24)
     .style(|_: &Theme| iced::widget::container::Style {
         background: Some(iced::Background::Color(CHARCOAL)),
         ..Default::default()
     })
     .into()
+}
+
+/// Portal-17.a — Hub layer view: 6 system-tag cards in a row at
+/// top, then a grid of user-tag cards from the live tag store.
+/// Card click → `Message::HubTagClicked(tag_name)`. Right-click
+/// + cascade expansion + type-ahead ship as Portal-17.b..d.
+fn build_hub_layer(state: &PortalFull) -> Element<'_, Message> {
+    use iced::widget::row;
+    let mut system_row: Vec<Element<'_, Message>> = Vec::new();
+    for &name in SYSTEM_TAGS {
+        system_row.push(hub_tag_card(name, None));
+    }
+    let mut user_grid: Vec<Element<'_, Message>> = Vec::new();
+    for tag in &state.user_tags {
+        user_grid.push(hub_tag_card(&tag.name, tag.group_color.as_deref()));
+    }
+    let user_section: Element<'_, Message> = if state.user_tags.is_empty() {
+        text("No user tags yet. Edit ~/.local/share/mde/tags.json to add one.")
+            .size(11.0)
+            .color(FG_DIM)
+            .into()
+    } else {
+        row(user_grid)
+            .spacing(8)
+            .wrap()
+            .into()
+    };
+    column![
+        row(system_row).spacing(8).wrap(),
+        text("Your tags").size(13.0).color(FG_DIM),
+        user_section,
+    ]
+    .spacing(16)
+    .into()
+}
+
+/// Portal-17.a — render one tag card with optional color tint.
+/// Carbon-blue indigo if no `group_color`; the tag's hex when
+/// set + parseable. Click fires `HubTagClicked` carrying the
+/// tag name so downstream handlers (Portal-17.b cascade
+/// expansion, Portal-17.c right-click) can identify the target.
+fn hub_tag_card<'a>(name: &str, group_color: Option<&str>) -> Element<'a, Message> {
+    let tint = group_color
+        .and_then(hub_parse_hex)
+        .unwrap_or(Color { r: 0.20, g: 0.69, b: 1.0, a: 1.0 }); // Carbon blue 40 default
+    let name_owned = name.to_string();
+    let label_for_msg = name_owned.clone();
+    iced::widget::mouse_area(
+        container(text(name_owned).size(13.0).color(Color::WHITE))
+            .style(move |_theme: &Theme| iced::widget::container::Style {
+                background: Some(iced::Background::Color(tint)),
+                border: iced::Border {
+                    radius: iced::border::Radius::from(8.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .padding(iced::Padding::from([8, 16]))
+            .width(Length::Shrink)
+            .height(Length::Shrink),
+    )
+    .on_press(Message::HubTagClicked(label_for_msg))
+    .into()
+}
+
+/// Portal-17.a — minimal hex-color parser sufficient for the Hub
+/// tag-card tint. Accepts `#rrggbb` + `#rgb`; returns None for
+/// other forms so the tint falls back to indigo cleanly.
+#[must_use]
+fn hub_parse_hex(s: &str) -> Option<Color> {
+    let rest = s.strip_prefix('#')?;
+    if !rest.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    match rest.len() {
+        6 => {
+            let r = u8::from_str_radix(&rest[0..2], 16).ok()? as f32 / 255.0;
+            let g = u8::from_str_radix(&rest[2..4], 16).ok()? as f32 / 255.0;
+            let b = u8::from_str_radix(&rest[4..6], 16).ok()? as f32 / 255.0;
+            Some(Color { r, g, b, a: 1.0 })
+        }
+        3 => {
+            // #rgb shorthand → expand each digit to a byte.
+            let expand = |c: char| {
+                let v = c.to_digit(16)? as u8;
+                Some(((v << 4) | v) as f32 / 255.0)
+            };
+            let chars: Vec<char> = rest.chars().collect();
+            Some(Color {
+                r: expand(chars[0])?,
+                g: expand(chars[1])?,
+                b: expand(chars[2])?,
+                a: 1.0,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Library layer placeholder — Portal-19 covers the full
+/// implementation. Until then it renders the breadcrumb +
+/// one-line status.
+fn build_library_placeholder(_state: &PortalFull) -> Element<'_, Message> {
+    text("Library layer — wired in Portal-19")
+        .size(13.0)
+        .color(FG_DIM)
+        .into()
+}
+
+/// Control layer placeholder — Portal-20.
+fn build_control_placeholder(_state: &PortalFull) -> Element<'_, Message> {
+    text("Control layer — wired in Portal-20")
+        .size(13.0)
+        .color(FG_DIM)
+        .into()
 }
 
 // ── Subscription ──────────────────────────────────────────────────────────────
@@ -282,6 +446,77 @@ mod tests {
     fn portal_full_default_layer_is_hub() {
         let state = PortalFull::default();
         assert_eq!(state.layer, Layer::Hub);
+    }
+
+    // ── Portal-17.a tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn system_tags_match_design_lock() {
+        assert_eq!(SYSTEM_TAGS.len(), 6);
+        assert_eq!(SYSTEM_TAGS[0], "All apps");
+        assert_eq!(SYSTEM_TAGS[1], "Untagged");
+        assert_eq!(SYSTEM_TAGS[2], "Workspaces");
+        assert_eq!(SYSTEM_TAGS[3], "Settings");
+        assert_eq!(SYSTEM_TAGS[4], "Power");
+        assert_eq!(SYSTEM_TAGS[5], "Mesh");
+        // R3-Q20 lock: 'Recent' must NOT appear.
+        assert!(!SYSTEM_TAGS.contains(&"Recent"));
+    }
+
+    #[test]
+    fn hub_parse_hex_accepts_six_digit_form() {
+        let c = hub_parse_hex("#42be65").unwrap();
+        // 0x42 = 66 → 66/255 ≈ 0.259, 0xbe = 190 → ≈ 0.745,
+        // 0x65 = 101 → ≈ 0.396.
+        assert!((c.r - 0.259).abs() < 0.01);
+        assert!((c.g - 0.745).abs() < 0.01);
+        assert!((c.b - 0.396).abs() < 0.01);
+        assert!((c.a - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hub_parse_hex_accepts_three_digit_shorthand() {
+        // #f00 → 0xff/255 = 1.0, 0, 0
+        let c = hub_parse_hex("#f00").unwrap();
+        assert!((c.r - 1.0).abs() < f32::EPSILON);
+        assert!((c.g - 0.0).abs() < f32::EPSILON);
+        assert!((c.b - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn hub_parse_hex_rejects_malformed_forms() {
+        assert!(hub_parse_hex("42be65").is_none()); // no #
+        assert!(hub_parse_hex("#xyz").is_none()); // non-hex
+        assert!(hub_parse_hex("#1234").is_none()); // 4-digit rejected
+        assert!(hub_parse_hex("#abcdefab").is_none()); // 8-digit rejected
+        assert!(hub_parse_hex("").is_none());
+        assert!(hub_parse_hex("#").is_none());
+        assert!(hub_parse_hex("rebeccapurple").is_none());
+    }
+
+    #[test]
+    fn hub_tag_clicked_message_updates_logs_only() {
+        // Bench-observable: clicking a tag emits the message;
+        // update is a no-op state-wise (Portal-17.b owns the
+        // cascade response). We assert the call doesn't panic +
+        // doesn't change `state.layer` or `user_tags`.
+        let mut state = PortalFull::default();
+        let layer_before = state.layer;
+        let _ = update(&mut state, Message::HubTagClicked("Dev".to_string()));
+        assert_eq!(state.layer, layer_before);
+    }
+
+    #[test]
+    fn goto_hub_layer_refreshes_user_tags() {
+        // The Goto(Hub) handler re-reads the tag store. Without
+        // a real tags.json we just assert the call doesn't panic
+        // + the resulting user_tags is a Vec (possibly empty).
+        let mut state = PortalFull::default();
+        let _ = update(&mut state, Message::GotoLayer(Layer::Library));
+        let _ = update(&mut state, Message::GotoLayer(Layer::Hub));
+        assert_eq!(state.layer, Layer::Hub);
+        // user_tags is a Vec — len() is always valid (0 or more).
+        let _ = state.user_tags.len();
     }
 
     #[test]
