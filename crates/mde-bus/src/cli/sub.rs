@@ -47,6 +47,13 @@ pub enum SubOp {
         /// Override the manifest path.
         #[arg(long)]
         manifest: Option<PathBuf>,
+        /// Filter the printed list to topics matching this
+        /// MQTT-style pattern (`+` single-level, `#` multi-
+        /// level). Useful for previewing how many subscriptions
+        /// fall under a particular namespace without dumping the
+        /// full list. Composable with `--json`.
+        #[arg(long)]
+        pattern: Option<String>,
         /// Emit JSON Lines instead of plain-text. Each line is a
         /// JSON-quoted topic string suitable for piping to `jq`.
         #[arg(long, default_value_t = false)]
@@ -116,10 +123,15 @@ pub async fn run(op: SubOp) -> Result<()> {
                 println!("not subscribed: {topic}");
             }
         }
-        SubOp::List { manifest, json } => {
+        SubOp::List { manifest, pattern, json } => {
             let path = resolve_manifest_path(manifest)?;
             let m = read_or_default(&path)?;
             for t in &m.topics {
+                if let Some(p) = pattern.as_deref() {
+                    if !crate::wildcard::matches(p, t) {
+                        continue;
+                    }
+                }
                 if json {
                     let s = serde_json::to_string(t)
                         .unwrap_or_else(|_| format!("{t:?}"));
@@ -222,13 +234,50 @@ mod tests {
         // captured here.
         run(SubOp::List {
             manifest: Some(path.clone()),
+            pattern: None,
             json: false,
         })
         .await
         .unwrap();
         run(SubOp::List {
             manifest: Some(path),
+            pattern: None,
             json: true,
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_pattern_filters_topics() {
+        let (_tmp, path) = tmp_manifest();
+        for t in ["fleet/announce", "fleet/sec", "mon/cpu", "mon/disk"] {
+            run(SubOp::Add {
+                topic: t.to_string(),
+                manifest: Some(path.clone()),
+            })
+            .await
+            .unwrap();
+        }
+        // Verify the pattern predicate against the manifest
+        // directly — the CLI dispatch path is exercised by the
+        // second run() below; this assert is what proves the
+        // predicate behaves correctly.
+        let body = std::fs::read_to_string(&path).unwrap();
+        let m = SubsManifest::parse_yaml(&body).unwrap();
+        let matched: Vec<&String> = m
+            .topics
+            .iter()
+            .filter(|t| crate::wildcard::matches("fleet/#", t))
+            .collect();
+        assert_eq!(matched.len(), 2);
+        assert!(matched.iter().any(|t| t.as_str() == "fleet/announce"));
+        assert!(matched.iter().any(|t| t.as_str() == "fleet/sec"));
+        // Confirm dispatch path doesn't panic with --pattern.
+        run(SubOp::List {
+            manifest: Some(path),
+            pattern: Some("fleet/#".to_string()),
+            json: false,
         })
         .await
         .unwrap();

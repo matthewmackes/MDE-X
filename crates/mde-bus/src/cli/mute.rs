@@ -39,6 +39,11 @@ pub enum MuteOp {
         /// Override the manifest path.
         #[arg(long)]
         manifest: Option<PathBuf>,
+        /// Filter the printed list to topics matching this
+        /// MQTT-style pattern (`+` single-level, `#` multi-
+        /// level). Symmetry with `sub list --pattern`.
+        #[arg(long)]
+        pattern: Option<String>,
         /// Emit JSON Lines instead of plain-text. Each line is a
         /// JSON-quoted topic string suitable for piping to `jq`.
         #[arg(long, default_value_t = false)]
@@ -106,10 +111,15 @@ pub async fn run(op: MuteOp) -> Result<()> {
                 println!("not muted: {topic}");
             }
         }
-        MuteOp::List { manifest, json } => {
+        MuteOp::List { manifest, pattern, json } => {
             let path = resolve_manifest_path(manifest)?;
             let m = read_or_default(&path)?;
             for t in &m.mute {
+                if let Some(p) = pattern.as_deref() {
+                    if !crate::wildcard::matches(p, t) {
+                        continue;
+                    }
+                }
                 if json {
                     // JSON-encoded string per line — guarantees
                     // proper quoting of topics with special chars.
@@ -180,5 +190,33 @@ mod tests {
         }
         let m = SubsManifest::parse_yaml(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(m.mute.iter().filter(|t| *t == "x").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_pattern_filters_mute_topics() {
+        let (_tmp, path) = tmp_manifest();
+        for t in ["noisy/foo", "noisy/bar", "quiet/spam"] {
+            run(MuteOp::Add {
+                topic: t.to_string(),
+                manifest: Some(path.clone()),
+            })
+            .await
+            .unwrap();
+        }
+        let m = SubsManifest::parse_yaml(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let matched: Vec<&String> = m
+            .mute
+            .iter()
+            .filter(|t| crate::wildcard::matches("noisy/+", t))
+            .collect();
+        assert_eq!(matched.len(), 2);
+        // Dispatch exercise — verifies the verb runs with --pattern.
+        run(MuteOp::List {
+            manifest: Some(path),
+            pattern: Some("noisy/+".to_string()),
+            json: false,
+        })
+        .await
+        .unwrap();
     }
 }
