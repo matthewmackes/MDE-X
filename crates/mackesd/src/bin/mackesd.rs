@@ -2935,6 +2935,25 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("ansible-pull".into());
 
+        // TUNE-3.b (2026-05-26) — wire media_sync + remmina_sync
+        // subprocess-tick workers. Both drive `python3 -m
+        // mackes.<daemon>` modules that EPIC-RETIRE-PY-WORKBENCH
+        // is retiring; while the Python modules are extant the
+        // Rust workers carry the feature over to the supervisor.
+        // Once EPIC-RETIRE-PY-WORKBENCH retires the Python source,
+        // these workers retire with it (same hard-delete pattern
+        // as the thumbnailer worker that already shipped).
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::media_sync::build(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("media-sync".into());
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::remmina_sync::build(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("remmina-sync".into());
+
         // Portal-52.a (v6.0 R12-Q13) — sway session-restore
         // worker (workspace-structure half). 5s snapshot of
         // workspaces + outputs + layouts to
