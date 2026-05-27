@@ -177,6 +177,167 @@ pub fn parse_hhmm(s: &str) -> Option<u32> {
     Some(h * 3600 + m * 60)
 }
 
+/// Tick interval for the DND-state watcher. 1 second balances
+/// "operator-tolerant lag from peer-A toggle → peer-B observe"
+/// (GFS heals dnd.yaml within ~1 s on the LAN) against polling
+/// overhead.
+pub const DEFAULT_WATCH_TICK: std::time::Duration =
+    std::time::Duration::from_secs(1);
+
+/// Outcome of one [`DndWatcher::tick_once`] cycle. Public so
+/// tests can assert which branch fired without inspecting logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DndTickOutcome {
+    /// File doesn't exist (pre-toggle state or operator deleted
+    /// it). The cached state stays at the last known value
+    /// (default DND off on first miss).
+    FileMissing,
+    /// File mtime hasn't advanced since the last poll. No re-read,
+    /// no broadcast.
+    Idle,
+    /// File mtime advanced + content differs from cache. State
+    /// re-published through the watch channel.
+    Reloaded,
+    /// File mtime advanced but content parsed identical (e.g.
+    /// `touch dnd.yaml`). Treated as no-op.
+    Unchanged,
+    /// Re-read failed (permission, IO, etc.) or parse failed. The
+    /// previous cached state is preserved — corrupted writes
+    /// don't blow away the operator's last good DND value.
+    ReadOrParseFailed,
+}
+
+/// Live watcher for `<bus_root>/dnd.yaml`. Polls mtime every
+/// [`DEFAULT_WATCH_TICK`] (1 s); on advance re-reads + re-parses
+/// and broadcasts the new state through a
+/// `tokio::sync::watch::Sender`. Subscribers (the hook handler,
+/// future BUS-2.x display surfaces) clone the Receiver via
+/// [`Self::subscribe`].
+///
+/// The broadcast pattern eliminates the per-publish file re-read
+/// in `handle_hook` — instead of `dnd::load_default(&bus_root)`
+/// once per webhook fire, the handler reads the cached `current()`
+/// in O(lock-free-borrow). Each operator toggle still propagates
+/// across the mesh in ≤ 2 s (GFS heal + watch tick).
+pub struct DndWatcher {
+    file_path: std::path::PathBuf,
+    tick_interval: std::time::Duration,
+    tx: std::sync::Arc<tokio::sync::watch::Sender<DndState>>,
+    rx: tokio::sync::watch::Receiver<DndState>,
+    last_mtime: Option<std::time::SystemTime>,
+}
+
+impl DndWatcher {
+    /// Construct a watcher pinned to `<bus_root>/dnd.yaml`. The
+    /// initial state is loaded eagerly (missing/corrupted file →
+    /// `DndState::default()` = DND off).
+    #[must_use]
+    pub fn new(bus_root: std::path::PathBuf) -> Self {
+        let file_path = bus_root.join("dnd.yaml");
+        let initial = load_default(&bus_root);
+        let (tx, rx) = tokio::sync::watch::channel(initial);
+        Self {
+            file_path,
+            tick_interval: DEFAULT_WATCH_TICK,
+            tx: std::sync::Arc::new(tx),
+            rx,
+            last_mtime: None,
+        }
+    }
+
+    /// Override the tick interval — used by tests that need a
+    /// faster pulse.
+    #[must_use]
+    pub fn with_tick_interval(mut self, interval: std::time::Duration) -> Self {
+        self.tick_interval = interval;
+        self
+    }
+
+    /// Subscribe to state updates. Returns a fresh Receiver
+    /// cloned off the watcher's Sender; the latest value is
+    /// always immediately readable via `borrow()`.
+    #[must_use]
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<DndState> {
+        self.rx.clone()
+    }
+
+    /// Snapshot the current state. Cheaper than `subscribe()`
+    /// when the caller only needs one read.
+    #[must_use]
+    pub fn current(&self) -> DndState {
+        self.rx.borrow().clone()
+    }
+
+    /// Drive one tick of the watch loop. Public so tests can run
+    /// it deterministically.
+    pub fn tick_once(&mut self) -> DndTickOutcome {
+        if !self.file_path.exists() {
+            return DndTickOutcome::FileMissing;
+        }
+        let now = match std::fs::metadata(&self.file_path)
+            .and_then(|m| m.modified())
+        {
+            Ok(t) => t,
+            Err(_) => return DndTickOutcome::Idle,
+        };
+        let advanced = self.last_mtime.is_none_or(|last| now > last);
+        self.last_mtime = Some(now);
+        if !advanced {
+            return DndTickOutcome::Idle;
+        }
+        let bytes = match std::fs::read(&self.file_path) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(
+                    target: "mde_bus::dnd",
+                    error = %e,
+                    path = %self.file_path.display(),
+                    "dnd.yaml re-read failed"
+                );
+                return DndTickOutcome::ReadOrParseFailed;
+            }
+        };
+        let parsed: DndState = match serde_yaml::from_slice(&bytes) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    target: "mde_bus::dnd",
+                    error = %e,
+                    "dnd.yaml parse failed — keeping previous state"
+                );
+                return DndTickOutcome::ReadOrParseFailed;
+            }
+        };
+        let changed = *self.tx.borrow() != parsed;
+        if changed {
+            let _ = self.tx.send_replace(parsed);
+            tracing::info!(
+                target: "mde_bus::dnd",
+                path = %self.file_path.display(),
+                "dnd state reloaded"
+            );
+            DndTickOutcome::Reloaded
+        } else {
+            DndTickOutcome::Unchanged
+        }
+    }
+
+    /// Long-running async loop. Calls [`Self::tick_once`] every
+    /// `tick_interval` until `shutdown.changed()` resolves.
+    pub async fn run(
+        &mut self,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) {
+        loop {
+            let _ = self.tick_once();
+            tokio::select! {
+                _ = shutdown.changed() => break,
+                () = tokio::time::sleep(self.tick_interval) => {}
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +508,80 @@ mod tests {
         // DND off is the safe default — a corrupted file must NOT
         // silently suppress every notification.
         assert!(!s.active);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn watcher_starts_with_default_when_file_missing() {
+        let tmp = std::env::temp_dir().join(format!("mde-bus-dnd-watch-init-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let watcher = DndWatcher::new(tmp.clone());
+        // File doesn't exist → initial state = default (DND off).
+        assert_eq!(watcher.current(), DndState::default());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn watcher_starts_with_existing_file_state() {
+        let tmp = std::env::temp_dir().join(format!("mde-bus-dnd-watch-existing-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let existing = DndState {
+            active: true,
+            since_unix_ms: 1_700_000_000_000,
+            set_by_peer: "fedora".to_string(),
+        };
+        save_default(&tmp, &existing).unwrap();
+        let watcher = DndWatcher::new(tmp.clone());
+        assert_eq!(watcher.current(), existing);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn watcher_tick_file_missing() {
+        let tmp = std::env::temp_dir().join(format!("mde-bus-dnd-watch-missing-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let mut watcher = DndWatcher::new(tmp.clone());
+        assert_eq!(watcher.tick_once(), DndTickOutcome::FileMissing);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn watcher_tick_reloads_on_mtime_advance() {
+        let tmp = std::env::temp_dir().join(format!("mde-bus-dnd-watch-reload-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let initial = DndState::default();
+        save_default(&tmp, &initial).unwrap();
+        let mut watcher = DndWatcher::new(tmp.clone());
+        // First tick after creation — file exists, mtime advances
+        // from None → file's mtime. Content is identical to
+        // initial → Unchanged.
+        let first = watcher.tick_once();
+        assert!(
+            matches!(first, DndTickOutcome::Unchanged | DndTickOutcome::Reloaded),
+            "first tick should be Unchanged or Reloaded, got {first:?}"
+        );
+        // Sleep briefly so the next save_default produces a
+        // strictly-later mtime; some filesystems have 1-second
+        // mtime granularity.
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+        let flipped = DndState {
+            active: true,
+            since_unix_ms: 1_700_000_000_000,
+            set_by_peer: "fedora".to_string(),
+        };
+        save_default(&tmp, &flipped).unwrap();
+        assert_eq!(watcher.tick_once(), DndTickOutcome::Reloaded);
+        assert_eq!(watcher.current(), flipped);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn watcher_subscribe_emits_clone_of_current_state() {
+        let tmp = std::env::temp_dir().join(format!("mde-bus-dnd-watch-sub-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let watcher = DndWatcher::new(tmp.clone());
+        let rx = watcher.subscribe();
+        assert_eq!(*rx.borrow(), DndState::default());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

@@ -178,6 +178,33 @@ async fn run_daemon() -> anyhow::Result<()> {
             (None, None)
         }
     };
+    // BUS-2.8.watcher — mtime-poll watcher for <bus_root>/dnd.yaml.
+    // Broadcasts DndState changes through a tokio::sync::watch
+    // channel so subscribers (hook handler, future BUS-2.x display
+    // surfaces) read the cached state without per-fire file IO.
+    // Skip when no XDG data dir exists (pre-enrollment peer).
+    let (_dnd_shutdown_tx, _dnd_watcher_task) = match mde_bus::default_data_dir() {
+        Some(bus_root) => {
+            let mut watcher = mde_bus::dnd::DndWatcher::new(bus_root);
+            tracing::info!(
+                target: "mde_bus::dnd",
+                active = watcher.current().active,
+                "dnd state watcher started"
+            );
+            let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+            let task = tokio::spawn(async move {
+                watcher.run(shutdown_rx).await;
+            });
+            (Some(shutdown_tx), Some(task))
+        }
+        None => {
+            tracing::info!(
+                target: "mde_bus::dnd",
+                "dnd state watcher skipped — no XDG data home"
+            );
+            (None, None)
+        }
+    };
     // BUS-3.1 + BUS-3.2 — webhook ingress HTTP listener. Binds on
     // <overlay_ip>:8444 only; bind-scope is the auth boundary
     // (kernel rejects underlay connects). Skip reasons (no
