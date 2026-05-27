@@ -161,8 +161,26 @@ async fn handle_new_window(conn: &mut Connection, container: &swayipc_async::Nod
             let Some(owning) = find_owning_tag(&store, ws_num) else {
                 return;
             };
-            let Some(layout) = owning.default_layout.clone() else {
-                return;
+            // HYP-10.layout-bridge — tag-manifest `layout` wins over
+            // TagStore `default_layout` when set + recognised. The
+            // manifest's "mde" sentinel (compositor's native
+            // algorithm) is intentionally treated as "no preference"
+            // here — under sway it falls through to TagStore, then
+            // through to "no command issued."
+            let manifest_layout = crate::config::default_manifests_dir()
+                .and_then(|d| crate::config::load_tag_manifests(&d).ok())
+                .and_then(|ms| {
+                    ms.iter()
+                        .find(|m| m.name == owning.name)
+                        .map(|m| m.layout.clone())
+                })
+                .filter(|l| is_recognised_layout(l));
+            let layout = match manifest_layout {
+                Some(l) => l,
+                None => match owning.default_layout.clone() {
+                    Some(l) => l,
+                    None => return,
+                },
             };
             desired_string = layout;
             &desired_string
@@ -221,6 +239,34 @@ pub fn resolve_desired_layout<'a>(
     tag_default: Option<&'a str>,
 ) -> Option<&'a str> {
     override_layout.or(tag_default)
+}
+
+/// HYP-10.layout-bridge — precedence helper with the tag-manifest
+/// layer added. Returns the layout to apply per:
+///
+/// 1. `override_layout` — per-workspace override (Portal-50.b).
+/// 2. `manifest_layout` when set AND recognised (i.e. not the
+///    "mde" sentinel which means "compositor's native").
+/// 3. `tagstore_layout` — Portal-18.a legacy.
+/// 4. `None` — no opinion; sway picks naturally.
+///
+/// Exposed as `pub` so the precedence contract can be tested
+/// without a sway connection.
+#[must_use]
+pub fn resolve_desired_layout_with_manifest<'a>(
+    override_layout: Option<&'a str>,
+    manifest_layout: Option<&'a str>,
+    tagstore_layout: Option<&'a str>,
+) -> Option<&'a str> {
+    if let Some(l) = override_layout {
+        return Some(l);
+    }
+    if let Some(l) = manifest_layout {
+        if is_recognised_layout(l) {
+            return Some(l);
+        }
+    }
+    tagstore_layout
 }
 
 /// Build the swayipc command string for `layout <name>`.
@@ -354,5 +400,66 @@ mod tests {
     #[test]
     fn resolve_desired_layout_override_only() {
         assert_eq!(resolve_desired_layout(Some("tabbed"), None), Some("tabbed"));
+    }
+
+    // ── HYP-10.layout-bridge — tag-manifest precedence chain ──
+
+    /// Override beats everything, including manifest layout.
+    #[test]
+    fn resolve_with_manifest_override_wins_over_manifest() {
+        let r = resolve_desired_layout_with_manifest(
+            Some("tabbed"),
+            Some("splith"),
+            Some("splitv"),
+        );
+        assert_eq!(r, Some("tabbed"));
+    }
+
+    /// Manifest with a recognised layout beats tagstore default.
+    #[test]
+    fn resolve_with_manifest_recognised_beats_tagstore() {
+        let r = resolve_desired_layout_with_manifest(
+            None,
+            Some("splith"),
+            Some("splitv"),
+        );
+        assert_eq!(r, Some("splith"));
+    }
+
+    /// Manifest "mde" sentinel falls through to tagstore.
+    #[test]
+    fn resolve_with_manifest_mde_falls_through_to_tagstore() {
+        let r = resolve_desired_layout_with_manifest(
+            None,
+            Some("mde"),
+            Some("tabbed"),
+        );
+        assert_eq!(r, Some("tabbed"));
+    }
+
+    /// Manifest unrecognised value falls through to tagstore.
+    #[test]
+    fn resolve_with_manifest_unrecognised_falls_through() {
+        let r = resolve_desired_layout_with_manifest(
+            None,
+            Some("not-a-real-layout"),
+            Some("splitv"),
+        );
+        assert_eq!(r, Some("splitv"));
+    }
+
+    /// Empty manifest + empty tagstore + empty override → None.
+    #[test]
+    fn resolve_with_manifest_none_when_nothing_set() {
+        let r = resolve_desired_layout_with_manifest(None, None, None);
+        assert_eq!(r, None);
+    }
+
+    /// Manifest set to "mde", tagstore None → still None (the
+    /// "mde" sentinel means no compositor-side override).
+    #[test]
+    fn resolve_with_manifest_mde_with_no_tagstore_returns_none() {
+        let r = resolve_desired_layout_with_manifest(None, Some("mde"), None);
+        assert_eq!(r, None);
     }
 }
