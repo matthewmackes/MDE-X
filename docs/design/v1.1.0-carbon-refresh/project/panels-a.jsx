@@ -1,4 +1,26 @@
-/* Panels: Dashboard, Mesh VPN, Mesh Services */
+/*
+ * RETIRED v1.1.0 Carbon-refresh design mockup — historical only.
+ *
+ * Superseded by:
+ *   v2.0.0 PatternFly reskin (later retired itself, 2026-05-18)
+ *   v2.0.0 Mackes Desktop Environment (Iced + sway, locked 2026-05-19)
+ *   ChromeOS Classic visual lock (locked 2026-05-24)
+ *   Material Symbols icon set (locked 2026-05-25, Q43)
+ *
+ * Stale references in this file (DO NOT update inline — historical
+ * mockup, preserved as-is for design archaeology):
+ *
+ *   * "16 peers" — superseded by Q3 of the 100-Q tightening survey
+ *     2026-05-25; current cap is 8 peers. EPIC-MASTER-3 sweep
+ *     (2026-05-26) closes by adding this banner per §0.13's
+ *     quarterly-retirement-audit clause.
+ *   * "Tailscale" / "Headscale" — superseded by Nebula mesh fabric
+ *     (locked v2.5, see docs/design/v2.5-nebula-fabric.md).
+ *   * "Carbon" icon refs — superseded by Material Symbols per
+ *     Q43 + EPIC-UI-MATERIAL.
+ *
+ * Panels: Dashboard, Mesh VPN, Mesh Services
+ */
 
 // ============================================================
 // Dashboard
