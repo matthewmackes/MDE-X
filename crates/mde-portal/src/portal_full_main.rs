@@ -465,6 +465,42 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
                         }
                     });
                 }
+                TagMember::Activity { ulid } => {
+                    tracing::info!(%ulid, "portal-full: cascade opens activity card");
+                    let ulid = ulid.clone();
+                    std::thread::spawn(move || {
+                        // Activities live at
+                        // `<XDG_DATA_HOME>/mde/activity/<type>/<iso>-<hash>.json`
+                        // per Portal-33. Without a per-type lookup
+                        // index yet, the v1 path is best-effort:
+                        // glob the activity dir for any file whose
+                        // name contains the ULID, then xdg-open
+                        // the first hit. The proper drill-in via
+                        // the Portal-33 Activity-as-files
+                        // subsystem ships separately.
+                        let xdg_data = std::env::var("XDG_DATA_HOME")
+                            .ok()
+                            .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.local/share")));
+                        let Some(base) = xdg_data else {
+                            tracing::warn!(%ulid, "activity: no XDG_DATA_HOME / HOME — skip");
+                            return;
+                        };
+                        let activity_root = format!("{base}/mde/activity");
+                        // Walk one level deep and find a file
+                        // containing the ULID. Shell to `find` for
+                        // simplicity — fire-and-forget; failure logs.
+                        if let Err(e) = std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(format!(
+                                "p=$(find {} -maxdepth 2 -type f -name '*{}*' 2>/dev/null | head -1); test -n \"$p\" && xdg-open \"$p\"",
+                                activity_root, ulid
+                            ))
+                            .spawn()
+                        {
+                            tracing::warn!(%ulid, error = %e, "activity find+open spawn failed");
+                        }
+                    });
+                }
                 TagMember::Peer { hostname } => {
                     tracing::info!(%hostname, "portal-full: cascade opens ssh to peer");
                     let hostname = hostname.clone();
@@ -2046,6 +2082,19 @@ mod tests {
             &mut state,
             Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::File {
                 path: "/nonexistent/path/for/cascade/test.txt".to_string(),
+            }),
+        );
+        assert!(state.hub_cascade_stack.is_empty());
+    }
+
+    #[test]
+    fn cascade_member_activity_variant_clears_stack() {
+        let mut state = PortalFull::default();
+        state.hub_cascade_stack.push("Recent".to_string());
+        let _ = update(
+            &mut state,
+            Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::Activity {
+                ulid: "01TESTACTIVITY".to_string(),
             }),
         );
         assert!(state.hub_cascade_stack.is_empty());
