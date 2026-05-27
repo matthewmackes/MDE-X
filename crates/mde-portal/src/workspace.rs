@@ -375,11 +375,27 @@ pub async fn wm_fullscreen_toggle(con_id: i64) {
     }
 }
 
-/// Move the given container to the scratchpad (Portal-8.b minimize button).
-pub async fn wm_scratchpad(con_id: i64) {
-    if let Ok(mut conn) = Connection::new().await {
-        let _ = conn.run_command(&format!("[con_id={con_id}] move to scratchpad")).await;
-    }
+/// Park the given container at workspace 99 (Portal-8.b 5th micro-button,
+/// Portal-59 R12-Q24 supersedes the scratchpad model). Workspace 99 is the
+/// platform's reserved "parked-window" slot — Portal mini-tree + running-zone
+/// filter it out (Portal-5 + Portal-8.a) so a parked window feels minimized
+/// to the operator while staying first-class in sway's tree (no scratchpad-
+/// stack semantics to manage). The sequence is three swayipc commands:
+///   1. `move container to workspace number 99` — relocates the window.
+///   2. `workspace number 99` — briefly switches there so sway records 99
+///      as the "previous" workspace.
+///   3. `workspace back_and_forth` — returns to where the operator was.
+/// The natural inverse `bindsym $mod+Shift+m` (data/sway/config) un-parks
+/// the most-recently-focused parked window into the current workspace.
+pub async fn wm_minimize(con_id: i64) {
+    let Ok(mut conn) = Connection::new().await else {
+        return;
+    };
+    let _ = conn
+        .run_command(&format!("[con_id={con_id}] move container to workspace number 99"))
+        .await;
+    let _ = conn.run_command("workspace number 99").await;
+    let _ = conn.run_command("workspace back_and_forth").await;
 }
 
 /// Cycle the parent layout: split → tabbed → stacking (Portal-8.b layout button).
@@ -684,8 +700,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wm_scratchpad_does_not_panic_without_sway() {
-        wm_scratchpad(999_999).await;
+    async fn wm_minimize_does_not_panic_without_sway() {
+        wm_minimize(999_999).await;
     }
 
     #[tokio::test]

@@ -48,6 +48,13 @@ const WS_MARQUEE_ADVANCE_PX: f32 = 1.0;
 /// Crate-private app-id constant visible to the layer-shell compositor.
 pub(crate) const APP_ID: &str = "dev.mackes.MDE.Portal";
 
+/// Portal-59 (R12-Q24): workspace 99 is the platform's reserved "parked-
+/// window" slot. The 5th micro-button (`↓`) parks the focused window here
+/// instead of moving it to sway's scratchpad; Mod+Shift+m un-parks the
+/// most-recently-focused parked window. Running-zone + mini-tree both
+/// filter this number out so a parked window reads as minimized.
+pub const PARKED_WORKSPACE_NUM: i32 = 99;
+
 /// Height of the Dock strip in logical pixels (Portal-2 lock).
 pub const DOCK_HEIGHT_PX: u32 = 56;
 
@@ -222,8 +229,11 @@ pub enum Message {
     WmFloat(i64),
     /// WM micro-button: toggle fullscreen (Portal-8.b, R4-Q69).
     WmFull(i64),
-    /// WM micro-button: move window to scratchpad (Portal-8.b, R4-Q70).
-    WmScratchpad(i64),
+    /// WM micro-button: minimize the window by parking it at workspace 99
+    /// (Portal-8.b, R4-Q67 reframed by Portal-59 / R12-Q24). The parked
+    /// workspace is filtered out of mini-tree + running-zone, so parking
+    /// feels like a minimize while sway keeps the window first-class.
+    WmMinimize(i64),
     /// WM micro-button: cycle parent layout split→tabbed→stacking (Portal-8.b, R4-Q71).
     WmLayoutCycle(i64),
     /// 30-second sysfs poll result (Portal-9.a: battery/network/backlight).
@@ -507,9 +517,9 @@ impl iced_layershell::Application for DockApp {
                     |_| Message::Noop,
                 );
             }
-            Message::WmScratchpad(con_id) => {
+            Message::WmMinimize(con_id) => {
                 return Task::perform(
-                    crate::workspace::wm_scratchpad(con_id),
+                    crate::workspace::wm_minimize(con_id),
                     |_| Message::Noop,
                 );
             }
@@ -794,7 +804,10 @@ fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message>
 
     let mut cells: Vec<Element<'a, Message>> = Vec::new();
 
-    for ws in app.workspaces.iter().filter(|w| w.num >= 0) {
+    // Portal-59 (R12-Q24): workspace 99 is the platform's reserved
+    // park slot for the minimize button. Filter it out of the
+    // mini-tree so a parked window feels minimized to the operator.
+    for ws in mini_tree_visible_workspaces(&app.workspaces) {
         let is_focused = ws.focused;
         let is_current_output = ws.output == current_output;
         let is_urgent = ws.urgent;
@@ -1025,10 +1038,31 @@ fn nav_button_cell<'a>(
 /// Clicking the label area focuses the window (focused one or first in group).
 /// Hovering the cell reveals 5 WM micro-buttons (Portal-8.b, R4-Q67–Q71):
 ///   `✕` close · `◱` float · `□` fullscreen · `↓` scratchpad · `≡` layout-cycle
+/// Portal-59 (R12-Q24): pure filter that the running-zone renderer
+/// applies before grouping by app_id. Hides windows parked at the
+/// reserved workspace ([`PARKED_WORKSPACE_NUM`]). Exposed for tests.
+fn running_zone_visible_windows(windows: &[WindowInfo]) -> impl Iterator<Item = &WindowInfo> {
+    windows
+        .iter()
+        .filter(|w| w.workspace_num != PARKED_WORKSPACE_NUM)
+}
+
+/// Portal-59 (R12-Q24): pure filter that the mini-tree renderer
+/// applies. Drops negative-numbered slots (sway scratchpad meta) AND
+/// the parked workspace. Exposed for tests.
+fn mini_tree_visible_workspaces(workspaces: &[WorkspaceInfo]) -> impl Iterator<Item = &WorkspaceInfo> {
+    workspaces
+        .iter()
+        .filter(|w| w.num >= 0 && w.num != PARKED_WORKSPACE_NUM)
+}
+
 fn build_running_zone<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
     use std::collections::BTreeMap;
     let mut groups: BTreeMap<String, Vec<&WindowInfo>> = BTreeMap::new();
-    for w in &app.running_windows {
+    // Portal-59 (R12-Q24): hide windows parked at workspace 99 — they
+    // read as minimized to the operator. Mod+Shift+m un-parks them
+    // back into the focused workspace.
+    for w in running_zone_visible_windows(&app.running_windows) {
         let key = w
             .app_id
             .clone()
@@ -1115,7 +1149,7 @@ fn build_running_zone<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
                 wm_micro_btn("✕", btn_color, Message::WmClose(target_id)),
                 wm_micro_btn("◱", btn_color, Message::WmFloat(target_id)),
                 wm_micro_btn("□", btn_color, Message::WmFull(target_id)),
-                wm_micro_btn("↓", btn_color, Message::WmScratchpad(target_id)),
+                wm_micro_btn("↓", btn_color, Message::WmMinimize(target_id)),
                 wm_micro_btn("≡", btn_color, Message::WmLayoutCycle(target_id)),
             ]
             .spacing(1)
@@ -1989,10 +2023,75 @@ mod tests {
     }
 
     #[test]
-    fn wm_scratchpad_fires_task_without_panic() {
+    fn wm_minimize_fires_task_without_panic() {
         let mut app = DockApp::default();
         let _task =
-            iced_layershell::Application::update(&mut app, Message::WmScratchpad(42));
+            iced_layershell::Application::update(&mut app, Message::WmMinimize(42));
+    }
+
+    // ── Portal-59 (R12-Q24) scratchpad-retirement filter tests ──────────────
+
+    /// Three windows on three different workspaces, all parked at 99:
+    /// the running-zone input collapses to zero. Mirrors the bench
+    /// acceptance "park three windows from three different workspaces
+    /// → minified-zone shows none."
+    #[test]
+    fn parked_windows_filtered_from_running_zone_input() {
+        let windows = vec![
+            make_window(101, "firefox", PARKED_WORKSPACE_NUM, false),
+            make_window(102, "foot", PARKED_WORKSPACE_NUM, false),
+            make_window(103, "helix", PARKED_WORKSPACE_NUM, false),
+        ];
+        let visible: Vec<&WindowInfo> = running_zone_visible_windows(&windows).collect();
+        assert!(
+            visible.is_empty(),
+            "windows on the parked workspace must not appear in the running-zone"
+        );
+    }
+
+    /// Mixed input — two parked, one live — collapses to the live one.
+    /// Locks the filter against accidentally dropping non-parked windows.
+    #[test]
+    fn live_windows_pass_through_running_zone_filter() {
+        let windows = vec![
+            make_window(101, "firefox", PARKED_WORKSPACE_NUM, false),
+            make_window(102, "foot", 1, true),
+            make_window(103, "helix", PARKED_WORKSPACE_NUM, false),
+        ];
+        let visible: Vec<&WindowInfo> = running_zone_visible_windows(&windows).collect();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].con_id, 102);
+        assert_eq!(visible[0].app_id.as_deref(), Some("foot"));
+    }
+
+    /// The mini-tree must also hide the parked workspace itself, so
+    /// an operator with parked windows doesn't see the `99` cell
+    /// stranded at the right edge of the workspace strip.
+    #[test]
+    fn parked_workspace_filtered_from_mini_tree() {
+        let workspaces = vec![
+            make_ws(1, "1: firefox", true, true, "eDP-1"),
+            make_ws(2, "2", false, false, "eDP-1"),
+            make_ws(PARKED_WORKSPACE_NUM, "99", false, false, "eDP-1"),
+        ];
+        let visible: Vec<&WorkspaceInfo> = mini_tree_visible_workspaces(&workspaces).collect();
+        let nums: Vec<i32> = visible.iter().map(|w| w.num).collect();
+        assert_eq!(nums, vec![1, 2], "parked workspace must not appear");
+    }
+
+    /// Scratchpad meta-workspaces (sway's internal `-1` for windows
+    /// in the actual scratchpad — Portal-full uses these) STILL get
+    /// filtered, locking the pre-existing mini-tree contract that
+    /// negative workspace numbers stay hidden.
+    #[test]
+    fn negative_meta_workspaces_still_filtered() {
+        let workspaces = vec![
+            make_ws(-1, "__internal__", false, false, ""),
+            make_ws(1, "1", true, true, "eDP-1"),
+        ];
+        let visible: Vec<&WorkspaceInfo> = mini_tree_visible_workspaces(&workspaces).collect();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].num, 1);
     }
 
     #[test]

@@ -132,13 +132,19 @@ bindsym F3 exec mde-popover expose
 # entry to copy it back via wl-copy).
 bindsym $mod+v exec mde-popover clipboard
 
-# v4.0.1 BUG-15 — recover minimized windows. The panel's centered
-# minimize button (BUG-6) routes through `swaymsg [con_id=N] move
-# scratchpad` because sway has no native minimize; this binding
-# cycles the scratchpad stack back into the focused workspace one
-# window at a time. Super+Shift+M reads as the natural inverse of
-# the click on the centered minus glyph.
-bindsym $mod+Shift+m exec swaymsg scratchpad show
+# Portal-59 (R12-Q24, 2026-05-26): supersedes BUG-15 + R5-Q23. The
+# 5th micro-button on every running-zone card (`↓`) now parks the
+# window at workspace 99 + briefly switches there + uses
+# `workspace back_and_forth` to return to where the operator was,
+# instead of moving to sway's actual scratchpad. The natural inverse
+# Mod+Shift+m matches: instead of `scratchpad show` it moves the
+# most-recently-focused window from the parked workspace 99 back
+# into the current workspace. Park-workspace 99 stays out of the
+# Portal mini-tree + running-zone (filter `workspace_num != 99`)
+# so parking feels like minimize. Sway's native scratchpad stays
+# untouched — Portal-full (`mde-portal-full`) still uses
+# `scratchpad show` against its layer-shell surface.
+bindsym $mod+Shift+m exec swaymsg "[workspace=\"99\"] move container to workspace current"
 
 # Portal-30 — soft-restart mde-portal (R4-Q87). Shell-state snapshot
 # (Portal-29) fires every 5 s so the last snapshot is ≤5 s stale.
