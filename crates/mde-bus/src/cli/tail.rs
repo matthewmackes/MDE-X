@@ -43,6 +43,24 @@ pub struct TailArgs {
     /// `<XDG_DATA_HOME>/mde/bus`). Mainly for tests.
     #[arg(long)]
     pub bus_root: Option<PathBuf>,
+    /// Emit JSON Lines instead of the human-readable summary.
+    /// Each line is a full StoredMessage object suitable for
+    /// piping to `jq`.
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
+}
+
+/// Format one stored message as either the human-readable tail
+/// summary or a JSONL line, gated on `json`. Centralised here so
+/// the two emit-sites (count-mode pre-loop + follow-mode poll
+/// loop) stay in sync.
+#[must_use]
+pub fn format_emit(msg: &StoredMessage, json: bool) -> String {
+    if json {
+        serde_json::to_string(msg).unwrap_or_else(|_| format_line(msg))
+    } else {
+        format_line(msg)
+    }
 }
 
 /// Format one stored message as a single-line tail entry.
@@ -108,7 +126,7 @@ pub async fn run(args: TailArgs) -> Result<()> {
         all.sort_by(|a, b| a.ulid.cmp(&b.ulid));
         let start = all.len().saturating_sub(n);
         for m in &all[start..] {
-            println!("{}", format_line(m));
+            println!("{}", format_emit(m, args.json));
         }
         return Ok(());
     }
@@ -159,7 +177,7 @@ pub async fn run(args: TailArgs) -> Result<()> {
                 }
                 new_rows.sort_by(|a, b| a.ulid.cmp(&b.ulid));
                 for m in new_rows {
-                    println!("{}", format_line(&m));
+                    println!("{}", format_emit(&m, args.json));
                 }
                 cursor = new_max;
             }
@@ -208,6 +226,36 @@ mod tests {
     }
 
     #[test]
+    fn format_emit_json_round_trips_full_envelope() {
+        let m = StoredMessage {
+            ulid: "01J0AAA".to_string(),
+            topic: "fleet/announce".to_string(),
+            priority: "high".to_string(),
+            title: Some("hello".to_string()),
+            body: Some("body".to_string()),
+            ts_unix_ms: 1_700_000_000_000,
+            file_path: "fleet/announce/01J0AAA.json".to_string(),
+        };
+        let json = format_emit(&m, true);
+        let parsed: StoredMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, m);
+    }
+
+    #[test]
+    fn format_emit_tsv_matches_format_line() {
+        let m = StoredMessage {
+            ulid: "01J0AAA".to_string(),
+            topic: "fleet/announce".to_string(),
+            priority: "high".to_string(),
+            title: Some("hello".to_string()),
+            body: None,
+            ts_unix_ms: 0,
+            file_path: "p".to_string(),
+        };
+        assert_eq!(format_emit(&m, false), format_line(&m));
+    }
+
+    #[test]
     fn expand_pattern_without_wildcard_returns_pattern() {
         let topics = vec!["a/b".to_string(), "c/d".to_string()];
         assert_eq!(expand_pattern("a/b", &topics), vec!["a/b".to_string()]);
@@ -247,6 +295,7 @@ mod tests {
             count: Some(3),
             interval_ms: 250,
             bus_root: Some(tmp.path().to_path_buf()),
+            json: false,
         };
         // Should not hang.
         let res = tokio::time::timeout(Duration::from_secs(2), run(args)).await;
