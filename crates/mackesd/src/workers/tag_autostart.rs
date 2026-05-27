@@ -151,11 +151,22 @@ impl TagAutostartWorker {
         let Some(owning) = find_owning_tag(&store, num) else {
             return;
         };
-        if owning.autostart.is_empty() {
+        // HYP-11.sway-bridge — tag-manifest `autostart` (bool) +
+        // `apps` (Vec<String>) take precedence over TagStore's
+        // legacy `autostart: Vec<String>`. When the manifest is
+        // present + carries autostart=true, the effective list is
+        // manifest.apps; autostart=false means "no autostart"
+        // regardless of TagStore's setting (the manifest is the
+        // source of truth per HYP-8.5).
+        let manifest = crate::config::default_manifests_dir()
+            .and_then(|d| crate::config::load_tag_manifests(&d).ok())
+            .and_then(|ms| ms.into_iter().find(|m| m.name == owning.name));
+        let effective_apps = effective_autostart_list(manifest.as_ref(), &owning.autostart);
+        if effective_apps.is_empty() {
             return;
         }
         self.seen.insert(num);
-        for app_id in &owning.autostart {
+        for app_id in &effective_apps {
             let cmd = exec_command(app_id);
             match conn.run_command(&cmd).await {
                 Ok(_) => tracing::debug!(workspace = num, %app_id, "tag_autostart fired"),
@@ -186,6 +197,38 @@ impl TagAutostartWorker {
 pub fn exec_command(app_id: &str) -> String {
     let escaped = app_id.replace('\\', "\\\\").replace('"', "\\\"");
     format!("exec \"{escaped}\"")
+}
+
+/// HYP-11.sway-bridge — resolve the effective autostart list.
+///
+/// Precedence:
+///
+/// 1. **Manifest present + `autostart = true`** → return
+///    `manifest.apps.clone()`. The manifest is the source of
+///    truth per HYP-8.5; the `apps` Vec is the launch list.
+/// 2. **Manifest present + `autostart = false`** → return empty
+///    Vec. The operator explicitly opted out; do NOT fall through
+///    to TagStore (that would be surprising behavior).
+/// 3. **No manifest** → return `tagstore_autostart.to_vec()` as
+///    the legacy Portal-18.a fallback.
+///
+/// Pure-fn — exposed as `pub` so the contract can be tested
+/// without a sway connection.
+#[must_use]
+pub fn effective_autostart_list(
+    manifest: Option<&crate::config::TagManifest>,
+    tagstore_autostart: &[String],
+) -> Vec<String> {
+    match manifest {
+        Some(m) => {
+            if m.autostart {
+                m.apps.clone()
+            } else {
+                Vec::new()
+            }
+        }
+        None => tagstore_autostart.to_vec(),
+    }
 }
 
 #[cfg(test)]
@@ -228,5 +271,58 @@ mod tests {
         for n in -5..=10 {
             assert!(w.should_fire(n), "workspace {n} should be unseen");
         }
+    }
+
+    // ── HYP-11.sway-bridge — tag-manifest autostart precedence ──
+
+    fn dev_manifest(autostart: bool, apps: &[&str]) -> crate::config::TagManifest {
+        crate::config::TagManifest {
+            name: "Dev".to_string(),
+            autostart,
+            apps: apps.iter().map(|s| s.to_string()).collect(),
+            ..crate::config::TagManifest::default()
+        }
+    }
+
+    /// Manifest present + autostart=true → returns manifest.apps.
+    #[test]
+    fn manifest_autostart_true_returns_manifest_apps() {
+        let m = dev_manifest(true, &["foot", "code"]);
+        let tagstore = vec!["legacy".to_string()];
+        let r = effective_autostart_list(Some(&m), &tagstore);
+        assert_eq!(r, vec!["foot".to_string(), "code".to_string()]);
+    }
+
+    /// Manifest present + autostart=false → empty (NOT TagStore).
+    #[test]
+    fn manifest_autostart_false_returns_empty_no_fallback() {
+        let m = dev_manifest(false, &["foot", "code"]);
+        let tagstore = vec!["legacy".to_string()];
+        let r = effective_autostart_list(Some(&m), &tagstore);
+        assert!(r.is_empty(), "false opt-out shouldn't fall through to TagStore");
+    }
+
+    /// Manifest present + autostart=true + empty apps → empty.
+    #[test]
+    fn manifest_autostart_true_with_empty_apps_is_empty() {
+        let m = dev_manifest(true, &[]);
+        let tagstore = vec!["legacy".to_string()];
+        let r = effective_autostart_list(Some(&m), &tagstore);
+        assert!(r.is_empty());
+    }
+
+    /// No manifest → TagStore fallback.
+    #[test]
+    fn no_manifest_falls_through_to_tagstore() {
+        let tagstore = vec!["foot".to_string(), "code".to_string()];
+        let r = effective_autostart_list(None, &tagstore);
+        assert_eq!(r, tagstore);
+    }
+
+    /// No manifest + empty TagStore → empty.
+    #[test]
+    fn no_manifest_with_empty_tagstore_is_empty() {
+        let r = effective_autostart_list(None, &[]);
+        assert!(r.is_empty());
     }
 }
