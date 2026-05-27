@@ -1154,6 +1154,12 @@ const ACCENT_INDIGO: Color = Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 };
 /// portal_full_main; the extraction follows the TUNE-10.b
 /// allow-list-shrink direction.
 const SURFACE_RAISED: Color = Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 };
+/// Slate button-background for secondary actions (Cancel
+/// buttons in modals, dismissable indicator pills). The next
+/// step lighter than SURFACE_RAISED so secondary affordances
+/// read as elevated above the modal card without competing
+/// with the indigo primary-action emphasis.
+const BUTTON_SLATE: Color = Color { r: 0.30, g: 0.30, b: 0.34, a: 1.0 };
 
 /// Portal-17.a — the 6 locked system tags. Order is the design
 /// lock from R10-Q16 + 'Recent' retired per R3-Q20.
@@ -1368,7 +1374,7 @@ fn build_hub_multi_select_indicator(state: &PortalFull) -> Element<'_, Message> 
         button(text("Clear").size(11.0).color(Color::WHITE))
             .on_press(Message::HubMultiSelectCleared)
             .style(|_theme: &Theme, _status| iced::widget::button::Style {
-                background: Some(iced::Background::Color(Color { r: 0.30, g: 0.30, b: 0.34, a: 1.0 })),
+                background: Some(iced::Background::Color(BUTTON_SLATE)),
                 text_color: Color::WHITE,
                 border: iced::Border {
                     radius: iced::border::Radius::from(6.0),
@@ -1507,7 +1513,7 @@ fn build_edit_tag_modal(state: &PortalFull) -> Element<'_, Message> {
         button(text("Cancel").size(13.0).color(Color::WHITE))
             .on_press(Message::CancelTagEdit)
             .style(|_theme: &Theme, _status| iced::widget::button::Style {
-                background: Some(iced::Background::Color(Color { r: 0.30, g: 0.30, b: 0.34, a: 1.0 })),
+                background: Some(iced::Background::Color(BUTTON_SLATE)),
                 text_color: Color::WHITE,
                 border: iced::Border {
                     radius: iced::border::Radius::from(6.0),
@@ -1604,7 +1610,7 @@ fn build_edit_window_rule_modal(state: &PortalFull) -> Element<'_, Message> {
         button(text("Cancel").size(13.0).color(Color::WHITE))
             .on_press(Message::CancelWindowRuleEdit)
             .style(|_theme: &Theme, _status| iced::widget::button::Style {
-                background: Some(iced::Background::Color(Color { r: 0.30, g: 0.30, b: 0.34, a: 1.0 })),
+                background: Some(iced::Background::Color(BUTTON_SLATE)),
                 text_color: Color::WHITE,
                 border: iced::Border {
                     radius: iced::border::Radius::from(6.0),
