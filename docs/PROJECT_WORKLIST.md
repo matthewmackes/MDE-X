@@ -15236,9 +15236,7 @@ Last updated: 2026-05-21 — Claude Opus 4.7 (50-question lock survey
   Outputs: `crates/mde-wizard/src/`;
   `data/illustrations/wizard/*.svg`.
 
-- [>] **UX-17: App icon + brand mark refinement — initial cut
-  landed 2026-05-21; multi-resolution + logotype tracked as
-  UX-17.a** — Source SVG preserved at
+- [✓] **UX-17: App icon + brand mark refinement** *(closed 2026-05-26 by session=opus-47-2026-05-26-ship-X — initial cut shipped 2026-05-21; multi-resolution PNG renders + logotype + README banner + installer splash sub-task UX-17.a is also [✓]; parent flips to closed.)* — Source SVG preserved at
   `docs/design/v2.2-icon-source/map-icon.svg` (NFU-2).
   Initial recolor at `data/branding/mde-icon.svg`: charcoal
   background (`#1d1d1f` per Q3) + indigo accent squares
