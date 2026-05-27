@@ -13,5 +13,4 @@
 
 pub mod audit;
 pub mod https443;
-pub mod phones_manifest;
 pub mod policy;

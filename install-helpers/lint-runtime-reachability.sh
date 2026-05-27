@@ -22,11 +22,18 @@ set -eu
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Collect every `pub mod foo;` declaration in lib.rs + mod.rs
-# files. We skip `pub mod foo { ... }` inline-module declarations
-# because those are by-definition reachable from inside the same
-# file.
-DECL_FILES="$(find crates -type f \( -name 'lib.rs' -o -name 'mod.rs' \) 2>/dev/null)"
+# Collect every `pub mod foo;` declaration in lib.rs + mod.rs +
+# main.rs files. We skip `pub mod foo { ... }` inline-module
+# declarations because those are by-definition reachable from
+# inside the same file.
+#
+# main.rs is included as of 2026-05-27 (TUNE-3.d extension): the
+# Portal-14.d breath_line + Portal-14.c marquee primitives were
+# both declared via `pub mod` in main.rs; lib.rs/mod.rs-only
+# scanning would have missed any dead module under a binary
+# crate. Catching those at lint-time closes the §0.12 no-stubs
+# upstream gap.
+DECL_FILES="$(find crates -type f \( -name 'lib.rs' -o -name 'mod.rs' -o -name 'main.rs' \) 2>/dev/null)"
 
 # Snapshot allow-list file. Pre-existing dead modules captured
 # on 2026-05-26 at lint introduction (48 entries — the v3.x dead-
