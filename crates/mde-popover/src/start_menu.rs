@@ -20,9 +20,11 @@ use crate::watermark::{
     current_pending_count, spawn_pkexec_dnf_upgrade, WatermarkState,
 };
 
-/// v4.0.1 BUG-13 — Carbon glyph bytes for the pinned tiles. Baked
-/// here rather than depending on `mde-panel`'s `panel_icons` module
-/// so the popover crate stays free of upstream-binary deps.
+/// v4.0.1 BUG-13 — pinned-tile glyph bytes (still served from the
+/// `assets/icons/carbon/` directory until the Material Symbols
+/// asset rename ships in EPIC-UI-MATERIAL.svg-swap). Baked here
+/// rather than depending on `mde-panel`'s `panel_icons` module so
+/// the popover crate stays free of upstream-binary deps.
 const FILES_SVG: &[u8] =
     include_bytes!("../../../assets/icons/carbon/files.svg");
 const WORKBENCH_SVG: &[u8] =
@@ -47,9 +49,9 @@ use mde_applet_start_menu::{parse_desktop_file, search as search_apps, AppEntry}
 const WIDTH: u32 = 480;
 const HEIGHT: u32 = 560;
 
-/// Accent — same Carbon `interactive-04` / PatternFly blue-400 the
-/// panel uses, kept in sync by visual inspection (a shared theme
-/// crate lands at Phase E3.1 follow-up).
+/// Accent — same Material blue 60 / PatternFly blue-400 the panel
+/// uses, kept in sync by visual inspection (a shared theme crate
+/// lands at Phase E3.1 follow-up).
 const ACCENT: Color = Color {
     r: 0.169,
     g: 0.604,
@@ -219,7 +221,7 @@ impl iced_layershell::Application for App {
         // .desktop apps list. Win10 start-menu pattern: the
         // operator's most-used surfaces are one click away without
         // needing to type or scroll.
-        // v4.0.1 BUG-13: tiles now render the Carbon `folder` and
+        // v4.0.1 BUG-13: tiles now render the Material `folder` and
         // `tools` glyphs above the label rather than label-only.
         let pinned_tile = |svg_bytes: &'static [u8], label: &'static str, exec: &'static str| {
             let glyph = svg(svg::Handle::from_memory(svg_bytes))

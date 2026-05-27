@@ -107,7 +107,7 @@ enum Kind {
     SnapAssist,
     /// v3.0.3 E.19 — icon-mapper glyph picker. Reads target
     /// via MDE_ICON_MAPPER_APP_ID env var; writes the picked
-    /// Carbon glyph to ~/.local/share/applications/
+    /// Material Symbols glyph to ~/.local/share/applications/
     /// <app>.desktop's X-MDE-Icon= line. Spawned via the
     /// "Customize Icon..." entry on the WM-3 window-actions
     /// popover.

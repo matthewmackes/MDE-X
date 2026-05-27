@@ -1,6 +1,6 @@
 //! v3.0.3 Phase E.19 wiring — icon-mapper popover.
 //!
-//! Surfaces a grid of candidate Carbon glyph names for the
+//! Surfaces a grid of candidate Material Symbols glyph names for the
 //! target app's freedesktop Icon= (or the app's sway `app_id`
 //! when the .desktop doesn't supply one). Clicking a candidate
 //! writes `~/.local/share/applications/<app>.desktop`'s
@@ -58,7 +58,7 @@ const SURFACE_BG: Color = Color {
     a: 0.97,
 };
 
-/// Curated short list of Carbon glyph names the picker
+/// Curated short list of Material Symbols glyph names the picker
 /// surfaces. Mirrors the `builtin_map()` codomain in
 /// `mde_panel::icon_mapper` — when the operator hits a glyph
 /// here, it's one of the names the resolver will produce on
