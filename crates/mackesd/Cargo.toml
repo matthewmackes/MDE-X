@@ -62,11 +62,13 @@ mackes-transport = { path = "../mackes-transport" }
 # already gates tokio + zbus.
 mde-kdc = { path = "../mde-kdc", optional = true }
 
-# KDC2-4.3 — pure protocol crate; mackesd's mesh-shunt helper
-# in `transport::mesh_shunt` consumes `DiscoveryRegistry` +
-# `Announce` + `SyntheticAnnounce` for the phones.json →
-# registry fan-out. No feature gate — these are pure types,
-# no I/O or async runtime needed in the base build.
+# Pure protocol crate consumed by `workers/kdc_host.rs` for
+# `DiscoveryRegistry` integration. The original mesh-shunt
+# helper (`transport::mesh_shunt`) was retired with TUNE-3.b
+# (2026-05-27) — phone discovery now flows through full
+# Nebula peer-hood per Q23 of the 25-Q tuning survey
+# (EPIC PHONE-NEBULA-PEER). No feature gate — these are pure
+# types, no I/O or async runtime needed in the base build.
 mde-kdc-proto = { path = "../mde-kdc-proto" }
 
 # VV-1 / VV-1.5 (v4.1.0) — pure-function config generator for

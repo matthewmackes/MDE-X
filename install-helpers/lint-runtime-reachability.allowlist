@@ -3,15 +3,13 @@
 # also accept aliased imports (`<name> as <alias>`), which
 # cleared 36 of the 37 prior false-positive entries (the
 # mde-workbench panel set imported via `apps_install as
-# apps_install_panel` etc.). Cleanup tracked in TUNE-3.b
-# — this file shrinks as remaining orphan modules are
-# wired or deleted.
+# apps_install_panel` etc.). TUNE-3.b (2026-05-27) hard-
+# deleted the remaining orphan `crates/mackesd/src/transport/
+# mesh_shunt.rs` (KDC2-4.3 file-transfer residue, superseded
+# by Q23 PHONE-NEBULA-PEER) — the allow-list is now empty.
+#
+# Net-new dead modules from this point forward are regressions
+# and must be either wired or deleted in the introducing
+# commit.
 #
 # Format: one <file>:<module-name> per line.
-
-# KDC2-4.3 mesh-shunt fan-out helper. Pure-fn injection of
-# neighbor phone records into the local DiscoveryRegistry.
-# Awaiting wiring into the mackesd reconcile tick (KDC2-4.x
-# residue — KDC2 file-transfer was retired but phone-pair
-# handling persists). Decision deferred to TUNE-3.b.
-crates/mackesd/src/transport/mod.rs:mesh_shunt
