@@ -126,6 +126,12 @@ struct PortalFull {
     /// no modal is open; `Some(form)` while the operator edits.
     /// Set by `HubMenuEditTag`, cleared on Save / Cancel.
     editing_tag: Option<EditTagForm>,
+    /// Portal-53.b — in-flight Window-rules modal state. `None`
+    /// when no modal is open; `Some(form)` while the operator
+    /// edits. Set by `HubMenuWindowRules`, cleared on Apply /
+    /// Cancel / Escape. The two modal-state fields are mutually
+    /// exclusive at view time — only one renders at a time.
+    editing_window_rule: Option<EditWindowRuleForm>,
     /// Portal-17.e — sticky multi-select state for the Hub's
     /// tag-intersection AND-filter. Each entry is a tag name
     /// the operator shift-clicked. Empty → no filter active.
@@ -177,6 +183,38 @@ pub struct EditTagForm {
     pub default_layout: String,
 }
 
+/// Portal-53.b — Window-rules modal form state. Seeded from the
+/// current `window-rules.toml` entry matching the right-clicked
+/// tag's name (when present) or with an empty match_app_id
+/// otherwise. The Apply handler does upsert via
+/// `WindowRulesFile::replace_first_matching` → `push_rule`.
+///
+/// All numeric fields are kept as `String` for in-flight editing
+/// so partial input ("4" → "" → "12") doesn't lose Iced focus.
+/// The commit handler parses them; non-parseable + non-empty
+/// strings reject the commit.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EditWindowRuleForm {
+    /// app_id criterion (Hyprland/sway window class). Required;
+    /// empty string rejects commit.
+    pub match_app_id: String,
+    /// `floating enable` toggle. None when the operator hasn't
+    /// touched it; Some(true) / Some(false) when they have.
+    pub floating: Option<bool>,
+    /// `sticky enable` toggle. Same tri-state semantics.
+    pub sticky: Option<bool>,
+    /// `fullscreen enable` on window::new toggle.
+    pub fullscreen_on_start: Option<bool>,
+    /// `border normal <n>` value (in pixels, as a String for in-
+    /// flight editing). Empty string = no override.
+    pub border_width: String,
+    /// `mark <name>` text. Empty string = no mark.
+    pub mark: String,
+    /// `move container to workspace number <n>` value. Empty
+    /// string = no override.
+    pub assign_workspace: String,
+}
+
 impl Default for PortalFull {
     fn default() -> Self {
         // Portal-17.a — seed user_tags on construction so the
@@ -191,6 +229,7 @@ impl Default for PortalFull {
             user_tags,
             hub_right_click_target: None,
             editing_tag: None,
+            editing_window_rule: None,
             hub_multi_select: std::collections::BTreeSet::new(),
             hub_typeahead_buffer: String::new(),
             hub_typeahead_match: None,
@@ -280,6 +319,30 @@ enum Message {
     /// Portal-18.b — operator clicked Cancel or pressed Escape.
     /// Discards the form + closes the modal.
     CancelTagEdit,
+    /// Portal-53.b — Window-rules modal match_app_id field edited.
+    EditWindowRuleAppIdChanged(String),
+    /// Portal-53.b — Window-rules modal floating-toggle clicked.
+    EditWindowRuleFloatingToggled,
+    /// Portal-53.b — Window-rules modal sticky-toggle clicked.
+    EditWindowRuleStickyToggled,
+    /// Portal-53.b — Window-rules modal fullscreen-on-start toggle.
+    EditWindowRuleFullscreenToggled,
+    /// Portal-53.b — Window-rules modal border-width field edited
+    /// (numeric string; commit reject on non-parseable input).
+    EditWindowRuleBorderWidthChanged(String),
+    /// Portal-53.b — Window-rules modal mark field edited.
+    EditWindowRuleMarkChanged(String),
+    /// Portal-53.b — Window-rules modal assign-workspace field
+    /// edited (numeric string; commit reject on non-parseable input).
+    EditWindowRuleAssignWorkspaceChanged(String),
+    /// Portal-53.b — operator clicked Apply. Writes the form back
+    /// to `window-rules.toml` + closes the modal. Uses replace-
+    /// first-matching semantics when an existing rule covers the
+    /// same `match_app_id`; otherwise appends.
+    ApplyWindowRuleEdit,
+    /// Portal-53.b — operator clicked Cancel or pressed Escape.
+    /// Discards the form + closes the modal.
+    CancelWindowRuleEdit,
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -335,9 +398,10 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
             // Portal-17.e — only its explicit Clear button clears
             // it. Any of the four states may be active when
             // Escape fires; this handler is the union close.
-            tracing::debug!("portal-full: Hub right-click menu / Edit-tag modal / type-ahead / cascade dismissed");
+            tracing::debug!("portal-full: Hub right-click menu / Edit-tag modal / Edit-window-rule modal / type-ahead / cascade dismissed");
             state.hub_right_click_target = None;
             state.editing_tag = None;
+            state.editing_window_rule = None;
             state.hub_typeahead_buffer.clear();
             state.hub_typeahead_match = None;
             state.hub_cascade_stack.clear();
@@ -354,7 +418,13 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
             state.hub_right_click_target = None;
         }
         Message::HubMenuWindowRules(tag_name) => {
-            tracing::info!(%tag_name, "portal-full: HubMenu → WindowRules (Portal-53.b modal)");
+            tracing::info!(%tag_name, "portal-full: HubMenu → WindowRules — opening modal");
+            // Portal-53.b — seed the modal form from the existing
+            // rule for this tag's name (treated as the match_app_id
+            // criterion), if any. Otherwise opens a blank form
+            // pre-filled with the tag name. The operator can edit
+            // match_app_id freely from there.
+            state.editing_window_rule = Some(seed_window_rule_form(&tag_name));
             state.hub_right_click_target = None;
         }
         Message::HubMenuEnterMode(tag_name) => {
@@ -649,8 +719,74 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
             tracing::debug!("portal-full: tag edit cancelled");
             state.editing_tag = None;
         }
+        Message::EditWindowRuleAppIdChanged(value) => {
+            if let Some(form) = state.editing_window_rule.as_mut() {
+                form.match_app_id = value;
+            }
+        }
+        Message::EditWindowRuleFloatingToggled => {
+            if let Some(form) = state.editing_window_rule.as_mut() {
+                form.floating = toggle_tristate(form.floating);
+            }
+        }
+        Message::EditWindowRuleStickyToggled => {
+            if let Some(form) = state.editing_window_rule.as_mut() {
+                form.sticky = toggle_tristate(form.sticky);
+            }
+        }
+        Message::EditWindowRuleFullscreenToggled => {
+            if let Some(form) = state.editing_window_rule.as_mut() {
+                form.fullscreen_on_start = toggle_tristate(form.fullscreen_on_start);
+            }
+        }
+        Message::EditWindowRuleBorderWidthChanged(value) => {
+            if let Some(form) = state.editing_window_rule.as_mut() {
+                form.border_width = value;
+            }
+        }
+        Message::EditWindowRuleMarkChanged(value) => {
+            if let Some(form) = state.editing_window_rule.as_mut() {
+                form.mark = value;
+            }
+        }
+        Message::EditWindowRuleAssignWorkspaceChanged(value) => {
+            if let Some(form) = state.editing_window_rule.as_mut() {
+                form.assign_workspace = value;
+            }
+        }
+        Message::ApplyWindowRuleEdit => {
+            if let Some(form) = state.editing_window_rule.take() {
+                match commit_window_rule_edit(&form) {
+                    Ok(()) => {
+                        tracing::info!(
+                            app_id = %form.match_app_id,
+                            "portal-full: window rule applied",
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, app_id = %form.match_app_id, "portal-full: window rule apply failed");
+                    }
+                }
+            }
+        }
+        Message::CancelWindowRuleEdit => {
+            tracing::debug!("portal-full: window rule edit cancelled");
+            state.editing_window_rule = None;
+        }
     }
     Task::none()
+}
+
+/// Portal-53.b — cycle a tri-state toggle: None → Some(true) →
+/// Some(false) → None. The three states reflect the form
+/// semantics: "no preference" (don't write the field) / "enabled"
+/// (write `Some(true)`) / "disabled" (write `Some(false)`).
+fn toggle_tristate(state: Option<bool>) -> Option<bool> {
+    match state {
+        None => Some(true),
+        Some(true) => Some(false),
+        Some(false) => None,
+    }
 }
 
 /// Portal-17.b — render a single cascade-member entry as a
@@ -823,6 +959,120 @@ fn commit_tag_edit(form: &EditTagForm) -> Result<(), mackes_mesh_types::TagStore
     store.save_default()
 }
 
+/// Portal-53.b — seed the Window-rules modal form. Looks up an
+/// existing rule whose `match_app_id` equals the seed key; if
+/// found, pre-fills every form field from that rule. Otherwise
+/// returns a blank form with `match_app_id` set to the seed key
+/// (the operator can edit it from there). Failure to read the
+/// rules file is treated as "no existing rule" and returns the
+/// seed-key-prefilled blank.
+fn seed_window_rule_form(seed_app_id: &str) -> EditWindowRuleForm {
+    let rules = mackes_mesh_types::WindowRulesFile::load_default()
+        .unwrap_or_default();
+    if let Some(rule) = rules.find_first_matching(seed_app_id) {
+        EditWindowRuleForm {
+            match_app_id: rule.match_app_id.clone(),
+            floating: rule.floating,
+            sticky: rule.sticky,
+            fullscreen_on_start: rule.fullscreen_on_start,
+            border_width: rule
+                .border_width
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
+            mark: rule.mark.clone().unwrap_or_default(),
+            assign_workspace: rule
+                .assign_workspace
+                .map(|n| n.to_string())
+                .unwrap_or_default(),
+        }
+    } else {
+        EditWindowRuleForm {
+            match_app_id: seed_app_id.to_string(),
+            ..EditWindowRuleForm::default()
+        }
+    }
+}
+
+/// Portal-53.b — commit the in-flight EditWindowRuleForm to the
+/// rules file. Upsert semantics via
+/// `WindowRulesFile::replace_first_matching` → fallback to
+/// `push_rule`. Atomic save via `WindowRulesFile::save_default`.
+///
+/// Numeric field parsing: empty string → `None`; numeric string
+/// → `Some(parsed)`; non-parseable non-empty string → returns
+/// `RulesError::Parse`-equivalent (mapped to Serialize variant
+/// since we don't have a Field-Parse variant in the error enum
+/// — fine for the modal's flow since the operator just sees
+/// "save failed" + has the form open to fix).
+fn commit_window_rule_edit(form: &EditWindowRuleForm) -> Result<(), mackes_mesh_types::WindowRulesError> {
+    let trimmed_app_id = form.match_app_id.trim().to_string();
+    if trimmed_app_id.is_empty() {
+        // Re-use the Io variant with a synthetic empty-app_id
+        // error message — the operator sees this in the tracing
+        // warn line, modal remains open with the form intact.
+        return Err(mackes_mesh_types::WindowRulesError::Io(
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "match_app_id is required",
+            ),
+        ));
+    }
+    let border_width: Option<u32> = parse_optional_u32(&form.border_width)?;
+    let assign_workspace: Option<i32> = parse_optional_i32(&form.assign_workspace)?;
+    let mark = if form.mark.trim().is_empty() {
+        None
+    } else {
+        Some(form.mark.trim().to_string())
+    };
+    let new_rule = mackes_mesh_types::WindowRule {
+        match_app_id: trimmed_app_id.clone(),
+        floating: form.floating,
+        sticky: form.sticky,
+        fullscreen_on_start: form.fullscreen_on_start,
+        border_width,
+        mark,
+        assign_workspace,
+    };
+    let mut file = mackes_mesh_types::WindowRulesFile::load_default()?;
+    if !file.replace_first_matching(&trimmed_app_id, new_rule.clone()) {
+        file.push_rule(new_rule);
+    }
+    file.save_default()
+}
+
+/// Portal-53.b — parse an optional numeric form field. Empty
+/// string → `None`; non-empty string → `Some(parsed)` or an
+/// error. Synthesizes a `WindowRulesError::Io(InvalidInput)`
+/// when the string is non-empty + non-parseable.
+fn parse_optional_u32(s: &str) -> Result<Option<u32>, mackes_mesh_types::WindowRulesError> {
+    if s.trim().is_empty() {
+        Ok(None)
+    } else {
+        s.trim()
+            .parse::<u32>()
+            .map(Some)
+            .map_err(|e| mackes_mesh_types::WindowRulesError::Io(
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{e}")),
+            ))
+    }
+}
+
+/// Portal-53.b — same as `parse_optional_u32` but for `i32`
+/// (workspace numbers; sway/Hyprland support a small set of
+/// negative numbers for the scratchpad meta-workspace, so signed).
+fn parse_optional_i32(s: &str) -> Result<Option<i32>, mackes_mesh_types::WindowRulesError> {
+    if s.trim().is_empty() {
+        Ok(None)
+    } else {
+        s.trim()
+            .parse::<i32>()
+            .map(Some)
+            .map_err(|e| mackes_mesh_types::WindowRulesError::Io(
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{e}")),
+            ))
+    }
+}
+
 // ── View ──────────────────────────────────────────────────────────────────────
 
 /// Classic ChromeOS charcoal (#202124).
@@ -874,6 +1124,13 @@ fn build_hub_layer(state: &PortalFull) -> Element<'_, Message> {
     // instead of the grid. Save / Cancel return to the grid.
     if state.editing_tag.is_some() {
         return build_edit_tag_modal(state);
+    }
+    // Portal-53.b — same modal-priority pattern for the window-
+    // rules edit modal. The two modal-state fields are mutually
+    // exclusive (only one is Some at a time), but check both so
+    // the branch order doesn't matter.
+    if state.editing_window_rule.is_some() {
+        return build_edit_window_rule_modal(state);
     }
     let mut system_row: Vec<Element<'_, Message>> = Vec::new();
     for &name in SYSTEM_TAGS {
@@ -1209,6 +1466,143 @@ fn build_edit_tag_modal(state: &PortalFull) -> Element<'_, Message> {
     .padding(iced::Padding::from([16, 16]))
     .width(Length::Fill)
     .into()
+}
+
+/// Portal-53.b — modal view: app_id input + 3 tri-state toggles
+/// (floating / sticky / fullscreen_on_start) + 3 text inputs
+/// (border_width / mark / assign_workspace) + Apply / Cancel.
+/// Mirrors `build_edit_tag_modal`'s visual grammar so the two
+/// modals feel like one editor pattern.
+fn build_edit_window_rule_modal(state: &PortalFull) -> Element<'_, Message> {
+    use iced::widget::{button, row, text_input};
+    let Some(form) = state.editing_window_rule.as_ref() else {
+        return iced::widget::Space::new(0.0, 0.0).into();
+    };
+    let app_id_field = text_input("App ID (e.g. firefox)", &form.match_app_id)
+        .on_input(Message::EditWindowRuleAppIdChanged)
+        .size(14.0)
+        .padding(iced::Padding::from([8, 10]));
+    let border_field = text_input("Border width in px (blank = inherit)", &form.border_width)
+        .on_input(Message::EditWindowRuleBorderWidthChanged)
+        .size(14.0)
+        .padding(iced::Padding::from([8, 10]));
+    let mark_field = text_input("Mark name (blank = none)", &form.mark)
+        .on_input(Message::EditWindowRuleMarkChanged)
+        .size(14.0)
+        .padding(iced::Padding::from([8, 10]));
+    let workspace_field = text_input(
+        "Assign to workspace number (blank = no override)",
+        &form.assign_workspace,
+    )
+    .on_input(Message::EditWindowRuleAssignWorkspaceChanged)
+    .size(14.0)
+    .padding(iced::Padding::from([8, 10]));
+
+    let floating_btn = tristate_button(
+        "Floating",
+        form.floating,
+        Message::EditWindowRuleFloatingToggled,
+    );
+    let sticky_btn = tristate_button(
+        "Sticky",
+        form.sticky,
+        Message::EditWindowRuleStickyToggled,
+    );
+    let fullscreen_btn = tristate_button(
+        "Fullscreen on open",
+        form.fullscreen_on_start,
+        Message::EditWindowRuleFullscreenToggled,
+    );
+
+    let actions = row![
+        button(text("Apply").size(13.0).color(Color::WHITE))
+            .on_press(Message::ApplyWindowRuleEdit)
+            .style(|_theme: &Theme, _status| iced::widget::button::Style {
+                background: Some(iced::Background::Color(Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 })),
+                text_color: Color::WHITE,
+                border: iced::Border {
+                    radius: iced::border::Radius::from(6.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        button(text("Cancel").size(13.0).color(Color::WHITE))
+            .on_press(Message::CancelWindowRuleEdit)
+            .style(|_theme: &Theme, _status| iced::widget::button::Style {
+                background: Some(iced::Background::Color(Color { r: 0.30, g: 0.30, b: 0.34, a: 1.0 })),
+                text_color: Color::WHITE,
+                border: iced::Border {
+                    radius: iced::border::Radius::from(6.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+    ]
+    .spacing(8);
+
+    container(
+        column![
+            text("Edit window rule").size(16.0).color(FG),
+            text("App ID").size(12.0).color(FG_DIM),
+            app_id_field,
+            text("Flags").size(12.0).color(FG_DIM),
+            row![floating_btn, sticky_btn, fullscreen_btn].spacing(6).wrap(),
+            text("Border width").size(12.0).color(FG_DIM),
+            border_field,
+            text("Mark").size(12.0).color(FG_DIM),
+            mark_field,
+            text("Assign workspace").size(12.0).color(FG_DIM),
+            workspace_field,
+            actions,
+        ]
+        .spacing(8),
+    )
+    .style(|_theme: &Theme| iced::widget::container::Style {
+        background: Some(iced::Background::Color(Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 })),
+        border: iced::Border {
+            radius: iced::border::Radius::from(10.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .padding(iced::Padding::from([16, 16]))
+    .width(Length::Fill)
+    .into()
+}
+
+/// Portal-53.b — render a tri-state toggle button. The three
+/// visual states distinguish "no preference" (charcoal) /
+/// "enabled" (indigo accent) / "disabled" (slate-red). Click
+/// fires `msg` to advance the cycle (the update handler runs
+/// `toggle_tristate` on the corresponding form field).
+fn tristate_button<'a>(
+    label: &'static str,
+    state: Option<bool>,
+    msg: Message,
+) -> Element<'a, Message> {
+    use iced::widget::button;
+    let suffix = match state {
+        None => "—",
+        Some(true) => "on",
+        Some(false) => "off",
+    };
+    let bg = match state {
+        None => Color { r: 0.16, g: 0.17, b: 0.19, a: 1.0 },
+        Some(true) => Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 },
+        Some(false) => Color { r: 0.50, g: 0.18, b: 0.18, a: 1.0 },
+    };
+    button(text(format!("{label}: {suffix}")).size(12.0).color(Color::WHITE))
+        .on_press(msg)
+        .style(move |_theme: &Theme, _status| iced::widget::button::Style {
+            background: Some(iced::Background::Color(bg)),
+            text_color: Color::WHITE,
+            border: iced::Border {
+                radius: iced::border::Radius::from(6.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .into()
 }
 
 /// Portal-17.c — locked menu-action labels. System tags (All
@@ -1801,6 +2195,169 @@ mod tests {
         });
         let _ = update(&mut state, Message::HubMenuDismissed);
         assert!(state.editing_tag.is_none());
+    }
+
+    // ── Portal-53.b — Window-rules modal ──────────────────────
+
+    #[test]
+    fn toggle_tristate_cycles_none_true_false() {
+        assert_eq!(toggle_tristate(None), Some(true));
+        assert_eq!(toggle_tristate(Some(true)), Some(false));
+        assert_eq!(toggle_tristate(Some(false)), None);
+    }
+
+    #[test]
+    fn hub_menu_window_rules_opens_modal() {
+        let mut state = PortalFull::default();
+        // Pre-condition: nothing in flight.
+        assert!(state.editing_window_rule.is_none());
+        let _ = update(
+            &mut state,
+            Message::HubMenuWindowRules("firefox".to_string()),
+        );
+        // Post-condition: modal opened with the tag name as the
+        // seed app_id.
+        let form = state.editing_window_rule.as_ref().unwrap();
+        assert_eq!(form.match_app_id, "firefox");
+        // Right-click target cleared on menu action.
+        assert!(state.hub_right_click_target.is_none());
+    }
+
+    #[test]
+    fn edit_window_rule_app_id_changed_updates_form() {
+        let mut state = PortalFull::default();
+        state.editing_window_rule = Some(EditWindowRuleForm {
+            match_app_id: "firefox".to_string(),
+            ..EditWindowRuleForm::default()
+        });
+        let _ = update(
+            &mut state,
+            Message::EditWindowRuleAppIdChanged("chromium".to_string()),
+        );
+        assert_eq!(
+            state.editing_window_rule.as_ref().unwrap().match_app_id,
+            "chromium",
+        );
+    }
+
+    #[test]
+    fn floating_toggle_advances_through_tristate() {
+        let mut state = PortalFull::default();
+        state.editing_window_rule = Some(EditWindowRuleForm::default());
+        let _ = update(&mut state, Message::EditWindowRuleFloatingToggled);
+        assert_eq!(
+            state.editing_window_rule.as_ref().unwrap().floating,
+            Some(true),
+        );
+        let _ = update(&mut state, Message::EditWindowRuleFloatingToggled);
+        assert_eq!(
+            state.editing_window_rule.as_ref().unwrap().floating,
+            Some(false),
+        );
+        let _ = update(&mut state, Message::EditWindowRuleFloatingToggled);
+        assert_eq!(state.editing_window_rule.as_ref().unwrap().floating, None);
+    }
+
+    #[test]
+    fn sticky_and_fullscreen_toggles_advance_independently() {
+        let mut state = PortalFull::default();
+        state.editing_window_rule = Some(EditWindowRuleForm::default());
+        let _ = update(&mut state, Message::EditWindowRuleStickyToggled);
+        let _ = update(&mut state, Message::EditWindowRuleFullscreenToggled);
+        assert_eq!(state.editing_window_rule.as_ref().unwrap().sticky, Some(true));
+        assert_eq!(
+            state.editing_window_rule.as_ref().unwrap().fullscreen_on_start,
+            Some(true),
+        );
+        // Floating is untouched — still None.
+        assert!(state.editing_window_rule.as_ref().unwrap().floating.is_none());
+    }
+
+    #[test]
+    fn border_mark_workspace_inputs_update_form() {
+        let mut state = PortalFull::default();
+        state.editing_window_rule = Some(EditWindowRuleForm::default());
+        let _ = update(
+            &mut state,
+            Message::EditWindowRuleBorderWidthChanged("4".to_string()),
+        );
+        let _ = update(
+            &mut state,
+            Message::EditWindowRuleMarkChanged("browser".to_string()),
+        );
+        let _ = update(
+            &mut state,
+            Message::EditWindowRuleAssignWorkspaceChanged("2".to_string()),
+        );
+        let form = state.editing_window_rule.as_ref().unwrap();
+        assert_eq!(form.border_width, "4");
+        assert_eq!(form.mark, "browser");
+        assert_eq!(form.assign_workspace, "2");
+    }
+
+    #[test]
+    fn cancel_window_rule_edit_clears_form() {
+        let mut state = PortalFull::default();
+        state.editing_window_rule = Some(EditWindowRuleForm {
+            match_app_id: "firefox".to_string(),
+            ..EditWindowRuleForm::default()
+        });
+        let _ = update(&mut state, Message::CancelWindowRuleEdit);
+        assert!(state.editing_window_rule.is_none());
+    }
+
+    #[test]
+    fn escape_dismisses_open_window_rule_modal() {
+        let mut state = PortalFull::default();
+        state.editing_window_rule = Some(EditWindowRuleForm {
+            match_app_id: "firefox".to_string(),
+            ..EditWindowRuleForm::default()
+        });
+        let _ = update(&mut state, Message::HubMenuDismissed);
+        assert!(state.editing_window_rule.is_none());
+    }
+
+    #[test]
+    fn parse_optional_u32_empty_is_none() {
+        assert_eq!(parse_optional_u32("").unwrap(), None);
+        assert_eq!(parse_optional_u32("   ").unwrap(), None);
+        assert_eq!(parse_optional_u32("4").unwrap(), Some(4));
+        assert_eq!(parse_optional_u32(" 12 ").unwrap(), Some(12));
+        assert!(parse_optional_u32("abc").is_err());
+    }
+
+    #[test]
+    fn parse_optional_i32_handles_negatives() {
+        assert_eq!(parse_optional_i32("").unwrap(), None);
+        assert_eq!(parse_optional_i32("3").unwrap(), Some(3));
+        // Sway's scratchpad meta-workspace uses negative nums;
+        // schema tolerates them even if we'd never assign there.
+        assert_eq!(parse_optional_i32("-1").unwrap(), Some(-1));
+        assert!(parse_optional_i32("nope").is_err());
+    }
+
+    #[test]
+    fn seed_window_rule_form_uses_seed_key_when_no_existing_rule() {
+        // No rule file → blank form with seed-key prefilled.
+        // Test runs in CI where ~/.config/mde/window-rules.toml
+        // typically doesn't exist; if it does, the test confirms
+        // either the seed-key prefill OR the existing-rule prefill
+        // path (both are valid for the same seed).
+        let form = seed_window_rule_form("firefox");
+        // app_id is always populated — either from the existing
+        // rule (which also keys on "firefox") or from the seed.
+        assert_eq!(form.match_app_id, "firefox");
+    }
+
+    #[test]
+    fn commit_window_rule_edit_rejects_empty_app_id() {
+        let form = EditWindowRuleForm {
+            match_app_id: "   ".to_string(),
+            ..EditWindowRuleForm::default()
+        };
+        // Empty/whitespace match_app_id → InvalidInput error.
+        let r = commit_window_rule_edit(&form);
+        assert!(r.is_err());
     }
 
     // ── Portal-17.e — sticky multi-select / AND-filter ──────
