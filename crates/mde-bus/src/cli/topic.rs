@@ -36,6 +36,18 @@ pub enum TopicOp {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Print the count of topics in the registry (optionally
+    /// filtered by an MQTT-style pattern). Symmetric with the
+    /// audit / persist / correlate / sub / mute count verbs.
+    Count {
+        /// Optional pattern to scope the count. None = total
+        /// registered topic count.
+        #[arg(long)]
+        pattern: Option<String>,
+        /// Emit `{"count":N}` instead of the bare integer.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 /// Build a registry pre-loaded with the 12 default topics. Used
@@ -64,6 +76,18 @@ pub fn run(op: TopicOp) -> Result<()> {
                 } else {
                     println!("{}\t{:?}\t{}", t.name, t.priority_default, t.description);
                 }
+            }
+        }
+        TopicOp::Count { pattern, json } => {
+            let n = if let Some(p) = pattern.as_deref() {
+                reg.iter().filter(|t| crate::wildcard::matches(p, &t.name)).count()
+            } else {
+                reg.iter().count()
+            };
+            if json {
+                println!("{{\"count\":{n}}}");
+            } else {
+                println!("{n}");
             }
         }
         TopicOp::Match { pattern, json } => {
@@ -119,6 +143,38 @@ mod tests {
         run(TopicOp::Match {
             pattern: "mon/+".to_string(),
             json: false,
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn count_verb_returns_total() {
+        // No filter → registry total count (22+ default topics
+        // per seed_defaults). Both dispatch paths should not panic.
+        run(TopicOp::Count {
+            pattern: None,
+            json: false,
+        })
+        .unwrap();
+        run(TopicOp::Count {
+            pattern: None,
+            json: true,
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn count_verb_with_pattern_filters() {
+        // Scoped count over the default registry: `mon/+` should
+        // match the 4 seeded mon/* topics.
+        run(TopicOp::Count {
+            pattern: Some("mon/+".to_string()),
+            json: false,
+        })
+        .unwrap();
+        run(TopicOp::Count {
+            pattern: Some("mon/+".to_string()),
+            json: true,
         })
         .unwrap();
     }
