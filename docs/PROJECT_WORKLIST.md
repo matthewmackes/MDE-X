@@ -1156,18 +1156,30 @@ call-end lifecycle, never at install or login.
     - [ ] `docs/design/icon-mapping.md` annotated SUPERSEDED if Material Symbols covers all needed icons.
     - [ ] AI_PLATFORM_REFERENCE.md §1.2 + §10.5 updated to reflect single-design-system stance.
 
-- [ ] **TUNE-15: BUS-7.7-FED — federation pairing UX (new epic).**
+- [>] session=opus-47-2026-05-27-ship-CH **TUNE-15: BUS-7.7-FED — federation pairing UX (new epic, split per §0.12 into 15.a design-doc + 15.b workbench-UI + 15.c daemon-config + 15.d peer-card-render + 15.e governance-update + 15.f HW-bench).**
   **As** the §0.17 + Q24 commit that federation ships complete in 1.0,
   **I want** a full federation pairing flow designed + shipped before 1.0 cuts,
   **so that** Q35 + Q55 locks aren't aspirational.
   **Acceptance** (each bench-observable; design + ship together):
-    - [ ] New `docs/design/v1.0-federation-pairing.md` covers OOB passcode protocol + symmetric subscribe-only grant model + Nebula CA cross-sign protocol.
+    - [✓] New `docs/design/v1.0-federation-pairing.md` covers OOB passcode protocol + symmetric subscribe-only grant model + Nebula CA cross-sign protocol. *(shipped via TUNE-15.a 2026-05-27)*
     - [ ] Workbench accept-pair UI in `crates/mde-workbench/src/panels/mesh/federation/` (text-typed mesh-A passcode → mesh-B passcode handshake → confirmation screen).
     - [ ] Federation grant config at `~/.local/share/mde/bus/federation.yaml`.
     - [ ] Federation audit log entries land in the existing audit topic.
     - [ ] Federated peers DON'T count against the 8-peer cap (Q22); displayed with distinct icon variant + "external mesh" badge in Peer Card.
     - [ ] AI_GOVERNANCE.md §11 1.0 roadmap item gains "BUS-7.7-FED complete".
     - [ ] HW bench: cross-mesh subscribe round-trip verified on operator's hardware.
+
+- [✓] **TUNE-15.a: Federation pairing design doc (`docs/design/v1.0-federation-pairing.md`)** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CH. New design lock for the BUS-7.7-FED epic: 10 sections + ~250 LOC. Locks the OOB passcode protocol (6-word BIP-39 mnemonic + 24-h expiry + envelope-bound to mesh CA fingerprint + single-use), symmetric subscribe-only grant model (default `#` minus the 5-topic exclusion list — `passcode/*`, `federation/*`, `clipboard/*`, `voip/presence/*`, `input/*`), and Nebula CA cross-sign protocol (scope-limited capability cert with 1-year expiry + symmetric revoke). Captures the daemon storage layout (`~/.local/share/mde/bus/{federation-mints,federation-consumed,federation.yaml}`), the Workbench accept-pair UI surface (mint pane + accept pane + grant-tuning pane + active-pairs pane), the federation audit log shape (`federation/<event>/<peer-mesh-id>` Bus topic + CBOR payload with 8 event types), the Peer Card render delta (federation icon variant + external-mesh badge + subscribe-only/two-way indicator), the Q22 8-peer cap exemption (federated peers don't count), the acceptance checklist (9 bullets rolling up under the TUNE-15 parent), risks (5), out-of-scope (multi-hop / asymmetric / non-Mackes meshes deferred). Supersedes `docs/design/v6.x-mackes-bus.md` §20's one-liner "v1 ships subscribe-only Nebula-to-Nebula bridge" by making it implementable. Consumes Q35 + Q55 + 25-Q Q24. **Unblocks TUNE-15.b (Workbench UI) + TUNE-15.c (daemon config + audit log) + TUNE-15.d (peer-card render) + TUNE-15.e (governance update) + TUNE-15.f (HW bench).**)*
+
+- [ ] **TUNE-15.b: Workbench accept-pair UI** *(opens 2026-05-27 from TUNE-15 split per §0.12, unblocked by TUNE-15.a)*. New `crates/mde-workbench/src/panels/mesh/federation/` module: mint pane + accept pane (BIP-39 mnemonic input with autocomplete) + grant-tuning pane (subscribe-topics multiselect + publish-topics opt-in) + active-pairs pane (revoke / rotate / audit-log buttons). Per the §4 surface lock in the design doc.
+
+- [ ] **TUNE-15.c: Daemon federation config + audit log** *(opens 2026-05-27 from TUNE-15 split per §0.12, unblocked by TUNE-15.a)*. Extends mackesd with the federation lifecycle: `mde-bus federation mint-passcode` CLI subcommand + the envelope CBOR store at `~/.local/share/mde/bus/federation-mints/` + consume-side validator + cross-sign cert installer at `/etc/nebula/federation-trusts/` + grant store at `~/.local/share/mde/bus/federation.yaml`. Publishes the 8 audit-log event types (per the §5 schema) onto the `federation/<event>/<peer-mesh-id>` Bus topic.
+
+- [ ] **TUNE-15.d: Peer Card federation render** *(opens 2026-05-27 from TUNE-15 split per §0.12, unblocked by TUNE-15.a)*. `crates/mde-peer-card/src/` gains the federation-icon variant (bidirectional-arrow chip overlay) + "external mesh" subdued-grey badge above hostname + subscribe-only-vs-two-way corner indicator. Federated peers exclude from the Q22 8-peer cap counter.
+
+- [ ] **TUNE-15.e: AI_GOVERNANCE.md §11 BUS-7.7-FED sub-bullet** *(opens 2026-05-27 from TUNE-15 split per §0.12, unblocked by TUNE-15.a; closes WHEN TUNE-15.b/.c/.d ship and operator HW-bench passes)*. Adds "BUS-7.7-FED complete" sub-bullet to AI_GOVERNANCE.md §11 roadmap item 1 alongside the existing "fully shipped (foundation + surfaces + webhooks + migration + clipboard + advanced routing + federation/audit + BUS-7.7-FED federation UX)" line.
+
+- [ ] **TUNE-15.f: HW bench — cross-mesh subscribe round-trip** *(opens 2026-05-27 from TUNE-15 split per §0.12, operator-typed per §0.15 + 25-Q Q14)*. Operator-typed acceptance: pair two real Nebula meshes, run subscribe round-trip, observe message within 30 s, verify federation.yaml on both sides, run `revoke` on one side, observe symmetric removal on the other within 30 s.
 
 - [ ] **TUNE-16: PHONE-NEBULA-PEER — phone gets full Nebula peer-hood (new epic).**
   **As** the Q23 reopening of Q58,
