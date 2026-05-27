@@ -126,6 +126,16 @@ struct PortalFull {
     /// no modal is open; `Some(form)` while the operator edits.
     /// Set by `HubMenuEditTag`, cleared on Save / Cancel.
     editing_tag: Option<EditTagForm>,
+    /// Portal-17.e — sticky multi-select state for the Hub's
+    /// tag-intersection AND-filter. Each entry is a tag name
+    /// the operator shift-clicked. Empty → no filter active.
+    /// Stays sticky across clicks; clears via the
+    /// `HubMultiSelectCleared` message or a fresh click-without-
+    /// shift on a single tag-card. The Portal-17.b cascade will
+    /// AND-filter its column entries against this set when it
+    /// ships — until then, the state is bench-observable via
+    /// the indicator pill rendered above the tag-card grid.
+    hub_multi_select: std::collections::BTreeSet<String>,
 }
 
 /// Portal-18.b — Edit-tag modal form state. Seeded from the
@@ -163,6 +173,7 @@ impl Default for PortalFull {
             user_tags,
             hub_right_click_target: None,
             editing_tag: None,
+            hub_multi_select: std::collections::BTreeSet::new(),
         }
     }
 }
@@ -204,6 +215,16 @@ enum Message {
     /// Portal-51. Captures the current workspace into a
     /// template card tagged with the current tag.
     HubMenuSaveAsTemplate(String),
+    /// Portal-17.e — operator shift-clicked a tag card (or used
+    /// the equivalent context-menu toggle). Adds the tag to the
+    /// sticky multi-select set, or removes it if already present.
+    /// Independent of `HubTagClicked` — that handler will route
+    /// here when the cascade ships shift-modifier tracking.
+    HubMultiSelectToggled(String),
+    /// Portal-17.e — operator cleared the sticky multi-select
+    /// filter (clicked the indicator pill's "✕", or pressed
+    /// Escape while no other modal/menu was open).
+    HubMultiSelectCleared,
     /// Portal-18.b — Edit-tag modal name field edited.
     EditTagNameChanged(String),
     /// Portal-18.b — Edit-tag modal group_color field edited.
@@ -281,6 +302,32 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
         Message::HubMenuSaveAsTemplate(tag_name) => {
             tracing::info!(%tag_name, "portal-full: HubMenu → SaveAsTemplate (Portal-51 hand-off)");
             state.hub_right_click_target = None;
+        }
+        Message::HubMultiSelectToggled(tag_name) => {
+            // Portal-17.e — sticky toggle. Add if absent, remove if
+            // present. Empty-name guards against future bindings
+            // that might pass garbage. Dismiss the right-click
+            // menu (if open) so the indicator pill is visible.
+            if tag_name.is_empty() {
+                tracing::warn!("portal-full: HubMultiSelectToggled with empty tag — ignored");
+            } else if state.hub_multi_select.contains(&tag_name) {
+                state.hub_multi_select.remove(&tag_name);
+                tracing::info!(%tag_name, count = state.hub_multi_select.len(), "portal-full: tag removed from AND-filter");
+            } else {
+                state.hub_multi_select.insert(tag_name.clone());
+                tracing::info!(%tag_name, count = state.hub_multi_select.len(), "portal-full: tag added to AND-filter");
+            }
+            state.hub_right_click_target = None;
+        }
+        Message::HubMultiSelectCleared => {
+            // Portal-17.e — clear the sticky filter. Fired by the
+            // indicator pill's ✕ button or the Escape-no-menu path
+            // (HubMenuDismissed already covers Escape when a menu
+            // is open; this handler is for the no-menu case).
+            if !state.hub_multi_select.is_empty() {
+                tracing::info!(count = state.hub_multi_select.len(), "portal-full: AND-filter cleared");
+                state.hub_multi_select.clear();
+            }
         }
         Message::EditTagNameChanged(value) => {
             if let Some(form) = state.editing_tag.as_mut() {
@@ -480,6 +527,9 @@ fn build_hub_layer(state: &PortalFull) -> Element<'_, Message> {
             .into()
     };
     column![
+        // Portal-17.e — sticky multi-select indicator above the
+        // grid; renders empty space when no tag is selected.
+        build_hub_multi_select_indicator(state),
         row(system_row).spacing(8).wrap(),
         text("Your tags").size(13.0).color(FG_DIM),
         user_section,
@@ -489,6 +539,54 @@ fn build_hub_layer(state: &PortalFull) -> Element<'_, Message> {
     ]
     .spacing(16)
     .into()
+}
+
+/// Portal-17.e — render the sticky multi-select AND-filter
+/// indicator above the tag-card grid. Renders empty space when
+/// the set is empty; otherwise a wrap-row of "AND:" + one
+/// chip per selected tag + a "✕" clear button.
+fn build_hub_multi_select_indicator(state: &PortalFull) -> Element<'_, Message> {
+    if state.hub_multi_select.is_empty() {
+        return iced::widget::Space::new(0.0, 0.0).into();
+    }
+    use iced::widget::{button, row};
+    let mut chips: Vec<Element<'_, Message>> = Vec::new();
+    chips.push(
+        text("AND:")
+            .size(12.0)
+            .color(FG_DIM)
+            .into(),
+    );
+    for tag_name in &state.hub_multi_select {
+        chips.push(
+            container(text(tag_name.clone()).size(11.0).color(Color::WHITE))
+                .style(|_theme: &Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(Color { r: 0.357, g: 0.416, b: 0.961, a: 1.0 })),
+                    border: iced::Border {
+                        radius: iced::border::Radius::from(6.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .padding(iced::Padding::from([2, 8]))
+                .into(),
+        );
+    }
+    chips.push(
+        button(text("Clear").size(11.0).color(Color::WHITE))
+            .on_press(Message::HubMultiSelectCleared)
+            .style(|_theme: &Theme, _status| iced::widget::button::Style {
+                background: Some(iced::Background::Color(Color { r: 0.30, g: 0.30, b: 0.34, a: 1.0 })),
+                text_color: Color::WHITE,
+                border: iced::Border {
+                    radius: iced::border::Radius::from(6.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into(),
+    );
+    row(chips).spacing(6).wrap().into()
 }
 
 /// Portal-17.a — render one tag card with optional color tint.
@@ -640,6 +738,11 @@ pub const HUB_MENU_ACTIONS: &[&str] = &[
     "Window rules…",
     "Enter mode",
     "Save as template…",
+    // Portal-17.e — sticky multi-select for AND-filter. The
+    // handler toggles membership in `hub_multi_select` (add if
+    // absent, remove if present); the indicator pill above the
+    // grid reflects the current set.
+    "Add to AND-filter",
 ];
 
 /// Portal-17.c — render the right-click context-menu overlay
@@ -664,6 +767,7 @@ fn build_hub_menu_overlay<'a>(state: &PortalFull) -> Element<'a, Message> {
             "Window rules…" => Message::HubMenuWindowRules(target_for_msg),
             "Enter mode" => Message::HubMenuEnterMode(target_for_msg),
             "Save as template…" => Message::HubMenuSaveAsTemplate(target_for_msg),
+            "Add to AND-filter" => Message::HubMultiSelectToggled(target_for_msg),
             // Defensive — every entry in HUB_MENU_ACTIONS has a
             // matching variant. New actions land via the locked
             // table + a new Message variant in lockstep.
@@ -943,14 +1047,16 @@ mod tests {
     #[test]
     fn hub_menu_actions_lock_matches_design() {
         // R3-Q62 + Portal-17.c lock — five iconic menu items in
-        // this order. Adding a sixth requires a corresponding
-        // Message variant + match arm in build_hub_menu_overlay.
-        assert_eq!(HUB_MENU_ACTIONS.len(), 5);
+        // this order. Portal-17.e adds the sixth "Add to AND-filter"
+        // entry. Each entry needs a matching Message variant + match
+        // arm in build_hub_menu_overlay.
+        assert_eq!(HUB_MENU_ACTIONS.len(), 6);
         assert_eq!(HUB_MENU_ACTIONS[0], "Edit tag…");
         assert_eq!(HUB_MENU_ACTIONS[1], "Layout chooser…");
         assert_eq!(HUB_MENU_ACTIONS[2], "Window rules…");
         assert_eq!(HUB_MENU_ACTIONS[3], "Enter mode");
         assert_eq!(HUB_MENU_ACTIONS[4], "Save as template…");
+        assert_eq!(HUB_MENU_ACTIONS[5], "Add to AND-filter");
     }
 
     #[test]
@@ -985,6 +1091,7 @@ mod tests {
             Message::HubMenuWindowRules("Dev".to_string()),
             Message::HubMenuEnterMode("Dev".to_string()),
             Message::HubMenuSaveAsTemplate("Dev".to_string()),
+            Message::HubMultiSelectToggled("Dev".to_string()),
         ] {
             let mut state = PortalFull::default();
             state.hub_right_click_target = Some("Dev".to_string());
@@ -1159,5 +1266,76 @@ mod tests {
         });
         let _ = update(&mut state, Message::HubMenuDismissed);
         assert!(state.editing_tag.is_none());
+    }
+
+    // ── Portal-17.e — sticky multi-select / AND-filter ──────
+
+    #[test]
+    fn multi_select_starts_empty() {
+        let state = PortalFull::default();
+        assert!(state.hub_multi_select.is_empty());
+    }
+
+    #[test]
+    fn toggle_adds_then_removes() {
+        let mut state = PortalFull::default();
+        let _ = update(&mut state, Message::HubMultiSelectToggled("Dev".to_string()));
+        assert!(state.hub_multi_select.contains("Dev"));
+        assert_eq!(state.hub_multi_select.len(), 1);
+        // Toggle the same tag again → removed.
+        let _ = update(&mut state, Message::HubMultiSelectToggled("Dev".to_string()));
+        assert!(!state.hub_multi_select.contains("Dev"));
+        assert!(state.hub_multi_select.is_empty());
+    }
+
+    #[test]
+    fn toggle_accumulates_multiple_tags() {
+        let mut state = PortalFull::default();
+        let _ = update(&mut state, Message::HubMultiSelectToggled("Dev".to_string()));
+        let _ = update(&mut state, Message::HubMultiSelectToggled("Personal".to_string()));
+        let _ = update(&mut state, Message::HubMultiSelectToggled("Work".to_string()));
+        assert_eq!(state.hub_multi_select.len(), 3);
+        assert!(state.hub_multi_select.contains("Dev"));
+        assert!(state.hub_multi_select.contains("Personal"));
+        assert!(state.hub_multi_select.contains("Work"));
+    }
+
+    #[test]
+    fn toggle_with_empty_name_is_noop() {
+        let mut state = PortalFull::default();
+        let _ = update(&mut state, Message::HubMultiSelectToggled(String::new()));
+        assert!(state.hub_multi_select.is_empty());
+    }
+
+    #[test]
+    fn multi_select_cleared_empties_set() {
+        let mut state = PortalFull::default();
+        state.hub_multi_select.insert("Dev".to_string());
+        state.hub_multi_select.insert("Work".to_string());
+        let _ = update(&mut state, Message::HubMultiSelectCleared);
+        assert!(state.hub_multi_select.is_empty());
+    }
+
+    #[test]
+    fn multi_select_survives_hub_menu_dismissed() {
+        // Portal-17.e is sticky — Escape / outside-click that
+        // dismisses the right-click menu must NOT clear the
+        // multi-select filter.
+        let mut state = PortalFull::default();
+        state.hub_right_click_target = Some("Dev".to_string());
+        state.hub_multi_select.insert("Dev".to_string());
+        state.hub_multi_select.insert("Work".to_string());
+        let _ = update(&mut state, Message::HubMenuDismissed);
+        assert!(state.hub_right_click_target.is_none());
+        assert_eq!(state.hub_multi_select.len(), 2, "multi-select must stay sticky");
+    }
+
+    #[test]
+    fn multi_select_toggle_dismisses_menu() {
+        let mut state = PortalFull::default();
+        state.hub_right_click_target = Some("Dev".to_string());
+        let _ = update(&mut state, Message::HubMultiSelectToggled("Dev".to_string()));
+        assert!(state.hub_right_click_target.is_none());
+        assert!(state.hub_multi_select.contains("Dev"));
     }
 }
