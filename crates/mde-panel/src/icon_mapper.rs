@@ -1,14 +1,14 @@
-//! Phase E.19 — Carbon icon mapper.
+//! Phase E.19 — Material Symbols icon mapper.
 //!
 //! Maps freedesktop `Icon=` strings (from `.desktop` files) to
-//! the Carbon glyph set that the panel renders. The 1.x version
-//! shipped this as a GTK popover for right-click on every dock
-//! app; the Iced port keeps the same pure-fn mapping + adds a
-//! per-user override layer that writes to
+//! the Material Symbols glyph set that the panel renders. The 1.x
+//! version shipped this as a GTK popover for right-click on every
+//! dock app; the Iced port keeps the same pure-fn mapping + adds
+//! a per-user override layer that writes to
 //! `~/.local/share/applications/<app>.desktop`.
 //!
 //! The mapping is intentionally LOSSY — many fdo icons map to
-//! the same Carbon glyph (e.g. "firefox" → 🌐, "chromium" → 🌐).
+//! the same Material glyph (e.g. "firefox" → 🌐, "chromium" → 🌐).
 //! The override layer lets the user pick a different glyph for
 //! a specific app and persist that choice.
 
@@ -16,8 +16,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Built-in icon mapping. Source: data/css/carbon-icons.css from
-/// the Phase 1.x design system. Lower-cased fdo icon name → Carbon
-/// glyph.
+/// the Phase 1.x design system (asset directory awaiting rename
+/// in EPIC-UI-MATERIAL.svg-swap). Lower-cased fdo icon name →
+/// Material Symbols glyph.
 #[must_use]
 pub fn builtin_map() -> HashMap<&'static str, &'static str> {
     let mut m = HashMap::new();
@@ -83,7 +84,7 @@ pub fn builtin_map() -> HashMap<&'static str, &'static str> {
     m
 }
 
-/// Resolve an fdo icon name to a Carbon glyph. Tries builtin
+/// Resolve an fdo icon name to a Material Symbols glyph. Tries builtin
 /// then falls through to a generic "application" glyph.
 #[must_use]
 pub fn resolve(fdo_name: &str) -> &'static str {

@@ -1,4 +1,4 @@
-//! Phase E.1.3 — Carbon-token → Iced palette bridge.
+//! Phase E.1.3 — design-token → Iced palette bridge.
 //!
 //! Loads `data/css/tokens.css` (the canonical MDE design-token
 //! file) via [`mackes_theme::parse_tokens`], then derives an
