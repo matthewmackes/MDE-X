@@ -2160,6 +2160,80 @@ def apply_enforce_i3(_preset: Preset) -> List[str]:
     return actions
 
 
+# 17.5  apply_tag_manifests_seed — HYP-8.5.birthright (v6.5).
+#
+#       Copies the six default tag manifests shipped under
+#       /usr/share/mde/tag-manifests/ to the operator's
+#       ~/.config/mde/tags/ on first login. Per HYP-8.5 the
+#       mackesd tag_manifest loader reads from the user's home
+#       directory; without this step a fresh install boots with
+#       zero tags loaded.
+#
+#       Idempotent: each destination file is checked first;
+#       existing files are left alone (operator edits survive
+#       re-runs). The step is safe to run on every wizard
+#       invocation.
+def apply_tag_manifests_seed(_preset: Preset) -> List[str]:
+    """HYP-8.5.birthright: seed `~/.config/mde/tags/` from
+    the system tag manifests.
+
+    Walks `/usr/share/mde/tag-manifests/*.toml` and copies each
+    file to `~/.config/mde/tags/<name>` when not already present.
+    Operator edits to existing manifests survive re-runs — the
+    step never overwrites a destination file that exists.
+
+    Returns one log line per decision (copied / skipped-existing
+    / source-missing) so the wizard's apply rail surfaces what
+    happened.
+    """
+    import shutil
+
+    actions: List[str] = []
+    home = Path(os.path.expanduser("~"))
+    src_dir = Path("/usr/share/mde/tag-manifests")
+    dst_dir = home / ".config" / "mde" / "tags"
+
+    if not src_dir.is_dir():
+        actions.append(
+            f"tag-manifests: source dir {src_dir} missing; "
+            "no seeds to copy (expected on dev-checkout layouts)"
+        )
+        log_action(actions[-1])
+        return actions
+
+    try:
+        dst_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        actions.append(f"tag-manifests: could not mkdir {dst_dir}: {e}")
+        log_action(actions[-1])
+        return actions
+
+    seeds = sorted(src_dir.glob("*.toml"))
+    if not seeds:
+        actions.append(f"tag-manifests: no *.toml seeds in {src_dir}")
+        log_action(actions[-1])
+        return actions
+
+    for src in seeds:
+        dst = dst_dir / src.name
+        if dst.exists():
+            actions.append(
+                f"tag-manifests: {dst.name} already present in "
+                f"{dst_dir}; preserving operator edits"
+            )
+            log_action(actions[-1])
+            continue
+        try:
+            shutil.copy2(src, dst)
+            actions.append(f"tag-manifests: copied {src.name} → {dst}")
+        except OSError as e:
+            actions.append(
+                f"tag-manifests: copy {src.name} → {dst} failed: {e}"
+            )
+        log_action(actions[-1])
+    return actions
+
+
 # 18. apply_user_dirs — Phase 1.1.0 of the v1.1.0 work.
 #
 #     User lock 2026-05-19: the freedesktop user-dirs default
