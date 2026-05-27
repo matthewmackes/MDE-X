@@ -1,36 +1,9 @@
-# Snapshot allow-list for install-helpers/lint-runtime-reachability.sh.
-# Captured 2026-05-26 at lint introduction (TUNE-3 / 25-Q Q10).
-#
-# Each line below is a PRE-EXISTING dead module the lint would
-# flag but is grandfathered. Cleanup tracked in TUNE-3.b
-# (see worklist). This file shrinks as modules are wired up or
-# deleted.
-#
-# Format: <file>:<module-name> per line.
-# Lines starting with `#` are comments; blank lines ignored.
-#
-# To add a NEW entry (only with operator approval — the lint
-# is the platform's dead-code defense): append the file:module
-# pair AND open a worklist task referencing TUNE-3.b for its
-# eventual cleanup.
-
-crates/mackesd/src/settings/mod.rs:automount
-crates/mackesd/src/settings/mod.rs:display
-crates/mackesd/src/settings/mod.rs:keybinds
-crates/mackesd/src/settings/mod.rs:power
-crates/mackesd/src/settings/mod.rs:wallpaper
 crates/mackesd/src/transport/mod.rs:mesh_shunt
 crates/mackesd/src/workers/mod.rs:ansible_pull
 crates/mackesd/src/workers/mod.rs:media_sync
 crates/mackesd/src/workers/mod.rs:perf
 crates/mackesd/src/workers/mod.rs:remmina_sync
 crates/mackesd/src/workers/mod.rs:thumbnailer
-crates/mde-panel/src/lib.rs:toplevels_sub
-crates/mde-peer-card/src/enrich/mod.rs:hwdb
-crates/mde-peer-card/src/enrich/mod.rs:ifixit
-crates/mde-peer-card/src/enrich/mod.rs:lhdb
-crates/mde-peer-card/src/enrich/mod.rs:openbench
-crates/mde-peer-card/src/enrich/mod.rs:wikidata
 crates/mde-workbench/src/panels/mod.rs:apps_install
 crates/mde-workbench/src/panels/mod.rs:apps_installed
 crates/mde-workbench/src/panels/mod.rs:apps_remove

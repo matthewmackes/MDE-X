@@ -35,13 +35,26 @@ font pango:Red Hat Text 11
 # uses it for the title-bar text. The centered panel slot that
 # previously hosted these buttons now hosts the Desktop Layout
 # cluster (mde-panel/src/top_bar.rs::desktop_layout_cluster_view).
+#
+# Portal-55 (R12-Q20, 2026-05-26): smart_borders flipped back to
+# `on`. Single-window workspaces become full-bleed (no border) per
+# the Round 12 design lock — cinema/reading/code-review feel.
+# Multi-window workspaces keep the 4 px focused border so BUG-10's
+# 4K-TV-readability intent still holds where the focus signal
+# carries real load. Newer-wins per CLAUDE.md §0.14.
+#
+# Portal-55 (R12-Q19, 2026-05-26): `focus_on_window_activation urgent`
+# — background apps never steal focus; they set the urgent flag
+# instead. Per-app overrides flow through the Portal-53 window-rules
+# subsystem's `focus_policy` field, not this file.
 default_border normal 4
 default_floating_border normal 4
 title_align center
+focus_on_window_activation urgent
 gaps inner 4
 gaps outer 0
 smart_gaps on
-smart_borders no
+smart_borders on
 
 #                       border       bg       text      indicator child_border
 client.focused          #2b9af3      #2b9af3  #f4f4f4   #4589ff   #2b9af3
@@ -70,6 +83,13 @@ bindsym $mod+Shift+4 move container to workspace $ws4
 # ---------------------------------------------------------------------------
 # Focus / move
 # ---------------------------------------------------------------------------
+# Portal-55 (R12-Q17, 2026-05-26): `mouse_warping container` — cursor
+# jumps to the focused container's center on focus change. Pairs with
+# the platform's keyboard-driven workflow + the `focus_follows_mouse no`
+# choice immediately below (Q18 locks the current default — operator
+# must click to focus, but if they switch focus by keyboard the cursor
+# follows along instead of stranding on a different output).
+mouse_warping container
 focus_follows_mouse no
 
 bindsym $mod+h focus left

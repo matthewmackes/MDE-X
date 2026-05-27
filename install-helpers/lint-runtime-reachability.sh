@@ -61,13 +61,14 @@ for decl_file in $DECL_FILES; do
         own_mod_file="${decl_dir}/${name}/mod.rs"
 
         # Search for `<name>::` references in the workspace's
-        # Rust source, EXCLUDING the module's own files + the
-        # declaring file.
-        # Also exclude doc comments (lines starting with `//!`
-        # or `///`) — those are documentation, not runtime
+        # Rust source, EXCLUDING the module's own files. The
+        # decl_file (parent mod.rs / lib.rs) IS allowed to be the
+        # consumer — that's the canonical Rust parent-uses-child
+        # pattern (`mod foo;` + `foo::bar()` in the same file).
+        # Doc comments (lines starting with `//!` or `///`) are
+        # excluded since they're documentation, not runtime
         # references.
         hits="$(grep -rn --include='*.rs' "\\b${name}::" crates/ 2>/dev/null | \
-                grep -v "^${decl_file}:" | \
                 grep -v "^${own_file}:" | \
                 grep -v "^${own_mod_file}:" | \
                 grep -v "^[^:]*:[0-9]*:[[:space:]]*//[!/]" | \
