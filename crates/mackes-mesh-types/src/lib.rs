@@ -19,10 +19,17 @@ pub mod connect;
 // NF-11.1 (v2.5) — Nebula facts surface for the peer card.
 pub mod nebula;
 pub mod peer_probe;
+// Portal-18.a (v6.0 R12 lock 2026-05-26) — universal tag schema +
+// per-peer storage layer. Lands here (rather than in a fresh crate)
+// because every existing consumer of `mackes-mesh-types` is also a
+// consumer of tags (Peer / Workspace / Container members reference
+// mesh-domain identifiers).
+pub mod tags;
 
 pub use connect::{BatterySnapshot, ConnectFacts, PairingState, PeerKind};
 pub use nebula::{NebulaFacts, NebulaRole};
 pub use peer_probe::{BusTopology, Descriptors, KernelDriver, NatClass, PeerProbe, PowerThermal};
+pub use tags::{Tag, TagFlavor, TagMember, TagStore, TagStoreError};
 
 use serde::{Deserialize, Serialize};
 
