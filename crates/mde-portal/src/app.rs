@@ -373,6 +373,11 @@ pub struct DockApp {
     /// mode (no mode segment rendered); `Some(name)` = render the
     /// far-left `MODE: <name>` segment in the Dock breadcrumb.
     current_sway_mode: Option<String>,
+    /// Portal-14.a.consumers (R4-Q22): timestamp the mode segment
+    /// "spawned" at (mode-entered moment) — drives the typewriter
+    /// reveal of `MODE: <name>` at 60 chars/sec. `None` when no
+    /// mode is active or never entered this session.
+    mode_spawned_at: Option<chrono::DateTime<chrono::Local>>,
     /// Portal-50 (R12-Q11): active prompt-on-change layout banner.
     /// `None` = no banner; `Some(state)` = banner visible until the
     /// TTL fires or the operator clicks ✓ / ✕.
@@ -480,6 +485,7 @@ impl Default for DockApp {
             visited_workspaces_lru: Vec::new(),
             last_workspace_change: None,
             current_sway_mode: None,
+            mode_spawned_at: None,
             layout_prompt: None,
             recent_pulses: Vec::new(),
             bus_announce_segments: Vec::new(),
@@ -625,6 +631,15 @@ impl iced_layershell::Application for DockApp {
                 // Portal-45 (R12-Q5): sway emitted a binding-mode
                 // change. None clears the segment (back to default);
                 // Some(name) raises the far-left segment.
+                // Portal-14.a.consumers (2026-05-27): stamp
+                // `mode_spawned_at` on entry so the typewriter reveal
+                // starts fresh each time the mode flips on. Clearing
+                // resets the stamp so a re-entry replays the reveal.
+                self.mode_spawned_at = if next.is_some() {
+                    Some(chrono::Local::now())
+                } else {
+                    None
+                };
                 self.current_sway_mode = next;
             }
             Message::BindingExecuted(command) => {
@@ -1149,11 +1164,28 @@ fn build_mode_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     } else {
         mode_name.to_string()
     };
+    let full_label = format!("MODE: {display}");
+    // Portal-14.a.consumers (2026-05-27): typewriter reveal at
+    // 60 chars/sec from mode_spawned_at. Surfaces the "mode just
+    // entered" affordance the same way fleet/announce and urgent
+    // pulses do. Mode entries without a stamped spawned_at (rare;
+    // pre-Portal-14.a.consumers init path) fall through to the
+    // full label so the reveal never hides forever.
+    let label = match app.mode_spawned_at {
+        Some(spawned_at) => crate::typewriter::typewriter_visible_text(
+            &full_label,
+            spawned_at,
+            chrono::Local::now(),
+            crate::typewriter::DEFAULT_CHARS_PER_SEC,
+        )
+        .to_string(),
+        None => full_label,
+    };
     // Cyan tinted backdrop with the platform's translucency. The
     // exact cyan is the sway-internal default for binding modes.
     let cyan = Color { r: 0.0, g: 0.7, b: 0.85, a: 0.85 };
     container(
-        text(format!("MODE: {display}"))
+        text(label)
             .size(11.0)
             .color(Color::WHITE),
     )
@@ -1430,9 +1462,25 @@ fn build_prev_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Mes
     } else {
         prev_name
     };
+    let full_label = format!("‹ {truncated}");
+    // Portal-14.a.consumers (2026-05-27): typewriter reveal of the
+    // prev-workspace label, using `last_workspace_change` as the
+    // spawned_at. Each workspace flip restamps the field, so the
+    // reveal replays on every switch. last_workspace_change is
+    // guaranteed Some here — the visibility guard above proves it.
+    let label = match app.last_workspace_change {
+        Some(spawned_at) => crate::typewriter::typewriter_visible_text(
+            &full_label,
+            spawned_at,
+            now,
+            crate::typewriter::DEFAULT_CHARS_PER_SEC,
+        )
+        .to_string(),
+        None => full_label,
+    };
     mouse_area(
         container(
-            text(format!("‹ {truncated}"))
+            text(label)
                 .size(11.0)
                 .color(Color::WHITE),
         )
@@ -3971,5 +4019,107 @@ mod tests {
             Some("foot"),
             "WM actions should not clear hover state"
         );
+    }
+
+    // ── Portal-14.a.consumers (R4-Q22) — mode + prev-ws typewriter ──
+
+    /// Entering a non-default mode stamps `mode_spawned_at`. This
+    /// is the seed the build_mode_segment renderer uses to drive
+    /// the typewriter reveal.
+    #[test]
+    fn mode_entered_stamps_spawned_at() {
+        let mut app = DockApp::default();
+        assert!(app.mode_spawned_at.is_none());
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::ModeChanged(crate::workspace::mode_change_to_message("Dev")),
+        );
+        assert!(app.mode_spawned_at.is_some());
+    }
+
+    /// Returning to `default` clears `mode_spawned_at` alongside
+    /// `current_sway_mode` so a subsequent re-entry restamps fresh.
+    #[test]
+    fn mode_default_clears_spawned_at() {
+        let mut app = DockApp::default();
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::ModeChanged(crate::workspace::mode_change_to_message("Dev")),
+        );
+        assert!(app.mode_spawned_at.is_some());
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::ModeChanged(crate::workspace::mode_change_to_message("default")),
+        );
+        assert!(app.mode_spawned_at.is_none());
+    }
+
+    /// Re-entering a non-default mode restamps `mode_spawned_at`
+    /// to a new time, so each entry replays its own typewriter
+    /// reveal rather than picking up where the previous one left off.
+    #[test]
+    fn mode_re_enter_restamps_spawned_at() {
+        let mut app = DockApp::default();
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::ModeChanged(crate::workspace::mode_change_to_message("Dev")),
+        );
+        let first = app.mode_spawned_at;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        // Clear + re-enter.
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::ModeChanged(crate::workspace::mode_change_to_message("default")),
+        );
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::ModeChanged(crate::workspace::mode_change_to_message("Dev")),
+        );
+        assert!(app.mode_spawned_at.is_some());
+        assert!(
+            app.mode_spawned_at.unwrap() > first.unwrap(),
+            "re-entry must restamp to a later timestamp"
+        );
+    }
+
+    /// Mode-name → typewriter pipeline: at 0 ms elapsed nothing is
+    /// revealed; at 1 s elapsed (60 chars at 60 chars/sec) every
+    /// reasonable mode label is fully revealed.
+    #[test]
+    fn mode_typewriter_pipeline_round_trip() {
+        let target = "MODE: Dev";
+        let spawned = chrono::Local::now();
+        let immediate = crate::typewriter::typewriter_visible_text(
+            target,
+            spawned,
+            spawned,
+            crate::typewriter::DEFAULT_CHARS_PER_SEC,
+        );
+        assert_eq!(immediate, "");
+        let later = spawned + chrono::Duration::milliseconds(1000);
+        let full = crate::typewriter::typewriter_visible_text(
+            target,
+            spawned,
+            later,
+            crate::typewriter::DEFAULT_CHARS_PER_SEC,
+        );
+        assert_eq!(full, target);
+    }
+
+    /// Prev-workspace typewriter pipeline shares the same primitive
+    /// — confirm the format string survives the reveal at the
+    /// platform's rate.
+    #[test]
+    fn prev_workspace_typewriter_pipeline_round_trip() {
+        let target = "‹ 2: firefox";
+        let spawned = chrono::Local::now();
+        let later = spawned + chrono::Duration::milliseconds(1000);
+        let full = crate::typewriter::typewriter_visible_text(
+            target,
+            spawned,
+            later,
+            crate::typewriter::DEFAULT_CHARS_PER_SEC,
+        );
+        assert_eq!(full, target);
     }
 }

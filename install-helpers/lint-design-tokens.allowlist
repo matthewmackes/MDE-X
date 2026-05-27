@@ -64,6 +64,9 @@ crates/mde-popover/src/network.rs:474
 crates/mde-popover/src/status.rs:484
 crates/mde-popover/src/toasts.rs:392
 crates/mde-popover/src/toasts.rs:393
+# Portal-5.b workspace cell + Portal-49 mark-pill + Portal-57.b/.c pulse
+# tier-red + BUS-2.2.a/b breadcrumb tints + Portal-14.a.consumers Cyan
+# constant + tests + docstring hex examples (re-anchored 2026-05-27).
 crates/mde-portal/src/app.rs:97
 crates/mde-portal/src/app.rs:105
 crates/mde-portal/src/app.rs:113
@@ -71,27 +74,24 @@ crates/mde-portal/src/app.rs:121
 crates/mde-portal/src/app.rs:129
 crates/mde-portal/src/app.rs:137
 crates/mde-portal/src/app.rs:145
-crates/mde-portal/src/app.rs:458
-crates/mde-portal/src/app.rs:1505
-# Portal-57.b/.c pulse + segment tier-red Color::from_rgb (R12-Q22, 2026-05-27)
-crates/mde-portal/src/app.rs:1507
-# BUS-2.2.a/b priority-tint + clipboard-grey Color values for breadcrumb pills (2026-05-27)
-crates/mde-portal/src/app.rs:1695
-crates/mde-portal/src/app.rs:2012
-crates/mde-portal/src/app.rs:2014
-crates/mde-portal/src/app.rs:2016
-# Portal-49 mark_pill_color taxonomy hex docs (R12-Q9, 2026-05-26)
-crates/mde-portal/src/app.rs:2018
-crates/mde-portal/src/app.rs:2020
-crates/mde-portal/src/app.rs:2235
-crates/mde-portal/src/app.rs:2237
-crates/mde-portal/src/app.rs:2239
-crates/mde-portal/src/app.rs:2254
-crates/mde-portal/src/app.rs:2388
-crates/mde-portal/src/app.rs:2396
-crates/mde-portal/src/app.rs:2401
-crates/mde-portal/src/app.rs:2405
-crates/mde-portal/src/app.rs:3285
+crates/mde-portal/src/app.rs:463
+crates/mde-portal/src/app.rs:1553
+crates/mde-portal/src/app.rs:1555
+crates/mde-portal/src/app.rs:1743
+crates/mde-portal/src/app.rs:2060
+crates/mde-portal/src/app.rs:2062
+crates/mde-portal/src/app.rs:2064
+crates/mde-portal/src/app.rs:2066
+crates/mde-portal/src/app.rs:2068
+crates/mde-portal/src/app.rs:2283
+crates/mde-portal/src/app.rs:2285
+crates/mde-portal/src/app.rs:2287
+crates/mde-portal/src/app.rs:2302
+crates/mde-portal/src/app.rs:2436
+crates/mde-portal/src/app.rs:2444
+crates/mde-portal/src/app.rs:2449
+crates/mde-portal/src/app.rs:2453
+crates/mde-portal/src/app.rs:3333
 # Portal-17.a/.c + Portal-18.b — docstring hex examples, charcoal
 # const docstring, hex-parser tests, Edit-tag form #42be65 fixtures
 # (re-anchored 2026-05-27 after Portal-18.b modal landed).
