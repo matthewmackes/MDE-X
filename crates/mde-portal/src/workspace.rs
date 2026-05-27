@@ -303,6 +303,133 @@ pub fn binding_subscription() -> Subscription<Message> {
     )
 }
 
+/// Portal-57.b (R12-Q22) — Iced `Subscription` over the Bus pulse
+/// topic. Polls `<XDG_DATA_HOME>/mde/bus/bus/mbadge/pulse/` for
+/// new ULID-named JSON files every 500 ms; emits
+/// `Message::UrgentPulse { app_id, con_id, ulid }` per new file.
+///
+/// The subscription holds a `BTreeSet<String>` of already-seen
+/// ULIDs internally so it doesn't re-emit on each poll cycle. A
+/// missing topic directory (Bus hasn't received its first urgent
+/// event yet, or `mde-bus` isn't running) is a no-op — the poll
+/// continues without churn.
+///
+/// File-system polling is the lightest cross-process integration:
+/// no mde-bus crate dep needed (avoids the rusqlite + tera + ulid
+/// tree). The per-topic file shape is BUS-1.4's lock — each
+/// message lands as `<bus_root>/<topic-path>/<ULID>.json` with a
+/// `StoredMessage` envelope (`{"ulid":..., "body":..., ...}`).
+pub fn bus_pulse_subscription() -> Subscription<Message> {
+    Subscription::run_with_id(
+        "mde-portal-bus-pulse",
+        async_stream::stream! {
+            let mut seen: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
+            let topic_dir = match pulse_topic_dir() {
+                Some(p) => p,
+                None => {
+                    // Path resolution failed; sleep forever rather
+                    // than emit a tight error loop. The harness'
+                    // shutdown path overrides.
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    }
+                }
+            };
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let entries = match std::fs::read_dir(&topic_dir) {
+                    Ok(e) => e,
+                    Err(_) => continue, // topic dir not yet populated
+                };
+                let mut new_pulses: Vec<crate::app::UrgentPulse> = Vec::new();
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    let Some(ulid_str) = name.strip_suffix(".json") else {
+                        continue;
+                    };
+                    if seen.contains(ulid_str) {
+                        continue;
+                    }
+                    seen.insert(ulid_str.to_string());
+                    if let Some(pulse) = parse_pulse_file(&path, ulid_str) {
+                        new_pulses.push(pulse);
+                    }
+                }
+                // First-load mode: don't fire pulses for messages
+                // older than the worker — they're history. Only
+                // emit when new files appear after the initial
+                // scan completes. The simple guard: skip emission
+                // on the first poll; record what we saw.
+                if !new_pulses.is_empty() && seen.len() != new_pulses.len() {
+                    for pulse in new_pulses {
+                        yield Message::UrgentPulse(pulse);
+                    }
+                }
+                // Cap seen-set growth: drop the oldest 50% when it
+                // exceeds 1000 entries. ULIDs sort lexicographically
+                // by time so `BTreeSet` iteration order is
+                // newest-last → drop the first half.
+                if seen.len() > 1000 {
+                    let drop_count = seen.len() / 2;
+                    let to_drop: Vec<String> =
+                        seen.iter().take(drop_count).cloned().collect();
+                    for ulid in to_drop {
+                        seen.remove(&ulid);
+                    }
+                }
+            }
+        },
+    )
+}
+
+/// Portal-57.b — resolve the on-disk topic directory for the Bus
+/// urgent-pulse topic. Mirrors BUS-1.4's `<bus_root>/<topic>`
+/// layout: `<XDG_DATA_HOME>/mde/bus/bus/mbadge/pulse/`.
+#[must_use]
+pub fn pulse_topic_dir() -> Option<std::path::PathBuf> {
+    let data_home = dirs::data_dir()?;
+    Some(
+        data_home
+            .join("mde")
+            .join("bus")
+            .join("bus")
+            .join("mbadge")
+            .join("pulse"),
+    )
+}
+
+/// Portal-57.b — parse a `StoredMessage`-style JSON file, extract
+/// the `body` field (the publisher's JSON payload), parse that for
+/// the urgent-pulse envelope, and lift into an `UrgentPulse`.
+///
+/// Returns `None` when the file doesn't have the expected shape —
+/// non-pulse traffic on the topic shouldn't crash the subscription.
+pub fn parse_pulse_file(
+    path: &std::path::Path,
+    ulid: &str,
+) -> Option<crate::app::UrgentPulse> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let outer: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let body_str = outer.get("body")?.as_str()?;
+    let inner: serde_json::Value = serde_json::from_str(body_str).ok()?;
+    let con_id = inner.get("con_id")?.as_i64()?;
+    let source = inner
+        .get("source")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Some(crate::app::UrgentPulse {
+        ulid: ulid.to_string(),
+        app_id: source,
+        con_id,
+        spawned_at: chrono::Local::now(),
+    })
+}
+
 /// Portal-50 (R12-Q11) — pure helper that extracts the layout name
 /// from a sway command string like `layout splith` or
 /// `layout toggle split` (only the first form is recognised; toggle

@@ -71,6 +71,12 @@ pub const PREV_WS_SEGMENT_TTL_SECS: i64 = 5;
 /// because each flip overwrites the active `LayoutPromptState`.
 pub const LAYOUT_PROMPT_TTL_SECS: i64 = 8;
 
+/// Portal-57.b (R12-Q22): TTL for the mini-tree pulse cell-flash.
+/// Each `bus/mbadge/pulse` event surfaces the matching workspace
+/// cell in tier-red for this many milliseconds before the cell
+/// returns to its normal render.
+pub const URGENT_PULSE_TTL_MS: i64 = 1200;
+
 /// Height of the Dock strip in logical pixels (Portal-2 lock).
 pub const DOCK_HEIGHT_PX: u32 = 56;
 
@@ -253,6 +259,11 @@ pub enum Message {
         /// Layout to pin for this workspace only.
         layout: String,
     },
+    /// Portal-57.b (R12-Q22): a new Bus pulse event arrived from
+    /// `bus/mbadge/pulse`. Pushed into `DockApp::recent_pulses`
+    /// for the TTL window; mini-tree cells matching the pulse's
+    /// workspace render in tier-red.
+    UrgentPulse(UrgentPulse),
     /// User clicked a workspace cell — focus it via swayipc (R3-Q23).
     FocusWorkspace(String),
     /// User clicked `+` — switch to the next unused workspace number.
@@ -350,6 +361,29 @@ pub struct DockApp {
     /// `None` = no banner; `Some(state)` = banner visible until the
     /// TTL fires or the operator clicks ✓ / ✕.
     layout_prompt: Option<LayoutPromptState>,
+    /// Portal-57.b (R12-Q22): recent urgent pulses from the Bus
+    /// `bus/mbadge/pulse` topic. Each entry stays alive for
+    /// [`URGENT_PULSE_TTL_MS`] ms after `spawned_at`. Mini-tree
+    /// cells with a workspace_num matching any active pulse render
+    /// in tier-red.
+    recent_pulses: Vec<UrgentPulse>,
+}
+
+/// Portal-57.b (R12-Q22): one urgent-pulse event in flight. Held in
+/// `DockApp::recent_pulses` for the TTL window so the mini-tree
+/// segment can render the cell-flash effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UrgentPulse {
+    /// ULID from the Bus message envelope. Stable per-event.
+    pub ulid: String,
+    /// `app_id` of the urgent window (from the envelope's `source`).
+    pub app_id: String,
+    /// sway container ID — used to look up the workspace_num via
+    /// `DockApp::running_windows`.
+    pub con_id: i64,
+    /// When the pulse was observed locally. Used with
+    /// [`URGENT_PULSE_TTL_MS`] to compute auto-clear.
+    pub spawned_at: chrono::DateTime<chrono::Local>,
 }
 
 /// Portal-50 (R12-Q11): state of the active prompt-on-change layout
@@ -390,6 +424,7 @@ impl Default for DockApp {
             last_workspace_change: None,
             current_sway_mode: None,
             layout_prompt: None,
+            recent_pulses: Vec::new(),
         }
     }
 }
@@ -569,6 +604,20 @@ impl iced_layershell::Application for DockApp {
                     tracing::warn!(workspace_num, %layout, error = %e, "DeclineTagDefaultLayout: workspaces.json write failed");
                 }
                 self.layout_prompt = None;
+            }
+            Message::UrgentPulse(pulse) => {
+                // Portal-57.b (R12-Q22): record the pulse + sweep
+                // out any expired entries. Cap the buffer at 32
+                // to keep the live-set bounded even if events
+                // arrive faster than they expire.
+                let now = chrono::Local::now();
+                self.recent_pulses
+                    .retain(|p| is_pulse_alive(p, now));
+                self.recent_pulses.push(pulse);
+                if self.recent_pulses.len() > 32 {
+                    let overflow = self.recent_pulses.len() - 32;
+                    self.recent_pulses.drain(..overflow);
+                }
             }
             Message::FocusWorkspace(name) => {
                 return Task::perform(
@@ -753,6 +802,7 @@ impl iced_layershell::Application for DockApp {
             crate::workspace::window_subscription(),
             crate::workspace::mode_subscription(),
             crate::workspace::binding_subscription(),
+            crate::workspace::bus_pulse_subscription(),
             clock_subscription(),
             snapshot_subscription(),
             status_subscription(),
@@ -1162,13 +1212,24 @@ fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message>
     // Portal-59 (R12-Q24): workspace 99 is the platform's reserved
     // park slot for the minimize button. Filter it out of the
     // mini-tree so a parked window feels minimized to the operator.
+    let now = chrono::Local::now();
     for ws in mini_tree_visible_workspaces(&app.workspaces) {
         let is_focused = ws.focused;
         let is_current_output = ws.output == current_output;
         let is_urgent = ws.urgent;
         let is_overflow = ws.name.chars().count() > WS_NAME_MAX_CHARS;
+        // Portal-57.b (R12-Q22): does this workspace have an active
+        // bus/mbadge/pulse event? If yes, the cell renders in
+        // tier-red regardless of focus/visible state — the urgency
+        // signal trumps the normal hierarchy.
+        let has_pulse = workspace_has_active_pulse(
+            ws.num,
+            &app.recent_pulses,
+            &app.running_windows,
+            now,
+        );
 
-        let text_color = if is_focused {
+        let text_color = if is_focused || has_pulse {
             Color::WHITE
         } else if is_current_output {
             fg
@@ -1176,7 +1237,13 @@ fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message>
             Color { a: 0.5, ..fg }
         };
 
-        let cell_bg: Option<Color> = if is_urgent {
+        let cell_bg: Option<Color> = if has_pulse {
+            // Portal-57.b: tier-red (R3-Q4 crit color). Slightly
+            // brighter than the sway-internal `is_urgent` red so
+            // operator can tell the Bus-driven pulse from sway's
+            // own urgent hint when both fire.
+            Some(Color::from_rgb(0.95, 0.2, 0.2))
+        } else if is_urgent {
             Some(Color::from_rgb(0.8, 0.1, 0.1))
         } else if is_focused {
             Some(COLOR_INDIGO)
@@ -1545,6 +1612,47 @@ pub fn write_workspace_layout_override(
     overrides.set_layout_override(workspace_num, layout);
     overrides.save_default()?;
     Ok(())
+}
+
+/// Portal-57.b (R12-Q22): pure helper — `true` if the pulse is
+/// still within its TTL at `now`. Pulses past the TTL are swept
+/// out on the next UrgentPulse message + on every render.
+#[must_use]
+pub fn is_pulse_alive(pulse: &UrgentPulse, now: chrono::DateTime<chrono::Local>) -> bool {
+    let elapsed = now.signed_duration_since(pulse.spawned_at);
+    elapsed.num_milliseconds() >= 0 && elapsed.num_milliseconds() < URGENT_PULSE_TTL_MS
+}
+
+/// Portal-57.b (R12-Q22): pure helper — resolve the workspace_num
+/// for a pulse via the live `running_windows` snapshot. Returns
+/// `None` when the pulse's con_id isn't in the current window
+/// list (window closed before the pulse propagated, or the pulse
+/// targets an off-tree container).
+#[must_use]
+pub fn pulse_workspace_num(
+    pulse: &UrgentPulse,
+    running_windows: &[WindowInfo],
+) -> Option<i32> {
+    running_windows
+        .iter()
+        .find(|w| w.con_id == pulse.con_id)
+        .map(|w| w.workspace_num)
+}
+
+/// Portal-57.b (R12-Q22): pure helper — `true` if workspace
+/// `ws_num` has any active pulse at `now`. Mini-tree cells use
+/// this to decide whether to render in tier-red.
+#[must_use]
+pub fn workspace_has_active_pulse(
+    ws_num: i32,
+    pulses: &[UrgentPulse],
+    running_windows: &[WindowInfo],
+    now: chrono::DateTime<chrono::Local>,
+) -> bool {
+    pulses.iter().any(|p| {
+        is_pulse_alive(p, now)
+            && pulse_workspace_num(p, running_windows) == Some(ws_num)
+    })
 }
 
 /// Portal-49 (R12-Q9): pure helper — return the first taxonomy mark
@@ -2880,6 +2988,153 @@ mod tests {
             },
         );
         assert!(app.layout_prompt.is_none());
+    }
+
+    // ── Portal-57.b (R12-Q22) mini-tree pulse tests ─────────────────────────
+
+    fn make_urgent_pulse(con_id: i64, app_id: &str) -> UrgentPulse {
+        UrgentPulse {
+            ulid: "01HZAZTESTULIDXYZ012345678".to_string(),
+            app_id: app_id.to_string(),
+            con_id,
+            spawned_at: chrono::Local::now(),
+        }
+    }
+
+    /// Pulse is alive within TTL; expires after.
+    #[test]
+    fn pulse_lifetime_respects_ttl() {
+        let pulse = make_urgent_pulse(42, "foot");
+        let now = pulse.spawned_at;
+        assert!(is_pulse_alive(&pulse, now));
+        // 500 ms in → still alive.
+        let halfway = now + chrono::Duration::milliseconds(500);
+        assert!(is_pulse_alive(&pulse, halfway));
+        // 1500 ms in → expired (TTL is 1200).
+        let past = now + chrono::Duration::milliseconds(1500);
+        assert!(!is_pulse_alive(&pulse, past));
+    }
+
+    /// `pulse_workspace_num` looks up the con_id via running_windows.
+    #[test]
+    fn pulse_workspace_num_resolves_via_window_list() {
+        let windows = vec![
+            make_window(42, "foot", 3, false),
+            make_window(99, "firefox", 1, true),
+        ];
+        let pulse = make_urgent_pulse(42, "foot");
+        assert_eq!(pulse_workspace_num(&pulse, &windows), Some(3));
+        // Pulse with no matching con_id returns None.
+        let missing = make_urgent_pulse(7777, "ghost");
+        assert!(pulse_workspace_num(&missing, &windows).is_none());
+    }
+
+    /// `workspace_has_active_pulse` returns true only when at least
+    /// one alive pulse maps to that workspace.
+    #[test]
+    fn workspace_has_active_pulse_combines_alive_check_and_lookup() {
+        let windows = vec![make_window(42, "foot", 3, false)];
+        let pulse = make_urgent_pulse(42, "foot");
+        let pulses = vec![pulse.clone()];
+        let now = pulse.spawned_at;
+        // Workspace 3 has the pulse.
+        assert!(workspace_has_active_pulse(3, &pulses, &windows, now));
+        // Workspace 1 doesn't.
+        assert!(!workspace_has_active_pulse(1, &pulses, &windows, now));
+        // Expired pulse → no.
+        let future = now + chrono::Duration::milliseconds(2000);
+        assert!(!workspace_has_active_pulse(3, &pulses, &windows, future));
+        // No matching con_id in windows → no.
+        let empty_windows: Vec<WindowInfo> = Vec::new();
+        assert!(!workspace_has_active_pulse(3, &pulses, &empty_windows, now));
+    }
+
+    /// `Message::UrgentPulse` appends to `recent_pulses` + sweeps
+    /// expired entries.
+    #[test]
+    fn urgent_pulse_message_appends_to_state() {
+        let mut app = DockApp::default();
+        let pulse_a = make_urgent_pulse(42, "foot");
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::UrgentPulse(pulse_a.clone()),
+        );
+        assert_eq!(app.recent_pulses.len(), 1);
+        assert_eq!(app.recent_pulses[0].con_id, 42);
+        // Second pulse appends.
+        let pulse_b = make_urgent_pulse(99, "firefox");
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::UrgentPulse(pulse_b),
+        );
+        assert_eq!(app.recent_pulses.len(), 2);
+    }
+
+    /// Buffer cap: more than 32 pulses queued → oldest drop out.
+    #[test]
+    fn urgent_pulse_buffer_caps_at_32() {
+        let mut app = DockApp::default();
+        for i in 0..40 {
+            let _ = iced_layershell::Application::update(
+                &mut app,
+                Message::UrgentPulse(make_urgent_pulse(i, "foot")),
+            );
+        }
+        assert!(app.recent_pulses.len() <= 32);
+        // Oldest pulses dropped → latest con_id is still 39.
+        assert_eq!(app.recent_pulses.last().unwrap().con_id, 39);
+    }
+
+    /// `parse_pulse_file` extracts envelope from a BUS-1.4 message
+    /// file. Mirrors the Portal-57.a JSON shape:
+    /// `{"tier":"crit","source":"<app>","con_id":<n>}` nested
+    /// inside `StoredMessage.body`.
+    #[test]
+    fn parse_pulse_file_extracts_envelope() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("01HZAZ123.json");
+        let body_json = r#"{"tier":"crit","source":"foot","con_id":42}"#;
+        let outer = serde_json::json!({
+            "ulid": "01HZAZ123",
+            "topic": "bus/mbadge/pulse",
+            "priority": "crit",
+            "title": null,
+            "body": body_json,
+            "ts_unix_ms": 1700000000000_i64,
+            "file_path": "bus/mbadge/pulse/01HZAZ123.json",
+        });
+        std::fs::write(&path, outer.to_string()).unwrap();
+        let pulse = crate::workspace::parse_pulse_file(&path, "01HZAZ123").unwrap();
+        assert_eq!(pulse.con_id, 42);
+        assert_eq!(pulse.app_id, "foot");
+        assert_eq!(pulse.ulid, "01HZAZ123");
+    }
+
+    /// Malformed pulse files return None — the subscription
+    /// continues without panicking on garbage on the topic.
+    #[test]
+    fn parse_pulse_file_returns_none_on_malformed() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Not JSON.
+        let bad1 = tmp.path().join("01HZAZ001.json");
+        std::fs::write(&bad1, "not json").unwrap();
+        assert!(crate::workspace::parse_pulse_file(&bad1, "01HZAZ001").is_none());
+        // No `body` field.
+        let bad2 = tmp.path().join("01HZAZ002.json");
+        std::fs::write(&bad2, r#"{"ulid":"01HZAZ002"}"#).unwrap();
+        assert!(crate::workspace::parse_pulse_file(&bad2, "01HZAZ002").is_none());
+        // `body` is a string but not parseable JSON.
+        let bad3 = tmp.path().join("01HZAZ003.json");
+        std::fs::write(&bad3, r#"{"body":"not json"}"#).unwrap();
+        assert!(crate::workspace::parse_pulse_file(&bad3, "01HZAZ003").is_none());
+        // body parses but missing con_id.
+        let bad4 = tmp.path().join("01HZAZ004.json");
+        std::fs::write(
+            &bad4,
+            r#"{"body":"{\"tier\":\"crit\",\"source\":\"foot\"}"}"#,
+        )
+        .unwrap();
+        assert!(crate::workspace::parse_pulse_file(&bad4, "01HZAZ004").is_none());
     }
 
     /// Portal-50.b: `DeclineTagDefaultLayout` clears the banner.
