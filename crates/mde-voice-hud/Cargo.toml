@@ -1,0 +1,35 @@
+[package]
+name        = "mde-voice-hud"
+description = "Iced + wlr-layer-shell PJSIP softphone HUD — VOIP-27..VOIP-30 per docs/design/v6.0-pjsip-presence-and-hud.md."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+[[bin]]
+name = "mde-voice-hud"
+path = "src/main.rs"
+
+[dependencies]
+# Same Iced + iced_layershell pair as crates/mde-popover so the
+# workspace dep tree stays on a single resolution.
+iced            = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced"] }
+iced_layershell = "0.13.7"
+
+# Fixture + activity-feed parsing.
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml       = "0.8"
+
+# CLI + tracing — same shape mde-popover uses.
+clap               = { version = "4.5", features = ["derive"] }
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# XDG home + cache paths.
+dirs = "5"
+
+[lints]
+workspace = true

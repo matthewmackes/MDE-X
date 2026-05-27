@@ -53,6 +53,7 @@ members  = [
     "crates/mde-session",
     "crates/mde-theme",
     "crates/mde-voice-config",
+    "crates/mde-voice-hud",
     "crates/mde-wizard",
     "crates/mde-workbench",
     "crates/mded",
