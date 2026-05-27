@@ -49,6 +49,19 @@ pub enum MuteOp {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Print the count of mute patterns (optionally filtered by
+    /// an MQTT-style pattern). Symmetric with `sub count`.
+    Count {
+        /// Override the manifest path.
+        #[arg(long)]
+        manifest: Option<PathBuf>,
+        /// Filter count to mutes matching this MQTT-style pattern.
+        #[arg(long)]
+        pattern: Option<String>,
+        /// Emit `{"count":N}` instead of the bare integer.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 fn resolve_manifest_path(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -109,6 +122,20 @@ pub async fn run(op: MuteOp) -> Result<()> {
                 println!("unmuted: {topic}");
             } else {
                 println!("not muted: {topic}");
+            }
+        }
+        MuteOp::Count { manifest, pattern, json } => {
+            let path = resolve_manifest_path(manifest)?;
+            let m = read_or_default(&path)?;
+            let n = if let Some(p) = pattern.as_deref() {
+                m.mute.iter().filter(|t| crate::wildcard::matches(p, t)).count()
+            } else {
+                m.mute.len()
+            };
+            if json {
+                println!("{{\"count\":{n}}}");
+            } else {
+                println!("{n}");
             }
         }
         MuteOp::List { manifest, pattern, json } => {
@@ -190,6 +217,40 @@ mod tests {
         }
         let m = SubsManifest::parse_yaml(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(m.mute.iter().filter(|t| *t == "x").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn count_returns_mute_count() {
+        let (_tmp, path) = tmp_manifest();
+        run(MuteOp::Count {
+            manifest: Some(path.clone()),
+            pattern: None,
+            json: false,
+        })
+        .await
+        .unwrap();
+        for t in ["noisy/foo", "noisy/bar", "quiet/spam"] {
+            run(MuteOp::Add {
+                topic: t.to_string(),
+                manifest: Some(path.clone()),
+            })
+            .await
+            .unwrap();
+        }
+        run(MuteOp::Count {
+            manifest: Some(path.clone()),
+            pattern: None,
+            json: true,
+        })
+        .await
+        .unwrap();
+        run(MuteOp::Count {
+            manifest: Some(path),
+            pattern: Some("noisy/+".to_string()),
+            json: false,
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]

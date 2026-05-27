@@ -59,6 +59,21 @@ pub enum SubOp {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Print the count of subscribed topics (optionally filtered
+    /// by an MQTT-style pattern). Symmetric with the audit /
+    /// persist / correlate count verbs.
+    Count {
+        /// Override the manifest path.
+        #[arg(long)]
+        manifest: Option<PathBuf>,
+        /// Filter count to topics matching this MQTT-style
+        /// pattern. None = total count.
+        #[arg(long)]
+        pattern: Option<String>,
+        /// Emit `{"count":N}` instead of the bare integer.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 fn resolve_manifest_path(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -121,6 +136,20 @@ pub async fn run(op: SubOp) -> Result<()> {
                 println!("unsubscribed: {topic}");
             } else {
                 println!("not subscribed: {topic}");
+            }
+        }
+        SubOp::Count { manifest, pattern, json } => {
+            let path = resolve_manifest_path(manifest)?;
+            let m = read_or_default(&path)?;
+            let n = if let Some(p) = pattern.as_deref() {
+                m.topics.iter().filter(|t| crate::wildcard::matches(p, t)).count()
+            } else {
+                m.topics.len()
+            };
+            if json {
+                println!("{{\"count\":{n}}}");
+            } else {
+                println!("{n}");
             }
         }
         SubOp::List { manifest, pattern, json } => {
@@ -243,6 +272,44 @@ mod tests {
             manifest: Some(path),
             pattern: None,
             json: true,
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn count_returns_topic_count() {
+        let (_tmp, path) = tmp_manifest();
+        // Empty manifest first.
+        run(SubOp::Count {
+            manifest: Some(path.clone()),
+            pattern: None,
+            json: false,
+        })
+        .await
+        .unwrap();
+        // Seed 3 topics across 2 namespaces.
+        for t in ["fleet/announce", "fleet/sec", "mon/cpu"] {
+            run(SubOp::Add {
+                topic: t.to_string(),
+                manifest: Some(path.clone()),
+            })
+            .await
+            .unwrap();
+        }
+        // Count without pattern → 3.
+        run(SubOp::Count {
+            manifest: Some(path.clone()),
+            pattern: None,
+            json: true,
+        })
+        .await
+        .unwrap();
+        // Count with pattern fleet/# → 2.
+        run(SubOp::Count {
+            manifest: Some(path),
+            pattern: Some("fleet/#".to_string()),
+            json: false,
         })
         .await
         .unwrap();
