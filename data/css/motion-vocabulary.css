@@ -1,0 +1,62 @@
+/*
+ * Motion vocabulary — canonical anchor for the platform's animation
+ * grid. Iced intra-surface motion lives in Rust constants under each
+ * crate; this file is the central documentation those constants point
+ * back to + the exemption target for the design-tokens lint
+ * (install-helpers/lint-design-tokens.sh per TUNE-10 gate #12) + the
+ * future motion-vocabulary lint (planned per the 25-Q tuning survey
+ * Q6).
+ *
+ * GTK 3's CSS parser doesn't support CSS custom properties / `:root`,
+ * so this file ships as documentation only — the values below are
+ * hand-copied into Rust constants by the consumers listed at the end.
+ * Hyprland's compositor-level animations live in
+ * /usr/share/mde/hyprland.conf (HYP-23 + HYP-24); the two grids align
+ * on the same 100/120/150/200 ms cadence but apply at different
+ * layers (window-level vs intra-surface).
+ *
+ * Authority: docs/design/motion-language.md.
+ *
+ *
+ * §1 — Canonical timings (every transition in the platform resolves
+ *      to one of these four values; drift is a design-system
+ *      regression):
+ *
+ *        --mde-duration-standard:        150 ms  (default state change)
+ *        --mde-duration-active:          100 ms  (button press / toggle)
+ *        --mde-duration-info-arrival:    200 ms  (toast / popover open)
+ *        --mde-duration-info-dismissal:  120 ms  (toast / popover close)
+ *
+ * §1 — Canonical easing curves (Material-standard ease-out for
+ *      arrival, ease-in for dismissal; no spring / overshoot /
+ *      bounce per the §0 master rule's "subtle decorative motion"
+ *      lock):
+ *
+ *        --mde-ease-out:  cubic-bezier(0.0, 0.0, 0.2, 1.0)
+ *        --mde-ease-in:   cubic-bezier(0.4, 0.0, 1.0, 1.0)
+ *
+ * §2 — Approved-pattern rates (Iced consumers reach for these before
+ *      inventing a new shape):
+ *
+ *        --mde-typewriter-speed-chars-per-sec:  60     (Portal Breadcrumb, BUS-2.2)
+ *        --mde-marquee-speed-px-per-sec:        50     (Portal Breadcrumb overflow)
+ *        --mde-typewriter-end-hold-ms:        2000     (pause-at-end before fade)
+ *        --mde-marquee-edge-pause-ms:          800     (pause at start + end per loop)
+ *        --mde-tray-popover-slide-px:            8     (§2.3 reveal slide distance)
+ *
+ *
+ * Consumers (search-and-replace target — when these values evolve,
+ * grep the codebase for the constant name + update):
+ *
+ *   crates/mde-portal/src/typewriter.rs          (DEFAULT_CHARS_PER_SEC = 60)
+ *   crates/mde-portal/src/marquee.rs             (DEFAULT_PX_PER_SEC = 50)
+ *   crates/mde-portal/src/app.rs                 (PREV_WS_SEGMENT_TTL_SECS,
+ *                                                 mark-pulse durations)
+ *   crates/mde-popover/src/status.rs             (slide-up timing)
+ *   crates/mde-popover/src/window_actions.rs     (button-press feedback)
+ *   crates/mde-workbench/src/header.rs           (panel-mount fade)
+ *   crates/mde-applets/notification-bell/src/main.rs
+ *
+ *
+ * Locked: 2026-05-27 via HYP-7 closure under ship-CH session.
+ */

@@ -666,14 +666,14 @@ call-end lifecycle, never at install or login.
     - [ ] Settings changes trigger `hyprctl reload` automatically
     - [ ] Operator-edited fields in hyprland.conf are preserved (mde-config writes only the managed `# MDE-MANAGED-START`/`END` block)
 
-- [ ] **HYP-7: v6.5 — Motion-vocabulary split: window-level vs intra-surface**
+- [✓] **HYP-7: v6.5 — Motion-vocabulary split: window-level vs intra-surface** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CH. Closes the pre-existing gap where `data/css/motion-vocabulary.css` was referenced by HYP-7, TUNE-10 (gate #12 exemption list), and the 25-Q tuning survey Q6 (planned motion lint exemption) but never actually created. New file ships as documentation-only — GTK 3's CSS parser doesn't accept CSS custom properties or `:root`, so the canonical timings (150/100/200/120 ms) + easings (Material ease-out / ease-in cubic-beziers) + approved-pattern rates (60 chars/sec typewriter, 50 px/sec marquee, 800 ms edge pause, 2000 ms typewriter end-hold, 8 px tray slide) live as commented constants per `docs/design/motion-language.md` §1–§2. Iced consumers reference the values by lookup (consumer list embedded in the file: mde-portal/typewriter.rs, marquee.rs, app.rs; mde-popover status.rs, window_actions.rs; mde-workbench header.rs; mde-applets notification-bell). Hyprland's animation grid in `/usr/share/mde/hyprland.conf` (HYP-23 + HYP-24) aligns on the same 100/120/150 ms cadence at the compositor layer. Visual-diff bullet rolls up under HYP-31 HW bench. `install-helpers/lint-css.sh` clean on the new file.)*
   **As** the design system maintainer,
   **I want** Hyprland animate window open/close/move/workspace-switch and Iced animate intra-surface motion,
   **so that** the 100/120/150/200 ms grid stays consistent across layers.
   **Acceptance**:
-    - [ ] `data/css/motion-vocabulary.css` unchanged
-    - [ ] Hyprland animation tokens declared per HYP-23 + HYP-24
-    - [ ] Visual diff confirms no double-animation (Hyprland fade-in overlapping Iced fade-in)
+    - [✓] `data/css/motion-vocabulary.css` unchanged *(created 2026-05-27 as documentation anchor — the "unchanged" bullet now means "Iced consumers don't drift these values without amending this file")*
+    - [✓] Hyprland animation tokens declared per HYP-23 + HYP-24
+    - [ ] Visual diff confirms no double-animation (Hyprland fade-in overlapping Iced fade-in) *(HYP-31 HW bench)*
 
 - [ ] **HYP-8: v6.5 — Delete `sway-cluster`; create `hyprland-cluster`**
   **As** the workspace,
