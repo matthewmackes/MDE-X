@@ -124,6 +124,7 @@ mod tests {
             priority: Priority::High,
             title: "hello world".to_string(),
             body: "payload body".to_string(),
+            quiet_hours: crate::dnd::TopicQuietHours::default(),
         };
         publish_to_ntfy(&client, &base, &rendered)
             .await
@@ -150,6 +151,7 @@ mod tests {
             priority: Priority::Default,
             title: "t".to_string(),
             body: "b".to_string(),
+            quiet_hours: crate::dnd::TopicQuietHours::default(),
         };
         let err = publish_to_ntfy(&client, &base, &rendered)
             .await
@@ -173,6 +175,7 @@ mod tests {
             priority: Priority::Default,
             title: "t".to_string(),
             body: "b".to_string(),
+            quiet_hours: crate::dnd::TopicQuietHours::default(),
         };
         let err = publish_to_ntfy(&client, "http://127.0.0.1:1", &rendered)
             .await

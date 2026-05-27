@@ -629,7 +629,7 @@ call-end lifecycle, never at install or login.
     - [ ] `crates/mde-hypr-plugin/Cargo.toml` + `build.rs` that invokes cmake
     - [ ] `cpp/` subdir with the Hyprland plugin entry point + headers vendored from Hyprland tag
     - [ ] Plugin loads on Hyprland startup; `hyprctl plugin list` shows `mde-hypr-plugin`
-    - [ ] Empty plugin body returns 0 from each subsystem stub callable via IPC
+    - [ ] Empty plugin body returns 0 from each of the **3 subsystem stubs** (layout / window-rules / event-bridge) callable via IPC. Post 2026-05-27 simplification re-lock: marks + pill rendering retargeted out of the plugin per design doc §10.1.
 
 - [ ] **HYP-5: v6.5 — hyprland.conf baseline + GFS-replicated user overrides**
   **As** an operator,
@@ -722,24 +722,33 @@ call-end lifecycle, never at install or login.
     - [ ] Portal breadcrumb's mode segment never shows "resize"
     - [ ] **Amends** [[project_v6_0_mde_portal]] R12 Q44 (mode segment use case shrinks)
 
-- [ ] **HYP-14: v6.5 — Plugin extends window state with marks (Portal-46 retarget)**
+- [ ] **HYP-14: v6.5 — `marks_state` mackesd worker owns per-window marks (Portal-46 retarget)**
   **As** the platform,
-  **I want** each window to carry a `Vec<String>` of marks accessible via plugin IPC,
-  **so that** R12 mark semantics survive on a compositor that has no native mark primitive.
+  **I want** per-window mark state held in `mackesd::workers::marks_state` and published to subscribers via Bus,
+  **so that** R12 mark semantics survive on a compositor with no native mark primitive — without a compositor-side C++ store. Retargeted from the original C++ plugin lock per the 2026-05-27 simplification re-lock (design doc §10.1).
   **Acceptance**:
-    - [ ] Plugin stores marks per `CWindow*` address in a hash map
-    - [ ] Plugin IPC exposes `mde:mark add <addr> <name>`, `mde:mark remove <addr> <name>`, `mde:mark list <addr>`, `mde:mark match <pattern>`
-    - [ ] Marks persist across plugin reload (via session_persist seeding)
+    - [ ] `mackesd::workers::marks_state` subscribes to `hyprctl sockets2` (`openwindow`, `closewindow`, `movewindow`, `activewindow`) via hyprland-rs
+    - [ ] Holds `HashMap<WindowAddr, Vec<String>>` in worker state
+    - [ ] Exposes ops on Bus: `action/marks/add`, `action/marks/remove`, `action/marks/list`, `action/marks/match`
+    - [ ] Publishes deltas on Bus topic `event/marks/<addr>` on every add/remove
+    - [ ] On `openwindow`, auto-populates marks from the window's app_id taxonomy per `~/.config/mde/tags/<name>.toml`
+    - [ ] Snapshot persists via GFS-replicated `~/.local/share/mde/marks/<peer>.toml` (60 s tick + on shutdown)
+    - [ ] On restart, replays snapshot for live windows (matching by class + title) before publishing
+    - [ ] Bench: 50 windows × 3 marks each, sub-millisecond Bus publish latency
     - [ ] Retires Portal-46
 
-- [ ] **HYP-15: v6.5 — Plugin renders mark pills on decoration (Portal-47 retarget)**
+- [ ] **HYP-15: v6.5 — `mde-portal` renders mark pills as layer-shell overlay (Portal-47 retarget)**
   **As** an operator,
-  **I want** each window's marks rendered as colored pills on its title bar,
-  **so that** I can see at a glance which tags + apps a window belongs to.
+  **I want** each window's marks rendered as colored pills floating near its title bar,
+  **so that** I can see at a glance which tags + apps a window belongs to. Retargeted from the original C++ plugin lock per the 2026-05-27 simplification re-lock (design doc §10.1) — Portal already owns shell chrome per v6.0 lock.
   **Acceptance**:
-    - [ ] Plugin renders pills inside `renderWindow` callback
-    - [ ] Pill style (font, padding, radius, colors) read from `~/.config/mde/pill-style.toml` written by mde-config
-    - [ ] Pills update on mark add/remove without window recreate
+    - [ ] `mde-portal` owns a wlr-layer-shell `Top` surface per output dedicated to pill rendering
+    - [ ] Subscribes to Bus topic `event/marks/<addr>` (from `marks_state` worker, HYP-14)
+    - [ ] Subscribes to `hyprctl sockets2` window-state-change events (`movewindow`, `activewindow`, `changefloatingmode`, workspace-switch) for repositioning
+    - [ ] Pills positioned by `hyprctl clients` geometry; refresh on every state-change event
+    - [ ] Pill style (font, padding, radius, colors) read from existing design tokens — `data/css/tokens.css` + `crates/mde-theme/` per the platform token lock; no separate `pill-style.toml`
+    - [ ] Pills hidden during user-initiated window drag (re-show on drag-end via `closewindow`-after-`openwindow` heuristic or animation-end event)
+    - [ ] Bench: 50 windows × 3 marks each render within a 16 ms frame budget
     - [ ] Retires Portal-47
 
 - [ ] **HYP-16: v6.5 — Portal generates `hyprctl --batch` per template (Portal-48 retarget)**
@@ -795,21 +804,25 @@ call-end lifecycle, never at install or login.
 - [ ] **HYP-21: v6.5 — Per-elevation M3 shadows (amends Classic ChromeOS flat lock)**
   **As** the design system,
   **I want** window shadows scale with elevation marks (elev-1 = ambient, elev-2 = raised, elev-3 = floating),
-  **so that** the visual hierarchy reads correctly without breaking the Classic ChromeOS tokens.
+  **so that** the visual hierarchy reads correctly without breaking the Classic ChromeOS tokens. Retargeted from plugin to mded per the 2026-05-27 simplification re-lock (design doc §10.1) — marks_state lives in mded, so the per-window decoration decision lives one process out alongside them.
   **Acceptance**:
-    - [ ] Plugin reads `elevation:N` from each window's marks
-    - [ ] Plugin sets per-window `decoration { drop_shadow }` parameters matching M3 elevation tokens
+    - [ ] `mackesd::workers::elevation` subscribes to Bus topic `event/marks/<addr>` from `marks_state` (HYP-14) for mark deltas
+    - [ ] On mark change containing `elevation:N`, dispatches `hyprctl keyword windowrulev2 = decoration:drop_shadow yes; shadow_range <N-tokenized>; shadow_render_power <N-tokenized>; ..., address:0x<addr>` matching the M3 elevation token for N ∈ {1,2,3}
+    - [ ] Default elevation (no `elevation:` mark) = elev-1 (ambient)
     - [ ] `docs/AI_GOVERNANCE.md` §14 supersession table lists "Classic ChromeOS universal-flat → Q23 per-elevation"
 
-- [ ] **HYP-22: v6.5 — Per-tag border color via plugin `bordercolor` rule**
+- [ ] **HYP-22: v6.5 — Per-tag border color via mded `border_colors` worker**
   **As** an operator,
   **I want** the focused window's border match its tag's color (voip=blue, dev=green, hub=indigo),
-  **so that** I can read a window's tag from across the room.
+  **so that** I can read a window's tag from across the room. Retargeted from plugin to mded per the 2026-05-27 simplification re-lock (design doc §10.1).
   **Acceptance**:
-    - [ ] Plugin maps `tag:<name>` marks → border color from `~/.config/mde/tag-colors.toml`
-    - [ ] Plugin applies `bordercolor` windowrule on mark add/remove + workspace switch
+    - [ ] `mackesd::workers::border_colors` subscribes to Bus topic `event/marks/<addr>` from `marks_state` (HYP-14)
+    - [ ] Subscribes to `hyprctl sockets2` `activewindow` events for active/inactive transitions
+    - [ ] Maps `tag:<name>` marks → border color from `~/.config/mde/tag-colors.toml`
+    - [ ] On mark or activewindow change, dispatches `hyprctl keyword windowrulev2 = bordercolor 0x<RRGGBB>, address:0x<addr>` per window
     - [ ] Inactive border = tag color desaturated 50%
     - [ ] No accent-per-preset reflection on borders (preset accent shows up in panel/Hub only)
+    - [ ] Bench: tag change reflects in border within one frame (16 ms)
 
 - [ ] **HYP-23: v6.5 — Hyprland default animation curves locked**
   **As** the platform,
@@ -1198,6 +1211,8 @@ call-end lifecycle, never at install or login.
 - [ ] **BUS-2.5: Theater takeover surface for `urgent`.** Full-screen layer-shell overlay with message + actions. Scope: new `mde-popover urgent` mode. Files: `crates/mde-popover/src/urgent.rs`, `crates/mde-popover/src/main.rs`. Exit: `priority=urgent` shows full-screen overlay; Esc/ack dismisses; sound plays once. Test: layer-shell mock test.
 - [ ] **BUS-2.6: Wallpaper stripe surface (`surface=wallpaper` tag).** Paints a stripe across the Mesh-Wallpaper Wayland layer. Auto-fades after 30 s for non-urgent; urgent stays until ack. Scope: extend Portal-24 mesh-wallpaper renderer. Files: `crates/mde-portal/src/wallpaper/bus_stripe.rs`. Exit: tagged message paints stripe; untagged urgent does NOT (opt-in only). Test: wallpaper-surface integration test.
 - [ ] **BUS-2.7: Click-actions + `mde://` URL handler + in-place inline reply.** Max 5 action buttons per notification. mde:// dispatcher routes to peer/focus/topic targets via existing `mackes --focus` plumbing. Inline reply box publishes back to the topic. Scope: action button widget + reply box + mde:// resolver. Files: `crates/mde-bus/src/action.rs`, `crates/mde-portal/src/notification/inline_reply.rs`, `crates/mded/src/mde_uri.rs`. Exit: clicking `[Open Peer]` button opens that peer's card; reply box publishes a new message tagged `reply_to=<parent-ulid>`. Test: URL-handler snapshot + reply integration.
+- [✓] **BUS-2.8.topic-hours: Hook config schema gains per-topic `quiet_after` + `quiet_until`** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-BE. Third of the BUS-2.8 sub-tasks (BUS-2.8.watcher remains as final follow-on). `PublishSpec` gains `quiet_after`/`quiet_until` HH:MM string fields; `PublishSpec::quiet_hours()` resolves to a typed `crate::dnd::TopicQuietHours` (one-sided or unparseable → no-window default; fail-open). `RenderedPublish` carries `quiet_hours` through `render_rule`; `handle_hook` swaps the prior hardcoded default for `rendered.quiet_hours`. 4 new tests: default-when-unset, parses-hhmm-pair (22:00+07:00), one-sided-falls-through, unparseable-falls-through. 2 stale RenderedPublish test fixtures + 1 PublishSpec fixture updated to keep literal-syntax safe. `cargo test -p mde-bus --lib` 195 tests green. **BUS-2.8 nearly complete** — only inotify watcher remains. Cite: motion-language.md §6 (DND cadence + per-topic quiet hours); ref: Linear (per-channel notification scheduling).)*
+
 - [✓] **BUS-2.8.cli: `mde-bus dnd on/off/status` operator verbs** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-BD. Second half of BUS-2.8 (BUS-2.8.watcher remains as final follow-on for inotify push-vs-pull). New `crates/mde-bus/src/cli/dnd.rs` (~180 LOC + 5 unit tests, all green) ships the `mde-bus dnd <op>` operator-facing verbs: `on` writes `<bus_root>/dnd.yaml` with active=true + since-now-timestamp + local-hostname; `off` writes the same envelope with active=false; `status` reads the live state + prints in human-readable form (`DND: on/off\nSince: <timestamp>\nBy: <peer>`). All three accept `--bus-root <path>` override for tests + integration smokes. Default bus_root resolves via `crate::default_data_dir()` (the standard XDG path the rest of mde-bus uses); `--bus-root` override is required when neither $HOME nor $XDG_DATA_HOME is set. `local_hostname()` helper resolves via `$HOSTNAME` → `/proc/sys/kernel/hostname` → `"unknown-host"` fallback (mirrors the chain used by `crate::publisher_id`). `format_status` handles the "never toggled" path (default state with since_unix_ms=0 + empty set_by_peer) by appending a clarifying line so operators don't see a misleading "Since: 1970" timestamp. Wired through `cli::mod.rs` `Cmd::Dnd` + `main.rs::main` dispatch. 5 new unit tests cover: set_state(on) round-trip (writes active=true + non-zero timestamp + non-empty peer + load-back round-trips), set_state(off) writes false after a prior on (validates the "off path doesn't no-op when prior=on" failure mode), format_status for default state ("never toggled" line present), format_status for active state (DND: on + Since + By: <peer> all present), local_hostname never empty. **Bench-verified end-to-end on this commit**: `mde-bus dnd status --bus-root /tmp/foo` → `DND: off\n(never toggled; using default off)`; `mde-bus dnd on --bus-root /tmp/foo` → `DND: on\nSince: 2026-05-27 12:11:05 -04:00\nBy: fedora`; `mde-bus dnd off` → flips back. `cargo test -p mde-bus --lib dnd` 20/20 tests green (15 lib + 5 CLI). All applicable lints clean. **Remaining BUS-2.8 sub-tasks**: BUS-2.8.watcher (inotify on dnd.yaml so the hook handler doesn't re-read on every fire — small perf win + cross-peer propagation via GFS heal), BUS-2.8.topic-hours (extend hook config schema with per-topic quiet_after/quiet_until + thread through to dispatch_with_dnd's `topic_hours` arg). Cite: motion-language.md §6 (DND cadence); ref: Linear (DND-respecting CLI tool).)*
 
 - [✓] **BUS-2.8.data: DND state machine + decision logic + GFS persistence** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-BC. First half of BUS-2.8 (full mesh-sync integration ships as `.watcher`). `crates/mde-bus/src/dnd.rs` (~330 LOC + 15 unit tests, all green) ships the data model + decision logic + persistence: `DndState { active, since_unix_ms, set_by_peer }` (the mesh-synced state envelope, with safe default = DND off), `TopicQuietHours { quiet_after: Option<u32>, quiet_until: Option<u32> }` (seconds-of-day window per topic), pure helpers `is_quiet_hour(now_local_seconds, hours) -> bool` (handles same-day + overnight wrap-midnight + zero-length + one-sided-None edge cases) + `is_suppressed(state, hours, tags, now) -> bool` (override=dnd tag bypass first, then DND toggle, then quiet-hour window) + `parse_hhmm(s) -> Option<u32>` (24-hour HH:MM string → seconds-of-day) + filesystem helpers `load_default(bus_root) -> DndState` (missing file → default; corrupted YAML → default; safe-fail) + `save_default(bus_root, &state) -> Result<()>` (atomic temp+rename write). New `crates/mde-bus/src/surface.rs::dispatch_with_dnd` wrapper consumes the state + suppresses by log-silent when DND/quiet-hour gates fire; falls through to standard `dispatch()` otherwise. `crates/mde-bus/src/hooks/server.rs` `handle_hook` swaps `dispatch_surface` for `dispatch_with_dnd` — loads DND state from `<bus_root>/dnd.yaml` on each hook fire (cheap; < 1 KB file). New `current_local_seconds_of_day()` helper uses chrono::Local. `ListenerState` gains `bus_root: Option<PathBuf>` carried from config; tests without persistence get None → falls back to DndState::default(). 15 new unit tests cover default state, YAML round-trip, same-day quiet window, overnight wrap window, zero-length window, one-sided None window, override=dnd bypass for both DND + quiet-hour paths, DND-off-outside-quiet-hours-delivered, HH:MM parse + reject, file-missing returns default, save+load round-trip, corrupted-YAML returns default. `cargo test -p mde-bus --lib` 186 tests green (171 pre-existing + 15 new). All applicable pre-commit lints clean (runtime-reachability clean — `dnd::` referenced from surface.rs + hooks/server.rs). **End-to-end bench-observable**: `mde-bus dnd on` (CLI verb ships separately as BUS-2.8.cli) writes dnd.yaml with active=true → next hook publish → dispatch_with_dnd routes to log_silent surface (DND on). **Remaining sub-tasks**: BUS-2.8.watcher (inotify watcher for the dnd.yaml file so toggle is propagated within the GFS heal window WITHOUT every hook re-loading), BUS-2.8.topic-hours (extend hook config schema with per-topic quiet_after/quiet_until fields + thread through to dispatch_with_dnd), BUS-2.8.cli (`mde-bus dnd on/off/status` verbs). All three ship as follow-ons. Cite: docs/design/v6.x-mackes-bus.md §6 (DND routing surface); ref: Linear (DND-respecting notification).)*

@@ -64,6 +64,10 @@ pub struct RenderedPublish {
     pub title: String,
     /// Body (template rendered).
     pub body: String,
+    /// BUS-2.8.topic-hours — the resolved quiet-hours window for
+    /// the rule's topic. Default (no window) when the rule's
+    /// PublishSpec didn't set `quiet_after` + `quiet_until`.
+    pub quiet_hours: crate::dnd::TopicQuietHours,
 }
 
 /// Match errors that arise during evaluation.
@@ -145,6 +149,7 @@ fn render_rule(
         priority: rule.publish.priority,
         title,
         body,
+        quiet_hours: rule.publish.quiet_hours(),
     })
 }
 
@@ -207,6 +212,8 @@ mod tests {
                 priority: Priority::Default,
                 title: "title-{{ key }}".to_string(),
                 body: "body-{{ key }}".to_string(),
+                quiet_after: None,
+                quiet_until: None,
             },
         }
     }

@@ -361,12 +361,11 @@ async fn handle_hook(
                         Some(root) => crate::dnd::load_default(root),
                         None => crate::dnd::DndState::default(),
                     };
-                    // Topic-level quiet hours aren't wired into
-                    // the hook config schema yet (BUS-2.8.topic-
-                    // hours follow-on) — pass default (no quiet
-                    // window) so only the global DND toggle
-                    // gates routing in v1.
-                    let topic_hours = crate::dnd::TopicQuietHours::default();
+                    // BUS-2.8.topic-hours — the matched rule's
+                    // quiet_after / quiet_until fields are resolved
+                    // into a TopicQuietHours during render_rule and
+                    // carried on the RenderedPublish here.
+                    let topic_hours = rendered.quiet_hours;
                     let now_local = current_local_seconds_of_day();
                     dispatch_with_dnd(
                         &stored,

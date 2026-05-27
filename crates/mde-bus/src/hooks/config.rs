@@ -140,6 +140,43 @@ pub struct PublishSpec {
     /// Becomes the ntfy message body.
     #[serde(default)]
     pub body: String,
+    /// BUS-2.8.topic-hours — optional per-topic quiet-hour window.
+    /// Both `quiet_after` + `quiet_until` are 24-hour `HH:MM`
+    /// strings in the operator's local timezone (e.g.
+    /// `quiet_after: "22:00"` + `quiet_until: "07:00"` for overnight
+    /// quiet). When set, messages published by this rule inside the
+    /// window route to log-silent even when global DND is off.
+    /// Both fields must be present together; one without the other
+    /// is treated as "no window" (same as both absent). Use
+    /// [`quiet_hours()`] to resolve to a typed
+    /// [`crate::dnd::TopicQuietHours`] for evaluation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiet_after: Option<String>,
+    /// See [`Self::quiet_after`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiet_until: Option<String>,
+}
+
+impl PublishSpec {
+    /// BUS-2.8.topic-hours — parse the `quiet_after` + `quiet_until`
+    /// HH:MM strings into a typed [`crate::dnd::TopicQuietHours`].
+    /// Returns the default (no window) when either field is absent
+    /// or unparseable. The fail-open default is deliberate — a
+    /// typo in the hook config shouldn't silently suppress every
+    /// message; it should fall through to "no window" so the
+    /// operator notices the messages aren't being suppressed.
+    #[must_use]
+    pub fn quiet_hours(&self) -> crate::dnd::TopicQuietHours {
+        let after = self.quiet_after.as_deref().and_then(crate::dnd::parse_hhmm);
+        let until = self.quiet_until.as_deref().and_then(crate::dnd::parse_hhmm);
+        match (after, until) {
+            (Some(a), Some(u)) => crate::dnd::TopicQuietHours {
+                quiet_after: Some(a),
+                quiet_until: Some(u),
+            },
+            _ => crate::dnd::TopicQuietHours::default(),
+        }
+    }
 }
 
 /// Priority levels — matches BUS-2.1 (surface dispatch table) +
@@ -287,6 +324,93 @@ adapters:
         let p = std::path::Path::new("/nonexistent/path/bus-hooks.yaml");
         let err = HooksConfig::load(p).expect_err("missing file should error");
         assert!(matches!(err, ConfigError::Missing(_)));
+    }
+
+    #[test]
+    fn publish_spec_quiet_hours_default_when_unset() {
+        // Default PublishSpec has no quiet_after/quiet_until →
+        // quiet_hours() returns the default (no window).
+        let yaml = r#"
+adapters:
+  github:
+    rules:
+      - name: r
+        match:
+          event: push
+        publish:
+          topic: gh/push
+"#;
+        let cfg = HooksConfig::parse_yaml(yaml).unwrap();
+        let rule = &cfg.adapters["github"].rules[0];
+        let hours = rule.publish.quiet_hours();
+        assert!(hours.quiet_after.is_none());
+        assert!(hours.quiet_until.is_none());
+    }
+
+    #[test]
+    fn publish_spec_quiet_hours_parses_hhmm_pair() {
+        let yaml = r#"
+adapters:
+  github:
+    rules:
+      - name: r
+        match:
+          event: push
+        publish:
+          topic: gh/push
+          quiet_after: "22:00"
+          quiet_until: "07:00"
+"#;
+        let cfg = HooksConfig::parse_yaml(yaml).unwrap();
+        let rule = &cfg.adapters["github"].rules[0];
+        let hours = rule.publish.quiet_hours();
+        assert_eq!(hours.quiet_after, Some(22 * 3600));
+        assert_eq!(hours.quiet_until, Some(7 * 3600));
+    }
+
+    #[test]
+    fn publish_spec_quiet_hours_one_sided_field_falls_through_to_default() {
+        // Only quiet_after present (no quiet_until) → defaults
+        // to "no window" so a half-configured rule doesn't
+        // silently get a runaway suppression behavior.
+        let yaml = r#"
+adapters:
+  github:
+    rules:
+      - name: r
+        match:
+          event: push
+        publish:
+          topic: gh/push
+          quiet_after: "09:00"
+"#;
+        let cfg = HooksConfig::parse_yaml(yaml).unwrap();
+        let rule = &cfg.adapters["github"].rules[0];
+        let hours = rule.publish.quiet_hours();
+        assert!(hours.quiet_after.is_none());
+        assert!(hours.quiet_until.is_none());
+    }
+
+    #[test]
+    fn publish_spec_quiet_hours_unparseable_hhmm_falls_through() {
+        // "garbage" doesn't parse to seconds-of-day → no window.
+        let yaml = r#"
+adapters:
+  github:
+    rules:
+      - name: r
+        match:
+          event: push
+        publish:
+          topic: gh/push
+          quiet_after: "garbage"
+          quiet_until: "07:00"
+"#;
+        let cfg = HooksConfig::parse_yaml(yaml).unwrap();
+        let rule = &cfg.adapters["github"].rules[0];
+        let hours = rule.publish.quiet_hours();
+        assert!(hours.quiet_after.is_none());
+        assert!(hours.quiet_until.is_none());
     }
 
     #[test]
