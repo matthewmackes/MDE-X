@@ -1222,12 +1222,13 @@ fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message>
         // bus/mbadge/pulse event? If yes, the cell renders in
         // tier-red regardless of focus/visible state — the urgency
         // signal trumps the normal hierarchy.
-        let has_pulse = workspace_has_active_pulse(
+        let pulse_con_id = active_pulse_con_id_for_workspace(
             ws.num,
             &app.recent_pulses,
             &app.running_windows,
             now,
         );
+        let has_pulse = pulse_con_id.is_some();
 
         let text_color = if is_focused || has_pulse {
             Color::WHITE
@@ -1296,7 +1297,10 @@ fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message>
                         ..Default::default()
                     }),
             )
-            .on_press(Message::FocusWorkspace(ws_name))
+            .on_press(match pulse_con_id {
+                Some(con_id) => Message::FocusWindowById(con_id),
+                None => Message::FocusWorkspace(ws_name),
+            })
             .into()
         } else {
             // Short name: static shrink-width cell (original Portal-5 design).
@@ -1319,7 +1323,10 @@ fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message>
                         ..Default::default()
                     }),
             )
-            .on_press(Message::FocusWorkspace(ws_name))
+            .on_press(match pulse_con_id {
+                Some(con_id) => Message::FocusWindowById(con_id),
+                None => Message::FocusWorkspace(ws_name),
+            })
             .into()
         };
 
@@ -1641,7 +1648,12 @@ pub fn pulse_workspace_num(
 
 /// Portal-57.b (R12-Q22): pure helper — `true` if workspace
 /// `ws_num` has any active pulse at `now`. Mini-tree cells use
-/// this to decide whether to render in tier-red.
+/// this to decide whether to render in tier-red. Delegates to
+/// [`active_pulse_con_id_for_workspace`] so the alive+match
+/// logic lives in one place. Retained for downstream consumers
+/// + the test-locked contract (the predicate form is easier to
+/// read in `assert!`s than `Option::is_some`).
+#[allow(dead_code)]
 #[must_use]
 pub fn workspace_has_active_pulse(
     ws_num: i32,
@@ -1649,10 +1661,30 @@ pub fn workspace_has_active_pulse(
     running_windows: &[WindowInfo],
     now: chrono::DateTime<chrono::Local>,
 ) -> bool {
-    pulses.iter().any(|p| {
-        is_pulse_alive(p, now)
-            && pulse_workspace_num(p, running_windows) == Some(ws_num)
-    })
+    active_pulse_con_id_for_workspace(ws_num, pulses, running_windows, now).is_some()
+}
+
+/// Portal-57.b.click (R12-Q22): pure helper — return the con_id of
+/// the most-recent active pulse on workspace `ws_num`, if any.
+/// Click on a pulsing cell focuses this con_id directly via
+/// swayipc rather than just the workspace, so the operator lands
+/// on the urgent window. Returns `None` when no active pulse maps
+/// to the workspace; the caller falls back to `Message::FocusWorkspace`.
+#[must_use]
+pub fn active_pulse_con_id_for_workspace(
+    ws_num: i32,
+    pulses: &[UrgentPulse],
+    running_windows: &[WindowInfo],
+    now: chrono::DateTime<chrono::Local>,
+) -> Option<i64> {
+    pulses
+        .iter()
+        .rev() // newest-first → click targets the latest urgent
+        .find(|p| {
+            is_pulse_alive(p, now)
+                && pulse_workspace_num(p, running_windows) == Some(ws_num)
+        })
+        .map(|p| p.con_id)
 }
 
 /// Portal-49 (R12-Q9): pure helper — return the first taxonomy mark
@@ -3047,6 +3079,59 @@ mod tests {
         // No matching con_id in windows → no.
         let empty_windows: Vec<WindowInfo> = Vec::new();
         assert!(!workspace_has_active_pulse(3, &pulses, &empty_windows, now));
+    }
+
+    // ── Portal-57.b.click tests ─────────────────────────────────────────────
+
+    /// `active_pulse_con_id_for_workspace` returns the con_id of
+    /// the newest active pulse on the workspace, or None when no
+    /// pulse maps to it.
+    #[test]
+    fn active_pulse_con_id_picks_newest_match() {
+        let windows = vec![
+            make_window(42, "foot", 3, false),
+            make_window(99, "firefox", 3, false),
+        ];
+        let now = chrono::Local::now();
+        let older = UrgentPulse {
+            ulid: "01HZAZ0001".into(),
+            app_id: "foot".into(),
+            con_id: 42,
+            spawned_at: now - chrono::Duration::milliseconds(300),
+        };
+        let newer = UrgentPulse {
+            ulid: "01HZAZ0002".into(),
+            app_id: "firefox".into(),
+            con_id: 99,
+            spawned_at: now,
+        };
+        let pulses = vec![older, newer];
+        // Newest match wins → con_id 99 (firefox).
+        assert_eq!(
+            active_pulse_con_id_for_workspace(3, &pulses, &windows, now),
+            Some(99)
+        );
+        // Untargeted workspace → None.
+        assert!(
+            active_pulse_con_id_for_workspace(7, &pulses, &windows, now).is_none()
+        );
+    }
+
+    /// Expired pulses are ignored even when they'd otherwise match.
+    #[test]
+    fn active_pulse_con_id_skips_expired() {
+        let windows = vec![make_window(42, "foot", 3, false)];
+        let now = chrono::Local::now();
+        let stale = UrgentPulse {
+            ulid: "01HZAZ0001".into(),
+            app_id: "foot".into(),
+            con_id: 42,
+            spawned_at: now - chrono::Duration::milliseconds(5000),
+        };
+        let pulses = vec![stale];
+        assert!(
+            active_pulse_con_id_for_workspace(3, &pulses, &windows, now).is_none()
+        );
     }
 
     /// `Message::UrgentPulse` appends to `recent_pulses` + sweeps
