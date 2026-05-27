@@ -34,12 +34,19 @@ pub mod tag_predicate;
 // override here; the tag_layout worker reads + applies them
 // instead of the tag's default_layout when set.
 pub mod workspace_overrides;
+// Portal-53.b.types-share (2026-05-27) — sway window-rules data
+// layer. Lifted out of `mackesd/workers/window_rules.rs` so the
+// mde-portal Hub right-click modal can read + write the same
+// TOML file without depending on mackesd. The worker continues
+// to consume these types via re-export.
+pub mod window_rules;
 
 pub use connect::{BatterySnapshot, ConnectFacts, PairingState, PeerKind};
 pub use nebula::{NebulaFacts, NebulaRole};
 pub use peer_probe::{BusTopology, Descriptors, KernelDriver, NatClass, PeerProbe, PowerThermal};
 pub use tags::{Tag, TagFlavor, TagMember, TagStore, TagStoreError};
 pub use tag_predicate::{evaluate as evaluate_predicate, parse as parse_predicate, MembershipCtx, ParseError as PredicateParseError, Pred, StaticMembership, NAMESPACES};
+pub use window_rules::{default_rules_path as default_window_rules_path, RulesError as WindowRulesError, WindowRule, WindowRulesFile};
 pub use workspace_overrides::{OverridesError, WorkspaceOverride, WorkspaceOverridesFile};
 
 use serde::{Deserialize, Serialize};

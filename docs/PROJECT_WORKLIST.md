@@ -296,7 +296,9 @@ locked work appears under **Active** with `[ ] Open`.
 - [ ] **Portal-52.b: v6.0 — Session-restore window-placeholder swallows** *(opens 2026-05-26 from Portal-52 split, blocked on a working append_layout-with-swallows reference)*. Extends Portal-52.a with the `swallows: [{app_id}, ...]` slot per workspace + `append_layout` invocation on restore. 30-min unfilled-placeholder kill timer. Acceptance: log out with Firefox in ws1 → log back in → ws1 has a Firefox placeholder; launch Firefox → it swallows.
 - [>] session=opus-47-2026-05-27-ship-Y **Portal-53: v6.0 — Window-rules subsystem (split per §0.12 into 53.a backend + 53.b Hub modal + 53.c Control panel)** (R12-Q14). Original task body: store `~/.config/mde/window-rules.toml` (TOML with `[[rule]]` entries: `match`, `float`, `sticky`, `fullscreen_on_start`, `border_width`, `mark`, `assign_workspace`, `focus_policy`). mded `window_rules` worker loads on startup + watches for changes (inotify); applies rules via runtime swayipc `for_window` registrations on every sway-reload. Hub right-click app card → 'Window rules…' modal. Control gains a 'Window Rules' panel.
 - [✓] **Portal-53.a: v6.0 — Window-rules TOML store + mded worker + swayipc for_window applier** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-Y. `crates/mackesd/src/workers/window_rules.rs` (~430 LOC + 13 unit tests) ships the `WindowRulesWorker` + `WindowRule` + `WindowRulesFile` schema. Reads `<XDG_CONFIG_HOME>/mde/window-rules.toml` on startup; 5 s mtime-poll watches for operator edits + re-applies on change. Each rule fires once via swayipc `for_window <criteria> <actions>` with comma-joined actions: `floating enable/disable`, `sticky enable/disable`, `fullscreen enable/disable`, `border normal <px>`, `mark "<name>"`, `move container to workspace number <n>`. Pure helpers `command_for_rule` (None for no-op rules), `criterion_for_match` (quote+backslash escape), `actions_for_rule` (composes the list), `rule_signature` (stable stringification for drop-detection). The `applied_signatures: HashSet<String>` tracks rules already-applied; rules that disappear from the TOML between polls log a single warning naming the sway-restart-required limitation (for_window registrations can't be unregistered at runtime — sway has no swayipc op for that). `focus_policy` from the original spec deferred to Portal-53.b (needs UI-side coordination on the grammar shape). Wired into `bin/mackesd.rs::run_serve` with `RestartPolicy::OnFailure`. 13 tests cover: canonical-float-rule command, no-op rule → None, full-rule all 6 actions chained, explicit-false disables, criterion quote+backslash escape, mark quote+backslash escape, TOML canonical parse, empty-file parse, missing-schema-version defaults to 1, missing-file returns empty default, round-trip write+read, rule_signature stability + distinguishing, invalid-TOML → ParseError. `cargo test -p mackesd --features async-services window_rules` 13/13 green. All 6 applicable lints clean. **Hub modal (Portal-53.b) + Control panel CRUD UI (Portal-53.c) deferred** to their respective Hub/Control prerequisite landings; operators hand-edit window-rules.toml until then. Cite: motion-language.md §4 (rule application on window::new); ref: Apple System Settings (per-app window rules).)*
-- [ ] **Portal-53.b: v6.0 — Hub right-click 'Window rules…' modal** *(opens 2026-05-27 from Portal-53 split; **blocker cleared 2026-05-27** — Portal-17 Hub + Portal-17.c right-click menus shipped this session; the `HubMenuWindowRules` message variant already fires log+dismiss from the menu, ready to be replaced with the real modal)*. Hub app-card right-click surfaces the modal with form binding to the app's match key. Write-back to window-rules.toml via Portal-53.a's TOML helpers. Pattern mirrors Portal-18.b's Edit-tag modal — `editing_window_rule: Option<EditWindowRuleForm>` state field + `build_edit_window_rule_modal` view + Apply/Cancel actions + atomic write through `WindowRulesFile::save`.
+- [✓] **Portal-53.b.types-share: v6.0 — WindowRule types lifted to mackes-mesh-types** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CG. Prerequisite split-out from Portal-53.b: the mde-portal Hub modal needs read+write access to `window-rules.toml` but mde-portal can't depend on mackesd (binary crate). Pattern mirrors Portal-18.a's TagStore lift + Portal-50.b's WorkspaceOverridesFile lift — both hosted in `crates/mackes-mesh-types/`. New `crates/mackes-mesh-types/src/window_rules.rs` (~280 LOC + 10 unit tests, all green) ships `WindowRule` + `WindowRulesFile` + `RulesError` + `load_default()` / `load_from()` / `save_default()` / `save_to()` (atomic temp+rename) + `push_rule()` (new-rule path) + `replace_first_matching()` (first-match upsert for edit path) + `find_first_matching()` (seed-modal lookup) + `default_rules_path()` (XDG_CONFIG_HOME-based). Re-exported at the lib.rs facade level under `mackes_mesh_types::{WindowRule, WindowRulesFile, WindowRulesError, default_window_rules_path}`. `toml = "0.8"` added as a crate dep. `crates/mackesd/src/workers/window_rules.rs` updated: types section deleted (~75 LOC) and re-exported via `pub use mackes_mesh_types::window_rules::{WindowRule, WindowRulesFile};` so every existing call site compiles unchanged. `read_rules_file()` + `default_rules_path()` rewritten as worker-side shims forwarding to the moved helpers. `cargo test -p mackes-mesh-types --lib window_rules` 10/10 green; `cargo test -p mackesd --features async-services --lib window_rules` 13/13 green; `cargo check -p mackesd --features async-services` clean (23 pre-existing doc-warnings only). **Unblocks Portal-53.b modal** — mde-portal can now `use mackes_mesh_types::{WindowRule, WindowRulesFile};` to build the right-click form-bound modal without taking a mackesd dep.)*
+
+- [ ] **Portal-53.b: v6.0 — Hub right-click 'Window rules…' modal** *(opens 2026-05-27 from Portal-53 split; **blocker cleared 2026-05-27** — Portal-17 Hub + Portal-17.c right-click menus shipped this session; the `HubMenuWindowRules` message variant already fires log+dismiss from the menu, ready to be replaced with the real modal. **Types now shared** via Portal-53.b.types-share — mde-portal can import `WindowRule` + `WindowRulesFile` directly from mackes-mesh-types)*. Hub app-card right-click surfaces the modal with form binding to the app's match key. Write-back to window-rules.toml via the shared `WindowRulesFile::save_default()`. Pattern mirrors Portal-18.b's Edit-tag modal — `editing_window_rule: Option<EditWindowRuleForm>` state field + `build_edit_window_rule_modal` view + Apply/Cancel actions + atomic write. Use `replace_first_matching()` for edit semantics + `push_rule()` for new-rule semantics.
 - [ ] **Portal-53.c: v6.0 — Control 'Window Rules' panel CRUD UI** *(opens 2026-05-27 from Portal-53 split, blocked on Portal-20 Control)*. Sibling of Display/Audio under Customize. Full add/edit/delete list. Write-back via Portal-53.a's TOML helpers.
 - [✓] **Portal-54: v6.0 — Per-tag autostart** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-X. `crates/mackesd/src/workers/tag_autostart.rs` (~210 LOC + 4 unit tests) ships the `TagAutostartWorker`. Subscribes to `EventType::Workspace` `WorkspaceChange::Init`; on each init reloads `TagStore::load_default`, looks up the owning tag, fires `swaymsg exec "<app_id>"` for each entry in the tag's `autostart` list. The worker holds a `HashSet<i32>` of workspaces it has already autostarted "per mded-lifetime" — restarting mded resets the set + re-fires autostart on the next init. Pure helper `exec_command` builds the swayipc string with quote + backslash escaping (so `firefox "tab title"` round-trips). `should_fire` pure-ish helper + test-only `mark_seen` allow deterministic state-machine testing without a sway connection. Wired into `bin/mackesd.rs::run_serve` with `RestartPolicy::OnFailure`. 4 tests cover: exec command escaping (3 forms), should_fire returns true for unseen workspace, should_fire returns false for seen workspace, worker starts with empty seen-set (-5..=10 ranges). The "On session restore (Portal-52), tag-autostart fires for restored tag-owned workspaces" path is implicit — Portal-52's restore re-emits workspace::init for each restored workspace, which this worker observes naturally. NOT XDG-autostart-compliant per the design body — tag-driven is the only mechanism. `cargo test -p mackesd --features async-services tag_autostart` 4 tests green. All 6 applicable lints clean (voice-tone caught `foo "bar"` metasyntactic in the test fixture; replaced with `firefox "tab title"`). Cite: motion-language.md §4 (workspace::init autostart fan-out); ref: Apple System Settings (per-Space autostart).)*
 - [✓] **Portal-55: v6.0 — Sway config alignment (Q17 + Q19 + Q20)** *(shipped 2026-05-26 — session=opus-47-2026-05-26-ship-W; `data/sway/config` gains `mouse_warping container` (line 92, immediately above the existing `focus_follows_mouse no`) per R12-Q17, `focus_on_window_activation urgent` (line 53, alongside `default_border normal 4`) per R12-Q19, and `smart_borders no` → `smart_borders on` (line 57) per R12-Q20. Inline comment block cites R12-Q20's reversal of BUG-10's always-visible-border intent (single-window workspaces become full-bleed; multi-window keeps the 4 px focused border, so BUG-10's 4K-TV readability still holds where the focus signal carries load — newer-wins per §0.14). Per-app `focus_policy` overrides flow through Portal-53's window-rules subsystem, not through sway-config edits. **First commit of the Round 12 set — unblocks Portal-41/Portal-43/Portal-44/Portal-45/Portal-47/Portal-49/Portal-50/Portal-52/Portal-54/Portal-56/Portal-57/Portal-58/Portal-59.** Bundled per operator's "Commit All" directive with EPIC-UI-MATERIAL Carbon-SVG restore (22 assets re-instated from `1e00285b^` so `mde-panel` compiles + `make rpm` clears the §0.7.4 gate) and TUNE-3.b (lint-runtime-reachability parent-decl heuristic fix + allow-list emptied after re-derivation). `make rpm` green; `swaymsg get_config` would show all three new directives once the per-user config seeds from the updated `/usr/share/mde/sway/config`.)*
@@ -634,7 +636,7 @@ call-end lifecycle, never at install or login.
     - [ ] Plugin loads on Hyprland startup; `hyprctl plugin list` shows `mde-hypr-plugin`
     - [ ] Empty plugin body returns 0 from each of the **3 subsystem stubs** (layout / window-rules / event-bridge) callable via IPC. Post 2026-05-27 simplification re-lock: marks + pill rendering retargeted out of the plugin per design doc §10.1.
 
-- [ ] **HYP-5: v6.5 — hyprland.conf baseline + GFS-replicated user overrides**
+- [>] session=opus-47-2026-05-27-ship-CG **HYP-5: v6.5 — hyprland.conf baseline + GFS-replicated user overrides (split per §0.12 into 5.a baseline-file + 5.b birthright + 5.c GFS-replication + 5.d EDID overlays + 5.e reload-on-edit)**
   **As** an operator,
   **I want** `/etc/mde/hyprland.conf` ship with the RPM and `~/.config/hypr/hyprland.conf` source it,
   **so that** every peer sees the same baseline and my overrides are GFS-replicated.
@@ -644,6 +646,16 @@ call-end lifecycle, never at install or login.
     - [ ] `~/.config/hypr/` is GFS-mesh-replicated per [[project_v5_0_0_gluster_mesh]]
     - [ ] Per-peer EDID-keyed monitor overlays under `~/.config/mde/peers/<hostname>/hyprland-monitors.conf` (operator-edited; not GFS-replicated)
     - [ ] `hyprctl reload` after operator edit applies changes
+
+- [✓] **HYP-5.a: v6.5 — Baseline `/etc/mde/hyprland.conf` ships + spec install** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CG. New `data/hyprland.conf` (~75 LOC) carries every HYP-* baseline policy: `decoration { rounding = 4; blur { enabled = false } }` (HYP-19 + HYP-20), Portal-namespace blur via `layerrule = blur, ^(mde-portal-.*)$` (HYP-20), built-in `default` animation curve only — no custom M3 beziers (HYP-23), 100/120/150 ms motion grid via 5 animation lines (HYP-24), `general { allow_tearing = false }` (HYP-26), `misc { vrr = 1 }` (HYP-27.a). `packaging/fedora/mackes-shell.spec` line 678 installs to `%{_datadir}/mde/hyprland.conf` (parallel to the sway baseline at `%{_datadir}/mde/sway/config`); existing `%{_datadir}/%{name}/` catch-all in `%files` covers the file. `make rpm` clears the §0.7.4 gate. Cite: docs/design/v6.5-hyprland-compositor.md §1 Q7 + §4 Config layout + §5 acceptance 5; ref: Apple System Settings (system-shipped baseline + user overlay model). **Unblocks HYP-5.b (birthright wizard step) + HYP-5.c (GFS replication) + HYP-5.d (EDID per-peer overlays) + HYP-5.e (hyprctl reload on edit) + every HYP-* task that references `/usr/share/mde/hyprland.conf`.**)*
+
+- [ ] **HYP-5.b: v6.5 — Birthright wizard step writes `~/.config/hypr/hyprland.conf`** *(opens 2026-05-27 from HYP-5 split, blocked on a Birthright step for compositor config)*. Adds a Birthright step that writes `~/.config/hypr/hyprland.conf` with `source = /usr/share/mde/hyprland.conf` + an empty `# Operator overrides below this line` block. Step runs once per peer at first login.
+
+- [ ] **HYP-5.c: v6.5 — `~/.config/hypr/` GFS-mesh-replicated** *(opens 2026-05-27 from HYP-5 split, blocked on GF mesh-home being mounted)*. Per `[[project_v5_0_0_gluster_mesh]]` the entire `~/.config/` tree lives under mesh-home; HYP-5.c verifies `~/.config/hypr/hyprland.conf` participates and replicates within seconds of edit.
+
+- [ ] **HYP-5.d: v6.5 — Per-peer EDID-keyed monitor overlays** *(opens 2026-05-27 from HYP-5 split, blocked on per-peer config mechanism)*. `~/.config/mde/peers/<hostname>/hyprland-monitors.conf` carries per-peer `monitor=desc:...` lines (operator-edited; NOT GFS-replicated — each peer's monitors differ). `~/.config/hypr/hyprland.conf` sources its peer overlay via `source = ~/.config/mde/peers/<hostname>/hyprland-monitors.conf`.
+
+- [ ] **HYP-5.e: v6.5 — `hyprctl reload` on operator edit** *(opens 2026-05-27 from HYP-5 split, blocked on running Hyprland + inotify watcher)*. mded `hyprland_config_watcher` worker watches `~/.config/hypr/hyprland.conf` + `~/.config/mde/peers/<hostname>/hyprland-monitors.conf` via inotify; on change, spawns `hyprctl reload`. Acceptance: edit the user override file → window decoration updates within 1 s.
 
 - [ ] **HYP-6: v6.5 — `mde-config` writes hyprland.conf from MDE Settings**
   **As** an operator using MDE Settings,
@@ -814,22 +826,22 @@ call-end lifecycle, never at install or login.
     - [ ] Bench: a 10-rule file applies on 50 windows in <100ms
     - [ ] Retires Portal-50
 
-- [ ] **HYP-19: v6.5 — 4 px window-frame corners**
+- [✓] **HYP-19: v6.5 — 4 px window-frame corners** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CG via HYP-5.a. `data/hyprland.conf` carries `decoration { rounding = 4 }`; matches the `--radius-sm` token from `data/css/tokens.css`. Screenshot-diff verification rolls up under HYP-31 HW bench.)*
   **As** the design system,
   **I want** all window frames rounded at 4 px,
   **so that** the `--radius-sm` token applies uniformly across compositor + intra-surface.
   **Acceptance**:
-    - [ ] hyprland.conf: `decoration { rounding = 4 }`
-    - [ ] Screenshot diff confirms 4 px corners on every window class
+    - [✓] hyprland.conf: `decoration { rounding = 4 }`
+    - [ ] Screenshot diff confirms 4 px corners on every window class *(HYP-31 HW bench)*
 
-- [ ] **HYP-20: v6.5 — Blur on Portal layer-shell only**
+- [✓] **HYP-20: v6.5 — Blur on Portal layer-shell only** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CG via HYP-5.a. `data/hyprland.conf` carries `decoration { blur { enabled = false } }` (windows off) + `layerrule = blur, ^(mde-portal-.*)$` (Portal namespace on). Windows + wallpaper stay sharp; Portal surfaces (Hub, breadcrumb overlay, notifications, wallpaper, lock) get the blurred backdrop. Screenshot-diff verification rolls up under HYP-31 HW bench.)*
   **As** the design system,
   **I want** blur enabled only on Portal layer-shell surfaces (Hub, breadcrumb overlay, notifications),
   **so that** windows + wallpaper stay sharp and GPU cost stays bounded.
   **Acceptance**:
-    - [ ] hyprland.conf: `layerrule = blur, ^(mde-portal-.*)$`
-    - [ ] hyprland.conf: `decoration { blur { enabled = false } }` (windows default off)
-    - [ ] Screenshot diff: Hub has blurred backdrop; Firefox window doesn't
+    - [✓] hyprland.conf: `layerrule = blur, ^(mde-portal-.*)$`
+    - [✓] hyprland.conf: `decoration { blur { enabled = false } }` (windows default off)
+    - [ ] Screenshot diff: Hub has blurred backdrop; Firefox window doesn't *(HYP-31 HW bench)*
 
 - [ ] **HYP-21: v6.5 — Per-elevation M3 shadows (amends Classic ChromeOS flat lock)**
   **As** the design system,
@@ -855,21 +867,21 @@ call-end lifecycle, never at install or login.
     - [ ] Subscribes to `event/config/tags/loaded` Bus topic — re-evaluates all open windows' bordercolor when tag manifest changes
     - [ ] Bench: tag change reflects in border within one frame (16 ms); edit voip's `border_color` in HYP-8.6 Settings → save → open voip windows' border updates without restart
 
-- [ ] **HYP-23: v6.5 — Hyprland default animation curves locked**
+- [✓] **HYP-23: v6.5 — Hyprland default animation curves locked** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CG via HYP-5.a. `data/hyprland.conf` `animations` block uses only Hyprland's built-in `default` curve across all 5 animation lines (windows / workspaces / fade / border / layers); no `bezier = m3-...` definitions in the MDE-managed block. Iced retains the Material 3 curves intra-surface per the design lock.)*
   **As** the platform,
   **I want** hyprland.conf use `linear` / `smoothstep` defaults rather than custom M3 beziers,
   **so that** compositor animations stay simple + Iced retains the M3 curves intra-surface.
   **Acceptance**:
-    - [ ] hyprland.conf `animations` block uses only built-in curves
-    - [ ] No `bezier = m3-...` definitions in the MDE-managed block
+    - [✓] hyprland.conf `animations` block uses only built-in curves
+    - [✓] No `bezier = m3-...` definitions in the MDE-managed block
 
-- [ ] **HYP-24: v6.5 — Animation durations tuned to motion-vocabulary grid**
+- [✓] **HYP-24: v6.5 — Animation durations tuned to motion-vocabulary grid** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CG via HYP-5.a. `data/hyprland.conf` `animations` block carries the exact 5 lines: `windows = 1, 12, default, popin` (120 ms), `workspaces = 1, 15, default, slide` (150 ms), `fade = 1, 10, default` (100 ms), `border = 1, 10, default` (100 ms), `layers = 1, 10, default, fade` (100 ms). All durations sit on the 100/120/150 ms motion-vocabulary grid; max is 150 ms, well under the 200 ms ceiling. Visual diff bench rolls up under HYP-31.)*
   **As** the design system,
   **I want** Hyprland animation durations match the 100/120/150/200 ms grid,
   **so that** compositor motion feels at the same tempo as Iced motion.
   **Acceptance**:
-    - [ ] hyprland.conf `animations`: `windows = 1, 12, default, popin`; `workspaces = 1, 15, default, slide`; `fade = 1, 10, default`; `border = 1, 10, default`; `layers = 1, 10, default, fade` (values in 10ms units)
-    - [ ] Visual diff confirms no animation longer than 200ms
+    - [✓] hyprland.conf `animations`: `windows = 1, 12, default, popin`; `workspaces = 1, 15, default, slide`; `fade = 1, 10, default`; `border = 1, 10, default`; `layers = 1, 10, default, fade` (values in 10ms units)
+    - [ ] Visual diff confirms no animation longer than 200ms *(HYP-31 HW bench)*
 
 - [ ] **HYP-25: v6.5 — VOIP windowrulev2 fullscreenstate 2**
   **As** an operator on a video call,
@@ -880,21 +892,25 @@ call-end lifecycle, never at install or login.
     - [ ] BUS notifications during call route to phone (priority escalation per [[project_v6_x_mackes_bus]] §5)
     - [ ] Mic mute / hangup gestures from `mde-voice-hud` reach the fullscreen call
 
-- [ ] **HYP-26: v6.5 — Tearing disabled by default**
+- [✓] **HYP-26: v6.5 — Tearing disabled by default** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CG via HYP-5.a + docs update. `data/hyprland.conf` `general` block carries `allow_tearing = false`. `docs/help/wayland.md` gains an "Allow tearing for games" section explaining the per-class opt-in via `windowrulev2 = immediate, class:<regex>` + the verification path via `hyprctl getoption misc:allow_tearing`. Operator-typed override on `~/.config/hypr/hyprland.conf` lets specific game classes bypass vsync without affecting other windows.)*
   **As** the platform,
   **I want** `general { allow_tearing = false }` globally and per-game-class opt-in via windowrulev2,
   **so that** typical desktop visuals stay artifact-free.
   **Acceptance**:
-    - [ ] hyprland.conf `general` has `allow_tearing = false`
-    - [ ] Operator override path documented in `docs/help/wayland.md`
+    - [✓] hyprland.conf `general` has `allow_tearing = false`
+    - [✓] Operator override path documented in `docs/help/wayland.md`
 
-- [ ] **HYP-27: v6.5 — VRR always-on (mode 1)**
+- [>] session=opus-47-2026-05-27-ship-CG **HYP-27: v6.5 — VRR always-on (mode 1) (split per §0.12 into 27.a baseline-conf + 27.b mde-config-Settings-per-monitor-opt-out)**
   **As** an operator with a FreeSync monitor,
   **I want** Hyprland use variable refresh rate everywhere,
   **so that** scrolling + video + games feel smoother on capable monitors.
   **Acceptance**:
     - [ ] hyprland.conf `misc { vrr = 1 }`
     - [ ] Per-monitor opt-out path via mde-config Settings (writes `monitor = ..., highrr, vrr:0` override)
+
+- [✓] **HYP-27.a: v6.5 — VRR always-on (mode 1) in baseline hyprland.conf** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CG via HYP-5.a. `data/hyprland.conf` `misc` block carries `vrr = 1`. Capable monitors (FreeSync / G-Sync) opt in automatically; non-capable monitors ignore the directive silently. Per-monitor opt-out continues to lift via HYP-27.b once HYP-6 ships mde-config writes to hyprland.conf.)*
+
+- [ ] **HYP-27.b: v6.5 — Per-monitor VRR opt-out via mde-config Settings** *(opens 2026-05-27 from HYP-27 split, blocked on HYP-6 mde-config writes hyprland.conf)*. MDE Settings > Display panel gains a per-monitor VRR toggle that writes `monitor = ..., highrr, vrr:0` into the operator's override file. Acceptance: toggle off in Settings → `hyprctl reload` shows the monitor switching to vrr:0.
 
 - [ ] **HYP-28: v6.5 — `mde-installer` swaps sway dep for Hyprland**
   **As** the installer,

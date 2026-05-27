@@ -34,6 +34,25 @@ If you are running MDE 2.0.0:
   `/usr/share/wayland-sessions/*.desktop` so you can switch
   greeter session entries.
 
+## Allow tearing for games
+
+MDE ships with `allow_tearing = false` globally in
+`/usr/share/mde/hyprland.conf` (HYP-26). Tearing artifacts are
+hidden by default for typical desktop work. To opt a specific
+game class in, add a `windowrulev2 = immediate, class:<regex>`
+line to the operator override block of `~/.config/hypr/hyprland.conf`
+and reload with `hyprctl reload`:
+
+    # Example: enable tearing for Steam games (immediate
+    # presentation skips compositor vsync on that window class).
+    windowrulev2 = immediate, class:^(steam_app_.*)$
+
+The setting applies per-window; non-matching windows still
+present through the compositor with tearing off. To verify on a
+running session, run `hyprctl getoption misc:allow_tearing` and
+launch a matched game — the `immediate` rule lets the GPU bypass
+vsync for that surface only.
+
 ## Reverting to v1.x XFCE/X11
 
 Not supported in the v2.0.0 line. The dnf hard switch

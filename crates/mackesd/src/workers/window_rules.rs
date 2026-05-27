@@ -43,73 +43,19 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use serde::{Deserialize, Serialize};
 use swayipc_async::Connection;
 
 use super::{ShutdownToken, Worker};
 
+// Portal-53.b.types-share (2026-05-27) — types moved to
+// mackes-mesh-types so mde-portal's Hub right-click modal can
+// consume them without a mackesd dep. Re-exported here so
+// existing callers (`use crate::workers::window_rules::WindowRule;`)
+// keep working without churn.
+pub use mackes_mesh_types::window_rules::{WindowRule, WindowRulesFile};
+
 const RECONNECT_BACKOFF: Duration = Duration::from_secs(3);
 const MTIME_POLL_INTERVAL: Duration = Duration::from_secs(5);
-
-/// One window rule. All fields except `r#match` are optional; an
-/// empty rule (only `match` set) is a no-op but parses cleanly.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WindowRule {
-    /// app_id criterion (e.g. `"Firefox"`, `"foot"`). Matched
-    /// against sway's `app_id` exactly. Required.
-    #[serde(rename = "match")]
-    pub match_app_id: String,
-    /// `floating enable` on window::new when set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub floating: Option<bool>,
-    /// `sticky enable` on window::new when set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sticky: Option<bool>,
-    /// `fullscreen enable` on window::new when set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fullscreen_on_start: Option<bool>,
-    /// `border normal <n>` on window::new when set. Sway's
-    /// border-width takes pixels.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub border_width: Option<u32>,
-    /// `mark <name>` on window::new when set. Names are
-    /// taxonomy-free at this layer — operators can use any string
-    /// they like (Portal-48's auto-mark daemon uses its own
-    /// fixed-5 taxonomy + skips windows that already carry a
-    /// mark, so a rule-imposed mark wins).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mark: Option<String>,
-    /// `move container to workspace number <n>` on window::new
-    /// when set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub assign_workspace: Option<i32>,
-}
-
-/// Top-level TOML file shape. `rules:` is the `Vec<WindowRule>`
-/// array; `schema_version` is informational + bumps on
-/// backwards-incompatible changes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WindowRulesFile {
-    /// Schema version. Defaults to 1 on load.
-    #[serde(default = "schema_version_default")]
-    pub schema_version: u32,
-    /// All rules in load order.
-    #[serde(default, rename = "rule")]
-    pub rules: Vec<WindowRule>,
-}
-
-impl Default for WindowRulesFile {
-    fn default() -> Self {
-        Self {
-            schema_version: schema_version_default(),
-            rules: Vec::new(),
-        }
-    }
-}
-
-fn schema_version_default() -> u32 {
-    1
-}
 
 /// Worker state — tracks the TOML mtime + the set of rules
 /// already applied so dropping a rule mid-session logs a single
@@ -244,24 +190,49 @@ async fn sleep_or_shutdown(dur: Duration, shutdown: &mut ShutdownToken) {
 
 /// Default path for the rules TOML:
 /// `<XDG_CONFIG_HOME>/mde/window-rules.toml`.
+///
+/// Worker-side `Option<PathBuf>` shim around the moved
+/// `mackes_mesh_types::window_rules::default_rules_path()`. Kept
+/// at this signature so existing callers in the worker loop
+/// (`if let Some(p) = default_rules_path() { … }`) compile
+/// unchanged. The result-side path-resolution failure variant in
+/// the mesh-types crate maps to `None` here — the worker handles
+/// missing-XDG by skipping the apply tick, never by an Err.
 #[must_use]
 pub fn default_rules_path() -> Option<PathBuf> {
-    let cfg = dirs::config_dir()?;
-    Some(cfg.join("mde").join("window-rules.toml"))
+    mackes_mesh_types::window_rules::default_rules_path().ok()
 }
 
 /// Read + parse the rules file. Missing file returns an empty
 /// `WindowRulesFile` (first-boot / no-rules path).
+///
+/// Worker-side shim that forwards to
+/// `WindowRulesFile::load_from`. Kept as a free function (rather
+/// than callers using the method directly) so the `ReadError`
+/// surface stays stable for the worker loop's existing match
+/// arms; the moved type's `RulesError` covers more variants
+/// (Serialize + PathResolution) that the worker doesn't see on
+/// the read path.
 pub fn read_rules_file(path: &Path) -> Result<WindowRulesFile, ReadError> {
-    if !path.exists() {
-        return Ok(WindowRulesFile::default());
-    }
-    let raw = std::fs::read_to_string(path).map_err(ReadError::Io)?;
-    let file: WindowRulesFile = toml::from_str(&raw).map_err(ReadError::Parse)?;
-    Ok(file)
+    use mackes_mesh_types::window_rules::RulesError;
+    WindowRulesFile::load_from(path).map_err(|e| match e {
+        RulesError::Io(e) => ReadError::Io(e),
+        RulesError::Parse(e) => ReadError::Parse(e),
+        // Serialize + PathResolution don't fire on a load — the
+        // load path's only failure modes are Io + Parse. Map
+        // defensively to Io with an explanatory wrapper to keep
+        // the match exhaustive.
+        other => ReadError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unexpected error on read: {other}"),
+        )),
+    })
 }
 
-/// Error surface for `read_rules_file`.
+/// Error surface for `read_rules_file`. Worker-side wrapper around
+/// the read-path variants of `mackes_mesh_types::window_rules::RulesError`
+/// so the loop's match arms don't need to handle the write-path
+/// variants.
 #[derive(Debug)]
 pub enum ReadError {
     /// Filesystem I/O failure.
