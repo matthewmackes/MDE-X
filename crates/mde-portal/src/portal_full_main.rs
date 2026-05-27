@@ -1283,8 +1283,12 @@ fn build_hub_menu_overlay<'a>(state: &PortalFull) -> Element<'a, Message> {
 }
 
 /// Portal-17.a — minimal hex-color parser sufficient for the Hub
-/// tag-card tint. Accepts `#rrggbb` + `#rgb`; returns None for
-/// other forms so the tint falls back to indigo cleanly.
+/// tag-card tint. Accepts `#rrggbb` + `#rgb` + `#rrggbbaa` (8-digit
+/// alpha form for translucent tag tints); returns None for other
+/// forms so the tint falls back to indigo cleanly. The alpha
+/// component lets operators tag-color their cards with subtle
+/// transparency (e.g. `#42be6580` for half-transparent green)
+/// per the Portal-17.a.alpha extension.
 #[must_use]
 fn hub_parse_hex(s: &str) -> Option<Color> {
     let rest = s.strip_prefix('#')?;
@@ -1297,6 +1301,16 @@ fn hub_parse_hex(s: &str) -> Option<Color> {
             let g = u8::from_str_radix(&rest[2..4], 16).ok()? as f32 / 255.0;
             let b = u8::from_str_radix(&rest[4..6], 16).ok()? as f32 / 255.0;
             Some(Color { r, g, b, a: 1.0 })
+        }
+        8 => {
+            // Portal-17.a.alpha — #rrggbbaa: extends the 6-digit
+            // form with an explicit alpha byte. Useful for
+            // semi-transparent tag cards.
+            let r = u8::from_str_radix(&rest[0..2], 16).ok()? as f32 / 255.0;
+            let g = u8::from_str_radix(&rest[2..4], 16).ok()? as f32 / 255.0;
+            let b = u8::from_str_radix(&rest[4..6], 16).ok()? as f32 / 255.0;
+            let a = u8::from_str_radix(&rest[6..8], 16).ok()? as f32 / 255.0;
+            Some(Color { r, g, b, a })
         }
         3 => {
             // #rgb shorthand → expand each digit to a byte.
@@ -1525,10 +1539,30 @@ mod tests {
         assert!(hub_parse_hex("42be65").is_none()); // no #
         assert!(hub_parse_hex("#xyz").is_none()); // non-hex
         assert!(hub_parse_hex("#1234").is_none()); // 4-digit rejected
-        assert!(hub_parse_hex("#abcdefab").is_none()); // 8-digit rejected
+        assert!(hub_parse_hex("#abcdefabcd").is_none()); // 10-digit rejected
         assert!(hub_parse_hex("").is_none());
         assert!(hub_parse_hex("#").is_none());
         assert!(hub_parse_hex("rebeccapurple").is_none());
+    }
+
+    #[test]
+    fn hub_parse_hex_accepts_eight_digit_alpha() {
+        // Portal-17.a.alpha — #rrggbbaa form sets the alpha
+        // component from the trailing 2 hex digits. `00` = fully
+        // transparent; `ff` = fully opaque; `80` ≈ half (128/255).
+        let c = hub_parse_hex("#42be6580").unwrap();
+        // Color body matches the 6-digit `#42be65` form...
+        assert!((c.r - (0x42 as f32 / 255.0)).abs() < f32::EPSILON);
+        assert!((c.g - (0xbe as f32 / 255.0)).abs() < f32::EPSILON);
+        assert!((c.b - (0x65 as f32 / 255.0)).abs() < f32::EPSILON);
+        // ...and the alpha follows from the trailing 2 digits.
+        assert!((c.a - (0x80 as f32 / 255.0)).abs() < f32::EPSILON);
+        // Fully transparent edge case.
+        let c0 = hub_parse_hex("#42be6500").unwrap();
+        assert!((c0.a - 0.0).abs() < f32::EPSILON);
+        // Fully opaque edge case (matches 6-digit behavior).
+        let cff = hub_parse_hex("#42be65ff").unwrap();
+        assert!((cff.a - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]
