@@ -930,14 +930,14 @@ call-end lifecycle, never at install or login.
     - [ ] `mde-sway.desktop` removed
     - [ ] regreet renders the entry with the MDE icon
 
-- [ ] **HYP-30: v6.5 — Docs updates: wayland + keyboard-shortcuts**
+- [✓] **HYP-30: v6.5 — Docs updates: wayland + keyboard-shortcuts** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CH. `docs/help/wayland.md` rewritten for v6.5 Hyprland: "Status line on v6.5" replaces the v2.0.0 sway lock framing, "Common operator tasks via hyprctl" section adds the canonical operator commands (`hyprctl clients`, `dispatch renameworkspace`, `dispatch movetoworkspace`, `rules`, `reload`, `getoption`), `~/.config/hypr/hyprland.conf` + per-peer overlay paths documented. `docs/help/keyboard-shortcuts.md` gains a "Compositor (Hyprland, v6.5+)" section listing the v6.5 keybindings + workspace/layout dispatcher mapping; v1.x XFCE/i3 baseline shrunk to a brief subsection for legacy users; Mod+r resize reference removed (per HYP-13 mouse-grab resize) — replaced by `Super + middle-click drag` live-resize note. `grep -n 'swaymsg' docs/help/wayland.md docs/help/keyboard-shortcuts.md` returns zero hits; historical "sway" mentions retained only in migration-narrative context + unsupported-compositor enumeration.)*
   **As** a new operator,
   **I want** `docs/help/wayland.md` + `docs/help/keyboard-shortcuts.md` reflect Hyprland's keybinds + dispatchers,
   **so that** the help pages match the running compositor.
   **Acceptance**:
-    - [ ] Every sway/swaymsg reference replaced with Hyprland/hyprctl equivalent
-    - [ ] Mod+r resize mode reference removed (per HYP-13)
-    - [ ] hyprctl command examples for common operator tasks (rename ws, move window, list rules)
+    - [✓] Every sway/swaymsg reference replaced with Hyprland/hyprctl equivalent
+    - [✓] Mod+r resize mode reference removed (per HYP-13)
+    - [✓] hyprctl command examples for common operator tasks (rename ws, move window, list rules)
 
 - [ ] **HYP-31: v6.5 — HW bench item (per-bullet per Q13 25-Q)**
   **As** an operator before cutting v6.5,

@@ -1,52 +1,68 @@
 # Keyboard shortcuts
 
-Every key binding that Mackes XFCE Workstation defines or respects, in
-one place. Surfaced inside the app from **Apple menu → Help → Keyboard
-shortcuts** (1.0.7+) and shipped to `/usr/share/mackes-shell/help/` so
-the headless `mackes help keyboard-shortcuts` flow works too.
+Every key binding that Mackes Desktop Environment defines or respects,
+in one place. Surfaced inside the app from **Apple menu → Help →
+Keyboard shortcuts** and shipped to `/usr/share/mde/help/` so the
+headless `mde help keyboard-shortcuts` flow works too.
 
-Bindings are grouped by the layer that handles them — the window
-manager, the panel, or the workbench. Mackes never overrides a binding
-silently: if a shortcut would conflict with an existing user binding,
-the wizard offers a "Keep mine" / "Use Mackes' / "Backup mine and use
-Mackes'" choice and writes the answer to `panel.toml:[keybindings]`.
+Bindings are grouped by the layer that handles them — the compositor,
+the panel, or the workbench. MDE never overrides a binding silently:
+if a shortcut would conflict with an existing user binding, the wizard
+offers a "Keep mine" / "Use MDE's" / "Backup mine and use MDE's"
+choice and writes the answer to `~/.config/mde/keybindings.toml`.
 
-## Window manager (xfwm4 or i3)
+## Compositor (Hyprland, v6.5+)
 
-These keys are owned by the active WM and survive a Mackes uninstall.
+These keys are owned by Hyprland and survive an MDE uninstall.
+The binding set lives in `/usr/share/mde/hyprland.conf`; operator
+overrides go in `~/.config/hypr/hyprland.conf`.
+
+| Binding             | Action                                                 |
+|---------------------|--------------------------------------------------------|
+| `Super`             | Open the Apple menu (Mackes button)                    |
+| `Super + Space`     | Toggle Portal-compact (mesh globe / wireframe strip)   |
+| `Super + L`         | Lock screen (Portal-25 ext-session-lock-v1)            |
+| `Super + M`         | Toggle the notification drawer                         |
+| `Super + E`         | Open MDE Files                                         |
+| `Super + Return`    | Open the default terminal (foot)                       |
+| `Super + Shift + R` | Reload Hyprland config (`hyprctl reload`)              |
+| `Super + Shift + E` | Exit the session (returns to greetd)                   |
+| `Super + Q`         | Close focused window                                   |
+| `Super + Tab`       | App-aware window switcher (Portal-28 Dock cycle)       |
+| `Alt + Tab`         | Cycle visible windows                                  |
+| `F3`                | Exposé grid                                            |
+
+Workspace + layout bindings (mirrored from i3's layer cake; the
+Hyprland dispatchers replace the v1.x `i3-msg` calls):
+
+| Binding                  | Hyprland dispatcher                                       |
+|--------------------------|-----------------------------------------------------------|
+| `Super + 1` … `9`        | `workspace 1..9`                                          |
+| `Super + Shift + 1`…`9`  | `movetoworkspace 1..9`                                    |
+| `Super + H` / `V`        | `togglesplit` (horizontal/vertical follows focus)         |
+| `Super + F`              | `fullscreen 1` (full-bleed) / `fullscreen 2` (real)       |
+
+Resize is mouse-grab in v6.5 (HYP-13): grab a window edge with
+`Super + middle-click drag` to live-resize. The legacy v1.x
+"resize mode" submap is retired.
+
+### v1.x XFCE / i3 baseline (for users still on 1.x)
+
+These bindings come from xfwm4 / i3 on the legacy Mackes Shell 1.x
+stack. v2.0.0+ replaces them with sway, v6.5+ with Hyprland; the
+table here is for the v1.x line only.
 
 | Binding             | Action                                            | xfwm4 | i3   |
 |---------------------|---------------------------------------------------|-------|------|
-| `Super`             | Open the Apple menu (Mackes button)               | ✓     | ✓    |
-| `Super + Space`     | Open the Apple menu (same as `Super`)             | ✓     | ✓    |
-| `Super + L`         | Lock screen (`loginctl lock-session`)             | ✓     | ✓    |
-| `Super + M`         | Toggle the notification drawer                    | ✓     | ✓    |
-| `Super + E`         | Open Thunar file manager                          | ✓     | ✓    |
-| `Super + Return`    | Open `xfce4-terminal` (drop-in i3 default)        | —     | ✓    |
-| `Super + Shift + R` | Reload i3 config (`i3-msg reload`)                | —     | ✓    |
-| `Super + Shift + E` | Exit i3 (returns to LightDM)                      | —     | ✓    |
 | `Alt + F4`          | Close focused window                              | ✓     | —    |
 | `Alt + F10`         | Toggle maximize on focused window                 | ✓     | —    |
 | `Alt + F9`          | Minimize focused window                           | ✓     | —    |
-| `Alt + Tab`         | Cycle visible windows                             | ✓     | ✓    |
-| `Super + Tab`       | App-aware window switcher (Phase 6.1 — pending)   | —     | —    |
-| `F3`                | Exposé grid (Phase 6.2 — pending)                 | —     | —    |
-| `Super + Q`         | Close focused window (Phase 6.4 — pending)        | —     | ✓    |
-| `Super + W`         | Close focused window (xfwm4 alt — pending)        | —     | —    |
+| `Super + Shift + R` | Reload i3 config (`i3-msg reload`)                | —     | ✓    |
 
-Layouts shipped with i3 (defaults — see `/usr/share/mackes-shell/i3/config`):
-
-| Binding              | i3 action                                     |
-|----------------------|-----------------------------------------------|
-| `Super + 1` … `4`    | Switch to workspace 1–4                       |
-| `Super + Shift + 1`…`4` | Move focused window to workspace 1–4       |
-| `Super + H` / `V`    | Split horizontal / vertical                   |
-| `Super + F`          | Toggle fullscreen on focused window           |
-| `Super + R`          | Resize mode (Esc / Enter to exit)             |
-
-Workspaces are usually collapsed to one (`workspace_count = 1`) under
-xfwm4 per Phase 6.3 — workspaces 2-4 only appear when i3 is the active
-WM.
+Workspaces under xfwm4 are usually collapsed to one
+(`workspace_count = 1`); workspaces 2-4 only appear when i3 is the
+active WM. Mackes Shell 1.x configs live at
+`/usr/share/mackes-shell/i3/config`.
 
 ## Panel (`mackes-panel`)
 
