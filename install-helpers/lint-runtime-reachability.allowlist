@@ -1,5 +1,4 @@
 crates/mackesd/src/transport/mod.rs:mesh_shunt
-crates/mackesd/src/workers/mod.rs:ansible_pull
 crates/mackesd/src/workers/mod.rs:media_sync
 crates/mackesd/src/workers/mod.rs:perf
 crates/mackesd/src/workers/mod.rs:remmina_sync

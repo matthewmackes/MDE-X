@@ -2919,6 +2919,22 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("urgency_router".into());
 
+        // TUNE-3.b (2026-05-26) — wire the v1.3.0 Fleet ansible-pull
+        // worker. `crates/mackesd/src/workers/ansible_pull.rs::build`
+        // has shipped since v2.0.0 Phase B.6 but stayed dead;
+        // [[project_v1_3_0_fleet]] keeps the feature in scope so
+        // wiring is the right cleanup. The worker invokes
+        // `ansible-pull -U <MDE_ANSIBLE_PULL_URL> -i localhost,` on
+        // a 15-min cadence (matches the retired
+        // `mackes-ansible-pull.timer`). With MDE_ANSIBLE_PULL_URL
+        // unset the ansible-pull binary fails fast + the supervisor
+        // logs the error — the worker stays cheap to host.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::ansible_pull::build(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("ansible-pull".into());
+
         // The reconcile worker runs on its own OS thread (kept on
         // std::thread so its sync rusqlite calls don't block the
         // tokio scheduler). Still surfaced via Shell.Workers so
