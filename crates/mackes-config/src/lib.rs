@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// Root document of `panel.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct PanelConfig {
-    /// Top status bar configuration (20 px, monochrome Carbon, Q13/Q14).
+    /// Top status bar configuration (20 px, monochrome Material Symbols, Q13/Q14).
     #[serde(default)]
     pub top_bar: TopBarConfig,
 

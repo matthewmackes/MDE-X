@@ -80,7 +80,7 @@ pub enum MeshResource {
 }
 
 impl MeshResource {
-    /// Stable identifier used to look up the resource's Carbon icon
+    /// Stable identifier used to look up the resource's Material Symbols icon
     /// and to dedupe entries in the dock's pin list.
     #[must_use]
     pub fn id(&self) -> String {

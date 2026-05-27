@@ -61,7 +61,7 @@ pub struct Tag {
     pub members: Vec<TagMember>,
     /// R12-Q21 — focused-border tint + Portal-43 segment color.
     /// CSS hex string (e.g. `#42be65`); `None` falls back to the
-    /// platform default (Carbon blue).
+    /// platform default (Material blue).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_color: Option<String>,
     /// R12-Q2 — workspace::init routes a tag-owned workspace to
