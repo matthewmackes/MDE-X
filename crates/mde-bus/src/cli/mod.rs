@@ -25,6 +25,7 @@
 //!   so tests can exercise its skip semantics without exec.
 //! - `render` — render a Tera template against live mesh vars.
 
+pub mod dnd;
 pub mod history;
 pub mod mute;
 pub mod publish;
@@ -82,5 +83,12 @@ pub enum Cmd {
     Topic {
         #[command(subcommand)]
         op: topic::TopicOp,
+    },
+    /// Toggle / inspect the mesh-wide Do Not Disturb state
+    /// (BUS-2.8). Writes `<bus_root>/dnd.yaml` for `on` / `off`;
+    /// `status` reads + prints the current value.
+    Dnd {
+        #[command(subcommand)]
+        op: dnd::DndOp,
     },
 }
