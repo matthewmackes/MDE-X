@@ -889,6 +889,7 @@ impl iced_layershell::Application for DockApp {
         let prev_ws_seg = build_prev_workspace_segment(self, fg);
         let layout_prompt_seg = build_layout_prompt_segment(self);
         let bus_announce_seg = build_bus_announce_segments(self);
+        let urgent_pulse_seg = build_urgent_pulse_segments(self);
         let host_seg = build_hostname_segment(self, fg);
         let running_zone = build_running_zone(self, fg);
         let status_seg = build_status_segment(self, fg);
@@ -903,6 +904,7 @@ impl iced_layershell::Application for DockApp {
                 prev_ws_seg,
                 layout_prompt_seg,
                 bus_announce_seg,
+                urgent_pulse_seg,
                 host_seg,
                 running_zone,
                 iced::widget::horizontal_space(),
@@ -1128,6 +1130,65 @@ fn build_mode_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     .align_y(iced::alignment::Vertical::Center)
     .padding(Padding::from([2, 8]))
     .into()
+}
+
+/// Portal-57.c.basic — Dock breadcrumb segment for active urgent
+/// pulses. Renders one tier-red pill per alive
+/// `bus/mbadge/pulse` event in `DockApp::recent_pulses`. Plain-
+/// text label (`app_id` from the pulse). Clicking the pill fires
+/// `Message::FocusWindowById(con_id)` so the operator lands on
+/// the bell-emitting tile — same jump as the Portal-57.b.click
+/// path on the mini-tree, but reachable from the right-of-row
+/// notification area when the workspace cell is too far away.
+///
+/// Typewriter entry ships as Portal-57.c.typewriter when
+/// Portal-14 primitive lands; until then the segment renders
+/// the label immediately.
+fn build_urgent_pulse_segments<'a>(app: &DockApp) -> Element<'a, Message> {
+    let now = chrono::Local::now();
+    let alive: Vec<&UrgentPulse> = app
+        .recent_pulses
+        .iter()
+        .filter(|p| is_pulse_alive(p, now))
+        .collect();
+    if alive.is_empty() {
+        return iced::widget::Space::new(0.0, Length::Fill).into();
+    }
+    // Tier-red identical to the mini-tree pulse cell-bg from
+    // Portal-57.b so the visual ties together — same urgency
+    // signal, two channels (cell + segment).
+    let tier_red = Color { r: 0.95, g: 0.20, b: 0.20, a: 1.0 };
+    let mut pills: Vec<Element<'a, Message>> = Vec::new();
+    for pulse in alive {
+        let label = if pulse.app_id.is_empty() {
+            "urgent".to_string()
+        } else {
+            pulse.app_id.clone()
+        };
+        let con_id = pulse.con_id;
+        pills.push(
+            mouse_area(
+                container(text(label).size(11.0).color(Color::WHITE))
+                    .style(move |_theme: &Theme| iced::widget::container::Style {
+                        background: Some(iced::Background::Color(tier_red)),
+                        border: iced::Border {
+                            radius: iced::border::Radius::from(4.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .height(Length::Fill)
+                    .align_y(iced::alignment::Vertical::Center)
+                    .padding(Padding::from([2, 8])),
+            )
+            .on_press(Message::FocusWindowById(con_id))
+            .into(),
+        );
+    }
+    iced::widget::row(pills)
+        .spacing(4)
+        .align_y(iced::Alignment::Center)
+        .into()
 }
 
 /// BUS-2.2.a — Dock breadcrumb segments for `fleet/announce`
