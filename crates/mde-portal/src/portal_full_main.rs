@@ -1054,15 +1054,21 @@ fn build_hub_multi_select_indicator(state: &PortalFull) -> Element<'_, Message> 
 /// set + parseable. Left-click → `HubTagClicked` for cascade
 /// expansion (Portal-17.b). Right-click → `HubTagRightClicked`
 /// for the iconic context menu (Portal-17.c).
+///
+/// Portal-40.crunchbang easter egg (R2-Q91): when the tag name
+/// is literally `#!`, render a CrunchBang ASCII tribute label
+/// instead of the bare characters. Same gestures (click +
+/// right-click) wire through unchanged; just the label changes.
 fn hub_tag_card<'a>(name: &str, group_color: Option<&str>) -> Element<'a, Message> {
     let tint = group_color
         .and_then(hub_parse_hex)
         .unwrap_or(Color { r: 0.20, g: 0.69, b: 1.0, a: 1.0 }); // Material blue 40 default (#33b1ff)
+    let display_label = crunchbang_label_for(name).unwrap_or_else(|| name.to_string());
     let name_owned = name.to_string();
     let name_for_left = name_owned.clone();
     let name_for_right = name_owned.clone();
     iced::widget::mouse_area(
-        container(text(name_owned).size(13.0).color(Color::WHITE))
+        container(text(display_label).size(13.0).color(Color::WHITE))
             .style(move |_theme: &Theme| iced::widget::container::Style {
                 background: Some(iced::Background::Color(tint)),
                 border: iced::Border {
@@ -1078,6 +1084,24 @@ fn hub_tag_card<'a>(name: &str, group_color: Option<&str>) -> Element<'a, Messag
     .on_press(Message::HubTagClicked(name_for_left))
     .on_right_press(Message::HubTagRightClicked(name_for_right))
     .into()
+}
+
+/// Portal-40.crunchbang easter egg (R2-Q91) — returns `Some` with
+/// a CrunchBang ASCII tribute when the tag name is literally `#!`;
+/// `None` otherwise. The tribute is intentionally compact (single
+/// line, fits inside a tag pill): the project's iconic hashbang
+/// prefix + the CRUNCHBANG label + the platform's #! preset
+/// docstring's tribute spirit. Returned `Some` value is what the
+/// renderer should display in place of the raw `#!` label; the
+/// underlying tag name (used for click target + tag-store lookup)
+/// stays `#!` so cascade expansion + tag-store ops are unchanged.
+#[must_use]
+pub fn crunchbang_label_for(name: &str) -> Option<String> {
+    if name == "#!" {
+        Some("#! CRUNCHBANG".to_string())
+    } else {
+        None
+    }
 }
 
 /// Portal-18.b — Edit-tag modal layout-selection options.
@@ -2110,6 +2134,29 @@ mod tests {
             }),
         );
         assert!(state.hub_cascade_stack.is_empty());
+    }
+
+    #[test]
+    fn crunchbang_label_for_hashbang_returns_tribute() {
+        // Portal-40.crunchbang — exact `#!` match fires the
+        // tribute label; anything else returns None.
+        assert_eq!(
+            crunchbang_label_for("#!").as_deref(),
+            Some("#! CRUNCHBANG"),
+        );
+    }
+
+    #[test]
+    fn crunchbang_label_for_non_hashbang_returns_none() {
+        assert!(crunchbang_label_for("Dev").is_none());
+        assert!(crunchbang_label_for("").is_none());
+        assert!(crunchbang_label_for("#").is_none());
+        assert!(crunchbang_label_for("!").is_none());
+        assert!(crunchbang_label_for("#!extra").is_none());
+        // Whitespace doesn't count — the tribute fires only on
+        // the exact two-character sequence per the easter-egg lock.
+        assert!(crunchbang_label_for("#! ").is_none());
+        assert!(crunchbang_label_for(" #!").is_none());
     }
 
     #[test]
