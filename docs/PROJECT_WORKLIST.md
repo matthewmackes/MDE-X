@@ -1181,12 +1181,12 @@ call-end lifecycle, never at install or login.
 
 - [ ] **TUNE-15.f: HW bench — cross-mesh subscribe round-trip** *(opens 2026-05-27 from TUNE-15 split per §0.12, operator-typed per §0.15 + 25-Q Q14)*. Operator-typed acceptance: pair two real Nebula meshes, run subscribe round-trip, observe message within 30 s, verify federation.yaml on both sides, run `revoke` on one side, observe symmetric removal on the other within 30 s.
 
-- [ ] **TUNE-16: PHONE-NEBULA-PEER — phone gets full Nebula peer-hood (new epic).**
+- [>] session=opus-47-2026-05-27-ship-CH **TUNE-16: PHONE-NEBULA-PEER — phone gets full Nebula peer-hood (new epic, split per §0.12 into 16.a design-doc + 16.b nebula-android-bundle + 16.c birthright-pair-ui + 16.d cap-counter + 16.e bus-shell-out + 16.f kdc2-coexistence + 16.g voice-tone + 16.h HW-bench).**
   **As** the Q23 reopening of Q58,
   **I want** the phone elevated from "beside the mesh" to a full Nebula peer with limited GFS access,
   **so that** cross-device continuity extends to the operator's mobile device.
   **Acceptance** (each bench-observable):
-    - [ ] New `docs/design/v1.0-phone-nebula-peer.md` covers the Q23 model + the R1 risk-mitigation choice (Option A: Bus + Nebula service access only; GFS via KDC2 drop-folder, FUSE-on-Android deferred to 1.1).
+    - [✓] New `docs/design/v1.0-phone-nebula-peer.md` covers the Q23 model + the R1 risk-mitigation choice (Option A: Bus + Nebula service access only; GFS via drop-folder; FUSE-on-Android explicitly out-of-scope, NOT deferred to 1.1 per [[feedback_1_0_is_the_whole_backlog]]). *(shipped via TUNE-16.a 2026-05-27)*
     - [ ] Nebula Android client bundled into the KDC2 app.
     - [ ] Birthright pairing extension: a phone-pair UI in mde-workbench → mints phone cert under the mesh CA → installs Nebula config on phone.
     - [ ] Phone counts as a peer for the Q22 cap (4 desktops + 1 phone = 5 of 8).
@@ -1195,6 +1195,22 @@ call-end lifecycle, never at install or login.
     - [ ] KDC2 stays as the battery-aware optimization layer (clipboard + SMS + battery + mpris).
     - [ ] Voice-and-tone: phone is labeled "Mesh peer (phone)" in UI.
     - [ ] HW bench: operator's phone joins mesh + publishes test message + receives Bus notification.
+
+- [✓] **TUNE-16.a: Phone-Nebula-peer design doc (`docs/design/v1.0-phone-nebula-peer.md`)** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-CH. New design lock for the PHONE-NEBULA-PEER epic: 11 sections + ~210 LOC. Locks the architecture (Nebula peer + Bus shell-out + KDC2 battery-aware optimization layer), the pairing flow (Birthright extension → mint phone cert under mesh CA → QR-encoded passcode envelope + Nebula config → Android app scan → join overlay), the Q22 cap rule (phone counts; differs from federation peers per `[[v1.0-federation-pairing]]` §6), the Bus pub/sub model (`mde-bus` shell-out on Android; default subscribe set `fdo/#` + `voip/incoming/*` + `mon/critical/*`; phone-side publish is operator-explicit), the KDC2 coexistence rationale (battery-friendly LAN warm-path; 5 surviving plugins — clipboard / SMS / battery / mpris / ping), the GFS access boundary (drop-folder only — FUSE-on-Android **explicitly out-of-scope**, NOT a 1.1-held feature per `[[feedback_1_0_is_the_whole_backlog]]`), voice-and-tone ("Mesh peer (phone)"), 8-bullet acceptance checklist rolling up under TUNE-16, 5 risks with mitigations, 3 out-of-scope items (FUSE-on-Android / phone-as-VOIP-peer / iOS), locking metadata consumes 100-Q Q22 + Q40 + Q58 + 25-Q Q23 + `[[project_kdc2_file_transfer_removed]]`. Supersedes `[[project_v2_1_kdc2_native]]`'s "KDC-as-parallel-peer-overlay" framing for the phone specifically. **Unblocks TUNE-16.b through TUNE-16.h.**)*
+
+- [ ] **TUNE-16.b: Nebula Android client bundled into MDE Android app** *(opens 2026-05-27 from TUNE-16 split per §0.12, unblocked by TUNE-16.a)*. Vendor the official Nebula Android client (pinned tag) into the MDE Android app build pipeline. Output: app APK that includes both the Nebula overlay client + KDC2 stack + `mde-bus` shell-out.
+
+- [ ] **TUNE-16.c: Birthright phone-pair UI** *(opens 2026-05-27 from TUNE-16 split per §0.12, unblocked by TUNE-16.a)*. `crates/mde-workbench/src/panels/mesh/devices/add_phone.rs`. Operator-typed hostname → cert mint via nebula-supervisor CA worker → QR render of `{nebula-config, mesh-ca-fingerprint, phone-cert-pem, lighthouse-endpoints, passcode-envelope}`. Per the §2 pairing-flow lock.
+
+- [ ] **TUNE-16.d: Q22 8-peer cap counter — phone counts** *(opens 2026-05-27 from TUNE-16 split per §0.12, unblocked by TUNE-16.a)*. `crates/mackesd/src/workers/peer_cap.rs` (or equivalent) — the cap-utilization indicator counts the phone alongside desktops (distinct from federated peers which are excluded per `[[v1.0-federation-pairing]]` §6).
+
+- [ ] **TUNE-16.e: Phone-side `mde-bus` shell-out** *(opens 2026-05-27 from TUNE-16 split per §0.12, unblocked by TUNE-16.a + TUNE-16.b)*. Android-app-internal `mde-bus` shell-out provides `publish` / `subscribe` / `status` CLI surface mirroring the desktop binary. Default subscriptions: `fdo/#` + `voip/incoming/*` + `mon/critical/*`. Per the §4 lock.
+
+- [ ] **TUNE-16.f: KDC2 coexistence verification** *(opens 2026-05-27 from TUNE-16 split per §0.12, unblocked by TUNE-16.b)*. Bench verify the 5 surviving KDC2 plugins (clipboard / SMS / battery / mpris / ping) continue to function alongside the Nebula overlay; no double-routing, no protocol conflict. Per the §5 lock.
+
+- [ ] **TUNE-16.g: Voice-and-tone — "Mesh peer (phone)"** *(opens 2026-05-27 from TUNE-16 split per §0.12, unblocked by TUNE-16.a)*. Sweep every user-visible "phone" / "Phone" / "Phone peer" label in `crates/mde-portal/`, `crates/mde-peer-card/`, `crates/mde-workbench/` → `Mesh peer (phone)`. Per the §7 lock. Phone-glyph variant added to Peer Card render.
+
+- [ ] **TUNE-16.h: HW bench — phone joins mesh + Bus round-trip** *(opens 2026-05-27 from TUNE-16 split per §0.12, operator-typed per §0.15 + 25-Q Q14)*. Operator-typed acceptance: pair operator's phone via TUNE-16.c flow; phone shows up in Peer Card list; `mde-bus publish test/hello` from phone lands on every desktop within 5 s; `mde-bus publish fdo/test-app/hello` from a desktop surfaces as a phone notification within 5 s.
 
 ---
 
