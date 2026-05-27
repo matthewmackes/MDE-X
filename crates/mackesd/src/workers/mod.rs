@@ -214,6 +214,11 @@ pub mod tag_layout;
 // each app_id in the owning tag's `autostart` list, once per
 // workspace per mded-lifetime.
 pub mod tag_autostart;
+// Portal-56 (v6.0 R12-Q21, 2026-05-26) — per-workspace focused-
+// border tinting. Subscribes to sway workspace::focus events;
+// fires `client.focused` with the owning tag's group_color (or
+// the platform Carbon blue when no tag owns the workspace).
+pub mod border_tinter;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores

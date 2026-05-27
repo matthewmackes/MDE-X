@@ -2896,6 +2896,18 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("tag_autostart".into());
 
+        // Portal-56 (v6.0 R12-Q21) — per-workspace focused-border
+        // tinting. Subscribes to sway workspace::focus events;
+        // fires `client.focused` with the owning tag's
+        // group_color (or the platform Carbon blue when no tag
+        // owns the workspace). Tagless workspaces default to
+        // `#2b9af3`.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::border_tinter::BorderTinterWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("border_tinter".into());
+
         // The reconcile worker runs on its own OS thread (kept on
         // std::thread so its sync rusqlite calls don't block the
         // tokio scheduler). Still surfaced via Shell.Workers so
