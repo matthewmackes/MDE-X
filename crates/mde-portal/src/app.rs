@@ -402,6 +402,23 @@ pub struct BusAnnounceSegment {
     pub body: Option<String>,
     /// Local timestamp at observe. Drives TTL.
     pub spawned_at: chrono::DateTime<chrono::Local>,
+    /// BUS-2.2.b: source topic — drives the segment tint. `Announce`
+    /// pills use the priority palette; `Clipboard` pills always
+    /// render neutral grey per the design lock.
+    pub topic: BusSegmentTopic,
+}
+
+/// BUS-2.2.b: source-topic discriminator for breadcrumb segments.
+/// Drives tint selection in `bus_segment_color`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BusSegmentTopic {
+    /// `fleet/announce` — priority palette (red / orange / blue).
+    #[default]
+    Announce,
+    /// `clipboard/sync` — neutral grey regardless of priority. The
+    /// design lock says clipboard adds are visually distinct from
+    /// notifications so operators can tell them apart at a glance.
+    Clipboard,
 }
 
 /// Portal-57.b (R12-Q22): one urgent-pulse event in flight. Held in
@@ -853,6 +870,7 @@ impl iced_layershell::Application for DockApp {
             crate::workspace::binding_subscription(),
             crate::workspace::bus_pulse_subscription(),
             crate::workspace::bus_announce_subscription(),
+            crate::workspace::bus_clipboard_subscription(),
             clock_subscription(),
             snapshot_subscription(),
             status_subscription(),
@@ -1134,7 +1152,7 @@ fn build_bus_announce_segments<'a>(app: &DockApp) -> Element<'a, Message> {
     let mut pills: Vec<Element<'a, Message>> = Vec::new();
     for segment in alive {
         let label = format_bus_segment_label(segment);
-        let tint = bus_priority_color(&segment.priority);
+        let tint = bus_segment_color(segment.topic, &segment.priority);
         pills.push(
             container(text(label).size(11.0).color(Color::WHITE))
                 .style(move |_theme: &Theme| iced::widget::container::Style {
@@ -1810,6 +1828,23 @@ pub fn bus_priority_color(priority: &str) -> Color {
         // Carbon blue 40 — default
         "default" => Color { r: 0.20, g: 0.69, b: 1.0, a: 1.0 },
         _ => COLOR_INDIGO,
+    }
+}
+
+/// BUS-2.2.b: pure helper — select the breadcrumb-pill tint based
+/// on the segment's source topic AND priority. `Clipboard` segments
+/// always render neutral grey regardless of priority (per the design
+/// lock — clipboard adds are visually distinct from notifications).
+/// `Announce` segments delegate to `bus_priority_color`.
+#[must_use]
+pub fn bus_segment_color(topic: BusSegmentTopic, priority: &str) -> Color {
+    match topic {
+        BusSegmentTopic::Clipboard => {
+            // Carbon grey 50 — neutral, distinct from any priority
+            // color so clipboard adds don't compete for attention.
+            Color { r: 0.55, g: 0.55, b: 0.55, a: 1.0 }
+        }
+        BusSegmentTopic::Announce => bus_priority_color(priority),
     }
 }
 
@@ -3239,6 +3274,18 @@ mod tests {
             title: title.map(String::from),
             body: body.map(String::from),
             spawned_at: chrono::Local::now(),
+            topic: BusSegmentTopic::Announce,
+        }
+    }
+
+    fn make_clipboard_segment(title: Option<&str>, body: Option<&str>) -> BusAnnounceSegment {
+        BusAnnounceSegment {
+            ulid: "01HZAZTESTCLIPULID12345".to_string(),
+            priority: "default".to_string(),
+            title: title.map(String::from),
+            body: body.map(String::from),
+            spawned_at: chrono::Local::now(),
+            topic: BusSegmentTopic::Clipboard,
         }
     }
 
@@ -3400,6 +3447,79 @@ mod tests {
         std::fs::write(&path, outer.to_string()).unwrap();
         let seg = crate::workspace::parse_announce_file(&path, "01HZAZ789").unwrap();
         assert_eq!(seg.priority, "default");
+    }
+
+    // ── BUS-2.2.b Clipboard topic tests ─────────────────────────────────────
+
+    /// Clipboard segments ALWAYS render neutral grey regardless of
+    /// priority. Mirrors the design lock: clipboard adds are
+    /// visually distinct from notifications.
+    #[test]
+    fn bus_segment_color_clipboard_always_grey() {
+        let grey = Color { r: 0.55, g: 0.55, b: 0.55, a: 1.0 };
+        assert_eq!(bus_segment_color(BusSegmentTopic::Clipboard, "urgent"), grey);
+        assert_eq!(bus_segment_color(BusSegmentTopic::Clipboard, "high"), grey);
+        assert_eq!(bus_segment_color(BusSegmentTopic::Clipboard, "default"), grey);
+        assert_eq!(bus_segment_color(BusSegmentTopic::Clipboard, "unknown"), grey);
+    }
+
+    /// Announce segments use the priority palette via
+    /// `bus_priority_color`. Direct delegation, no override.
+    #[test]
+    fn bus_segment_color_announce_delegates_to_priority() {
+        assert_eq!(
+            bus_segment_color(BusSegmentTopic::Announce, "urgent"),
+            bus_priority_color("urgent")
+        );
+        assert_eq!(
+            bus_segment_color(BusSegmentTopic::Announce, "high"),
+            bus_priority_color("high")
+        );
+        assert_eq!(
+            bus_segment_color(BusSegmentTopic::Announce, "default"),
+            bus_priority_color("default")
+        );
+    }
+
+    /// `parse_breadcrumb_file` with the Clipboard topic tags the
+    /// resulting segment correctly.
+    #[test]
+    fn parse_breadcrumb_file_tags_clipboard_topic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("01HZACLIP01.json");
+        let outer = serde_json::json!({
+            "ulid": "01HZACLIP01",
+            "priority": "default",
+            "title": "copy",
+            "body": "hello world",
+        });
+        std::fs::write(&path, outer.to_string()).unwrap();
+        let seg = crate::workspace::parse_breadcrumb_file(
+            &path,
+            "01HZACLIP01",
+            BusSegmentTopic::Clipboard,
+        )
+        .unwrap();
+        assert_eq!(seg.topic, BusSegmentTopic::Clipboard);
+        assert_eq!(seg.body.as_deref(), Some("hello world"));
+    }
+
+    /// Clipboard segments push through the Message handler the
+    /// same way Announce segments do (no special-casing in the
+    /// handler — just the tint differs).
+    #[test]
+    fn clipboard_segment_appends_to_state() {
+        let mut app = DockApp::default();
+        let seg = make_clipboard_segment(None, Some("hello"));
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::BusAnnounceSegment(seg),
+        );
+        assert_eq!(app.bus_announce_segments.len(), 1);
+        assert_eq!(
+            app.bus_announce_segments[0].topic,
+            BusSegmentTopic::Clipboard
+        );
     }
 
     /// Malformed JSON returns None — subscription stays alive.

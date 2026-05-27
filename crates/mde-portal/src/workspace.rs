@@ -486,6 +486,19 @@ pub fn parse_announce_file(
     path: &std::path::Path,
     ulid: &str,
 ) -> Option<crate::app::BusAnnounceSegment> {
+    parse_breadcrumb_file(path, ulid, crate::app::BusSegmentTopic::Announce)
+}
+
+/// BUS-2.2.b — generic parser shared by all breadcrumb-topic
+/// subscriptions. Reads the BUS-1.4 StoredMessage envelope
+/// (priority + title + body fields on the outer object), filters
+/// `min` priority, and lifts the rest into a `BusAnnounceSegment`
+/// tagged with the source `topic`.
+pub fn parse_breadcrumb_file(
+    path: &std::path::Path,
+    ulid: &str,
+    topic: crate::app::BusSegmentTopic,
+) -> Option<crate::app::BusAnnounceSegment> {
     let raw = std::fs::read_to_string(path).ok()?;
     let outer: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let priority = outer
@@ -494,8 +507,6 @@ pub fn parse_announce_file(
         .unwrap_or("default")
         .to_string();
     if priority == "min" {
-        // Silent per design lock — no segment for min-priority
-        // announcements. Skip emission.
         return None;
     }
     let title = outer
@@ -512,7 +523,85 @@ pub fn parse_announce_file(
         title,
         body,
         spawned_at: chrono::Local::now(),
+        topic,
     })
+}
+
+/// BUS-2.2.b — resolve the on-disk topic directory for the Bus
+/// `clipboard/sync` topic.
+#[must_use]
+pub fn clipboard_topic_dir() -> Option<std::path::PathBuf> {
+    let data_home = dirs::data_dir()?;
+    Some(
+        data_home
+            .join("mde")
+            .join("bus")
+            .join("clipboard")
+            .join("sync"),
+    )
+}
+
+/// BUS-2.2.b — Iced `Subscription` over the `clipboard/sync` Bus
+/// topic. Same shape as `bus_announce_subscription`; emits
+/// `Message::BusAnnounceSegment` with `topic = Clipboard` so the
+/// renderer picks the neutral-grey tint per design lock.
+pub fn bus_clipboard_subscription() -> Subscription<Message> {
+    Subscription::run_with_id(
+        "mde-portal-bus-clipboard",
+        async_stream::stream! {
+            let mut seen: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
+            let topic_dir = match clipboard_topic_dir() {
+                Some(p) => p,
+                None => {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    }
+                }
+            };
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let entries = match std::fs::read_dir(&topic_dir) {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                let mut new_msgs: Vec<crate::app::BusAnnounceSegment> = Vec::new();
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    let Some(ulid_str) = name.strip_suffix(".json") else {
+                        continue;
+                    };
+                    if seen.contains(ulid_str) {
+                        continue;
+                    }
+                    seen.insert(ulid_str.to_string());
+                    if let Some(msg) = parse_breadcrumb_file(
+                        &path,
+                        ulid_str,
+                        crate::app::BusSegmentTopic::Clipboard,
+                    ) {
+                        new_msgs.push(msg);
+                    }
+                }
+                if !new_msgs.is_empty() && seen.len() != new_msgs.len() {
+                    for msg in new_msgs {
+                        yield Message::BusAnnounceSegment(msg);
+                    }
+                }
+                if seen.len() > 1000 {
+                    let drop_count = seen.len() / 2;
+                    let to_drop: Vec<String> =
+                        seen.iter().take(drop_count).cloned().collect();
+                    for ulid in to_drop {
+                        seen.remove(&ulid);
+                    }
+                }
+            }
+        },
+    )
 }
 
 /// Portal-57.b — parse a `StoredMessage`-style JSON file, extract

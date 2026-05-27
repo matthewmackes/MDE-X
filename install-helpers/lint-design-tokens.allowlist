@@ -71,27 +71,27 @@ crates/mde-portal/src/app.rs:121
 crates/mde-portal/src/app.rs:129
 crates/mde-portal/src/app.rs:137
 crates/mde-portal/src/app.rs:145
-crates/mde-portal/src/app.rs:436
-crates/mde-portal/src/app.rs:1366
+crates/mde-portal/src/app.rs:453
+crates/mde-portal/src/app.rs:1384
 # Portal-57.b pulse cell-bg tier-red Color::from_rgb (R12-Q22, 2026-05-27)
-crates/mde-portal/src/app.rs:1368
-# BUS-2.2.a priority-tint Color values for breadcrumb pills (2026-05-27)
-crates/mde-portal/src/app.rs:1556
-crates/mde-portal/src/app.rs:1856
-crates/mde-portal/src/app.rs:1858
-crates/mde-portal/src/app.rs:1860
+crates/mde-portal/src/app.rs:1386
+# BUS-2.2.a/b priority-tint + clipboard-grey Color values for breadcrumb pills (2026-05-27)
+crates/mde-portal/src/app.rs:1574
+crates/mde-portal/src/app.rs:1891
+crates/mde-portal/src/app.rs:1893
+crates/mde-portal/src/app.rs:1895
 # Portal-49 mark_pill_color taxonomy hex docs (R12-Q9, 2026-05-26)
-crates/mde-portal/src/app.rs:1862
-crates/mde-portal/src/app.rs:1864
-crates/mde-portal/src/app.rs:2079
-crates/mde-portal/src/app.rs:2081
-crates/mde-portal/src/app.rs:2083
-crates/mde-portal/src/app.rs:2098
-crates/mde-portal/src/app.rs:2232
-crates/mde-portal/src/app.rs:2240
-crates/mde-portal/src/app.rs:2245
-crates/mde-portal/src/app.rs:2249
-crates/mde-portal/src/app.rs:3129
+crates/mde-portal/src/app.rs:1897
+crates/mde-portal/src/app.rs:1899
+crates/mde-portal/src/app.rs:2114
+crates/mde-portal/src/app.rs:2116
+crates/mde-portal/src/app.rs:2118
+crates/mde-portal/src/app.rs:2133
+crates/mde-portal/src/app.rs:2267
+crates/mde-portal/src/app.rs:2275
+crates/mde-portal/src/app.rs:2280
+crates/mde-portal/src/app.rs:2284
+crates/mde-portal/src/app.rs:3164
 crates/mde-portal/src/portal_full_main.rs:138
 crates/mde-portal/src/portal_full_main.rs:305
 crates/mde-wizard/src/pages/preset.rs:12
