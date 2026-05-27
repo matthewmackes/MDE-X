@@ -55,6 +55,16 @@ pub(crate) const APP_ID: &str = "dev.mackes.MDE.Portal";
 /// filter this number out so a parked window reads as minimized.
 pub const PARKED_WORKSPACE_NUM: i32 = 99;
 
+/// Portal-43 (R12-Q3): cap of the visited-workspaces LRU. Exceeding this
+/// pushes the oldest entry off the back. Five is the design lock.
+pub const PREV_WS_LRU_CAP: usize = 5;
+
+/// Portal-43 (R12-Q3): the transient "previous workspace" breadcrumb
+/// segment auto-dismisses this many seconds after the last focus change.
+/// Re-focuses inside the window keep the segment alive (the timer
+/// resets on every focus change).
+pub const PREV_WS_SEGMENT_TTL_SECS: i64 = 5;
+
 /// Height of the Dock strip in logical pixels (Portal-2 lock).
 pub const DOCK_HEIGHT_PX: u32 = 56;
 
@@ -199,6 +209,11 @@ pub enum Message {
     NavRightClicked(NavButton),
     /// Workspace subscription emitted a fresh workspace list (Portal-5).
     WorkspaceList(Vec<WorkspaceInfo>),
+    /// Portal-43 (R12-Q3): user clicked the transient previous-workspace
+    /// breadcrumb segment. Routes through swayipc `workspace number <n>`
+    /// to jump back. `num` is the i3/sway workspace number; the rename
+    /// worker (Portal-41) preserves it even when the name is prefixed.
+    PrevWorkspaceClicked(i32),
     /// User clicked a workspace cell — focus it via swayipc (R3-Q23).
     FocusWorkspace(String),
     /// User clicked `+` — switch to the next unused workspace number.
@@ -277,6 +292,17 @@ pub struct DockApp {
     hovered_running_group: Option<String>,
     /// Horizontal scroll offsets (px) per workspace name for marquee (Portal-5.b).
     ws_marquee_offsets: HashMap<String, f32>,
+    /// Portal-43 (R12-Q3): up to 5 most-recently-visited workspaces, newest
+    /// at index 0. Stores `(workspace_num, name)` so the breadcrumb segment
+    /// can render the auto-derived name from Portal-41. Pushed on every
+    /// focus change; adjacent duplicates (the focused workspace appearing
+    /// twice in a row) collapse.
+    visited_workspaces_lru: Vec<(i32, String)>,
+    /// Portal-43 (R12-Q3): timestamp of the most recent focus change. The
+    /// transient previous-workspace segment renders for
+    /// [`PREV_WS_SEGMENT_TTL_SECS`] seconds after this stamp. `None` =
+    /// segment never spawned yet.
+    last_workspace_change: Option<chrono::DateTime<chrono::Local>>,
 }
 
 impl Default for DockApp {
@@ -293,6 +319,8 @@ impl Default for DockApp {
             running_windows: Vec::new(),
             hovered_running_group: None,
             ws_marquee_offsets: HashMap::new(),
+            visited_workspaces_lru: Vec::new(),
+            last_workspace_change: None,
         }
     }
 }
@@ -402,7 +430,34 @@ impl iced_layershell::Application for DockApp {
                 // no-op so the button state doesn't change.
             }
             Message::WorkspaceList(list) => {
+                // Portal-43 (R12-Q3): track focus changes for the
+                // transient previous-workspace breadcrumb segment.
+                // Compute the old + new focused workspaces; if they
+                // differ, push the old onto the LRU + bump the
+                // last-change timestamp so the segment respawns.
+                let old_focused = focused_workspace(&self.workspaces);
+                let new_focused = focused_workspace(&list);
+                if let (Some(old), Some(new)) = (&old_focused, &new_focused) {
+                    if old.0 != new.0 {
+                        push_visited_workspace(&mut self.visited_workspaces_lru, old.clone());
+                        self.last_workspace_change = Some(chrono::Local::now());
+                    }
+                } else if old_focused.is_none() && new_focused.is_some() {
+                    // Very first focus event seeds the timestamp so
+                    // the segment doesn't render on cold boot.
+                    self.last_workspace_change = Some(chrono::Local::now());
+                }
                 self.workspaces = list;
+            }
+            Message::PrevWorkspaceClicked(num) => {
+                // Jump back to the previous workspace. swayipc's
+                // numeric `workspace number <n>` accepts the bare
+                // number even when the rename worker has prefixed
+                // the name; sway treats `<n>` as a workspace ID.
+                return Task::perform(
+                    crate::workspace::focus_workspace_by_num(num),
+                    |_| Message::Noop,
+                );
             }
             Message::FocusWorkspace(name) => {
                 return Task::perform(
@@ -598,6 +653,7 @@ impl iced_layershell::Application for DockApp {
         let fg = if theme == Theme::Dark { Color::WHITE } else { Color::BLACK };
 
         let ws_seg = build_workspace_segment(self, fg);
+        let prev_ws_seg = build_prev_workspace_segment(self, fg);
         let host_seg = build_hostname_segment(self, fg);
         let running_zone = build_running_zone(self, fg);
         let status_seg = build_status_segment(self, fg);
@@ -608,6 +664,7 @@ impl iced_layershell::Application for DockApp {
         container(
             row![
                 ws_seg,
+                prev_ws_seg,
                 host_seg,
                 running_zone,
                 iced::widget::horizontal_space(),
@@ -785,6 +842,64 @@ fn build_hostname_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> 
             .padding(Padding::from([0, 8])),
     )
     .on_press(Message::HostnameClicked)
+    .into()
+}
+
+/// Portal-43 (R12-Q3) — transient previous-workspace breadcrumb segment.
+///
+/// Sits between the mini-tree (`build_workspace_segment`) and the
+/// hostname segment. When [`prev_workspace_segment_visible`] reports
+/// `false` (no LRU entry, segment expired, etc.), renders an empty
+/// zero-width space so the breadcrumb layout doesn't reflow.
+///
+/// When visible, renders the LRU front entry's auto-derived name
+/// (Portal-41's `<num>: <app_id>`) in the platform's Carbon blue.
+/// The full Round 12 design colors the segment with the owning-tag
+/// color (R12-Q21) once Portal-56 ships the per-workspace tinting
+/// worker — until then the fallback is the platform default. Click
+/// jumps to that workspace via `swayipc workspace number <n>`.
+fn build_prev_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
+    let now = chrono::Local::now();
+    if !prev_workspace_segment_visible(
+        app.last_workspace_change,
+        now,
+        app.visited_workspaces_lru.len(),
+    ) {
+        return iced::widget::Space::new(0.0, Length::Fill).into();
+    }
+    let Some((prev_num, prev_name)) = app.visited_workspaces_lru.first().cloned() else {
+        return iced::widget::Space::new(0.0, Length::Fill).into();
+    };
+    // Fallback color until Portal-56 ships per-tag tinting. Carbon
+    // blue is the platform default workspace focus color, same as
+    // `data/sway/config:60 client.focused`.
+    let _ = fg; // kept for future tag-color fallback path
+    let segment_color = COLOR_INDIGO;
+    let truncated: String = if prev_name.chars().count() > 16 {
+        let prefix: String = prev_name.chars().take(15).collect();
+        format!("{prefix}…")
+    } else {
+        prev_name
+    };
+    mouse_area(
+        container(
+            text(format!("‹ {truncated}"))
+                .size(11.0)
+                .color(Color::WHITE),
+        )
+        .style(move |_theme: &Theme| iced::widget::container::Style {
+            background: Some(iced::Background::Color(segment_color)),
+            border: iced::Border {
+                radius: iced::border::Radius::from(4.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .height(Length::Fill)
+        .align_y(iced::alignment::Vertical::Center)
+        .padding(Padding::from([2, 8])),
+    )
+    .on_press(Message::PrevWorkspaceClicked(prev_num))
     .into()
 }
 
@@ -1045,6 +1160,57 @@ fn running_zone_visible_windows(windows: &[WindowInfo]) -> impl Iterator<Item = 
     windows
         .iter()
         .filter(|w| w.workspace_num != PARKED_WORKSPACE_NUM)
+}
+
+/// Portal-43 (R12-Q3): pull `(num, name)` for the currently-focused
+/// workspace, or `None` if no workspace is focused. The parked
+/// workspace ([`PARKED_WORKSPACE_NUM`]) is excluded so a brief stop
+/// there during `wm_minimize` doesn't push it into the LRU.
+fn focused_workspace(workspaces: &[WorkspaceInfo]) -> Option<(i32, String)> {
+    workspaces
+        .iter()
+        .find(|w| w.focused && w.num != PARKED_WORKSPACE_NUM)
+        .map(|w| (w.num, w.name.clone()))
+}
+
+/// Portal-43 (R12-Q3): push the given workspace onto the LRU front
+/// (newest at index 0). Adjacent duplicates (the workspace already
+/// at index 0) collapse; oldest entry is dropped once the LRU
+/// exceeds [`PREV_WS_LRU_CAP`].
+fn push_visited_workspace(lru: &mut Vec<(i32, String)>, entry: (i32, String)) {
+    if let Some(front) = lru.first() {
+        if front.0 == entry.0 {
+            // Refresh name in case Portal-41 rename arrived since
+            // the entry was first captured.
+            lru[0] = entry;
+            return;
+        }
+    }
+    lru.insert(0, entry);
+    if lru.len() > PREV_WS_LRU_CAP {
+        lru.truncate(PREV_WS_LRU_CAP);
+    }
+}
+
+/// Portal-43 (R12-Q3): `true` if the transient previous-workspace
+/// breadcrumb segment should be visible right now. Visible when
+/// the LRU has at least one entry AND the most-recent focus change
+/// is younger than [`PREV_WS_SEGMENT_TTL_SECS`] seconds.
+fn prev_workspace_segment_visible(
+    last_change: Option<chrono::DateTime<chrono::Local>>,
+    now: chrono::DateTime<chrono::Local>,
+    lru_len: usize,
+) -> bool {
+    if lru_len == 0 {
+        return false;
+    }
+    match last_change {
+        None => false,
+        Some(t) => {
+            let elapsed = now.signed_duration_since(t);
+            elapsed.num_seconds() >= 0 && elapsed.num_seconds() < PREV_WS_SEGMENT_TTL_SECS
+        }
+    }
 }
 
 /// Portal-59 (R12-Q24): pure filter that the mini-tree renderer
@@ -2092,6 +2258,116 @@ mod tests {
         let visible: Vec<&WorkspaceInfo> = mini_tree_visible_workspaces(&workspaces).collect();
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].num, 1);
+    }
+
+    // ── Portal-43 (R12-Q3) previous-workspace breadcrumb tests ──────────────
+
+    /// Mirrors the bench acceptance:
+    /// "focus ws1 → focus ws2 → previous-segment shows `1: firefox`".
+    #[test]
+    fn workspace_focus_change_pushes_old_onto_lru() {
+        let mut app = DockApp::default();
+        // Seed: ws1 focused, named "1: firefox".
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::WorkspaceList(vec![make_ws(1, "1: firefox", true, true, "eDP-1")]),
+        );
+        assert!(app.visited_workspaces_lru.is_empty(), "no LRU push on initial focus");
+        // Focus changes to ws2.
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::WorkspaceList(vec![
+                make_ws(1, "1: firefox", false, false, "eDP-1"),
+                make_ws(2, "2", true, true, "eDP-1"),
+            ]),
+        );
+        assert_eq!(app.visited_workspaces_lru.len(), 1);
+        assert_eq!(app.visited_workspaces_lru[0], (1, "1: firefox".to_string()));
+        assert!(app.last_workspace_change.is_some());
+    }
+
+    /// Adjacent duplicates collapse — focusing the same workspace twice
+    /// in a row doesn't push twice. Locks the `push_visited_workspace`
+    /// dedup contract.
+    #[test]
+    fn lru_collapses_adjacent_duplicates() {
+        let mut lru: Vec<(i32, String)> = Vec::new();
+        push_visited_workspace(&mut lru, (1, "1: foot".into()));
+        push_visited_workspace(&mut lru, (1, "1: foot".into()));
+        push_visited_workspace(&mut lru, (1, "1: foot".into()));
+        assert_eq!(lru.len(), 1);
+    }
+
+    /// LRU cap: pushing more than [`PREV_WS_LRU_CAP`] entries drops the
+    /// oldest off the back.
+    #[test]
+    fn lru_truncates_to_cap() {
+        let mut lru: Vec<(i32, String)> = Vec::new();
+        for i in 1..=7 {
+            push_visited_workspace(&mut lru, (i, format!("{i}")));
+        }
+        assert_eq!(lru.len(), PREV_WS_LRU_CAP);
+        // Newest stays at front, oldest dropped.
+        assert_eq!(lru[0].0, 7);
+        let oldest_kept = lru.last().unwrap().0;
+        assert!(oldest_kept >= 7 - PREV_WS_LRU_CAP as i32 + 1);
+    }
+
+    /// Segment visibility: hidden when LRU is empty; visible right after
+    /// a push; hidden after the TTL expires.
+    #[test]
+    fn previous_workspace_segment_respects_ttl() {
+        let now = chrono::Local::now();
+        // Empty LRU → always hidden.
+        assert!(!prev_workspace_segment_visible(Some(now), now, 0));
+        // Fresh push → visible.
+        assert!(prev_workspace_segment_visible(Some(now), now, 1));
+        // 4 s old → still visible.
+        let four_s_ago = now - chrono::Duration::seconds(4);
+        assert!(prev_workspace_segment_visible(Some(four_s_ago), now, 1));
+        // 6 s old → expired.
+        let six_s_ago = now - chrono::Duration::seconds(6);
+        assert!(!prev_workspace_segment_visible(Some(six_s_ago), now, 1));
+        // Never-focused → hidden.
+        assert!(!prev_workspace_segment_visible(None, now, 1));
+    }
+
+    /// Click handler fires `PrevWorkspaceClicked(num)` → produces a
+    /// Task without panicking even when sway isn't running.
+    #[test]
+    fn prev_workspace_clicked_fires_task_without_panic() {
+        let mut app = DockApp::default();
+        let _task =
+            iced_layershell::Application::update(&mut app, Message::PrevWorkspaceClicked(1));
+    }
+
+    /// Portal-43 + Portal-59 interaction: focusing the parked workspace
+    /// (briefly during `wm_minimize`) must NOT push it onto the LRU —
+    /// otherwise the breadcrumb would offer to jump back to the
+    /// hidden park slot.
+    #[test]
+    fn parked_workspace_excluded_from_lru() {
+        let mut app = DockApp::default();
+        // Seed: ws1 focused.
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::WorkspaceList(vec![make_ws(1, "1", true, true, "eDP-1")]),
+        );
+        // Park transition: ws1 unfocused, ws 99 focused (the wm_minimize
+        // helper switches there for a single tick before back_and_forth).
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::WorkspaceList(vec![
+                make_ws(1, "1", false, false, "eDP-1"),
+                make_ws(PARKED_WORKSPACE_NUM, "99", true, true, "eDP-1"),
+            ]),
+        );
+        // focused_workspace skips ws 99 → no LRU push, last_workspace_change
+        // stays at its seed value.
+        assert!(
+            app.visited_workspaces_lru.is_empty(),
+            "park transition must not pollute the previous-workspace LRU"
+        );
     }
 
     #[test]

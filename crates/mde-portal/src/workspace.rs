@@ -285,6 +285,21 @@ pub async fn focus_workspace(name: String) {
     }
 }
 
+/// Portal-43 (R12-Q3): focus a workspace by its i3/sway numeric ID,
+/// not by name. Used by the previous-workspace breadcrumb segment so
+/// the click survives a Portal-41 rename in flight (the auto-derived
+/// name might have changed by the time the operator clicks).
+pub async fn focus_workspace_by_num(num: i32) {
+    match Connection::new().await {
+        Ok(mut conn) => {
+            if let Err(e) = conn.run_command(&format!("workspace number {num}")).await {
+                tracing::warn!(workspace_num = num, error = %e, "focus_workspace_by_num command failed");
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "focus_workspace_by_num: swayipc connect failed"),
+    }
+}
+
 /// Recursively collect the container IDs of all tiling-window leaf nodes.
 ///
 /// A tiling window is a `Con` node with no child `nodes` (i.e., a leaf
