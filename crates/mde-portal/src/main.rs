@@ -37,6 +37,10 @@ pub mod status;
 // Pure helpers consumed by BUS-2.2 + Portal-57.c + future breadcrumb
 // segments to char-by-char-reveal new content.
 pub mod typewriter;
+// Portal-14.d (R4-Q91, 2026-05-27) — breath-line gradient sweep.
+// Pure helpers consumed by the Dock view to render the 15-second
+// hue-sweep baseline below the breadcrumb row.
+pub mod breath_line;
 // Portal-35 — `mde://` URI scheme parser + action dispatcher.
 pub mod uri;
 // Portal-5 — swayipc workspace integration.

@@ -74,24 +74,24 @@ crates/mde-portal/src/app.rs:121
 crates/mde-portal/src/app.rs:129
 crates/mde-portal/src/app.rs:137
 crates/mde-portal/src/app.rs:145
-crates/mde-portal/src/app.rs:463
-crates/mde-portal/src/app.rs:1553
-crates/mde-portal/src/app.rs:1555
-crates/mde-portal/src/app.rs:1743
-crates/mde-portal/src/app.rs:2060
-crates/mde-portal/src/app.rs:2062
-crates/mde-portal/src/app.rs:2064
-crates/mde-portal/src/app.rs:2066
-crates/mde-portal/src/app.rs:2068
-crates/mde-portal/src/app.rs:2283
-crates/mde-portal/src/app.rs:2285
-crates/mde-portal/src/app.rs:2287
-crates/mde-portal/src/app.rs:2302
-crates/mde-portal/src/app.rs:2436
-crates/mde-portal/src/app.rs:2444
-crates/mde-portal/src/app.rs:2449
-crates/mde-portal/src/app.rs:2453
-crates/mde-portal/src/app.rs:3333
+crates/mde-portal/src/app.rs:469
+crates/mde-portal/src/app.rs:1635
+crates/mde-portal/src/app.rs:1637
+crates/mde-portal/src/app.rs:1825
+crates/mde-portal/src/app.rs:2142
+crates/mde-portal/src/app.rs:2144
+crates/mde-portal/src/app.rs:2146
+crates/mde-portal/src/app.rs:2148
+crates/mde-portal/src/app.rs:2150
+crates/mde-portal/src/app.rs:2365
+crates/mde-portal/src/app.rs:2367
+crates/mde-portal/src/app.rs:2369
+crates/mde-portal/src/app.rs:2384
+crates/mde-portal/src/app.rs:2518
+crates/mde-portal/src/app.rs:2526
+crates/mde-portal/src/app.rs:2531
+crates/mde-portal/src/app.rs:2535
+crates/mde-portal/src/app.rs:3415
 # Portal-17.a/.c + Portal-18.b — docstring hex examples, charcoal
 # const docstring, hex-parser tests, Edit-tag form #42be65 fixtures
 # (re-anchored 2026-05-27 after Portal-18.b modal landed).

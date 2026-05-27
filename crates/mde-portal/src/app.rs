@@ -393,6 +393,12 @@ pub struct DockApp {
     /// [`BUS_ANNOUNCE_TTL_SECS`] seconds. Rendered as a transient
     /// pill near the host segment, tinted by priority class.
     bus_announce_segments: Vec<BusAnnounceSegment>,
+    /// Portal-14.d (R4-Q91): reference instant the breath-line
+    /// gradient sweep started at. The pure helper
+    /// `breath_line::breath_line_phase` reads this + the current
+    /// clock to compute the sweep's horizontal position each frame.
+    /// Initialized to the Dock spawn time; never updated after.
+    dock_started_at: chrono::DateTime<chrono::Local>,
 }
 
 /// BUS-2.2.a: one breadcrumb segment from the Bus
@@ -489,6 +495,7 @@ impl Default for DockApp {
             layout_prompt: None,
             recent_pulses: Vec::new(),
             bus_announce_segments: Vec::new(),
+            dock_started_at: chrono::Local::now(),
         }
     }
 }
@@ -930,27 +937,33 @@ impl iced_layershell::Application for DockApp {
         let clock_seg = build_clock_segment(self, fg);
         let nav_row = build_nav_row(self, fg);
         let wallpaper_strip = build_wallpaper_strip(self);
+        let breath_baseline = build_breath_line_baseline(self);
 
         container(
-            row![
-                mode_seg,
-                ws_seg,
-                prev_ws_seg,
-                layout_prompt_seg,
-                bus_announce_seg,
-                urgent_pulse_seg,
-                host_seg,
-                running_zone,
-                iced::widget::horizontal_space(),
-                status_seg,
-                clock_seg,
-                nav_row,
-                wallpaper_strip,
+            iced::widget::column![
+                row![
+                    mode_seg,
+                    ws_seg,
+                    prev_ws_seg,
+                    layout_prompt_seg,
+                    bus_announce_seg,
+                    urgent_pulse_seg,
+                    host_seg,
+                    running_zone,
+                    iced::widget::horizontal_space(),
+                    status_seg,
+                    clock_seg,
+                    nav_row,
+                    wallpaper_strip,
+                ]
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    // Left pad 8 px; strip is flush at right edge (R4-Q72).
+                    .padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: 8.0 }),
+                breath_baseline,
             ]
-                .width(Length::Fill)
-                .height(Length::Fill)
-                // Left pad 8 px; strip is flush at right edge (R4-Q72).
-                .padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: 8.0 }),
+            .width(Length::Fill)
+            .height(Length::Fill)
         )
         .style(move |_theme: &Theme| iced::widget::container::Style {
             background: Some(iced::Background::Color(bg)),
@@ -1154,6 +1167,75 @@ fn build_hostname_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> 
 /// Mode names are truncated to 24 chars with `…` so a sway config
 /// that names a mode something egregious doesn't blow out the
 /// Dock row width.
+/// Portal-14.d (R4-Q91) — 2 px breath-line baseline below the
+/// Dock row. The exact gradient phase is computed each frame from
+/// the elapsed Dock lifetime; the typewriter tick subscription
+/// already drives 30 Hz re-renders so this gets cheap repaint
+/// frames for free. Cyan sweep over a charcoal baseline matches
+/// the v6.0 design lock + the existing mode-segment cyan.
+fn build_breath_line_baseline<'a>(app: &DockApp) -> Element<'a, Message> {
+    let now = chrono::Local::now();
+    let phase = crate::breath_line::breath_line_phase(
+        app.dock_started_at,
+        now,
+        crate::breath_line::DEFAULT_CYCLE_SECONDS,
+    );
+    // Pick the dominant sweep tint from the closest live segment
+    // (mode > urgent-pulse > announce > default). The Dock-alive
+    // baseline reads as a soft echo of whatever's currently active
+    // overhead rather than a fixed-hue strip.
+    let sweep_rgb = sweep_color_for_app(app);
+    let base_rgb = (0.06, 0.06, 0.08); // charcoal-50, slightly darker than CHARCOAL
+    let stops = crate::breath_line::breath_line_stops(phase, sweep_rgb, base_rgb);
+    // Pick the brightest stop's color (i.e. the center sweep) +
+    // render the baseline as a solid 2 px row tinted toward the
+    // sweep proportional to phase. iced 0.13's container doesn't
+    // expose a true gradient fill, so we approximate via a phase-
+    // weighted blend between base and sweep — the eye reads it as
+    // a moving glow.
+    let glow_strength: f32 = stops
+        .iter()
+        .map(|s| if s.rgb == sweep_rgb { 0.6 } else { 0.0 })
+        .fold(0.0_f32, |acc, x| acc.max(x));
+    let blend = |a: f32, b: f32| a * (1.0 - glow_strength) + b * glow_strength;
+    let mixed = Color {
+        r: blend(base_rgb.0, sweep_rgb.0),
+        g: blend(base_rgb.1, sweep_rgb.1),
+        b: blend(base_rgb.2, sweep_rgb.2),
+        a: 1.0,
+    };
+    container(iced::widget::Space::new(Length::Fill, 2.0))
+        .style(move |_theme: &Theme| iced::widget::container::Style {
+            background: Some(iced::Background::Color(mixed)),
+            ..Default::default()
+        })
+        .width(Length::Fill)
+        .height(2.0)
+        .into()
+}
+
+/// Portal-14.d helper — pick the sweep RGB based on what's
+/// currently active in the Dock. Mode-segment cyan beats urgent
+/// red, which beats announce blue, which falls through to the
+/// platform indigo accent.
+fn sweep_color_for_app(app: &DockApp) -> (f32, f32, f32) {
+    let now = chrono::Local::now();
+    if app.current_sway_mode.is_some() {
+        return (0.0, 0.7, 0.85); // sway-internal cyan
+    }
+    if app.recent_pulses.iter().any(|p| is_pulse_alive(p, now)) {
+        return (0.91, 0.30, 0.36); // tier-red
+    }
+    if app
+        .bus_announce_segments
+        .iter()
+        .any(|s| is_bus_segment_alive(s, now))
+    {
+        return (0.20, 0.69, 1.0); // Carbon blue 40
+    }
+    (0.357, 0.416, 0.961) // indigo accent fallback
+}
+
 fn build_mode_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     let Some(mode_name) = app.current_sway_mode.as_deref() else {
         return iced::widget::Space::new(0.0, Length::Fill).into();
