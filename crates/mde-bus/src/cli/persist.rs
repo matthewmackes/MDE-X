@@ -32,6 +32,20 @@ pub enum PersistOp {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Print the total number of indexed messages in the SQLite
+    /// store. Read-only; symmetric with `audit count`. Useful for
+    /// monitoring + dashboards ("how many bus messages persist
+    /// right now?") + capacity planning ("at the current pace,
+    /// when will we hit the retention quota?").
+    Count {
+        /// Override the bus-root directory.
+        #[arg(long)]
+        bus_root: Option<PathBuf>,
+        /// Emit `{"count":N}` instead of the bare integer for
+        /// jq-pipe symmetry with `audit count --json`.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
 }
 
 fn resolve_bus_root(arg: Option<PathBuf>) -> Result<PathBuf> {
@@ -82,6 +96,19 @@ pub fn run(op: PersistOp) -> Result<()> {
                 ));
             }
         }
+        PersistOp::Count { bus_root, json } => {
+            let root = resolve_bus_root(bus_root)?;
+            let p = Persist::open(root.clone())
+                .with_context(|| format!("open persist at {}", root.display()))?;
+            let n = p
+                .count()
+                .with_context(|| format!("count messages at {}", root.display()))?;
+            if json {
+                println!("{{\"count\":{n}}}");
+            } else {
+                println!("{n}");
+            }
+        }
     }
     Ok(())
 }
@@ -129,6 +156,44 @@ mod tests {
         let r = run(PersistOp::Verify {
             bus_root: Some(tmp.path().to_path_buf()),
             json: true,
+        });
+        assert!(r.is_ok());
+    }
+
+    #[test]
+    fn count_on_empty_persist_returns_zero() {
+        let tmp = tempfile::tempdir().unwrap();
+        let _p = Persist::open(tmp.path().to_path_buf()).unwrap();
+        drop(_p);
+        // Both default + JSON paths exercise the verb. Output goes
+        // to stdout; we just confirm dispatch + no error.
+        let r = run(PersistOp::Count {
+            bus_root: Some(tmp.path().to_path_buf()),
+            json: false,
+        });
+        assert!(r.is_ok());
+        let r = run(PersistOp::Count {
+            bus_root: Some(tmp.path().to_path_buf()),
+            json: true,
+        });
+        assert!(r.is_ok());
+    }
+
+    #[test]
+    fn count_returns_actual_message_count() {
+        use crate::hooks::config::Priority;
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Persist::open(tmp.path().to_path_buf()).unwrap();
+        for i in 0..3 {
+            p.write("t/x", Priority::Default, None, Some(&i.to_string())).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(p.count().unwrap(), 3);
+        drop(p);
+        // Dispatch the verb — count() is exercised, output to stdout.
+        let r = run(PersistOp::Count {
+            bus_root: Some(tmp.path().to_path_buf()),
+            json: false,
         });
         assert!(r.is_ok());
     }
