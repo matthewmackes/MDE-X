@@ -465,6 +465,31 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
                         }
                     });
                 }
+                TagMember::Contact { ulid } => {
+                    tracing::info!(%ulid, "portal-full: cascade opens contact card");
+                    let ulid = ulid.clone();
+                    std::thread::spawn(move || {
+                        // Contacts live at
+                        // `<XDG_DATA_HOME>/mde/contacts/<ulid>.json`
+                        // per Portal-33 / VOIP-12. Open the JSON
+                        // file via xdg-open until the proper
+                        // Contact-card drill-in (peer card +
+                        // dial-from-contact + SMS) ships.
+                        let xdg_data = std::env::var("XDG_DATA_HOME")
+                            .ok()
+                            .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.local/share")));
+                        let Some(base) = xdg_data else {
+                            tracing::warn!(%ulid, "contact: no XDG_DATA_HOME / HOME — skip");
+                            return;
+                        };
+                        let contact_path = format!("{base}/mde/contacts/{ulid}.json");
+                        if let Err(e) =
+                            std::process::Command::new("xdg-open").arg(&contact_path).spawn()
+                        {
+                            tracing::warn!(%ulid, error = %e, "contact xdg-open spawn failed");
+                        }
+                    });
+                }
                 TagMember::Activity { ulid } => {
                     tracing::info!(%ulid, "portal-full: cascade opens activity card");
                     let ulid = ulid.clone();
@@ -2082,6 +2107,19 @@ mod tests {
             &mut state,
             Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::File {
                 path: "/nonexistent/path/for/cascade/test.txt".to_string(),
+            }),
+        );
+        assert!(state.hub_cascade_stack.is_empty());
+    }
+
+    #[test]
+    fn cascade_member_contact_variant_clears_stack() {
+        let mut state = PortalFull::default();
+        state.hub_cascade_stack.push("Contacts".to_string());
+        let _ = update(
+            &mut state,
+            Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::Contact {
+                ulid: "01TESTCONTACT".to_string(),
             }),
         );
         assert!(state.hub_cascade_stack.is_empty());
