@@ -952,7 +952,7 @@ call-end lifecycle, never at install or login.
   **Acceptance** (each operator-typed `[✓]`):
     - [ ] Hyprland reaches initial state in <2s on Lenovo X1 G10
     - [ ] Hyprland reaches initial state in <2s on secondary peer
-    - [ ] `mde-hypr-plugin` loads cleanly + all 5 subsystems respond to IPC ping
+    - [ ] `mde-hypr-plugin` loads cleanly + all 3 subsystems respond to IPC ping *(corrected 2026-05-27: simplification re-lock per `docs/design/v6.5-hyprland-compositor.md` §10.1 narrowed the plugin from 5 → 3 — custom layout + window rules + event-bridge; marks + pills retargeted to mded workers)*
     - [ ] All 7 mackesd workers run without panic in a 30-min stress session
     - [ ] VOIP test call completes with fullscreenstate 2 promotion + hangup gesture
     - [ ] GFS-replicated hyprland.conf survives one peer reboot + one peer-add cycle
