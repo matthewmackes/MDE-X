@@ -18,7 +18,13 @@ use crate::topic::Registry;
 #[derive(Subcommand, Debug)]
 pub enum TopicOp {
     /// Print every known topic.
-    List,
+    List {
+        /// Emit JSON Lines instead of TSV. Each line is a
+        /// `{name, priority, description}` object suitable for
+        /// piping to `jq`.
+        #[arg(long, default_value_t = false)]
+        json: bool,
+    },
     /// Print topics matching the given pattern.
     Match {
         /// MQTT-style pattern (`+` single-level, `#` multi-level).
@@ -39,9 +45,19 @@ fn build_seeded_registry() -> Result<Registry> {
 pub fn run(op: TopicOp) -> Result<()> {
     let reg = build_seeded_registry()?;
     match op {
-        TopicOp::List => {
+        TopicOp::List { json } => {
             for t in reg.iter() {
-                println!("{}\t{:?}\t{}", t.name, t.priority_default, t.description);
+                if json {
+                    let priority_str = format!("{:?}", t.priority_default).to_lowercase();
+                    let val = serde_json::json!({
+                        "name": t.name,
+                        "priority": priority_str,
+                        "description": t.description,
+                    });
+                    println!("{val}");
+                } else {
+                    println!("{}\t{:?}\t{}", t.name, t.priority_default, t.description);
+                }
             }
         }
         TopicOp::Match { pattern } => {
@@ -61,7 +77,8 @@ mod tests {
 
     #[test]
     fn list_runs_without_error() {
-        run(TopicOp::List).unwrap();
+        run(TopicOp::List { json: false }).unwrap();
+        run(TopicOp::List { json: true }).unwrap();
     }
 
     #[test]
