@@ -465,6 +465,25 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
                         }
                     });
                 }
+                TagMember::Container { name } => {
+                    tracing::info!(%name, "portal-full: cascade opens container shell via foot");
+                    let name = name.clone();
+                    std::thread::spawn(move || {
+                        // Open the platform's default terminal (foot)
+                        // with `podman exec -it <name> sh` so the
+                        // operator lands on an interactive shell
+                        // inside the container. Fire-and-forget;
+                        // failure logs. The shell choice is `sh` for
+                        // maximum compatibility (containers may not
+                        // ship bash).
+                        if let Err(e) = std::process::Command::new("foot")
+                            .args(["podman", "exec", "-it", &name, "sh"])
+                            .spawn()
+                        {
+                            tracing::warn!(%name, error = %e, "foot podman-exec spawn failed");
+                        }
+                    });
+                }
                 _ => {
                     tracing::info!(?member, "portal-full: cascade member clicked (no target surface yet)");
                 }
@@ -1978,6 +1997,23 @@ mod tests {
             &mut state,
             Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::File {
                 path: "/nonexistent/path/for/cascade/test.txt".to_string(),
+            }),
+        );
+        assert!(state.hub_cascade_stack.is_empty());
+    }
+
+    #[test]
+    fn cascade_member_container_variant_clears_stack() {
+        // Container variant fires `foot podman exec -it ...` in a
+        // detached thread. Cascade clears regardless of whether
+        // the spawn succeeds (the test fixture's container name
+        // is unlikely to be real).
+        let mut state = PortalFull::default();
+        state.hub_cascade_stack.push("Containers".to_string());
+        let _ = update(
+            &mut state,
+            Message::HubCascadeMemberClicked(mackes_mesh_types::TagMember::Container {
+                name: "nonexistent-container-for-cascade-test".to_string(),
             }),
         );
         assert!(state.hub_cascade_stack.is_empty());
