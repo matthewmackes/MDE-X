@@ -237,12 +237,22 @@ pub enum Message {
         /// New layout to write as the tag default.
         layout: String,
     },
-    /// Portal-50 (R12-Q11): user clicked the ✕ button on the
-    /// prompt-on-change layout banner, OR the 8 s TTL fired. Clears
-    /// the banner from state. ✕ click signaling "keep this layout
-    /// per-workspace only" lives behind Portal-50.b (workspaces.json
-    /// override).
+    /// Portal-50 (R12-Q11): banner auto-dismissed (8 s TTL fired)
+    /// or operator-initiated dismiss without persisting. Clears
+    /// the banner from state with no side effects.
     DismissLayoutPrompt,
+    /// Portal-50.b (R12-Q11): user clicked the ✕ button on the
+    /// prompt-on-change layout banner — "keep this layout for
+    /// this workspace only." Writes a per-workspace override to
+    /// `<XDG_DATA_HOME>/mde/workspaces.json` + dismisses the
+    /// banner. The tag_layout worker reads the override on
+    /// `window::new` events instead of the tag's `default_layout`.
+    DeclineTagDefaultLayout {
+        /// Workspace the override applies to.
+        workspace_num: i32,
+        /// Layout to pin for this workspace only.
+        layout: String,
+    },
     /// User clicked a workspace cell — focus it via swayipc (R3-Q23).
     FocusWorkspace(String),
     /// User clicked `+` — switch to the next unused workspace number.
@@ -544,8 +554,20 @@ impl iced_layershell::Application for DockApp {
                 self.layout_prompt = None;
             }
             Message::DismissLayoutPrompt => {
-                // Portal-50 (R12-Q11): ✕ click or auto-dismiss timer.
-                // Per-workspace override write lives in Portal-50.b.
+                // Portal-50 (R12-Q11): auto-dismiss timer fired or
+                // banner manually cleared without persisting. No
+                // side effects.
+                self.layout_prompt = None;
+            }
+            Message::DeclineTagDefaultLayout { workspace_num, layout } => {
+                // Portal-50.b (R12-Q11): ✕ click — write a per-
+                // workspace override to workspaces.json so the
+                // tag_layout worker (Portal-44) honors this
+                // layout for this workspace next time
+                // window::new fires there.
+                if let Err(e) = write_workspace_layout_override(workspace_num, &layout) {
+                    tracing::warn!(workspace_num, %layout, error = %e, "DeclineTagDefaultLayout: workspaces.json write failed");
+                }
                 self.layout_prompt = None;
             }
             Message::FocusWorkspace(name) => {
@@ -1029,10 +1051,15 @@ fn build_layout_prompt_segment<'a>(app: &DockApp) -> Element<'a, Message> {
         layout: layout.clone(),
     })
     .into();
+    let workspace_num = state.workspace_num;
+    let layout_for_no = layout.clone();
     let no_btn: Element<'a, Message> = mouse_area(
         text("✕").size(13.0).color(Color::WHITE),
     )
-    .on_press(Message::DismissLayoutPrompt)
+    .on_press(Message::DeclineTagDefaultLayout {
+        workspace_num,
+        layout: layout_for_no,
+    })
     .into();
     container(
         iced::widget::row![
@@ -1503,6 +1530,20 @@ pub fn update_tag_default_layout(
         tag.default_layout = Some(new_layout.to_string());
     }
     store.save_default()?;
+    Ok(())
+}
+
+/// Portal-50.b (R12-Q11): writes a per-workspace layout override
+/// to `<XDG_DATA_HOME>/mde/workspaces.json` via
+/// `mackes_mesh_types::WorkspaceOverridesFile` atomic save.
+/// Returns an error if the file can't be loaded or saved.
+pub fn write_workspace_layout_override(
+    workspace_num: i32,
+    layout: &str,
+) -> Result<(), mackes_mesh_types::OverridesError> {
+    let mut overrides = mackes_mesh_types::WorkspaceOverridesFile::load_default()?;
+    overrides.set_layout_override(workspace_num, layout);
+    overrides.save_default()?;
     Ok(())
 }
 
@@ -2835,6 +2876,23 @@ mod tests {
             &mut app,
             Message::MakeTagDefaultLayout {
                 tag_name: "Dev".to_string(),
+                layout: "tabbed".to_string(),
+            },
+        );
+        assert!(app.layout_prompt.is_none());
+    }
+
+    /// Portal-50.b: `DeclineTagDefaultLayout` clears the banner.
+    /// The workspaces.json write may fail in the test env (no XDG
+    /// data home configured) — the banner still dismisses.
+    #[test]
+    fn decline_message_clears_banner() {
+        let mut app = DockApp::default();
+        app.layout_prompt = Some(make_layout_prompt_state(1, "tabbed"));
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::DeclineTagDefaultLayout {
+                workspace_num: 1,
                 layout: "tabbed".to_string(),
             },
         );

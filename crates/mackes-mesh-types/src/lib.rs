@@ -29,12 +29,18 @@ pub mod tags;
 // parser + evaluator. Pure data layer; each consumer surface
 // supplies a `MembershipCtx` impl at eval time.
 pub mod tag_predicate;
+// Portal-50.b (v6.0 R12-Q11 lock 2026-05-27) — per-workspace layout
+// overrides. ✕ click on Portal-50's banner writes a per-workspace
+// override here; the tag_layout worker reads + applies them
+// instead of the tag's default_layout when set.
+pub mod workspace_overrides;
 
 pub use connect::{BatterySnapshot, ConnectFacts, PairingState, PeerKind};
 pub use nebula::{NebulaFacts, NebulaRole};
 pub use peer_probe::{BusTopology, Descriptors, KernelDriver, NatClass, PeerProbe, PowerThermal};
 pub use tags::{Tag, TagFlavor, TagMember, TagStore, TagStoreError};
 pub use tag_predicate::{evaluate as evaluate_predicate, parse as parse_predicate, MembershipCtx, ParseError as PredicateParseError, Pred, StaticMembership, NAMESPACES};
+pub use workspace_overrides::{OverridesError, WorkspaceOverride, WorkspaceOverridesFile};
 
 use serde::{Deserialize, Serialize};
 
