@@ -1,3 +1,10 @@
+//! Binary entry point for the battery + power-profile status
+//! pill applet. Polls `/sys/class/power_supply/BAT*/uevent` +
+//! `powerprofilesctl get` on a 5 s tick + writes the formatted
+//! chip to the host over stdio. `--manifest` prints the
+//! applet's manifest JSON and exits (called by the panel host
+//! during registration discovery).
+
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, ExitCode};

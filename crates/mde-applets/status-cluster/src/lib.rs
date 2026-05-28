@@ -12,6 +12,9 @@ use std::path::Path;
 
 use mde_applet_api::{AppletId, AppletSlot, HostMessage};
 
+/// Build the static applet manifest the host registers at
+/// startup. Slot = TopBarRight alongside the other status chips
+/// (audio, network, mesh-status, clock).
 #[must_use]
 pub fn manifest() -> mde_applet_api::AppletManifest {
     mde_applet_api::AppletManifest {
@@ -161,6 +164,10 @@ pub fn format_cluster_with_fabric(
     format!("{glyph} {base}")
 }
 
+/// Process a host control message and return `true` when the
+/// applet should keep running. Only [`HostMessage::Shutdown`]
+/// stops the event loop; every other variant is a host-side
+/// hint the renderer reacts to elsewhere.
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)

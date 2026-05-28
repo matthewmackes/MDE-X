@@ -25,8 +25,12 @@ use serde::Deserialize;
 /// One row of cluster output — three short chip strings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterRow {
+    /// Split-direction chip (`H` / `V` / `—` when unfocused).
     pub split: String,
+    /// Layout-mode chip (`split` / `tabbed` / `stacked` / `—`).
     pub layout: String,
+    /// Focused-window class chip (truncated to the chip width;
+    /// `—` when no window is focused).
     pub window: String,
 }
 
