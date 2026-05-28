@@ -89,6 +89,30 @@ unreleased; tag versions get a date when they ship.
   block as compositor-retiring residue (cleared wholesale when
   HYP-3 + HYP-28 land).
 
+**BUS-6.5 — cross-topic correlation engine complete (2026-05-28)**
+- The correlation evaluator now runs as a daemon loop: every 2 s it
+  polls the per-peer Bus index for new messages on each rule's
+  source topics, tracks them in a sliding window, and synthesizes a
+  `mde-bus publish` on the rule's `emits` topic when all sources
+  fire within `window_seconds`. Example: publishing to both
+  `power/ups/grid-loss` and `network/wan-down` within 60 s lands a
+  `[correlate] likely-power-outage` incident on
+  `incident/likely-power-outage` at high priority.
+- Re-fire is cooldown-gated by `window_seconds` — a sustained
+  alignment emits once per window, not once per poll.
+- Synth-publishes carry a `[correlate]` title marker; the evaluator
+  skips observing marked messages so a synthesized incident can't
+  feed back into the window and loop. Real publishes on the same
+  topic are still observed (the marker is per-message, not
+  per-topic).
+- Synth-publishes flow through the standard publish path, so
+  correlated incidents appear in `mde-bus audit list` and on every
+  peer's file-tree subscription exactly like operator publishes.
+- Configure rules in `~/.config/mde/bus-correlate.yaml`; inspect via
+  `mde-bus correlate list` + validate via `mde-bus correlate
+  validate`. Closes the BUS-6.5 sub-epic (parser + CLI + validator +
+  evaluator all shipped).
+
 **BUS-4.2 — GF-17 hard cut: notification_relay retired (2026-05-26)**
 - Deletes `crates/mackesd/src/workers/notification_relay.rs` —
   the QNM-Shared per-peer `.qnm-notifications/` directory

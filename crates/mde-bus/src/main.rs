@@ -182,34 +182,56 @@ async fn run_daemon() -> anyhow::Result<()> {
             (None, None)
         }
     };
-    // BUS-6.5.parser — load the operator's correlation rule
-    // config at startup. Synthesized publishes happen in
-    // BUS-6.5.evaluator (next sub-task); this commit just loads +
-    // logs the rule count so operators can see the file was
-    // picked up.
-    match mde_bus::correlate::default_config_path() {
-        Some(path) => match mde_bus::correlate::load_default(&path) {
+    // BUS-6.5.evaluator — load the operator's correlation rules +
+    // spawn the evaluator loop. Each tick polls the persist index
+    // for new messages on every rule source topic, observes them
+    // into a per-topic sliding window, and shells out a synthesized
+    // `mde-bus publish` for every rule whose sources all fired
+    // within the window (cooldown-gated by window_seconds). An
+    // invalid config logs + skips (no loop); a config with zero
+    // rules spawns a loop that idles until shutdown.
+    //
+    // The shutdown sender is held in run_daemon's scope so it drops
+    // (triggering the loop's clean exit) when the daemon returns.
+    let (_correlate_shutdown_tx, _correlate_task) = match (
+        mde_bus::correlate::default_config_path(),
+        mde_bus::default_data_dir(),
+    ) {
+        (Some(path), Some(bus_root)) => match mde_bus::correlate::load_default(&path) {
             Ok(cfg) => {
                 tracing::info!(
                     target: "mde_bus::correlate",
                     rules = cfg.rules.len(),
                     path = %path.display(),
-                    "correlation rules loaded"
+                    "correlation rules loaded — evaluator loop starting"
                 );
+                let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+                let task = tokio::spawn(async move {
+                    mde_bus::correlate::run_evaluator_loop(
+                        cfg,
+                        bus_root,
+                        mde_bus::correlate::DEFAULT_EVAL_INTERVAL,
+                        shutdown_rx,
+                    )
+                    .await;
+                });
+                (Some(shutdown_tx), Some(task))
             }
             Err(e) => {
                 tracing::warn!(
                     target: "mde_bus::correlate",
                     error = %e,
-                    "correlation config invalid — skipping"
+                    "correlation config invalid — evaluator skipped"
                 );
+                (None, None)
             }
         },
-        None => {
+        _ => {
             tracing::info!(
                 target: "mde_bus::correlate",
-                "correlation config skipped — no XDG config dir"
+                "correlation evaluator skipped — no XDG config/data dir"
             );
+            (None, None)
         }
     };
     // BUS-2.8.watcher — mtime-poll watcher for <bus_root>/dnd.yaml.

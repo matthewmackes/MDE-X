@@ -291,6 +291,268 @@ impl std::fmt::Display for CorrelateLoadError {
 
 impl std::error::Error for CorrelateLoadError {}
 
+// ─────────────────────────────────────────────────────────────────────
+// BUS-6.5.evaluator — daemon-side wiring.
+// ─────────────────────────────────────────────────────────────────────
+
+/// Default poll cadence for the evaluator loop. The evaluator
+/// reads the per-peer SQLite index incrementally (cheap index-range
+/// scan per source topic), so a 2 s tick keeps synthesized incidents
+/// near-real-time without hammering the index. Well under the
+/// shortest meaningful `window_seconds` an operator would configure.
+pub const DEFAULT_EVAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Title prefix stamped on every synthesized publish. Acts as the
+/// `correlate=<rule-name>` cycle-protection marker per the BUS-6.5
+/// design lock: the evaluator skips observing any message whose
+/// title carries this prefix, so a synth-emit landing on a topic
+/// that is also a rule source can't feed back into the window and
+/// loop. Operator-visible + informative ("this is a correlated
+/// incident") rather than hidden machine junk.
+pub const SYNTH_TITLE_PREFIX: &str = "[correlate] ";
+
+/// Lowercase CLI-arg form of a priority (matches the `mde-bus
+/// publish --priority` accepted values).
+const fn priority_arg(p: Priority) -> &'static str {
+    match p {
+        Priority::Min => "min",
+        Priority::Default => "default",
+        Priority::High => "high",
+        Priority::Urgent => "urgent",
+    }
+}
+
+/// True when `title` carries the synth-publish marker — i.e. the
+/// message was emitted by the correlation engine itself, not by an
+/// operator / adapter. Such messages are skipped from window
+/// observation so they can't re-trigger a rule (cycle protection).
+#[must_use]
+pub fn is_synth_marker_title(title: Option<&str>) -> bool {
+    title.is_some_and(|t| t.starts_with(SYNTH_TITLE_PREFIX))
+}
+
+/// Build the synth-publish title for `rule_name` — the marker
+/// prefix plus the rule name, so the notification reads
+/// `[correlate] likely-power-outage`.
+#[must_use]
+pub fn synth_marker_title(rule_name: &str) -> String {
+    format!("{SYNTH_TITLE_PREFIX}{rule_name}")
+}
+
+/// Stateful correlation evaluator. Holds the rule set, the live
+/// per-topic [`SlidingWindow`], a per-source-topic ULID cursor for
+/// incremental polling, and a per-rule last-fire timestamp for
+/// cooldown gating.
+///
+/// Process-lifetime in-memory state — a daemon restart resets the
+/// window + cursors (intentional: synthesized incidents spanning a
+/// restart would be noise, per the [`SlidingWindow`] doc lock).
+#[derive(Debug)]
+pub struct CorrelateEvaluator {
+    config: CorrelateConfig,
+    window: SlidingWindow,
+    /// `rule.name` → last-fire wall-clock ms. Gates re-fire within
+    /// the rule's `window_seconds` cooldown.
+    last_fired: BTreeMap<String, i64>,
+    /// source topic → last-consumed ULID. `list_since` resumes from
+    /// here so each message is observed exactly once.
+    cursors: BTreeMap<String, String>,
+}
+
+impl CorrelateEvaluator {
+    /// Build an evaluator from a loaded config. The window + cursors
+    /// start empty; the first `poll_once` primes them.
+    #[must_use]
+    pub fn new(config: CorrelateConfig) -> Self {
+        Self {
+            config,
+            window: SlidingWindow::default(),
+            last_fired: BTreeMap::new(),
+            cursors: BTreeMap::new(),
+        }
+    }
+
+    /// `true` when no rules are configured — the daemon can idle the
+    /// evaluator loop entirely rather than poll the index for nothing.
+    #[must_use]
+    pub fn is_idle(&self) -> bool {
+        self.config.rules.is_empty()
+    }
+
+    /// Distinct set of source topics across every rule. Drives which
+    /// topics `poll_once` scans the index for.
+    fn source_topics(&self) -> std::collections::BTreeSet<String> {
+        self.config
+            .rules
+            .iter()
+            .flat_map(|r| r.sources.iter().cloned())
+            .collect()
+    }
+
+    /// One evaluation pass. For each rule source topic, reads new
+    /// messages from the persist index since the last cursor, observes
+    /// each non-synth message into the window, then evaluates every
+    /// rule against the freshened window. Returns the emissions whose
+    /// cooldown has elapsed (the caller performs the actual publish).
+    ///
+    /// Synth-emits (messages carrying [`SYNTH_TITLE_PREFIX`]) advance
+    /// the cursor but are NOT observed — that's the cycle break.
+    pub fn poll_once(
+        &mut self,
+        persist: &crate::persist::Persist,
+        now_unix_ms: i64,
+    ) -> Vec<SynthesizedEmission> {
+        for topic in self.source_topics() {
+            let cursor = self.cursors.get(&topic).cloned();
+            let new_msgs = match persist.list_since(&topic, cursor.as_deref()) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::debug!(
+                        target: "mde_bus::correlate",
+                        %topic,
+                        error = %e,
+                        "list_since failed; skipping topic this tick"
+                    );
+                    continue;
+                }
+            };
+            for msg in new_msgs {
+                // Advance the cursor unconditionally so we never
+                // re-read this message — even when we skip observing
+                // it below.
+                self.cursors.insert(topic.clone(), msg.ulid.clone());
+                if is_synth_marker_title(msg.title.as_deref()) {
+                    // Cycle protection: a synth-emit on a source topic
+                    // must not feed the window.
+                    continue;
+                }
+                self.window.observe(&msg.topic, msg.ts_unix_ms);
+            }
+        }
+
+        let mut emissions = Vec::new();
+        for rule in &self.config.rules {
+            let Some(emission) = evaluate_rule(rule, &self.window, now_unix_ms) else {
+                continue;
+            };
+            // Cooldown: window_seconds doubles as the re-fire gate so
+            // a sustained alignment emits once per window, not once
+            // per tick.
+            let cooldown_ms = i64::from(rule.window_seconds) * 1000;
+            if let Some(&last) = self.last_fired.get(&rule.name) {
+                if now_unix_ms - last < cooldown_ms {
+                    continue;
+                }
+            }
+            self.last_fired.insert(rule.name.clone(), now_unix_ms);
+            emissions.push(emission);
+        }
+        emissions
+    }
+}
+
+/// Shell out to `mde-bus publish` for one synthesized emission.
+/// Mirrors the BUS-4.3 dual-write pattern: the synth-publish goes
+/// through the same persist + audit + ntfy path as an operator
+/// publish, so the incident shows up in `mde-bus audit list` and on
+/// every peer's file-tree subscription. Best-effort — a publish
+/// failure logs + continues (the daemon must not crash because a
+/// child `mde-bus` invocation hiccuped).
+fn synth_publish(emission: &SynthesizedEmission) {
+    // Re-invoke our own binary so the child is the same `mde-bus`
+    // build the daemon is running, without a PATH lookup.
+    let exe = std::env::current_exe()
+        .unwrap_or_else(|_| std::path::PathBuf::from("mde-bus"));
+    let title = synth_marker_title(&emission.rule_name);
+    let body = format!(
+        "Correlation rule '{}' fired — all source topics observed within the window.",
+        emission.rule_name
+    );
+    let result = std::process::Command::new(exe)
+        .arg("publish")
+        .arg(&emission.topic)
+        .arg("--priority")
+        .arg(priority_arg(emission.priority))
+        .arg("--title")
+        .arg(&title)
+        .arg("--body-flag")
+        .arg(&body)
+        .status();
+    match result {
+        Ok(s) if s.success() => tracing::info!(
+            target: "mde_bus::correlate",
+            rule = %emission.rule_name,
+            topic = %emission.topic,
+            "synthesized correlation publish"
+        ),
+        Ok(s) => tracing::warn!(
+            target: "mde_bus::correlate",
+            rule = %emission.rule_name,
+            topic = %emission.topic,
+            code = ?s.code(),
+            "synth publish exited non-zero — incident not surfaced"
+        ),
+        Err(e) => tracing::warn!(
+            target: "mde_bus::correlate",
+            rule = %emission.rule_name,
+            error = %e,
+            "mde-bus binary not invocable — synth publish skipped"
+        ),
+    }
+}
+
+/// Daemon evaluator loop. Polls the persist index every `interval`,
+/// fires synth-publishes for rules whose cooldown has elapsed, and
+/// exits cleanly on the shutdown signal. Idles (no index reads) when
+/// the config carries zero rules.
+pub async fn run_evaluator_loop(
+    config: CorrelateConfig,
+    bus_root: PathBuf,
+    interval: std::time::Duration,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) {
+    let mut evaluator = CorrelateEvaluator::new(config);
+    if evaluator.is_idle() {
+        // No rules — park until shutdown rather than spin the index.
+        let _ = shutdown_rx.changed().await;
+        return;
+    }
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Skip the immediate first tick so the daemon finishes startup
+    // before the first index read.
+    ticker.tick().await;
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.changed() => return,
+            _ = ticker.tick() => {
+                let persist = match crate::persist::Persist::open(bus_root.clone()) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::debug!(
+                            target: "mde_bus::correlate",
+                            error = %e,
+                            "persist open failed; skipping evaluator tick"
+                        );
+                        continue;
+                    }
+                };
+                for emission in evaluator.poll_once(&persist, current_unix_ms()) {
+                    synth_publish(&emission);
+                }
+            }
+        }
+    }
+}
+
+/// Wall-clock milliseconds since the Unix epoch.
+fn current_unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,5 +824,222 @@ rules:
         assert_eq!(cfg.rules.len(), 1);
         assert_eq!(cfg.rules[0].sources, vec!["a".to_string(), "b".to_string()]);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ── BUS-6.5.evaluator tests ────────────────────────────────────────
+
+    fn eval_rule(name: &str, sources: &[&str], window: u32, emits: &str) -> CorrelateRule {
+        CorrelateRule {
+            name: name.to_string(),
+            sources: sources.iter().map(|s| s.to_string()).collect(),
+            window_seconds: window,
+            emits: emits.to_string(),
+            priority: Priority::High,
+        }
+    }
+
+    fn cfg_with(rules: Vec<CorrelateRule>) -> CorrelateConfig {
+        CorrelateConfig { rules }
+    }
+
+    /// Build a Persist over a tmpdir + write each `(topic, title, ts_ms)`
+    /// message, back-dating its `ts_unix_ms` via a direct SQLite UPDATE
+    /// so window membership is deterministic against the test clock.
+    /// Returns the keep-alive tempdir + the Persist handle.
+    fn persist_with(
+        msgs: &[(&str, Option<&str>, i64)],
+    ) -> (tempfile::TempDir, crate::persist::Persist) {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = crate::persist::Persist::open(tmp.path().to_path_buf()).unwrap();
+        for (topic, title, ts) in msgs {
+            let m = p.write(topic, Priority::Default, *title, Some("body")).unwrap();
+            let conn = rusqlite::Connection::open(tmp.path().join("index.sqlite")).unwrap();
+            conn.execute(
+                "UPDATE messages SET ts_unix_ms = ?1 WHERE ulid = ?2",
+                rusqlite::params![ts, m.ulid],
+            )
+            .unwrap();
+        }
+        (tmp, p)
+    }
+
+    #[test]
+    fn marker_round_trips() {
+        let t = synth_marker_title("likely-power-outage");
+        assert_eq!(t, "[correlate] likely-power-outage");
+        assert!(is_synth_marker_title(Some(&t)));
+        assert!(!is_synth_marker_title(Some("Grid loss detected")));
+        assert!(!is_synth_marker_title(None));
+    }
+
+    #[test]
+    fn evaluator_is_idle_with_no_rules() {
+        let e = CorrelateEvaluator::new(CorrelateConfig::default());
+        assert!(e.is_idle());
+        let e2 = CorrelateEvaluator::new(cfg_with(vec![eval_rule("r", &["a"], 60, "x")]));
+        assert!(!e2.is_idle());
+    }
+
+    #[test]
+    fn evaluator_fires_when_both_sources_within_window() {
+        // Bench-acceptance mirror: both source topics publish within
+        // the 60 s window → the rule emits.
+        let now = 1_000_000_000_000_i64;
+        let (_tmp, p) = persist_with(&[
+            ("power/ups/grid-loss", None, now - 5_000),
+            ("network/wan-down", None, now - 3_000),
+        ]);
+        let mut e = CorrelateEvaluator::new(cfg_with(vec![eval_rule(
+            "likely-power-outage",
+            &["power/ups/grid-loss", "network/wan-down"],
+            60,
+            "incident/likely-power-outage",
+        )]));
+        let out = e.poll_once(&p, now);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].topic, "incident/likely-power-outage");
+        assert_eq!(out[0].rule_name, "likely-power-outage");
+        assert_eq!(out[0].priority, Priority::High);
+    }
+
+    #[test]
+    fn evaluator_no_fire_with_only_one_source() {
+        let now = 1_000_000_000_000_i64;
+        let (_tmp, p) = persist_with(&[("power/ups/grid-loss", None, now - 5_000)]);
+        let mut e = CorrelateEvaluator::new(cfg_with(vec![eval_rule(
+            "likely-power-outage",
+            &["power/ups/grid-loss", "network/wan-down"],
+            60,
+            "incident/likely-power-outage",
+        )]));
+        assert!(e.poll_once(&p, now).is_empty());
+    }
+
+    #[test]
+    fn evaluator_no_fire_when_source_outside_window() {
+        let now = 1_000_000_000_000_i64;
+        // grid-loss is 90 s old — outside the 60 s window.
+        let (_tmp, p) = persist_with(&[
+            ("power/ups/grid-loss", None, now - 90_000),
+            ("network/wan-down", None, now - 3_000),
+        ]);
+        let mut e = CorrelateEvaluator::new(cfg_with(vec![eval_rule(
+            "likely-power-outage",
+            &["power/ups/grid-loss", "network/wan-down"],
+            60,
+            "incident/likely-power-outage",
+        )]));
+        assert!(e.poll_once(&p, now).is_empty());
+    }
+
+    #[test]
+    fn evaluator_cooldown_blocks_rapid_refire() {
+        // Spec: second fire on rapid re-trigger only emits one
+        // synthesized publish per cooldown window.
+        let now = 1_000_000_000_000_i64;
+        let (_tmp, p) = persist_with(&[
+            ("power/ups/grid-loss", None, now - 5_000),
+            ("network/wan-down", None, now - 3_000),
+        ]);
+        let mut e = CorrelateEvaluator::new(cfg_with(vec![eval_rule(
+            "likely-power-outage",
+            &["power/ups/grid-loss", "network/wan-down"],
+            60,
+            "incident/likely-power-outage",
+        )]));
+        // First poll fires.
+        assert_eq!(e.poll_once(&p, now).len(), 1);
+        // Immediate re-poll (1 s later, well inside the 60 s
+        // cooldown) — sources still in-window, but cooldown blocks.
+        assert!(e.poll_once(&p, now + 1_000).is_empty());
+    }
+
+    #[test]
+    fn evaluator_synth_emit_marker_skipped() {
+        // A synth-marked message on a source topic must NOT be
+        // observed — otherwise a chained rule could loop. Here the
+        // ONLY message on grid-loss carries the marker, so the rule
+        // never sees two live sources.
+        let now = 1_000_000_000_000_i64;
+        let (_tmp, p) = persist_with(&[
+            ("power/ups/grid-loss", Some("[correlate] upstream-rule"), now - 5_000),
+            ("network/wan-down", None, now - 3_000),
+        ]);
+        let mut e = CorrelateEvaluator::new(cfg_with(vec![eval_rule(
+            "likely-power-outage",
+            &["power/ups/grid-loss", "network/wan-down"],
+            60,
+            "incident/likely-power-outage",
+        )]));
+        assert!(
+            e.poll_once(&p, now).is_empty(),
+            "synth-marked source message must not contribute to firing"
+        );
+    }
+
+    #[test]
+    fn evaluator_real_publish_on_marked_topic_still_observed() {
+        // Two messages on grid-loss: one synth-marked (skipped) + one
+        // real (observed). The real one keeps the source live, so the
+        // rule fires alongside a live wan-down.
+        let now = 1_000_000_000_000_i64;
+        let (_tmp, p) = persist_with(&[
+            ("power/ups/grid-loss", Some("[correlate] noise"), now - 50_000),
+            ("power/ups/grid-loss", Some("Grid loss"), now - 4_000),
+            ("network/wan-down", None, now - 3_000),
+        ]);
+        let mut e = CorrelateEvaluator::new(cfg_with(vec![eval_rule(
+            "likely-power-outage",
+            &["power/ups/grid-loss", "network/wan-down"],
+            60,
+            "incident/likely-power-outage",
+        )]));
+        assert_eq!(e.poll_once(&p, now).len(), 1);
+    }
+
+    #[test]
+    fn evaluator_independent_rules_both_fire() {
+        let now = 1_000_000_000_000_i64;
+        let (_tmp, p) = persist_with(&[
+            ("a", None, now - 1_000),
+            ("b", None, now - 1_000),
+            ("c", None, now - 1_000),
+            ("d", None, now - 1_000),
+        ]);
+        let mut e = CorrelateEvaluator::new(cfg_with(vec![
+            eval_rule("ab", &["a", "b"], 60, "incident/ab"),
+            eval_rule("cd", &["c", "d"], 60, "incident/cd"),
+        ]));
+        let out = e.poll_once(&p, now);
+        assert_eq!(out.len(), 2);
+        let topics: std::collections::BTreeSet<_> =
+            out.iter().map(|e| e.topic.as_str()).collect();
+        assert!(topics.contains("incident/ab"));
+        assert!(topics.contains("incident/cd"));
+    }
+
+    #[test]
+    fn evaluator_cursor_advances_no_double_observe() {
+        // Two polls with no new messages between them: the cursor
+        // means the second poll reads nothing new. The window state
+        // persists, so cooldown (not re-observation) is what governs
+        // the second poll's outcome.
+        let now = 1_000_000_000_000_i64;
+        let (_tmp, p) = persist_with(&[("a", None, now - 1_000), ("b", None, now - 1_000)]);
+        let mut e = CorrelateEvaluator::new(cfg_with(vec![eval_rule(
+            "ab", &["a", "b"], 60, "incident/ab",
+        )]));
+        assert_eq!(e.poll_once(&p, now).len(), 1);
+        // Cursors now point past both messages; nothing new to read.
+        assert!(e.poll_once(&p, now + 500).is_empty());
+    }
+
+    #[test]
+    fn evaluator_empty_sources_rule_never_fires() {
+        let now = 1_000_000_000_000_i64;
+        let (_tmp, p) = persist_with(&[("a", None, now - 1_000)]);
+        let mut e =
+            CorrelateEvaluator::new(cfg_with(vec![eval_rule("bad", &[], 60, "incident/bad")]));
+        assert!(e.poll_once(&p, now).is_empty());
     }
 }
