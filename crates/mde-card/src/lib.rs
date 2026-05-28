@@ -22,10 +22,12 @@
 
 pub mod id;
 pub mod migration;
+pub mod probe;
 pub mod render_mode;
 pub mod schema;
 
 pub use id::stable_id_for;
 pub use migration::{migrate, MigrationError, SCHEMA_VERSION};
+pub use probe::{host_card, host_facts, service_card, service_facts, HostFacts, HostSource, ServiceFacts};
 pub use render_mode::RenderMode;
 pub use schema::{Card, CardKind};

@@ -112,6 +112,14 @@ pub enum CardKind {
     Zone,
     /// Free-form note.
     Note,
+    /// Network host discovered by EPIC-MESH-PROBE (a mesh peer, LAN
+    /// device, or operator-arbitrary target). Probe facts live in
+    /// `metadata`; see [`crate::probe`].
+    Host,
+    /// A network service on a [`CardKind::Host`] (one open port +
+    /// its nmap-identified product/version). Rendered as a child Card
+    /// under its host. Probe facts live in `metadata`.
+    Service,
     /// Forward-compat — an unknown kind from a newer peer. Round-trips
     /// through serde so we never lose it.
     #[serde(untagged)]
@@ -133,6 +141,8 @@ impl CardKind {
             Self::Tray => "tray",
             Self::Zone => "zone",
             Self::Note => "note",
+            Self::Host => "host",
+            Self::Service => "service",
             Self::Other(s) => s.as_str(),
         }
     }
@@ -277,6 +287,8 @@ mod tests {
         assert_eq!(CardKind::Tray.tag(), "tray");
         assert_eq!(CardKind::Zone.tag(), "zone");
         assert_eq!(CardKind::Note.tag(), "note");
+        assert_eq!(CardKind::Host.tag(), "host");
+        assert_eq!(CardKind::Service.tag(), "service");
         assert_eq!(CardKind::Other("custom".into()).tag(), "custom");
     }
 
