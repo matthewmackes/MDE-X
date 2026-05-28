@@ -16,20 +16,6 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-/// Read the current clipboard contents (text only). Returns
-/// None when no text payload is available or `wl-paste` fails.
-#[must_use]
-pub fn paste_text() -> Option<String> {
-    let out = Command::new("wl-paste")
-        .args(["--no-newline", "--type", "text/plain"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
 /// Write `text` to the clipboard. Returns `Err` on subprocess
 /// failure.
 pub fn copy_text(text: &str) -> std::io::Result<()> {
@@ -47,22 +33,6 @@ pub fn copy_text(text: &str) -> std::io::Result<()> {
         )));
     }
     Ok(())
-}
-
-/// Read mime-types currently available in the clipboard.
-#[must_use]
-pub fn available_mime_types() -> Vec<String> {
-    let Ok(out) = Command::new("wl-paste").args(["--list-types"]).output() else {
-        return Vec::new();
-    };
-    if !out.status.success() {
-        return Vec::new();
-    }
-    let s = String::from_utf8_lossy(&out.stdout);
-    s.lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect()
 }
 
 /// One past clipboard entry, as stored in `~/.cache/mde/clipboard.json`
@@ -457,19 +427,8 @@ mod tests {
     }
 
     #[test]
-    fn paste_text_does_not_panic_when_wl_paste_absent() {
-        // Best-effort: on a Wayland-less host this just returns None.
-        let _ = paste_text();
-    }
-
-    #[test]
     fn copy_text_does_not_panic_when_wl_copy_absent() {
         // Best-effort: just verify no panic on subprocess failure.
         let _ = copy_text("hello");
-    }
-
-    #[test]
-    fn available_mime_types_returns_vec_even_on_failure() {
-        let _ = available_mime_types();
     }
 }
