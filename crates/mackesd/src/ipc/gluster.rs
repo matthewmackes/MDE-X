@@ -27,11 +27,8 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 use zbus::interface;
 
 /// Well-known D-Bus interface name.
@@ -55,10 +52,6 @@ pub const DEFAULT_BRICK_DIR: &str = "/var/lib/gluster/bricks/mesh-home";
 /// Default mount point the GF-4.1 systemd template uses
 /// when XDG-binding the volume into a user's home.
 pub const DEFAULT_MOUNT_POINT: &str = "/run/user/1000/gvfs/glusterfs:host=localhost,share=mesh-home";
-
-/// Timeout for every external `gluster` shell-out. A hung
-/// gluster CLI must not pin the IPC dispatch thread.
-pub const DEFAULT_GLUSTER_CMD_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// JSON wire shape for the Status() reply.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -193,28 +186,34 @@ impl GlusterSignalSender {
     }
 }
 
-/// Service state. Cheap to clone (Arc + PathBufs).
+/// Service state. Cheap to clone (PathBufs).
+///
+/// **Note**: an earlier prototype carried an `Arc<Mutex<Connection>>`
+/// store + a `cmd_timeout: Duration` field for future SQL-side
+/// lookups + per-command timeouts respectively. Neither field
+/// was ever read — every method shells out to `gluster_binary`
+/// directly and uses the OS-default subprocess timeout. The
+/// fields + the `new(store)` parameter were retired to silence
+/// the cargo dead-code warnings; callers no longer need to
+/// `Arc::clone(&store)` before constructing the service.
 #[derive(Debug, Clone)]
 pub struct GlusterStatusService {
-    store: Arc<Mutex<rusqlite::Connection>>,
     volume_name: String,
     brick_dir: PathBuf,
     mount_point: String,
     gluster_binary: String,
-    cmd_timeout: Duration,
 }
 
 impl GlusterStatusService {
-    /// Construct rooted at the live SQLite store.
+    /// Construct with the locked default volume name, brick dir,
+    /// and mount point. Overrides via the `with_*` builders below.
     #[must_use]
-    pub fn new(store: Arc<Mutex<rusqlite::Connection>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            store,
             volume_name: DEFAULT_VOLUME_NAME.to_owned(),
             brick_dir: PathBuf::from(DEFAULT_BRICK_DIR),
             mount_point: DEFAULT_MOUNT_POINT.to_owned(),
             gluster_binary: "gluster".to_owned(),
-            cmd_timeout: DEFAULT_GLUSTER_CMD_TIMEOUT,
         }
     }
 
@@ -826,9 +825,7 @@ mod tests {
         // shell-out fails; the service should still
         // surface a coherent zero-state snapshot rather
         // than panic.
-        let conn = rusqlite::Connection::open_in_memory().expect("conn");
-        let store = Arc::new(Mutex::new(conn));
-        let svc = GlusterStatusService::new(store).with_gluster_binary("/bin/false");
+        let svc = GlusterStatusService::new().with_gluster_binary("/bin/false");
         let snap = svc.build_status_snapshot();
         assert_eq!(snap.volume_name, "mesh-home");
         // peers_count is +1 for self, so even with zero
@@ -841,9 +838,7 @@ mod tests {
 
     #[test]
     fn build_mount_status_handles_missing_mount() {
-        let conn = rusqlite::Connection::open_in_memory().expect("conn");
-        let store = Arc::new(Mutex::new(conn));
-        let svc = GlusterStatusService::new(store)
+        let svc = GlusterStatusService::new()
             .with_mount_point("/var/empty/nonexistent-mount-path-for-tests");
         let m = svc.build_mount_status();
         assert!(!m.is_mounted);

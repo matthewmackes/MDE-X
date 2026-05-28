@@ -2812,9 +2812,7 @@ fn run_serve(
                         // GlusterSignalSender it returns is the
                         // hook GF-2.2.b will wire into the
                         // gluster_worker tick.
-                        let gluster_svc = mackesd_core::ipc::gluster::GlusterStatusService::new(
-                            Arc::clone(&store),
-                        );
+                        let gluster_svc = mackesd_core::ipc::gluster::GlusterStatusService::new();
                         match mackesd_core::ipc::gluster::register_gluster_status_on(
                             &conn, gluster_svc,
                         )
