@@ -80,6 +80,48 @@ mackesd nebula regen-certs
 In the Workbench: Network → Mesh shows the live roster with overlay
 IPs, cert-expiry badges, and lighthouse flags.
 
+## Rotating the shared passcode
+
+Every peer shares one 16-character passcode. To roll it (e.g. after a
+peer leaves the company), rotate on any peer and let the reconcile loop
+propagate the change:
+
+```bash
+mackesd rotate-passcode --store     # new code printed; encrypted at rest
+mackesd show-passcode               # re-print the current stored code
+```
+
+`--store` encrypts the code via `systemd-creds` (TPM when present, host
+key otherwise) at `/var/lib/mackesd/mesh-passcode.cred` — the plaintext
+never lands on disk. The cred is host-local: each peer holds its own
+encrypted copy, so the file does not replicate across the mesh. See the
+[CLI reference](cli-reference.md) for the full passcode command set.
+
+## Revoking and banning compromised peers
+
+Two distinct tools, used together when a peer is lost or compromised:
+
+- **Revoke** invalidates a peer's *current cert* and pushes a CRL so the
+  rest of the mesh drops it. The node can still re-enrol with a fresh
+  cert if it still holds the passcode.
+- **Ban** refuses a node-id enrolment *mesh-wide* — even with a valid
+  passcode and across a CA rotation. Use this when the identity itself
+  is compromised, not just one cert.
+
+```bash
+mackesd ca revoke <node-id>         # drop the current cert (push CRL)
+mackesd ca ban <node-id>            # refuse re-enrolment mesh-wide
+mackesd ca ban-list                 # print the enforced mesh-wide union
+mackesd ca unban <node-id>          # lift THIS peer's ban entry
+```
+
+Bans propagate via GFS-replicated mesh-home and the enrolment gate
+enforces the **union** of every peer's list — there is no override, so a
+single peer banning a stolen node-id protects the whole fleet. `unban`
+only lifts the entry the local peer set; a ban another peer set must be
+lifted there. After revoking + banning a lost peer, rotate the passcode
+so the stolen credential can't enrol a *different* node-id.
+
 ## Troubleshooting
 
 ### Peer doesn't appear in the roster after enrolling
