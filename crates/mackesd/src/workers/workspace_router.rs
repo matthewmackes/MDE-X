@@ -22,8 +22,9 @@
 use std::time::Duration;
 
 use futures_util::StreamExt as _;
+use hyprland::dispatch::{Dispatch, DispatchType, MonitorIdentifier, WorkspaceIdentifier};
+use hyprland::event_listener::{Event, EventStream};
 use mackes_mesh_types::{Tag, TagMember, TagStore};
-use swayipc_async::{Connection, EventType};
 
 use super::{ShutdownToken, Worker};
 
@@ -54,46 +55,24 @@ impl Worker for WorkspaceRouterWorker {
     }
 
     async fn run(&mut self, mut shutdown: ShutdownToken) -> anyhow::Result<()> {
+        // Reconnect loop. `EventStream::new()` is infallible; a
+        // connect failure surfaces as the stream's first Err item
+        // and routes into the backoff path below.
         loop {
             if shutdown.is_shutdown() {
                 return Ok(());
             }
-            let mut cmd_conn = match Connection::new().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::debug!(error = %e, "workspace_router cmd-conn connect failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
-            let event_conn = match Connection::new().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::debug!(error = %e, "workspace_router event-conn connect failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
-            let mut events = match event_conn.subscribe([EventType::Workspace]).await {
-                Ok(stream) => stream,
-                Err(e) => {
-                    tracing::debug!(error = %e, "workspace_router subscribe failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
+            let mut events = EventStream::new();
             loop {
                 tokio::select! {
                     biased;
                     _ = shutdown.wait() => return Ok(()),
                     next = events.next() => {
                         match next {
-                            Some(Ok(swayipc_async::Event::Workspace(ws_ev))) => {
-                                if ws_ev.change == swayipc_async::WorkspaceChange::Init {
-                                    if let Some(node) = ws_ev.current.as_ref() {
-                                        handle_init(&mut cmd_conn, node).await;
-                                    }
-                                }
+                            // Hyprland's `WorkspaceAdded` (createworkspacev2)
+                            // is the analog of sway's `WorkspaceChange::Init`.
+                            Some(Ok(Event::WorkspaceAdded(data))) => {
+                                handle_init(data.id).await;
                             }
                             Some(Ok(_)) => {}
                             Some(Err(e)) => {
@@ -108,6 +87,7 @@ impl Worker for WorkspaceRouterWorker {
                     }
                 }
             }
+            sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
         }
     }
 }
@@ -119,15 +99,16 @@ async fn sleep_or_shutdown(dur: Duration, shutdown: &mut ShutdownToken) {
     }
 }
 
-/// Handle a `WorkspaceChange::Init` event. Loads the tag store
-/// fresh on each event so operator edits take effect immediately
-/// without a daemon restart.
-async fn handle_init(conn: &mut Connection, node: &swayipc_async::Node) {
-    let Some(num) = node.num else {
-        // Workspace nodes without a num are sway-internal (e.g.
-        // scratchpad meta-workspaces).
+/// Handle a `WorkspaceAdded` event for workspace id `num`. Loads
+/// the tag store fresh on each event so operator edits take effect
+/// immediately without a daemon restart.
+async fn handle_init(num: i32) {
+    // Hyprland numeric workspace ids start at 1; negative ids are
+    // special/named workspaces (scratchpad etc.) the router leaves
+    // to Hyprland's own placement.
+    if num <= 0 {
         return;
-    };
+    }
     let store = match TagStore::load_default() {
         Ok(s) => s,
         Err(e) => {
@@ -135,11 +116,11 @@ async fn handle_init(conn: &mut Connection, node: &swayipc_async::Node) {
             return;
         }
     };
-    // HYP-10.sway-bridge — load the tag-manifest snapshot each
-    // event so per-tag `output` can override the legacy TagStore
-    // `preferred_output`. Manifest load is fail-soft: missing
-    // dir / unreadable file falls through to TagStore. Cheap
-    // relative to the swayipc command that follows.
+    // HYP-8.5 — load the tag-manifest snapshot each event so per-tag
+    // `output` can override the legacy TagStore `preferred_output`.
+    // Manifest load is fail-soft: missing dir / unreadable file
+    // falls through to TagStore. Cheap relative to the hyprctl
+    // dispatch that follows.
     let manifests = crate::config::default_manifests_dir()
         .and_then(|d| crate::config::load_tag_manifests(&d).ok());
     let Some(output_name) =
@@ -147,9 +128,13 @@ async fn handle_init(conn: &mut Connection, node: &swayipc_async::Node) {
     else {
         return;
     };
-    let cmd = move_workspace_command(num, &output_name);
-    match conn.run_command(&cmd).await {
-        Ok(_) => tracing::debug!(workspace = num, %output_name, "workspace_router moved workspace"),
+    match Dispatch::call_async(DispatchType::MoveWorkspaceToMonitor(
+        WorkspaceIdentifier::Id(num),
+        MonitorIdentifier::Name(&output_name),
+    ))
+    .await
+    {
+        Ok(()) => tracing::debug!(workspace = num, %output_name, "workspace_router moved workspace"),
         Err(e) => tracing::warn!(workspace = num, %output_name, error = %e, "workspace_router move failed"),
     }
 }
@@ -215,16 +200,11 @@ pub fn preferred_output_for_workspace_with_manifests(
     owning_tag.preferred_output.clone()
 }
 
-/// Build the swayipc command string that moves workspace `ws_num`
-/// to output `output_name`. Embedded double-quotes in the output
-/// name are backslash-escaped (sway output names like `HDMI-A-1`
-/// don't contain quotes in practice, but the escape locks the
-/// contract anyway).
-#[must_use]
-pub fn move_workspace_command(ws_num: i32, output_name: &str) -> String {
-    let escaped = output_name.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("workspace number {ws_num}; move workspace to output \"{escaped}\"")
-}
+// NOTE (HYP-10): the v6.0 `move_workspace_command` swayipc
+// command-string builder + its output-name escaping is retired.
+// Hyprland's `DispatchType::MoveWorkspaceToMonitor(Id(n), Name(out))`
+// takes the id + monitor name directly; hyprland-rs owns socket-level
+// escaping, so there's no command string to build here.
 
 #[cfg(test)]
 mod tests {
@@ -307,25 +287,11 @@ mod tests {
         );
     }
 
-    /// `move_workspace_command` builds a two-command swayipc string
-    /// that first focuses the target workspace (so sway has a
-    /// concrete workspace to move) + then moves it. Quote-escaping
-    /// rounds-trips quirky output names.
-    #[test]
-    fn move_workspace_command_escapes_quotes_and_backslashes() {
-        assert_eq!(
-            move_workspace_command(1, "HDMI-A-1"),
-            r#"workspace number 1; move workspace to output "HDMI-A-1""#
-        );
-        assert_eq!(
-            move_workspace_command(7, r#"weird"name"#),
-            r#"workspace number 7; move workspace to output "weird\"name""#
-        );
-        assert_eq!(
-            move_workspace_command(3, r"back\slash"),
-            r#"workspace number 3; move workspace to output "back\\slash""#
-        );
-    }
+    // NOTE (HYP-10): the move_workspace_command escaping test is
+    // retired with the function — the rename/move side-effect is now
+    // a typed `DispatchType::MoveWorkspaceToMonitor`, and hyprland-rs
+    // owns socket escaping. The output-resolution precedence tests
+    // above remain the worker's testable surface.
 
     /// Non-workspace members (App / Peer / etc.) of an otherwise-
     /// matching tag must not cause the workspace to be claimed.
