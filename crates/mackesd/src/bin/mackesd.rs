@@ -3199,19 +3199,22 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("ansible-pull".into());
 
-        // TUNE-3.b (2026-05-26) — wire media_sync + remmina_sync
-        // subprocess-tick workers. Both drive `python3 -m
-        // mackes.<daemon>` modules that EPIC-RETIRE-PY-WORKBENCH
-        // is retiring; while the Python modules are extant the
-        // Rust workers carry the feature over to the supervisor.
-        // Once EPIC-RETIRE-PY-WORKBENCH retires the Python source,
-        // these workers retire with it (same hard-delete pattern
-        // as the thumbnailer worker that already shipped).
+        // EPIC-SYNC-APP-CONFIG (Q26, 2026-05-28) — app-config sync is
+        // now a native-Rust worker (`workers::app_sync`); it discovers
+        // mesh media servers + writes Sublime Music / Delfin configs +
+        // the `~/Mackes Media/` launcher view directly, retiring the
+        // `python3 -m mackes.media_sync_daemon` subprocess (advances
+        // §11 #6). `OnFailure` keeps the 60 s tick alive across a
+        // transient write/probe error.
         sup.spawn(Spawn::new(
-            mackesd_core::workers::media_sync::build(),
+            mackesd_core::workers::app_sync::build(),
             RestartPolicy::OnFailure,
         ));
-        worker_names.lock().expect("worker_names mutex").push("media-sync".into());
+        worker_names.lock().expect("worker_names mutex").push("app-sync".into());
+        // TUNE-3.b — remmina_sync is still a subprocess-tick worker
+        // driving `python3 -m mackes.remmina_sync`; its native port is
+        // tracked under EPIC-SYNC-APP-CONFIG's sibling note +
+        // EPIC-RETIRE-PY-DAEMONS.
         sup.spawn(Spawn::new(
             mackesd_core::workers::remmina_sync::build(),
             RestartPolicy::OnFailure,

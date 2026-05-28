@@ -81,6 +81,10 @@ impl ShutdownToken {
 // adapter over an existing sync implementation today; they grow real
 // bodies as Phase B fills in.
 pub mod ansible_pull;
+// EPIC-SYNC-APP-CONFIG (Q26) — native-Rust app-config sync
+// (Sublime Music / Delfin). Replaces the retired `media_sync`
+// subprocess worker + the Python `media_sync_daemon.py` it drove.
+pub mod app_sync;
 pub mod clipboard;
 pub mod fs_sync;
 pub mod heartbeat;
@@ -100,7 +104,6 @@ pub mod health_reconciler;
 pub mod kdc_host;
 pub mod lan_discovery;
 pub mod mdns;
-pub mod media_sync;
 pub mod mesh_latency;
 pub mod mesh_router;
 // NF-3.4 (v2.5) — Nebula supervisor worker (CA mint +
@@ -286,7 +289,7 @@ pub trait Worker: Send + 'static {
 pub enum RestartPolicy {
     /// Don't restart — once the worker returns (Ok or Err), the
     /// supervisor records the outcome and moves on. Right for
-    /// one-shot timer workers like `media_sync`.
+    /// one-shot timer workers like `app_sync`.
     Never,
     /// Restart only if the worker returned `Err`. Right for
     /// long-running watchers (`clipboard`, `mdns`, etc.).

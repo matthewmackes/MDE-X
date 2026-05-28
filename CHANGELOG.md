@@ -5,6 +5,19 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**Media-server sync is now native (no Python daemon) (2026-05-28)**
+- Keeping your Sublime Music + Delfin (Jellyfin) configs pointed at the
+  mesh's media servers is now handled directly by `mackesd` instead of a
+  Python helper run every minute. Same behavior — it discovers media
+  servers on your mesh peers and writes the client configs + the
+  `~/Mackes Media/` launchers + the file-manager bookmark — just faster
+  to start and one less moving part (advances the "no Python background
+  daemons" 1.0 goal).
+- Discovery is now mesh-only: it probes your Nebula peers for media
+  servers. The previous plain-LAN mDNS scan (which could pick up servers
+  outside your mesh, with no mesh trust) was dropped on purpose; if you
+  relied on it, that path can be re-added later.
+
 **Passcode encrypted at rest via systemd-creds (2026-05-28)**
 - `mackesd generate-passcode --store` (and `rotate-passcode --store`)
   now encrypt the mesh passcode to `/var/lib/mackesd/mesh-passcode.cred`

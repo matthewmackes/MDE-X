@@ -36,6 +36,10 @@ pub mod identity;
 pub mod leader;
 pub mod legacy_inventory;
 pub mod logging;
+// EPIC-SYNC-APP-CONFIG (Q26) — native-Rust mesh media-server
+// discovery (replaces the discovery half of the retired
+// `mackes/mesh_media.py`). Consumed by `workers::app_sync`.
+pub mod mesh_media;
 pub mod metrics;
 // NF-3.6.a (v2.5) — peer-side enrollment via the
 // `mesh:<id>@<ip>:<port>#<bearer>` join-token shape. Publishes a

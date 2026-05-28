@@ -1,7 +1,7 @@
 //! Shared subprocess-supervision helper for Phase B workers that
 //! shepherd an external one-shot command on a periodic cadence.
 //!
-//! Several Phase B workers (`media_sync`, `remmina_sync`,
+//! Several Phase B workers (`remmina_sync`,
 //! `ansible_pull`, the WoL / perf / thumbnailer helpers) all share
 //! the same shape: every N seconds, spawn a known command with a
 //! known argv, wait for it to exit, log the exit code, repeat until
