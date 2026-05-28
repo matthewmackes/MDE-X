@@ -3668,6 +3668,7 @@ dependencies = [
  "mackes-mesh-types",
  "mackes-nebula-https-tunnel",
  "mackes-transport",
+ "mde-bus",
  "mde-kdc",
  "mde-kdc-proto",
  "mde-voice-config",

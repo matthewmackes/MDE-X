@@ -94,7 +94,7 @@ serde_json  = "1"
 # operator override at ~/.config/mde/connect/policy.toml.
 # default-features = false because we don't need TOML's
 # date / preserve_order features here.
-toml = { version = "0.8", default-features = false, features = ["parse"] }
+toml = { version = "0.8", default-features = false, features = ["parse", "display"] }
 
 # Time: chrono for ISO-8601 timestamps stored in SQLite TEXT columns.
 chrono = { version = "0.4", features = ["serde"] }
@@ -235,6 +235,16 @@ futures-util = { version = "0.3", optional = true }
 # latest stable per design doc §1 Q3.
 hyprland = { version = "0.4.0-beta.3", optional = true }
 
+# HYP-14 (v6.5) — the marks_state worker is mackesd's first Bus
+# action-responder, so it links the mde-bus persist + rpc library
+# directly (rather than shelling out to `mde-bus publish` like the
+# fire-and-forget publishers): it polls `persist.list_since` for
+# `action/marks/*` requests + writes replies to `reply/<ulid>`,
+# exactly the request/reply path `mde_bus::rpc::await_reply` reads.
+# Optional behind `async-services`. No dependency cycle — mde-bus
+# does not depend on mackesd.
+mde-bus = { path = "../mde-bus", optional = true }
+
 [dev-dependencies]
 # Deterministic snapshot diffs for library-contract tests (12.11.5).
 insta    = { version = "1", features = ["json", "redactions"] }
@@ -274,6 +284,7 @@ async-services = [
     "dep:swayipc-async",
     "dep:futures-util",
     "dep:hyprland",
+    "dep:mde-bus",
 ]
 
 [package.metadata.docs.rs]

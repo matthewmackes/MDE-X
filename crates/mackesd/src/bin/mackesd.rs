@@ -3160,6 +3160,19 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("tag_autostart".into());
 
+        // HYP-14 (v6.5, Portal-46 retarget) — per-window mark store.
+        // Subscribes to Hyprland sockets2 (openwindow/closewindow/
+        // activewindow) to track window lifecycle + auto-mark new
+        // windows from class taxonomy + tag-manifest marks_default;
+        // serves action/marks/{add,remove,list,match} by polling the
+        // persist layer + replying on reply/<ulid>; publishes deltas
+        // on event/marks/<addr>; 60 s GFS snapshot + restart replay.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::marks_state::MarksStateWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("marks_state".into());
+
         // Portal-56 (v6.0 R12-Q21) — per-workspace focused-border
         // tinting. Subscribes to sway workspace::focus events;
         // fires `client.focused` with the owning tag's
