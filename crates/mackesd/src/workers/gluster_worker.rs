@@ -52,6 +52,12 @@ pub const VOLUME_NAME: &str = "mesh-home";
 /// Brick directory the v5.0.0 epic locked (Q5).
 pub const BRICK_PATH: &str = "/var/lib/gluster/bricks/mesh-home";
 
+/// EPIC-BUS-EXT-CONFLICT (Q23) — Bus topic the conflict detector
+/// publishes detected split-brain GFIDs to. `priority=high` routes
+/// it to BUS-2.4's status-zone slide-up strip (persistent until
+/// ack per `mde_bus::surface` §6).
+pub const CONFLICT_TOPIC: &str = "mesh/conflict";
+
 /// Default overlay-ip publish file path (GF-1.3.a).
 pub const DEFAULT_OVERLAY_IP_PATH: &str = "/var/lib/mackesd/nebula/overlay-ip";
 
@@ -234,12 +240,13 @@ impl GlusterWorker {
         //    entry there is a GFID symlink for a file with a
         //    pending heal / split-brain op. We surface each
         //    pending GFID as a `ConflictDetected` tracing
-        //    event so the operator (or the future GF-2.2
-        //    D-Bus signal subscriber) sees the split-brain
-        //    state without having to shell `gluster volume
-        //    heal info` themselves. Best-effort: the brick
-        //    dir may be missing (operator runs mackesd on a
-        //    non-storage box) — silent skip.
+        //    event AND (EPIC-BUS-EXT-CONFLICT, Q23) publish it
+        //    to the `mesh/conflict` Bus topic at priority=high
+        //    so BUS-2.4's status-zone strip shows the split-
+        //    brain state without the operator having to shell
+        //    `gluster volume heal info` themselves. Best-effort:
+        //    the brick dir may be missing (operator runs mackesd
+        //    on a non-storage box) — silent skip.
         let xattrop_dir = self.brick_path.join(".glusterfs/indices/xattrop");
         for gfid in pending_conflict_gfids(&xattrop_dir) {
             tracing::warn!(
@@ -268,6 +275,11 @@ impl GlusterWorker {
                     "LWW: requesting split-brain heal via gluster self-heal daemon",
                 );
                 let _ = run_argv(&argv);
+                // EPIC-BUS-EXT-CONFLICT (Q23) — surface the conflict
+                // on the Bus alongside the LWW heal request. Inside
+                // the dedup guard so it publishes once per GFID
+                // (coalesced on the GFID thread key).
+                self.publish_conflict(&gfid);
             }
         }
         // 6. GF-2.5 + GF-2.6 — peer convergence. Scans
@@ -334,6 +346,45 @@ impl GlusterWorker {
     fn mark_gfid_heal_requested(&self, gfid: &str) -> bool {
         let mut guard = self.healed_gfids.lock().expect("healed_gfids mutex");
         guard.insert(gfid.to_owned())
+    }
+
+    /// EPIC-BUS-EXT-CONFLICT (Q23) — publish a detected split-brain
+    /// GFID to the `mesh/conflict` Bus topic at `priority=high` by
+    /// shelling out to `mde-bus publish` (the established
+    /// worker→Bus pattern; see `urgency_router`). Best-effort +
+    /// graceful-degrade: a pre-enrollment peer (no broker yet) or a
+    /// box without the `mde-bus` binary logs at warn and the
+    /// conflict is still healed via the GF-2.9 LWW path. Called once
+    /// per GFID (behind the `mark_gfid_heal_requested` dedup) so it
+    /// coalesces on the GFID thread key.
+    fn publish_conflict(&self, gfid: &str) {
+        let argv = conflict_publish_argv(gfid, &self.brick_path.display().to_string());
+        let (bin, rest) = argv.split_first().expect("conflict_publish_argv is non-empty");
+        match Command::new(bin).args(rest).status() {
+            Ok(status) if status.success() => {
+                tracing::debug!(
+                    target: "mackesd::gluster_worker",
+                    gfid = %gfid,
+                    "published split-brain conflict to mesh/conflict Bus topic",
+                );
+            }
+            Ok(status) => {
+                tracing::warn!(
+                    target: "mackesd::gluster_worker",
+                    gfid = %gfid,
+                    exit = ?status.code(),
+                    "mde-bus publish to mesh/conflict exited non-zero (graceful-degrade; conflict still healed via LWW)",
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "mackesd::gluster_worker",
+                    gfid = %gfid,
+                    error = %e,
+                    "could not spawn mde-bus to publish mesh/conflict (graceful-degrade; conflict still healed via LWW)",
+                );
+            }
+        }
     }
 
     /// GF-2.7 — query `gluster volume info mesh-home --xml`,
@@ -605,6 +656,31 @@ pub fn heal_split_brain_argv(binary: &str, gfid: &str) -> Vec<String> {
         "split-brain".into(),
         "latest-mtime".into(),
         format!("gfid:{gfid}"),
+    ]
+}
+
+/// EPIC-BUS-EXT-CONFLICT (Q23) — build the `mde-bus publish
+/// mesh/conflict` argv for a detected split-brain GFID. Rides
+/// `priority=high` so BUS-2.4's status-zone strip surfaces it
+/// (persistent until ack). The GFID is the natural coalescing
+/// key: the caller gates this behind `mark_gfid_heal_requested`,
+/// so an unresolved GFID publishes exactly once no matter how
+/// many 5s ticks observe it still pending. Exposed for testing.
+#[must_use]
+pub fn conflict_publish_argv(gfid: &str, brick: &str) -> Vec<String> {
+    vec![
+        "mde-bus".to_owned(),
+        "publish".into(),
+        CONFLICT_TOPIC.to_owned(),
+        "--priority".into(),
+        "high".into(),
+        "--title".into(),
+        "Mesh file conflict".into(),
+        "--body-flag".into(),
+        format!(
+            "Split-brain pending heal on {brick} (gfid:{gfid}). \
+             Last-writer-wins resolver requested via the gluster self-heal daemon."
+        ),
     ]
 }
 
@@ -1135,6 +1211,30 @@ mod tests {
                 "gfid:12345678-1234-1234-1234-123456789abc",
             ]
         );
+    }
+
+    #[test]
+    fn conflict_publish_argv_matches_mde_bus_publish_shape() {
+        let argv = conflict_publish_argv(
+            "12345678-1234-1234-1234-123456789abc",
+            "/var/lib/gluster/bricks/mesh-home",
+        );
+        // Fixed prefix: the verb, topic, and high-priority routing
+        // BUS-2.4's status-zone strip keys on.
+        assert_eq!(argv[0], "mde-bus");
+        assert_eq!(argv[1], "publish");
+        assert_eq!(argv[2], "mesh/conflict");
+        assert_eq!(argv[3], "--priority");
+        assert_eq!(argv[4], "high");
+        assert_eq!(argv[5], "--title");
+        assert_eq!(argv[6], "Mesh file conflict");
+        assert_eq!(argv[7], "--body-flag");
+        // Body carries both the GFID (the coalescing thread key)
+        // and the brick so an operator can locate the conflict.
+        let body = &argv[8];
+        assert!(body.contains("gfid:12345678-1234-1234-1234-123456789abc"));
+        assert!(body.contains("/var/lib/gluster/bricks/mesh-home"));
+        assert_eq!(argv.len(), 9);
     }
 
     #[test]
