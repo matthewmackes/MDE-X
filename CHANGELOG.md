@@ -48,6 +48,20 @@ unreleased; tag versions get a date when they ship.
   under sway before HYP-14 Hyprland marks_state ships. New
   pure-fn `marks_default_for_workspace` with 8 unit tests
   (15/15 green).
+- HYP-9.sway-bridge: workspace_namer worker now derives the
+  workspace label from the focused window's owning tag-manifest
+  `name` field when the focused window's `app_id` appears in
+  any manifest's `apps[]` — a workspace running `linphone`
+  whose voip manifest groups it under `voip` reads `3: voip`
+  instead of `3: linphone`. Falls through to the Portal-41
+  literal-app_id naming when no manifest claims the app.
+  Operator-curated names still preserved. New pure-fn
+  `derive_workspace_name_with_manifests` with 7 unit tests
+  (14/14 green). Pairs with the other sway-bridges
+  (HYP-10/.layout, HYP-11, HYP-22, HYP-AutoMark) so every
+  HYP-8.5 manifest field with a compositor side-effect now
+  takes effect end-to-end under sway before HYP-2 lands
+  hyprland-rs.
 - HYP-5.b Birthright wizard step seeds
   `~/.config/hypr/hyprland.conf` on first login with
   `source = /usr/share/mde/hyprland.conf` + an empty operator
