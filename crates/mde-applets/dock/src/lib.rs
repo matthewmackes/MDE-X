@@ -18,6 +18,9 @@ use mde_applet_api::{AppletId, AppletSlot, HostMessage};
 use mde_theme::Icon;
 use serde::Deserialize;
 
+/// Build the static applet manifest the host registers at
+/// startup. Slot = Dock because the taskbar/pinned-strip
+/// lives in the dedicated bottom-bar dock slot.
 #[must_use]
 pub fn manifest() -> mde_applet_api::AppletManifest {
     mde_applet_api::AppletManifest {
@@ -34,9 +37,17 @@ pub fn manifest() -> mde_applet_api::AppletManifest {
 /// needs.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct DockWindow {
+    /// Compositor con_id for the window — used to dispatch
+    /// focus/raise commands on click.
     pub id: u64,
+    /// Wayland `app_id` (foreign-toplevel-management v1) for
+    /// icon lookup + grouping with pinned-app rows.
     pub app_id: String,
+    /// `true` when the compositor reports this window focused.
+    /// The dock highlights the matching cell.
     pub focused: bool,
+    /// `true` when the window has set `urgent`/needs-attention.
+    /// The dock pulses the cell.
     pub urgent: bool,
 }
 
@@ -50,6 +61,9 @@ pub struct PinnedApp {
     pub label: String,
 }
 
+/// Absolute path to the operator's pinned-apps JSON file.
+/// Falls back to `./...` when `$HOME` is unset (degenerate
+/// test-fixture case).
 #[must_use]
 pub fn pinned_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -171,6 +185,10 @@ pub fn format_dock(pinned: &[PinnedApp], windows: &[DockWindow]) -> String {
     cells.join(" ")
 }
 
+/// Process a host control message and return `true` when the
+/// applet should keep running. Only [`HostMessage::Shutdown`]
+/// stops the event loop; every other variant is a host-side
+/// hint the renderer reacts to elsewhere.
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)

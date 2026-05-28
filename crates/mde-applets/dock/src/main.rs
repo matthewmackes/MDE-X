@@ -112,6 +112,15 @@ struct DockCell {
     desktop_id: Option<String>,
 }
 
+/// Iced application message — `#[to_layer_message]` expands
+/// this enum with extra layer-shell-specific variants
+/// (Resize, OutputAdded, …) the macro auto-injects; the
+/// hand-written variants below cover the dock's own events.
+/// The `allow(missing_docs)` on the macro line silences
+/// the warnings the macro-injected variants would otherwise
+/// emit (the macro does not propagate hand-written doc
+/// comments onto its generated items).
+#[allow(missing_docs)]
 #[to_layer_message]
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -127,6 +136,8 @@ pub enum Message {
     TogglePin(usize),
 }
 
+/// Iced application state. Owns the live `Vec<DockCell>` the
+/// renderer iterates each frame.
 pub struct App {
     cells: Vec<DockCell>,
 }
