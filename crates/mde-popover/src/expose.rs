@@ -15,12 +15,6 @@
 /// hundreds of windows).
 pub const MAX_COLUMNS: usize = 6;
 
-/// Card aspect ratio (width / height).
-pub const CARD_ASPECT: f32 = 16.0 / 9.0;
-
-/// Minimum card width in logical pixels.
-pub const MIN_CARD_WIDTH: f32 = 220.0;
-
 /// Compute grid column count for N windows. Capped at
 /// [`MAX_COLUMNS`].
 #[must_use]
@@ -30,23 +24,6 @@ pub fn grid_columns(window_count: usize) -> usize {
     }
     let sqrt = (window_count as f64).sqrt().ceil() as usize;
     sqrt.min(MAX_COLUMNS).max(1)
-}
-
-/// Per-card width given the available exposé surface and the
-/// expected card count.
-#[must_use]
-pub fn card_layout(surface_width: f32, surface_height: f32, count: usize) -> (f32, f32) {
-    let cols = grid_columns(count) as f32;
-    let mut card_w = (surface_width / cols).max(MIN_CARD_WIDTH);
-    let mut card_h = card_w / CARD_ASPECT;
-    // Cap by surface height — fall back to height-driven sizing.
-    let rows_needed = (count as f32 / cols).ceil().max(1.0);
-    let max_card_h = surface_height / rows_needed;
-    if card_h > max_card_h {
-        card_h = max_card_h;
-        card_w = card_h * CARD_ASPECT;
-    }
-    (card_w, card_h)
 }
 
 /// Truncate a window title with `…` once it exceeds `max` chars.
@@ -424,25 +401,6 @@ mod tests {
     }
 
     #[test]
-    fn card_layout_respects_min_width() {
-        let (w, _) = card_layout(800.0, 600.0, 10);
-        assert!(w >= MIN_CARD_WIDTH);
-    }
-
-    #[test]
-    fn card_layout_caps_by_surface_height() {
-        let (_, h) = card_layout(2000.0, 200.0, 4);
-        assert!(h <= 200.0);
-    }
-
-    #[test]
-    fn card_layout_aspect_preserved_when_height_caps() {
-        let (w, h) = card_layout(2000.0, 200.0, 4);
-        let ratio = w / h;
-        assert!((ratio - CARD_ASPECT).abs() < 0.01);
-    }
-
-    #[test]
     fn truncate_title_passes_short_strings() {
         assert_eq!(truncate_title("hi", 10), "hi");
     }
@@ -511,12 +469,4 @@ mod tests {
         assert_eq!(out[0].app_id, "XTerm");
     }
 
-    #[test]
-    fn card_layout_one_window_fills_surface() {
-        let (w, h) = card_layout(1920.0, 1080.0, 1);
-        // 1 window, 1 column → card_w = surface_w
-        // but capped by height-aspect math
-        assert!(w > 0.0);
-        assert!(h > 0.0);
-    }
 }
