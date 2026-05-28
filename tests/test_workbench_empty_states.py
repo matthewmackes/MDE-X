@@ -10,7 +10,7 @@ Iced ``apps_installed.rs`` + ``vpn.rs`` panels carry equivalent failure-path
 coverage Rust-side.
 
 What survives here: the 5 tests that exercise the
-``mackes.workbench._common`` helpers (empty_state / error_state /
+``mackes.gtk_common`` helpers (empty_state / error_state /
 format_probe_error). The ``_common`` module retires later under
 ``.delete-chrome`` (it's infra for the GTK panels); at that point this
 test file retires with it.
@@ -77,7 +77,7 @@ def _has_class(widget: Gtk.Widget, klass: str) -> bool:
 
 
 def test_empty_state_renders_title_body_and_cta():
-    from mackes.workbench._common import empty_state
+    from mackes.gtk_common import empty_state
 
     clicks: list[bool] = []
     widget = empty_state(
@@ -106,7 +106,7 @@ def test_empty_state_renders_title_body_and_cta():
 
 
 def test_error_state_renders_reason_and_retry():
-    from mackes.workbench._common import error_state
+    from mackes.gtk_common import error_state
 
     retries: list[bool] = []
     widget = error_state(
@@ -133,7 +133,7 @@ def test_error_state_renders_reason_and_retry():
 def test_error_state_omits_button_when_unactionable():
     """A non-recoverable error (e.g. firewall-cmd missing) should still
     render a label tile, just without a Retry button."""
-    from mackes.workbench._common import error_state
+    from mackes.gtk_common import error_state
 
     widget = error_state(
         "firewalld not available",
@@ -148,7 +148,7 @@ def test_error_state_omits_button_when_unactionable():
 
 
 def test_format_probe_error_drops_class_prefix_on_oserror():
-    from mackes.workbench._common import format_probe_error
+    from mackes.gtk_common import format_probe_error
 
     msg = format_probe_error(FileNotFoundError("rpm: not found"))
     assert "rpm: not found" in msg
@@ -156,7 +156,7 @@ def test_format_probe_error_drops_class_prefix_on_oserror():
 
 
 def test_format_probe_error_keeps_class_for_unknown_exception():
-    from mackes.workbench._common import format_probe_error
+    from mackes.gtk_common import format_probe_error
 
     class _Weird(Exception):
         pass

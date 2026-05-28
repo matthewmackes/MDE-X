@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
-from mackes.workbench._common import labeled_row, section_header
+from mackes.gtk_common import labeled_row, section_header
 from mackes.audio import _list_sinks, _default_sink, _set_default_sink
 
 

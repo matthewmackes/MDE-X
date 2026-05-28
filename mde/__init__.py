@@ -4,7 +4,7 @@ Phase 0.10 (transitional) — `mde` is a thin re-export facade over
 the legacy `mackes` package during the v2.0.0 back-compat window.
 This lets new code call
 
-    from mde import workbench
+    from mde import wizard
     from mde.mde_settings_bridge import set_setting
 
 without touching the existing `from mackes.X` import sites. Once
@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-from types import ModuleType
 from typing import Iterable
 
 import mackes
@@ -112,7 +111,6 @@ _FACADE_SUBMODULES: tuple[str, ...] = (
     "sway_ipc",
     "uninstall",
     "wizard",
-    "workbench",
     "xfconf_bridge",
 )
 

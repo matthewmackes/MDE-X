@@ -5,7 +5,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
-from mackes.workbench._common import section_header
+from mackes.gtk_common import section_header
 
 
 def _render_section(title, dict_):

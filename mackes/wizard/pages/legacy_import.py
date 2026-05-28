@@ -35,7 +35,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
 from mackes.legacy_import import LegacyState, detect, import_to_panel_toml
-from mackes.workbench._common import (
+from mackes.gtk_common import (
     a11y, info_label, section_header, title_label,
 )
 

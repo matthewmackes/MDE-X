@@ -73,7 +73,7 @@ class WizardWindow(Gtk.ApplicationWindow):
         reconfigure: bool = False,
     ) -> None:
         super().__init__(application=application)
-        from mackes.workbench._common import versioned_title
+        from mackes.gtk_common import versioned_title
         # v2.0.0 Phase 0.11 — "Mackes Shell" → "Setup" in titlebar;
         # versioned_title prepends the "MDE <version>" suffix.
         # NF-7.4 (v2.5, 2026-05-23): reconfigure entries (Workbench

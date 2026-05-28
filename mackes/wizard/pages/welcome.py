@@ -12,7 +12,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GdkPixbuf, Gtk  # noqa: E402
 
-from mackes.workbench._common import title_label, info_label
+from mackes.gtk_common import title_label, info_label
 
 
 def _hero_logo_path() -> Path | None:

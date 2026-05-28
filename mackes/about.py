@@ -70,7 +70,7 @@ def build_about_window(application: Optional[Gtk.Application] = None) -> Gtk.Win
     win.get_style_context().add_class("mackes-app-window")
     win.get_style_context().add_class("mackes-about")
     # Phase 11.2 a11y: Escape dismisses the About window.
-    from mackes.workbench._common import close_on_escape
+    from mackes.gtk_common import close_on_escape
     close_on_escape(win)
 
     outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)

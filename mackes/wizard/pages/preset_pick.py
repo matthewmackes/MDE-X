@@ -14,7 +14,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GdkPixbuf, Gtk  # noqa: E402
 
 from mackes.presets import list_presets
-from mackes.workbench._common import title_label
+from mackes.gtk_common import title_label
 
 
 _WALL_CANDIDATES = (

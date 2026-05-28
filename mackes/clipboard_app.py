@@ -291,7 +291,7 @@ class ClipboardViewer(Gtk.Application):
     def _build(self) -> None:
         win = Gtk.ApplicationWindow(application=self)
         win.set_default_size(820, 560)
-        from mackes.workbench._common import versioned_title
+        from mackes.gtk_common import versioned_title
         win.set_title(versioned_title("Mackes Mesh Clipboard"))
         win.get_style_context().add_class("mackes-app-window")
 

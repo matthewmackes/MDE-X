@@ -14,7 +14,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
-from mackes.workbench._common import section_header
+from mackes.gtk_common import section_header
 
 # The locked platform defaults. These mirror what apply_appearance,
 # apply_themes, and apply_lightdm deploy at apply-time — keep this list

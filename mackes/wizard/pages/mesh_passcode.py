@@ -23,7 +23,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
-from mackes.workbench._common import a11y
+from mackes.gtk_common import a11y
 
 logger = logging.getLogger(__name__)
 
