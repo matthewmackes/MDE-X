@@ -40,6 +40,15 @@ unreleased; tag versions get a date when they ship.
   for tag-mode, `hyprctl clients`/`--batch` for templates,
   `togglesplit`/`togglegroup`/`swapwindow` for Hub drag-to-tile;
   HYP-33 partial close).
+- HYP-5.b Birthright wizard step seeds
+  `~/.config/hypr/hyprland.conf` on first login with
+  `source = /usr/share/mde/hyprland.conf` + an empty operator
+  override block. Idempotent — re-runs preserve operator
+  overrides untouched. New `apply_hyprland_baseline_conf`
+  function in `mackes/birthright.py` + new "Hyprland baseline"
+  step in `mackes/wizard/pages/apply.py` immediately after the
+  "Tag manifest seed" step. Closes the first-login compositor-
+  config bootstrap chain begun by HYP-5.a.
 - HYP-13 Mod+Right-drag mouse-grab resize wired in baseline
   `hyprland.conf` (`bindm = SUPER, mouse:273, resizewindow`);
   no `submap = resize` block is registered so the Portal
