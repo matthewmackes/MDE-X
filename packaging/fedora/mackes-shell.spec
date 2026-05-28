@@ -719,6 +719,14 @@ install -D -m 0644 data/ntfy/server.yml.tmpl \
 install -D -m 0644 data/bus/subs.yaml.tmpl \
     %{buildroot}%{_datadir}/mde/bus/subs.yaml.tmpl
 
+# EPIC-BUS-EXT-CORRELATION-5 (Q34) — 5 sample cross-topic
+# correlation rules. Reference template (NOT auto-seeded —
+# correlation is opt-in); the operator copies it to
+# ~/.config/mde/bus-correlate.yaml + trims to the rules their
+# fleet actually publishes.
+install -D -m 0644 data/bus/correlate.yaml.tmpl \
+    %{buildroot}%{_datadir}/mde/bus/correlate.yaml.tmpl
+
 # BUS-3.1 + BUS-3.2 (v6.x Mackes Bus) — webhook ingress.
 # hooks.yaml.tmpl is the operator-facing seed that the per-peer
 # ~/.config/mde/bus-hooks.yaml starts from; the listener reads the

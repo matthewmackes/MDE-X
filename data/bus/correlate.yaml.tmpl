@@ -1,0 +1,111 @@
+# EPIC-BUS-EXT-CORRELATION-5 (Q34) — sample cross-topic correlation
+# rules for the Mackes Bus correlation engine (BUS-6.5).
+#
+# WHAT THIS IS
+# ------------
+# The correlation engine synthesizes a new "incident" message when
+# several independent source topics all fire within a time window.
+# It turns a scatter of low-signal events ("UPS on battery", "network
+# down") into one high-signal incident ("likely power outage") that
+# routes to the operator at an escalated priority.
+#
+# HOW TO USE
+# ----------
+# This file is a REFERENCE TEMPLATE, not an active config. The engine
+# reads the LIVE file at `~/.config/mde/bus-correlate.yaml`. Copy this
+# template there and TRIM to the rules you actually want — leaving all
+# five active is fine, but most operators keep only the ones whose
+# source topics their fleet actually publishes:
+#
+#     cp /usr/share/mde/bus/correlate.yaml.tmpl \
+#        ~/.config/mde/bus-correlate.yaml
+#     $EDITOR ~/.config/mde/bus-correlate.yaml   # trim to taste
+#     mde-bus correlate validate                 # sanity-check
+#     # restart mde-bus (or wait for the supervisor) to load
+#
+# Inspect loaded rules with `mde-bus correlate list`.
+#
+# SCHEMA (parsed by `mde_bus::correlate::CorrelateConfig`)
+# -------------------------------------------------------
+#   rules:
+#     - name:            human label (logs + audit + the synth title)
+#       sources:         ALL of these topics must fire within the
+#                        window for the rule to emit (MQTT wildcards
+#                        `+` / `#` allowed).
+#       window_seconds:  alignment window AND re-fire cooldown — a
+#                        sustained alignment emits once per window,
+#                        not once per poll.
+#       emits:           topic the synthesized incident publishes to.
+#       priority:        min / default / high / urgent.
+#
+# The synthesized publish carries a `[correlate] <name>` title marker;
+# the engine skips its own emits so a rule can't loop on itself.
+#
+# Source-topic provenance (where these come from out of the box):
+#   power/*       — NUT/UPS webhook adapter (data/bus/hooks/nut.yaml)
+#   mon/*         — Netdata alerts via mde-alert-emit (BUS-4.3)
+#                   (mon/cpu, mon/memory, mon/disk, mon/network,
+#                    mon/nebula, mon/gluster)
+#   mesh/peers    — mesh peer-state changes (seeded topic, BUS-1.6)
+
+rules:
+  # 1. Power outage — the UPS reports grid loss AND the network drops
+  #    within two minutes. Either alone is often a blip; together they
+  #    strongly suggest a real outage, so escalate to urgent (theater
+  #    takeover + phone push).
+  - name: power-outage
+    sources:
+      - power/grid-loss
+      - mon/network
+    window_seconds: 120
+    emits: incident/power-outage
+    priority: urgent
+
+  # 2. Disk pressure — CPU saturation, disk I/O alerts, and memory
+  #    pressure all firing inside three minutes is the classic
+  #    thrashing signature (swap storms, runaway process). High
+  #    priority so it hits the status strip with a sound.
+  - name: disk-pressure
+    sources:
+      - mon/cpu
+      - mon/disk
+      - mon/memory
+    window_seconds: 180
+    emits: incident/disk-pressure
+    priority: high
+
+  # 3. Mesh degraded — a peer-state change AND a GlusterFS heal alert
+  #    within five minutes means a peer dropped and the mesh is now
+  #    healing around it. High priority — the operator wants to know a
+  #    peer left even if it self-heals.
+  - name: mesh-degraded
+    sources:
+      - mesh/peers
+      - mon/gluster
+    window_seconds: 300
+    emits: incident/mesh-degraded
+    priority: high
+
+  # 4. VPN flap — Nebula handshake-rate alerts AND peer-state churn in
+  #    a tight 60 s window mean the overlay is flapping (a peer
+  #    repeatedly losing + re-establishing its tunnel). High priority;
+  #    a flapping VPN degrades everything riding the mesh.
+  - name: vpn-flap
+    sources:
+      - mon/nebula
+      - mesh/peers
+    window_seconds: 60
+    emits: incident/vpn-flap
+    priority: high
+
+  # 5. GFS quota trending — disk-fill alerts AND GlusterFS heal
+  #    backlog within ten minutes mean the mesh store is filling while
+  #    healing falls behind, trending toward the quota cap. Default
+  #    priority — informational early-warning, not an emergency yet.
+  - name: gfs-quota-trending
+    sources:
+      - mon/disk
+      - mon/gluster
+    window_seconds: 600
+    emits: incident/gfs-quota-trending
+    priority: default

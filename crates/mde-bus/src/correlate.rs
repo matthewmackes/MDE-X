@@ -1042,4 +1042,62 @@ rules:
             CorrelateEvaluator::new(cfg_with(vec![eval_rule("bad", &[], 60, "incident/bad")]));
         assert!(e.poll_once(&p, now).is_empty());
     }
+
+    // ── EPIC-BUS-EXT-CORRELATION-5 — shipped sample-rules template ──────
+
+    /// The 5-rule reference template shipped to
+    /// `/usr/share/mde/bus/correlate.yaml.tmpl`. Embedded at compile
+    /// time so a broken example fails the build, not just a bench run.
+    const SAMPLE_TEMPLATE: &str =
+        include_str!("../../../data/bus/correlate.yaml.tmpl");
+
+    #[test]
+    fn shipped_template_parses_to_five_rules() {
+        let cfg: CorrelateConfig = serde_yaml::from_str(SAMPLE_TEMPLATE).unwrap();
+        assert_eq!(cfg.rules.len(), 5, "template must ship exactly 5 rules");
+        let names: std::collections::BTreeSet<_> =
+            cfg.rules.iter().map(|r| r.name.as_str()).collect();
+        for expected in [
+            "power-outage",
+            "disk-pressure",
+            "mesh-degraded",
+            "vpn-flap",
+            "gfs-quota-trending",
+        ] {
+            assert!(names.contains(expected), "missing rule: {expected}");
+        }
+    }
+
+    #[test]
+    fn shipped_template_passes_validation() {
+        // The examples operators copy must be clean — no empty
+        // names/sources/emits, no zero windows, no duplicate names.
+        let cfg: CorrelateConfig = serde_yaml::from_str(SAMPLE_TEMPLATE).unwrap();
+        let issues = validate_config(&cfg);
+        assert!(
+            issues.is_empty(),
+            "shipped template has validation issues: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn shipped_template_rules_are_well_formed() {
+        let cfg: CorrelateConfig = serde_yaml::from_str(SAMPLE_TEMPLATE).unwrap();
+        for r in &cfg.rules {
+            // Every example must be a real ≥2-source correlation (a
+            // 1-source "correlation" is just a passthrough) with a
+            // non-zero window + an `incident/` synth topic.
+            assert!(
+                r.sources.len() >= 2,
+                "rule {} should correlate ≥2 sources",
+                r.name
+            );
+            assert!(r.window_seconds > 0, "rule {} has zero window", r.name);
+            assert!(
+                r.emits.starts_with("incident/"),
+                "rule {} should emit under incident/",
+                r.name
+            );
+        }
+    }
 }

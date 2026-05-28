@@ -89,6 +89,19 @@ unreleased; tag versions get a date when they ship.
   block as compositor-retiring residue (cleared wholesale when
   HYP-3 + HYP-28 land).
 
+**BUS correlation — 5 sample rules ship out-of-box (2026-05-28)**
+- A new `/usr/share/mde/bus/correlate.yaml.tmpl` ships five ready-to-
+  use cross-topic correlation rules: power-outage (UPS grid-loss +
+  network down → urgent), disk-pressure (cpu + disk + memory →
+  high), mesh-degraded (peer change + gluster heal → high), vpn-flap
+  (nebula alert + peer churn → high), gfs-quota-trending (disk +
+  gluster → default). Each rule has a comment block explaining its
+  trigger.
+- The template is a reference, not active by default (correlation is
+  opt-in). Copy it to `~/.config/mde/bus-correlate.yaml`, trim to the
+  rules your fleet's topics actually feed, and `mde-bus correlate
+  validate` before the daemon loads it.
+
 **BUS-6.7 — fleet-wide broadcast snooze (2026-05-28)**
 - `mde-bus mute <topic> --duration 1h` now silences a topic across
   every peer for the duration, then auto-unmutes. Snoozes ride the
