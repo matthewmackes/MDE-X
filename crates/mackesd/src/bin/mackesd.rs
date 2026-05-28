@@ -497,6 +497,20 @@ enum ProbeCmd {
         #[clap(long, default_value = "/usr/share/mde/nmap")]
         nse_dir: String,
     },
+    /// Manual refresh (MESH-PROBE-4): run one deep probe cycle against
+    /// the resolved mesh peers + write this peer's probe-inventory.json
+    /// + announce probe/changed. Same engine the scheduled worker runs.
+    Refresh {
+        /// Mesh-home root (defaults to `$QNM_SHARED_ROOT` / `~/QNM-Shared`).
+        #[clap(long, env = "QNM_SHARED_ROOT")]
+        qnm_root: Option<PathBuf>,
+        /// This peer's node-id (defaults to the daemon default).
+        #[clap(long)]
+        node_id: Option<String>,
+        /// Bundled-NSE script dir for the deep pass.
+        #[clap(long, default_value = "/usr/share/mde/nmap")]
+        nse_dir: String,
+    },
 }
 
 /// VV-1 / VV-1.5 — `mackesd voice <sub>` subcommands.
@@ -841,27 +855,38 @@ fn main() -> anyhow::Result<()> {
             let report = mackesd_core::health::HealthReport::empty();
             println!("{}", report.to_json_line()?);
         }
-        Cmd::Probe { action } => {
-            let ProbeCmd::Scan { targets, deep, source, nse_dir } = action;
-            use mackesd_core::probe_nmap::{scan, Profile};
-            use mde_card::probe::HostSource;
-            let src = match source.as_str() {
-                "lan" => HostSource::Lan,
-                "arbitrary" => HostSource::Arbitrary,
-                _ => HostSource::Mesh,
-            };
-            let profile = if deep { Profile::Deep } else { Profile::Fast };
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let cards = scan("nmap", profile, &targets, &nse_dir, src, now);
-            // One JSON line per host card (each carries its service
-            // children). Empty output = no hosts found / nmap absent.
-            for card in &cards {
-                println!("{}", serde_json::to_string(card)?);
+        Cmd::Probe { action } => match action {
+            ProbeCmd::Scan { targets, deep, source, nse_dir } => {
+                use mackesd_core::probe_nmap::{scan, Profile};
+                use mde_card::probe::HostSource;
+                let src = match source.as_str() {
+                    "lan" => HostSource::Lan,
+                    "arbitrary" => HostSource::Arbitrary,
+                    _ => HostSource::Mesh,
+                };
+                let profile = if deep { Profile::Deep } else { Profile::Fast };
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let cards = scan("nmap", profile, &targets, &nse_dir, src, now);
+                // One JSON line per host card (each carries its service
+                // children). Empty output = no hosts found / nmap absent.
+                for card in &cards {
+                    println!("{}", serde_json::to_string(card)?);
+                }
             }
-        }
+            ProbeCmd::Refresh { qnm_root, node_id, nse_dir } => {
+                // MESH-PROBE-4 manual refresh — one deep cycle that
+                // writes probe-inventory.json + announces probe/changed.
+                let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                let node_id = node_id.unwrap_or_else(default_node_id);
+                let n = mackesd_core::probe_nmap::run_probe_cycle(
+                    &qnm_root, &node_id, "nmap", &nse_dir, true,
+                );
+                println!("probe refresh: {n} host(s) in inventory");
+            }
+        },
         Cmd::PresetLaunch { tag } => {
             // Portal-18.d (v6.0 R12, 2026-05-27) — preset launch-
             // bundle expansion. Loads the tag store, finds the
@@ -2808,6 +2833,21 @@ fn run_serve(
                 );
             }
         }
+
+        // EPIC-MESH-PROBE (MESH-PROBE-4) — scheduled two-tier nmap
+        // probe worker. Resolves mesh-peer overlay IPs, scans them
+        // (fast 60s / deep 10min), writes this peer's
+        // probe-inventory.json into mesh-home, and announces
+        // probe/changed on the Bus when the inventory changes. The
+        // `mackesd probe scan/refresh` CLI shares the same engine.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::probe::ProbeWorker::new(qnm_root.clone(), node_id.clone()),
+            RestartPolicy::Always,
+        ));
+        worker_names
+            .lock()
+            .expect("worker_names mutex")
+            .push("probe".into());
 
         // MON-1.b (v2.6) — Netdata aggregator-IP publisher.
         // Pairs with `apply_netdata_monitor`'s baseline

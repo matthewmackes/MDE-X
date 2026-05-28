@@ -157,6 +157,10 @@ pub mod alert_relay;
 // block so netdata falls back to local-only with the 7-day
 // dbengine retention `apply_netdata_monitor` locked.
 pub mod netdata_aggregator;
+// EPIC-MESH-PROBE (MESH-PROBE-4) — scheduled two-tier nmap probe
+// worker; writes the per-peer probe-inventory.json + announces
+// probe/changed on the Bus. Spawned in run_serve; reuses probe_nmap.
+pub mod probe;
 // notification_relay retired in BUS-4.2 (2026-05-26). Cross-peer
 // notification routing is now handled by the BUS-4.4 FDO bridge:
 // every Notify call publishes to `fdo/<app>` on the Mackes Bus,

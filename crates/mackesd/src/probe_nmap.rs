@@ -17,6 +17,7 @@
 //! CLI in `bin/mackesd.rs` is the runtime entry point that makes this
 //! engine reachable end-to-end today (§0.12).
 
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use mde_card::probe::{host_card, service_card, HostFacts, HostSource, ServiceFacts};
@@ -206,7 +207,10 @@ pub fn parse_nmap_xml(xml: &str, source: HostSource, now_ts: u64) -> Vec<Card> {
 /// non-zero exit with no usable XML, or unparseable output all yield
 /// an empty vec (logged at warn) rather than an error — the probe
 /// must never crash the daemon. `nse_dir` is passed to the deep
-/// profile only.
+/// profile only, and **only when it exists**: nmap aborts (exit 1,
+/// zero hosts) if `--script <dir>` points at a missing path, so on a
+/// peer where the bundled scripts aren't installed yet the deep pass
+/// degrades to plain `-sV` rather than failing outright.
 #[must_use]
 pub fn scan(
     binary: &str,
@@ -221,7 +225,24 @@ pub fn scan(
     }
     let argv = match profile {
         Profile::Fast => fast_argv(targets),
-        Profile::Deep => deep_argv(targets, nse_dir),
+        Profile::Deep => {
+            // Guard the NSE dir existence here (I/O), keeping
+            // `deep_argv` a pure fn: an empty dir string makes
+            // `deep_argv` omit `--script` entirely.
+            let effective_nse = if !nse_dir.is_empty() && Path::new(nse_dir).is_dir() {
+                nse_dir
+            } else {
+                if !nse_dir.is_empty() {
+                    tracing::debug!(
+                        target: "mackesd::probe_nmap",
+                        nse_dir,
+                        "NSE script dir absent; deep pass falls back to plain -sV",
+                    );
+                }
+                ""
+            };
+            deep_argv(targets, effective_nse)
+        }
     };
     let output = match Command::new(binary).args(&argv).output() {
         Ok(o) => o,
@@ -249,6 +270,137 @@ pub fn scan(
         );
     }
     cards
+}
+
+// ── Probe cycle orchestration (MESH-PROBE-4) ─────────────────────────
+//
+// Sync (no tokio), so the `mackesd probe scan/refresh` CLI reaches it
+// without the `async-services` feature. The scheduled
+// `workers::probe::ProbeWorker` (gated) wraps `run_probe_cycle` with
+// the two-tier cadence timer.
+
+/// Inventory filename under `<qnm_root>/<self>/mackesd/`.
+pub const INVENTORY_FILENAME: &str = "probe-inventory.json";
+/// Bus topic published when the inventory materially changes (Q2).
+pub const CHANGED_TOPIC: &str = "probe/changed";
+
+/// Path this peer writes its probe inventory to. Mirrors the per-peer
+/// GFS layout of `ban_list_path` / `pending_enroll_path` so mesh-home
+/// replication fans it out to every peer.
+#[must_use]
+pub fn inventory_path(qnm_root: &Path, self_node_id: &str) -> PathBuf {
+    qnm_root
+        .join(self_node_id)
+        .join("mackesd")
+        .join(INVENTORY_FILENAME)
+}
+
+/// Resolve the mesh-peer scan targets: every peer's Nebula overlay IP
+/// from the GFS-replicated bundles (the same source app_sync uses).
+/// MESH-PROBE-5 will union LAN + arbitrary targets on top of this.
+#[must_use]
+pub fn mesh_targets(qnm_root: &Path) -> Vec<String> {
+    crate::mesh_media::peer_overlay_ips(qnm_root)
+        .into_iter()
+        .map(|(_node_id, ip)| ip)
+        .collect()
+}
+
+/// Serialize the inventory to the canonical JSON-array form (one Host
+/// card per up host, each with Service children). Pretty-printed so a
+/// human + a diff can read it.
+#[must_use]
+pub fn serialize_inventory(cards: &[Card]) -> String {
+    serde_json::to_string_pretty(cards).unwrap_or_else(|_| "[]".to_owned())
+}
+
+/// Atomic-write `payload` to `path` (temp + rename), creating parent
+/// dirs. Returns `true` when the content changed vs. what was on disk
+/// (or the file was absent) — the signal the caller uses to decide
+/// whether to publish `probe/changed`. A write error logs at warn +
+/// returns `false`.
+fn write_inventory_if_changed(path: &Path, payload: &str) -> bool {
+    if std::fs::read_to_string(path).is_ok_and(|existing| existing == payload) {
+        return false;
+    }
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    if let Err(e) = std::fs::create_dir_all(parent) {
+        tracing::warn!(target: "mackesd::probe_nmap", path = %path.display(), error = %e, "mkdir failed");
+        return false;
+    }
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, payload) {
+        tracing::warn!(target: "mackesd::probe_nmap", error = %e, "inventory temp write failed");
+        return false;
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        tracing::warn!(target: "mackesd::probe_nmap", error = %e, "inventory rename failed");
+        let _ = std::fs::remove_file(&tmp);
+        return false;
+    }
+    true
+}
+
+/// Publish `probe/changed` to the Bus (best-effort, graceful-degrade —
+/// same shell-out pattern as the gluster conflict + urgency_router
+/// publishers).
+fn publish_changed(host_count: usize) {
+    let body = format!("probe inventory updated: {host_count} host(s)");
+    match Command::new("mde-bus")
+        .arg("publish")
+        .arg(CHANGED_TOPIC)
+        .arg("--priority")
+        .arg("min")
+        .arg("--body-flag")
+        .arg(&body)
+        .status()
+    {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            tracing::warn!(target: "mackesd::probe_nmap", exit = ?s.code(), "mde-bus publish probe/changed non-zero")
+        }
+        Err(e) => {
+            tracing::warn!(target: "mackesd::probe_nmap", error = %e, "could not spawn mde-bus (graceful-degrade)")
+        }
+    }
+}
+
+/// Run one probe cycle: resolve mesh targets, scan, write the
+/// inventory, and announce on the Bus if it changed. Returns the
+/// number of host cards written. Shared by the scheduled worker +
+/// the `mackesd probe refresh` CLI so there's one code path.
+pub fn run_probe_cycle(
+    qnm_root: &Path,
+    self_node_id: &str,
+    binary: &str,
+    nse_dir: &str,
+    deep: bool,
+) -> usize {
+    let targets = mesh_targets(qnm_root);
+    if targets.is_empty() {
+        return 0;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let profile = if deep { Profile::Deep } else { Profile::Fast };
+    let cards = scan(binary, profile, &targets, nse_dir, HostSource::Mesh, now);
+    let payload = serialize_inventory(&cards);
+    let path = inventory_path(qnm_root, self_node_id);
+    if write_inventory_if_changed(&path, &payload) {
+        publish_changed(cards.len());
+        tracing::info!(
+            target: "mackesd::probe_nmap",
+            hosts = cards.len(),
+            deep,
+            path = %path.display(),
+            "probe inventory updated + announced on probe/changed",
+        );
+    }
+    cards.len()
 }
 
 #[cfg(test)]
@@ -412,5 +564,69 @@ mod tests {
             0,
         );
         assert!(cards.is_empty());
+    }
+
+    // ── Cycle orchestration (MESH-PROBE-4) ──────────────────────────
+
+    fn tmp_root(tag: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("mde-probecyc-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn inventory_path_mirrors_peer_layout() {
+        assert_eq!(
+            inventory_path(Path::new("/qnm"), "peer-a"),
+            Path::new("/qnm/peer-a/mackesd/probe-inventory.json")
+        );
+    }
+
+    #[test]
+    fn mesh_targets_reads_peer_overlay_ips() {
+        let root = tmp_root("targets");
+        for (peer, ip) in [("peer-a", "10.42.0.5"), ("peer-b", "10.42.0.6")] {
+            let dir = root.join(peer).join("mackesd");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("nebula-bundle.json"),
+                format!(r#"{{"overlay_ip":"{ip}"}}"#),
+            )
+            .unwrap();
+        }
+        let mut t = mesh_targets(&root);
+        t.sort();
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(t, vec!["10.42.0.5".to_string(), "10.42.0.6".to_string()]);
+    }
+
+    #[test]
+    fn write_inventory_detects_change_then_noop() {
+        let root = tmp_root("write");
+        let path = inventory_path(&root, "self");
+        assert!(write_inventory_if_changed(&path, "[]"), "absent → changed");
+        assert!(!write_inventory_if_changed(&path, "[]"), "same → no change");
+        assert!(write_inventory_if_changed(&path, "[{\"x\":1}]"), "diff → changed");
+        let leftover = path.with_extension("json.tmp").exists();
+        let body = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(!leftover, "no temp file left behind");
+        assert_eq!(body, "[{\"x\":1}]");
+    }
+
+    #[test]
+    fn serialize_inventory_empty_is_json_array() {
+        assert_eq!(serialize_inventory(&[]), "[]");
+    }
+
+    #[test]
+    fn run_cycle_no_targets_writes_nothing() {
+        let root = tmp_root("notargets");
+        let n = run_probe_cycle(&root, "self", "/nonexistent/nmap", "", true);
+        let existed = inventory_path(&root, "self").exists();
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(n, 0);
+        assert!(!existed, "no inventory when there are no targets");
     }
 }
