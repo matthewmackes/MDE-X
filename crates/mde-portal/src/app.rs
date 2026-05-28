@@ -275,6 +275,10 @@ pub enum Message {
     /// window; rendered as a priority-tinted pill near the host
     /// segment.
     BusAnnounceSegment(BusAnnounceSegment),
+    /// BUS-2.4: operator acked a high-priority card (clicked the
+    /// pill). Removes it from `bus_high_cards` by ULID. Local ack
+    /// only; cross-peer first-to-ack-wins cancel is BUS-6.4.
+    AckHigh(String),
     /// Portal-14.a (R4-Q22): 33-ms typewriter reveal tick. No
     /// state change in the handler — the message exists solely
     /// to invalidate the view so char-by-char reveal animates
@@ -402,6 +406,20 @@ pub struct DockApp {
     /// [`BUS_ANNOUNCE_TTL_SECS`] seconds. Rendered as a transient
     /// pill near the host segment, tinted by priority class.
     bus_announce_segments: Vec<BusAnnounceSegment>,
+    /// BUS-2.4: persistent high-priority Bus cards. Unlike the TTL'd
+    /// `bus_announce_segments` breadcrumb, a `priority=high` message
+    /// lands here and stays until the operator acks it (clicks the
+    /// pill → `Message::AckHigh`). Per the BUS-2.1 surface table,
+    /// high → status strip (not the transient breadcrumb). Rendered
+    /// high-tinted by `build_bus_high_segments`. NOTE: this is the
+    /// fixed-height-Dock realization — the full multi-line slide-up
+    /// card strip (vertical space via layer-shell resize) is the
+    /// bench-refinement follow-up BUS-2.4.strip.
+    bus_high_cards: Vec<BusAnnounceSegment>,
+    /// BUS-2.4: one-shot guard for the high alert sound. Set when
+    /// `bus_high_cards` goes empty→non-empty; reset when it empties,
+    /// so the next batch of high messages re-arms the sound.
+    high_sound_played: bool,
     /// Portal-14.d (R4-Q91): reference instant the breath-line
     /// gradient sweep started at. The pure helper
     /// `breath_line::breath_line_phase` reads this + the current
@@ -506,6 +524,8 @@ impl Default for DockApp {
             layout_prompt: None,
             recent_pulses: Vec::new(),
             bus_announce_segments: Vec::new(),
+            bus_high_cards: Vec::new(),
+            high_sound_played: false,
             dock_started_at: chrono::Local::now(),
         }
     }
@@ -719,17 +739,33 @@ impl iced_layershell::Application for DockApp {
                 // wgpu vsync rate.
             }
             Message::BusAnnounceSegment(segment) => {
-                // BUS-2.2.a: record the breadcrumb + sweep expired
-                // entries. Cap at 8 (Dock breadcrumb has limited
-                // horizontal space; older segments evict).
                 let now = chrono::Local::now();
-                self.bus_announce_segments
-                    .retain(|s| is_bus_segment_alive(s, now));
-                self.bus_announce_segments.push(segment);
-                if self.bus_announce_segments.len() > 8 {
-                    let overflow = self.bus_announce_segments.len() - 8;
-                    self.bus_announce_segments.drain(..overflow);
+                if segment.priority == "high" {
+                    // BUS-2.4: high → persistent ackable card + one-shot
+                    // sound (surface table: high goes to the strip, not
+                    // the transient breadcrumb).
+                    if push_high_card(
+                        &mut self.bus_high_cards,
+                        segment,
+                        &mut self.high_sound_played,
+                    ) {
+                        play_high_alert();
+                    }
+                } else {
+                    // BUS-2.2.a: default (+ urgent until BUS-2.5 theater
+                    // lands) → TTL'd breadcrumb. Sweep expired entries +
+                    // cap at 8 (limited horizontal space; older evict).
+                    self.bus_announce_segments
+                        .retain(|s| is_bus_segment_alive(s, now));
+                    self.bus_announce_segments.push(segment);
+                    if self.bus_announce_segments.len() > 8 {
+                        let overflow = self.bus_announce_segments.len() - 8;
+                        self.bus_announce_segments.drain(..overflow);
+                    }
                 }
+            }
+            Message::AckHigh(ulid) => {
+                ack_high_card(&mut self.bus_high_cards, &ulid, &mut self.high_sound_played);
             }
             Message::FocusWorkspace(name) => {
                 return Task::perform(
@@ -950,6 +986,7 @@ impl iced_layershell::Application for DockApp {
         let prev_ws_seg = build_prev_workspace_segment(self, fg);
         let layout_prompt_seg = build_layout_prompt_segment(self);
         let bus_announce_seg = build_bus_announce_segments(self);
+        let bus_high_seg = build_bus_high_segments(self);
         let urgent_pulse_seg = build_urgent_pulse_segments(self);
         let host_seg = build_hostname_segment(self, fg);
         let running_zone = build_running_zone(self, fg);
@@ -967,6 +1004,7 @@ impl iced_layershell::Application for DockApp {
                     prev_ws_seg,
                     layout_prompt_seg,
                     bus_announce_seg,
+                    bus_high_seg,
                     urgent_pulse_seg,
                     host_seg,
                     running_zone,
@@ -1416,6 +1454,89 @@ fn build_urgent_pulse_segments<'a>(app: &DockApp) -> Element<'a, Message> {
 /// Currently renders plain text; typewriter entry (R4-Q22 +
 /// R4-Q28 tick audio) ships as BUS-2.2.typewriter when
 /// Portal-14 typewriter primitive is available.
+/// BUS-2.4: push a high-priority card if not already present
+/// (dedup by ULID). Returns `true` when the one-shot alert sound
+/// should fire — i.e. the set transitioned empty→non-empty and the
+/// sound hasn't already played for this batch.
+fn push_high_card(
+    cards: &mut Vec<BusAnnounceSegment>,
+    card: BusAnnounceSegment,
+    sound_played: &mut bool,
+) -> bool {
+    if cards.iter().any(|c| c.ulid == card.ulid) {
+        return false;
+    }
+    let was_empty = cards.is_empty();
+    cards.push(card);
+    if was_empty && !*sound_played {
+        *sound_played = true;
+        return true;
+    }
+    false
+}
+
+/// BUS-2.4: remove a high card by ULID; re-arm the one-shot sound
+/// guard once the set empties so the next batch alerts again.
+fn ack_high_card(cards: &mut Vec<BusAnnounceSegment>, ulid: &str, sound_played: &mut bool) {
+    cards.retain(|c| c.ulid != ulid);
+    if cards.is_empty() {
+        *sound_played = false;
+    }
+}
+
+/// BUS-2.4: best-effort one-shot alert sound for high-priority Bus
+/// messages. Spawns a freedesktop event sound via `canberra-gtk-play`;
+/// degrades to a logged no-op when it isn't installed — the visual
+/// pill is the source of truth, the sound is an enhancement.
+fn play_high_alert() {
+    if std::process::Command::new("canberra-gtk-play")
+        .args(["-i", "dialog-warning"])
+        .spawn()
+        .is_err()
+    {
+        tracing::debug!("bus high alert: canberra-gtk-play unavailable; sound skipped");
+    }
+}
+
+/// BUS-2.4: persistent high-priority pill set. Mirrors
+/// `build_bus_announce_segments` but each pill is high-tinted,
+/// never TTL-expires, and is click-to-ack (`Message::AckHigh`).
+/// Empty → zero-width spacer so the Dock layout is unchanged when no
+/// high message is in flight.
+fn build_bus_high_segments<'a>(app: &DockApp) -> Element<'a, Message> {
+    if app.bus_high_cards.is_empty() {
+        return iced::widget::Space::new(0.0, Length::Fill).into();
+    }
+    let mut pills: Vec<Element<'a, Message>> = Vec::new();
+    for card in &app.bus_high_cards {
+        let label = format!("⚠ {} ✕", format_bus_segment_label(card));
+        let ulid = card.ulid.clone();
+        let tint = bus_segment_color(card.topic, &card.priority);
+        pills.push(
+            iced::widget::mouse_area(
+                container(text(label).size(11.0).color(Color::WHITE))
+                    .style(move |_theme: &Theme| iced::widget::container::Style {
+                        background: Some(iced::Background::Color(tint)),
+                        border: iced::Border {
+                            radius: iced::border::Radius::from(4.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .height(Length::Fill)
+                    .align_y(iced::alignment::Vertical::Center)
+                    .padding(Padding::from([2, 8])),
+            )
+            .on_press(Message::AckHigh(ulid))
+            .into(),
+        );
+    }
+    iced::widget::row(pills)
+        .spacing(4)
+        .align_y(iced::Alignment::Center)
+        .into()
+}
+
 fn build_bus_announce_segments<'a>(app: &DockApp) -> Element<'a, Message> {
     let now = chrono::Local::now();
     let alive: Vec<&BusAnnounceSegment> = app
@@ -3771,6 +3892,53 @@ mod tests {
             spawned_at: chrono::Local::now(),
             topic: BusSegmentTopic::Clipboard,
         }
+    }
+
+    // ── BUS-2.4 high-priority card tests ────────────────────────────────────
+
+    fn make_high_card(ulid: &str) -> BusAnnounceSegment {
+        BusAnnounceSegment {
+            ulid: ulid.to_string(),
+            priority: "high".to_string(),
+            title: Some("alert".to_string()),
+            body: Some("body".to_string()),
+            spawned_at: chrono::Local::now(),
+            topic: BusSegmentTopic::Announce,
+        }
+    }
+
+    #[test]
+    fn push_high_card_arms_sound_on_empty_to_nonempty_then_holds() {
+        let mut cards = Vec::new();
+        let mut sound = false;
+        assert!(push_high_card(&mut cards, make_high_card("a"), &mut sound));
+        assert!(sound, "first high card arms the one-shot sound");
+        assert_eq!(cards.len(), 1);
+        // second card while non-empty: no re-arm.
+        assert!(!push_high_card(&mut cards, make_high_card("b"), &mut sound));
+        assert_eq!(cards.len(), 2);
+    }
+
+    #[test]
+    fn push_high_card_dedups_by_ulid() {
+        let mut cards = Vec::new();
+        let mut sound = false;
+        assert!(push_high_card(&mut cards, make_high_card("dup"), &mut sound));
+        // same ULID again: no push, no re-arm.
+        assert!(!push_high_card(&mut cards, make_high_card("dup"), &mut sound));
+        assert_eq!(cards.len(), 1);
+    }
+
+    #[test]
+    fn ack_high_card_removes_and_rearms_sound_when_empty() {
+        let mut cards = vec![make_high_card("a"), make_high_card("b")];
+        let mut sound = true;
+        ack_high_card(&mut cards, "a", &mut sound);
+        assert_eq!(cards.len(), 1);
+        assert!(sound, "sound stays armed while cards remain");
+        ack_high_card(&mut cards, "b", &mut sound);
+        assert!(cards.is_empty());
+        assert!(!sound, "sound re-arms once the set empties");
     }
 
     /// Segment alive within TTL; expires after.
