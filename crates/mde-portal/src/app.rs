@@ -1580,6 +1580,18 @@ fn build_prev_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Mes
     // `data/sway/config:60 client.focused`.
     let _ = fg; // kept for future tag-color fallback path
     let segment_color = COLOR_INDIGO;
+    // ANIM (Q8 dismissal): fade out over the last DISMISS_FADE_TAIL_MS
+    // before the prev-workspace segment's TTL expires (shared fade with
+    // the urgent + announce pills), via mde-motion.
+    let fade = match app.last_workspace_change {
+        Some(spawned_at) => ttl_dismiss_fade(
+            now.signed_duration_since(spawned_at).num_milliseconds(),
+            PREV_WS_SEGMENT_TTL_SECS * 1000,
+        ),
+        None => 1.0,
+    };
+    let seg_bg = Color { a: segment_color.a * fade, ..segment_color };
+    let seg_fg = Color { a: fade, ..Color::WHITE };
     // Portal-14.c (R4-Q60): drop the prior 16-char truncation in
     // favor of marquee-scroll over the full workspace name. The
     // typewriter reveal runs first on each workspace flip; once
@@ -1625,10 +1637,10 @@ fn build_prev_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Mes
         container(
             text(label)
                 .size(11.0)
-                .color(Color::WHITE),
+                .color(seg_fg),
         )
         .style(move |_theme: &Theme| iced::widget::container::Style {
-            background: Some(iced::Background::Color(segment_color)),
+            background: Some(iced::Background::Color(seg_bg)),
             border: iced::Border {
                 radius: iced::border::Radius::from(4.0),
                 ..Default::default()
