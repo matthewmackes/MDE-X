@@ -160,11 +160,19 @@ async fn sleep_or_shutdown(dur: Duration, shutdown: &mut ShutdownToken) {
     }
 }
 
+/// Error type returned by [`write_snapshot_atomic`] and
+/// [`read_snapshot`]. Carries the four distinct failure modes
+/// the worker can encounter at the FS / IPC / JSON boundaries.
 #[derive(Debug)]
-enum SessionPersistError {
+pub enum SessionPersistError {
+    /// swayipc connection dropped or refused.
     Connection,
+    /// FS-side IO failure (read / write / rename).
     Io(std::io::Error),
+    /// JSON serde failure (parse on read, serialize on write).
     Json(serde_json::Error),
+    /// `$HOME` / `$XDG_DATA_HOME` not set, so the session.json
+    /// path couldn't be resolved.
     PathResolution,
 }
 

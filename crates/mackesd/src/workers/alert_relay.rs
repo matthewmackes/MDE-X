@@ -52,14 +52,20 @@ pub const DEFAULT_TICK_INTERVAL: Duration = Duration::from_secs(2);
 /// future schema bump (additional optional fields) doesn't
 /// break this worker.
 #[derive(Debug, Clone, Deserialize)]
-struct AlertEventPartial {
-    id: String,
-    severity: String,
-    alert: String,
-    host: String,
-    summary: String,
+pub struct AlertEventPartial {
+    /// Stable alert id (ULID).
+    pub id: String,
+    /// `crit` | `warn` | `info`.
+    pub severity: String,
+    /// Netdata alert name (e.g. `disk_usage.<filesystem>`).
+    pub alert: String,
+    /// Hostname the alert fired on.
+    pub host: String,
+    /// Operator-facing one-line summary.
+    pub summary: String,
+    /// Netdata chart URL (optional — empty when absent).
     #[serde(default)]
-    chart_url: String,
+    pub chart_url: String,
 }
 
 /// Worker handle. Cheap to construct.
