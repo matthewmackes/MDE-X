@@ -16,6 +16,9 @@ use mde_applet_api::{AppletId, AppletSlot, HostMessage};
 /// the v1.x file-manager recents-default cap.
 pub const RECENTS_CAP: usize = 12;
 
+/// Build the static applet manifest the host registers at
+/// startup. Slot = Overlay because the recents widget renders
+/// as an overlay popover rather than embedded in a top-bar slot.
 #[must_use]
 pub fn manifest() -> mde_applet_api::AppletManifest {
     mde_applet_api::AppletManifest {
@@ -39,6 +42,10 @@ pub struct RecentRow {
     pub modified: String,
 }
 
+/// Absolute path to the freedesktop XBEL recents file. Honors
+/// `$XDG_DATA_HOME` first, then falls back to
+/// `$HOME/.local/share/recently-used.xbel`. Returns
+/// `/var/empty/...` only when neither env var is set.
 #[must_use]
 pub fn recents_xbel_path() -> PathBuf {
     let base = std::env::var("XDG_DATA_HOME")
@@ -108,6 +115,10 @@ pub fn format_widget(rows: &[RecentRow]) -> String {
         .join("\n")
 }
 
+/// Process a host control message and return `true` when the
+/// applet should keep running. Only [`HostMessage::Shutdown`]
+/// stops the event loop; every other variant is a host-side
+/// hint the renderer reacts to elsewhere.
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)

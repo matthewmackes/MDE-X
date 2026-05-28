@@ -12,6 +12,10 @@
 use mde_applet_api::{AppletId, AppletSlot, HostMessage};
 use serde::Deserialize;
 
+/// Build the static applet manifest the host registers at
+/// startup. Slot = Overlay because the Super+Tab switcher
+/// renders on the wlr-layer-shell overlay layer in response to
+/// modifier-key events rather than embedded in a top-bar slot.
 #[must_use]
 pub fn manifest() -> mde_applet_api::AppletManifest {
     mde_applet_api::AppletManifest {
@@ -121,6 +125,10 @@ pub fn format_strip(rows: &[WindowRow]) -> String {
         .join("\n")
 }
 
+/// Process a host control message and return `true` when the
+/// applet should keep running. Only [`HostMessage::Shutdown`]
+/// stops the event loop; every other variant is a host-side
+/// hint the renderer reacts to elsewhere.
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)

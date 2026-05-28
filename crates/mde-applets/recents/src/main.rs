@@ -1,3 +1,9 @@
+//! Binary entry point for the recently-opened files widget.
+//! Reads the freedesktop XBEL recents file + writes the
+//! formatted row strip to the host over stdio. `--manifest`
+//! prints the applet's manifest JSON and exits (called by
+//! the panel host during registration discovery).
+
 use std::io::{BufRead, BufReader, Write};
 use std::process::ExitCode;
 

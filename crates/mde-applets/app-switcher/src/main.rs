@@ -1,3 +1,10 @@
+//! Binary entry point for the Super+Tab window switcher
+//! applet. Polls the compositor's window list via swaymsg
+//! get_tree + writes the formatted strip to the host over
+//! stdio. `--manifest` prints the applet's manifest JSON and
+//! exits (called by the panel host during registration
+//! discovery).
+
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, ExitCode};
 

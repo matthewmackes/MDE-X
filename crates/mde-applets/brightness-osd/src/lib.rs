@@ -9,8 +9,13 @@
 
 use mde_applet_api::{AppletId, AppletSlot, HostMessage};
 
+/// Width of the OSD's filled/unfilled block bar in cells.
 pub const BAR_WIDTH: usize = 20;
 
+/// Build the static applet manifest the host registers at
+/// startup. Slot = Overlay because the OSD renders on the
+/// wlr-layer-shell overlay layer in response to brightness-key
+/// events.
 #[must_use]
 pub fn manifest() -> mde_applet_api::AppletManifest {
     mde_applet_api::AppletManifest {
@@ -46,6 +51,10 @@ pub fn format_osd(pct: u32) -> String {
     format!("{glyph}  {bar}  {clamped}%")
 }
 
+/// Process a host control message and return `true` when the
+/// applet should keep running. Only [`HostMessage::Shutdown`]
+/// stops the event loop; every other variant is a host-side
+/// hint the renderer reacts to elsewhere.
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)
