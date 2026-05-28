@@ -86,10 +86,10 @@ pub const fn health_glyph(state: &str) -> &'static str {
 ///
 /// v4.0.1 BUG-13.a: leading Unicode glyph (`health_glyph(state)`,
 /// e.g. `●` / `◐` / `○` / `?`) dropped from the chip text — the
-/// panel composes a Carbon SVG icon (`PanelIcon::Mesh`) before this
-/// text instead. `health_glyph` is kept exported for tooltip /
-/// accessibility-text consumers. State-based color tinting at the
-/// render side now lives on the SVG, not the unicode glyph.
+/// panel composes a Material Symbols SVG icon (`PanelIcon::Mesh`)
+/// before this text instead. `health_glyph` is kept exported for
+/// tooltip / accessibility-text consumers. State-based color tinting
+/// at the render side now lives on the SVG, not the unicode glyph.
 #[must_use]
 pub fn format_chip(report: &HealthReport) -> String {
     report.peer_count.to_string()
@@ -161,7 +161,7 @@ impl NebulaTransportColor {
         }
     }
 
-    /// Hex string for the panel renderer. Carbon palette
+    /// Hex string for the panel renderer. Material palette
     /// `--mde-status-*` aligned.
     #[must_use]
     pub const fn hex(self) -> &'static str {
@@ -332,8 +332,8 @@ mod tests {
     }
 
     #[test]
-    fn transport_color_hex_is_carbon_status_palette() {
-        // Hex codes must match the Carbon --mde-status-* CSS
+    fn transport_color_hex_is_material_status_palette() {
+        // Hex codes must match the Material --mde-status-* CSS
         // tokens so the SVG renderer at the panel side
         // doesn't need a parallel mapping table.
         assert_eq!(NebulaTransportColor::Green.hex(), "#1ac782");

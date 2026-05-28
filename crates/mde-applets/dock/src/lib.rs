@@ -177,7 +177,7 @@ pub fn handle_host(msg: &HostMessage) -> bool {
 }
 
 /// DOCK-1 (v4.0.1, 2026-05-23) — map a sway `app_id` to a
-/// `mde_theme::Icon` variant whose `carbon_name()` →
+/// `mde_theme::Icon` variant whose Material Symbols glyph name →
 /// `svg_bytes()` is baked into the binary. Unknown app_ids fall
 /// back to `Icon::Apps` per the DOCK-1 acceptance criterion
 /// ("fallback Icon::Application for unknown app_ids"). The
@@ -195,7 +195,7 @@ pub fn icon_for_app_id(app_id: &str) -> Icon {
         .unwrap_or(lc.as_str());
     match bare {
         // MDE first-party launchers — these have real Workbench /
-        // Files Carbon SVGs baked into mde-theme.
+        // Files Material Symbols SVGs baked into mde-theme.
         "mde-workbench" | "mackes-shell" | "mde" => Icon::Workbench,
         "mde-files" => Icon::Files,
         // Browsers — no globe glyph in the asset bundle yet; the
@@ -210,7 +210,7 @@ pub fn icon_for_app_id(app_id: &str) -> Icon {
         // Notifications viewer:
         "notification-daemon" => Icon::Notification,
         // Everything else: fall back to the generic application
-        // glyph. svg_bytes() returns the baked Carbon
+        // glyph. svg_bytes() returns the baked Material Symbols
         // `application.svg` so the dock never renders empty
         // cells.
         _ => Icon::Apps,

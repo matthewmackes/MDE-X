@@ -16,7 +16,7 @@ crates/mde-applets/applet-api/src/lib.rs:495
 crates/mde-applets/applet-api/src/lib.rs:497
 crates/mde-applets/applet-api/src/lib.rs:503
 crates/mde-applets/clock/src/lib.rs:130
-crates/mde-applets/dock/src/main.rs:63
+crates/mde-applets/dock/src/main.rs:64
 crates/mde-applets/mesh-status/src/lib.rs:169
 crates/mde-applets/mesh-status/src/lib.rs:170
 crates/mde-applets/mesh-status/src/lib.rs:171

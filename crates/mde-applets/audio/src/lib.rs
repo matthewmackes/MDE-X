@@ -100,7 +100,7 @@ pub fn audio_glyph(state: AudioState) -> &'static str {
 ///
 /// v4.0.1 BUG-13.a: the leading Unicode glyph (`audio_glyph(state)`,
 /// e.g. `🔈` / `🔉` / `🔊`) is no longer prepended. The panel composes
-/// its own Carbon SVG icon (via `PanelIcon::Audio`) before this text,
+/// its own Material Symbols SVG icon (via `PanelIcon::Audio`) before this text,
 /// so the chip used to render `[SVG] 🔈 50%` (icon + redundant
 /// glyph + percent). Now the chip is just `50%` / `muted` and the
 /// panel slot renders `[SVG] 50%`. `audio_glyph` is kept exported

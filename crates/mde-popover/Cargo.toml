@@ -16,7 +16,7 @@ path = "src/main.rs"
 # Same Iced + iced_layershell pair as crates/mde-panel — keeps the
 # workspace dep tree on one resolution.
 # v4.0.1 BUG-13: `svg` added so start_menu pinned tiles (BUG-12)
-# can render Carbon glyphs instead of label-only buttons.
+# can render Material Symbols glyphs instead of label-only buttons.
 # v4.0.1 WM-5.a: `image` added so app_switcher cards can paint
 # per-window PNG thumbnails captured via grim.
 iced            = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "svg", "image", "tokio", "advanced"] }

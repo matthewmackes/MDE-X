@@ -12,8 +12,8 @@
 //! 2. All Apps (scrollable, alpha-sorted).
 //! 3. Search (fuzzy match against Name + Comment).
 //!
-//! Right-click on any entry surfaces the Carbon icon
-//! mapper popover so the user can re-skin the launcher
+//! Right-click on any entry surfaces the Material Symbols
+//! icon mapper popover so the user can re-skin the launcher
 //! glyph (locked 2026-05-19).
 
 #![forbid(unsafe_code)]

@@ -94,9 +94,9 @@ pub fn battery_glyph(state: &BatteryState) -> &'static str {
 /// Empty profile section if not on a laptop.
 ///
 /// v4.0.1 BUG-13.a: leading Unicode battery glyph (`battery_glyph`,
-/// e.g. `◉` / `▢` / `◻` / `◼`) dropped — the panel composes a Carbon
-/// SVG icon (`PanelIcon::Status`) before this text. `battery_glyph`
-/// stays exported for any tooltip / a11y-text consumer.
+/// e.g. `◉` / `▢` / `◻` / `◼`) dropped — the panel composes a
+/// Material Symbols SVG icon (`PanelIcon::Status`) before this text.
+/// `battery_glyph` stays exported for any tooltip / a11y-text consumer.
 #[must_use]
 pub fn format_cluster(battery: Option<&BatteryState>, profile: &str) -> String {
     let mut s = String::new();
@@ -124,7 +124,7 @@ pub fn format_cluster(battery: Option<&BatteryState>, profile: &str) -> String {
 /// drills into the mesh-status applet.
 ///
 /// Single-char glyph chosen for the narrow font budget; the
-/// panel SVG renderer translates these to Carbon icons
+/// panel SVG renderer translates these to Material Symbols icons
 /// when paint-time:
 ///
 ///   ● healthy / direct UDP   → green dot

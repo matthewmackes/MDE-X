@@ -4,8 +4,9 @@
 //! with a real Iced 0.13 + `iced_layershell` 0.13.7 surface
 //! anchored to the bottom of the screen. One cell per running
 //! sway window + one cell per pinned `.desktop` entry that
-//! isn't currently running. Cells render the app's Carbon-mapped
-//! glyph via `mde_theme::Icon` → `ResolvedIcon::svg_bytes()`.
+//! isn't currently running. Cells render the app's Material
+//! Symbols-mapped glyph via `mde_theme::Icon` →
+//! `ResolvedIcon::svg_bytes()`.
 //!
 //! Interactions (mouse_area-based):
 //!   * Left-click  → focus the window via `swaymsg
@@ -57,7 +58,7 @@ const HEIGHT: u32 = 48;
 /// 44-60 px, we go mid-range so labels stay legible at default
 /// scale.
 const CELL_WIDTH: f32 = 56.0;
-/// Carbon SVG square rendered inside each cell.
+/// Material Symbols SVG square rendered inside each cell.
 const ICON_PX: f32 = 24.0;
 /// Indigo accent for focus underlines + button hovers. Matches
 /// the UX-2 lock (#5b6af5).

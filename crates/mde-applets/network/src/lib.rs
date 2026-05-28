@@ -94,8 +94,8 @@ pub const fn type_glyph(kind: &str) -> &'static str {
 ///
 /// v4.0.1 BUG-13.a: leading Unicode glyph (`type_glyph(...)`,
 /// e.g. `◯` for Wi-Fi or `≡` for Ethernet) dropped — the panel
-/// now composes a Carbon SVG icon (`PanelIcon::Network`) before
-/// this text. Was `◯ home-wifi`; now `home-wifi`.
+/// now composes a Material Symbols SVG icon (`PanelIcon::Network`)
+/// before this text. Was `◯ home-wifi`; now `home-wifi`.
 #[must_use]
 pub fn format_chip(conn: Option<&ActiveConnection>) -> String {
     match conn {
@@ -206,7 +206,7 @@ mod tests {
     #[test]
     fn format_chip_renders_name_only() {
         // v4.0.1 BUG-13.a — leading Unicode glyph dropped; the
-        // panel composes the Carbon SVG before this text.
+        // panel composes the Material Symbols SVG before this text.
         let c = ActiveConnection {
             name: "home-wifi".into(),
             kind: "wifi".into(),
