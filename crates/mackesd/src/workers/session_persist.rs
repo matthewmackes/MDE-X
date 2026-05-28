@@ -29,7 +29,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use swayipc_async::Connection;
+use hyprland::data::Workspaces;
+use hyprland::dispatch::{Dispatch, DispatchType, MonitorIdentifier, WorkspaceIdentifier};
+use hyprland::shared::{HyprData, HyprDataVec};
 
 use super::{ShutdownToken, Worker};
 
@@ -39,6 +41,11 @@ const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(5);
 /// Schema version for the session snapshot file. Bump on
 /// backwards-incompatible changes; for now informational.
 pub const SCHEMA_VERSION: u32 = 1;
+
+/// Sentinel layout name written into every v6.5 snapshot — Hyprland
+/// has no per-workspace layout, so this records the global `mde`
+/// layout (HYP-12) rather than a sway-style splith/tabbed/stacked.
+pub const DEFAULT_LAYOUT: &str = "mde";
 
 /// One workspace's structural state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,7 +57,14 @@ pub struct WorkspaceSnapshot {
     pub name: String,
     /// Output the workspace lives on (e.g. `HDMI-A-1`).
     pub output: String,
-    /// Container layout: `splith` / `splitv` / `tabbed` / `stacked`.
+    /// Container layout. Vestigial under Hyprland (HYP-17): Hyprland
+    /// has no per-workspace layout primitive — tiling is governed by
+    /// the global `general { layout = mde }` (HYP-12) + per-window
+    /// grouping — so this field is always the `mde` default sentinel
+    /// on v6.5 snapshots. Retained for snapshot-schema compatibility
+    /// with v6.0 session.json files. The structural/layout restore
+    /// (sway's `append_layout` + swallows) is Portal-52.b, which the
+    /// design doc holds blocked pending a Hyprland equivalent.
     pub layout: String,
 }
 
@@ -113,19 +127,14 @@ impl Worker for SessionPersistWorker {
             if shutdown.is_shutdown() {
                 return Ok(());
             }
-            let mut conn = match Connection::new().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::debug!(error = %e, "session_persist connect failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
             // First-run-only restore pass. Subsequent reconnects
-            // (e.g. sway restart) don't re-restore — the operator's
-            // current session is the source of truth from then on.
+            // (e.g. Hyprland restart) don't re-restore — the
+            // operator's current session is the source of truth from
+            // then on. hyprland-rs data/dispatch calls are stateless
+            // (no persistent Connection), so the restore + snapshot
+            // helpers reach Hyprland directly via the socket each call.
             if !self.restored {
-                if let Err(e) = restore_from_default(&mut conn).await {
+                if let Err(e) = restore_from_default().await {
                     tracing::debug!(error = %e, "session_persist restore failed; continuing snapshot cadence");
                 }
                 self.restored = true;
@@ -136,7 +145,7 @@ impl Worker for SessionPersistWorker {
                     biased;
                     _ = shutdown.wait() => return Ok(()),
                     _ = tokio::time::sleep(SNAPSHOT_INTERVAL) => {
-                        match snapshot_to_default(&mut conn).await {
+                        match snapshot_to_default().await {
                             Ok(()) => {}
                             Err(SessionPersistError::Connection) => {
                                 tracing::debug!("session_persist snapshot lost connection; reconnecting");
@@ -149,6 +158,8 @@ impl Worker for SessionPersistWorker {
                     }
                 }
             }
+            // Reconnect backoff after a lost-connection snapshot.
+            sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
         }
     }
 }
@@ -165,7 +176,7 @@ async fn sleep_or_shutdown(dur: Duration, shutdown: &mut ShutdownToken) {
 /// the worker can encounter at the FS / IPC / JSON boundaries.
 #[derive(Debug)]
 pub enum SessionPersistError {
-    /// swayipc connection dropped or refused.
+    /// Hyprland IPC socket dropped or refused.
     Connection,
     /// FS-side IO failure (read / write / rename).
     Io(std::io::Error),
@@ -179,7 +190,7 @@ pub enum SessionPersistError {
 impl std::fmt::Display for SessionPersistError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Connection => write!(f, "swayipc connection dropped"),
+            Self::Connection => write!(f, "Hyprland IPC socket dropped"),
             Self::Io(e) => write!(f, "io: {e}"),
             Self::Json(e) => write!(f, "json: {e}"),
             Self::PathResolution => write!(f, "could not resolve session.json path"),
@@ -199,38 +210,39 @@ impl From<serde_json::Error> for SessionPersistError {
     }
 }
 
-/// Snapshot the live sway tree to the default path
+/// Snapshot the live Hyprland workspace list to the default path
 /// (`<XDG_DATA_HOME>/mde/session.json`). Atomic write via
 /// temp + rename.
-async fn snapshot_to_default(conn: &mut Connection) -> Result<(), SessionPersistError> {
+async fn snapshot_to_default() -> Result<(), SessionPersistError> {
     let path = default_session_path().ok_or(SessionPersistError::PathResolution)?;
-    let snapshot = build_snapshot(conn).await?;
+    let snapshot = build_snapshot().await?;
     write_snapshot_atomic(&path, &snapshot)?;
     Ok(())
 }
 
-/// Walk the live sway tree + workspace list to build a snapshot.
-async fn build_snapshot(conn: &mut Connection) -> Result<SessionSnapshot, SessionPersistError> {
-    let workspaces = conn
-        .get_workspaces()
+/// Read the live Hyprland workspace list to build a snapshot.
+///
+/// HYP-17: the v6.0 sway version also walked `get_tree` for each
+/// workspace's container layout. Hyprland has no per-workspace
+/// layout primitive, so the layout field is set to the `mde`
+/// default sentinel (see [`WorkspaceSnapshot::layout`]) and the
+/// tree-walk is dropped.
+async fn build_snapshot() -> Result<SessionSnapshot, SessionPersistError> {
+    let workspaces = Workspaces::get_async()
         .await
-        .map_err(|_| SessionPersistError::Connection)?;
-    let tree = conn
-        .get_tree()
-        .await
-        .map_err(|_| SessionPersistError::Connection)?;
+        .map_err(|_| SessionPersistError::Connection)?
+        .to_vec();
     let mut out = SessionSnapshot::default();
     for ws in workspaces {
-        if ws.num < 0 {
-            // Sway internal scratchpad meta-workspace — skip.
+        if ws.id < 0 {
+            // Hyprland special/named workspace (scratchpad etc.) — skip.
             continue;
         }
-        let layout = workspace_layout(&tree, ws.num).unwrap_or_else(|| "splith".to_string());
         out.workspaces.push(WorkspaceSnapshot {
-            workspace_num: ws.num,
+            workspace_num: ws.id,
             name: ws.name,
-            output: ws.output,
-            layout,
+            output: ws.monitor,
+            layout: DEFAULT_LAYOUT.to_string(),
         });
     }
     Ok(out)
@@ -238,7 +250,16 @@ async fn build_snapshot(conn: &mut Connection) -> Result<SessionSnapshot, Sessio
 
 /// Restore from the default-path snapshot. Missing file is not
 /// an error — first-boot path.
-async fn restore_from_default(conn: &mut Connection) -> Result<(), SessionPersistError> {
+///
+/// HYP-17: under sway each workspace was recreated via a 3-directive
+/// command string (`workspace number N; move workspace to output …;
+/// layout …`). On Hyprland the restore is best-effort monitor
+/// pinning — `MoveWorkspaceToMonitor(Id(n), Name(out))` — so a
+/// workspace lands on its remembered output when it next opens. The
+/// per-workspace layout restore (sway `append_layout` + swallows) is
+/// Portal-52.b, held blocked pending a Hyprland equivalent, so no
+/// layout directive is dispatched here.
+async fn restore_from_default() -> Result<(), SessionPersistError> {
     let path = default_session_path().ok_or(SessionPersistError::PathResolution)?;
     if !path.exists() {
         return Ok(());
@@ -251,9 +272,16 @@ async fn restore_from_default(conn: &mut Connection) -> Result<(), SessionPersis
         if ws.workspace_num == 99 {
             continue;
         }
-        let cmd = restore_command(ws);
-        if let Err(e) = conn.run_command(&cmd).await {
-            tracing::warn!(workspace = ws.workspace_num, error = %e, "session_persist restore command failed");
+        if ws.workspace_num < 0 || ws.output.is_empty() {
+            continue;
+        }
+        if let Err(e) = Dispatch::call_async(DispatchType::MoveWorkspaceToMonitor(
+            WorkspaceIdentifier::Id(ws.workspace_num),
+            MonitorIdentifier::Name(&ws.output),
+        ))
+        .await
+        {
+            tracing::warn!(workspace = ws.workspace_num, error = %e, "session_persist restore move failed");
         }
     }
     Ok(())
@@ -296,39 +324,12 @@ pub fn read_snapshot(path: &std::path::Path) -> Result<SessionSnapshot, SessionP
     Ok(snap)
 }
 
-/// Build the swayipc command string that recreates `ws`'s slot +
-/// output + layout. Three semicolon-chained directives:
-///
-///   `workspace number <n>; move workspace to output "<out>";
-///    layout <name>`
-///
-/// Embedded double-quotes in the output name are backslash-
-/// escaped so quirky output names still parse.
-#[must_use]
-pub fn restore_command(ws: &WorkspaceSnapshot) -> String {
-    let out_escaped = ws.output.replace('\\', "\\\\").replace('"', "\\\"");
-    format!(
-        "workspace number {n}; move workspace to output \"{out}\"; layout {layout}",
-        n = ws.workspace_num,
-        out = out_escaped,
-        layout = ws.layout
-    )
-}
-
-/// Walk the sway tree to find the container layout (`splith` /
-/// `splitv` / `tabbed` / `stacked`) for workspace `num`. Returns
-/// `None` if the workspace isn't in the tree.
-fn workspace_layout(node: &swayipc_async::Node, num: i32) -> Option<String> {
-    if node.node_type == swayipc_async::NodeType::Workspace && node.num == Some(num) {
-        return Some(format!("{:?}", node.layout).to_lowercase());
-    }
-    for child in &node.nodes {
-        if let Some(found) = workspace_layout(child, num) {
-            return Some(found);
-        }
-    }
-    None
-}
+// NOTE (HYP-17): the v6.0 `restore_command` swayipc command-string
+// builder + the `workspace_layout` get_tree walker are retired.
+// Restore is now a typed `DispatchType::MoveWorkspaceToMonitor` per
+// workspace (hyprland-rs owns escaping), and Hyprland exposes no
+// per-workspace container layout to read back, so there's nothing to
+// walk. The layout field is the `mde` sentinel (DEFAULT_LAYOUT).
 
 #[cfg(test)]
 mod tests {
@@ -388,37 +389,19 @@ mod tests {
         assert!(snap.workspaces.is_empty());
     }
 
-    /// `restore_command` builds the canonical 3-directive swayipc
-    /// chain. Mirrors the bench acceptance for ws1 splith on
-    /// HDMI-A-1.
+    // NOTE (HYP-17): the restore_command shape + escaping tests are
+    // retired with the function. Restore is now a typed
+    // `DispatchType::MoveWorkspaceToMonitor(Id, Name)` per workspace;
+    // hyprland-rs owns socket escaping + there's no command string to
+    // assert. The snapshot serde round-trip (above) + the schema
+    // forward-compat tests (below) remain the worker's pure surface.
+    //
+    // DEFAULT_LAYOUT sentinel lock: snapshots written on v6.5 carry
+    // the `mde` layout sentinel since Hyprland has no per-workspace
+    // layout to record.
     #[test]
-    fn restore_command_canonical_shape() {
-        let ws = WorkspaceSnapshot {
-            workspace_num: 1,
-            name: "1: firefox".to_string(),
-            output: "HDMI-A-1".to_string(),
-            layout: "splith".to_string(),
-        };
-        assert_eq!(
-            restore_command(&ws),
-            r#"workspace number 1; move workspace to output "HDMI-A-1"; layout splith"#
-        );
-    }
-
-    /// Output names with quotes / backslashes round-trip via the
-    /// quote-escape.
-    #[test]
-    fn restore_command_escapes_quotes_and_backslashes() {
-        let ws = WorkspaceSnapshot {
-            workspace_num: 3,
-            name: "3".to_string(),
-            output: r#"weird"output"#.to_string(),
-            layout: "tabbed".to_string(),
-        };
-        assert_eq!(
-            restore_command(&ws),
-            r#"workspace number 3; move workspace to output "weird\"output"; layout tabbed"#
-        );
+    fn snapshot_layout_is_mde_sentinel() {
+        assert_eq!(DEFAULT_LAYOUT, "mde");
     }
 
     /// Pre-schema files (no schema_version field) load with the
