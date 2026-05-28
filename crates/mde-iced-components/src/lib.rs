@@ -249,9 +249,66 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
+/// Canonical motion helpers for MDE Iced widgets, built on the
+/// [`mde_motion`] grid + curves.
+///
+/// This is the access point the ANIM-1..13 worklist epic consumes —
+/// surface authors call these (and the re-exported [`Tween`] /
+/// easings / [`grid`] / [`stagger`]) instead of hand-rolling timings,
+/// so every animation resolves to the locked grid and the no-overshoot
+/// curves. See `docs/design/sway-native-shell.md` §2 +
+/// `data/css/motion-vocabulary.css`. Filed as SWAY-1 (2026-05-28),
+/// mirroring how CR-3 shipped `object_card` here ahead of its CR-4..8
+/// consumers.
+pub mod motion {
+    pub use mde_motion::easing::{CubicBezier, EASE_IN, EASE_OUT};
+    pub use mde_motion::{grid, stagger, Tween};
+
+    /// Opacity in `[0, 1]` for a fade-in started `elapsed_ms` ago over
+    /// `duration_ms`, shaped by the arrival ease-out curve. Honors
+    /// reduced motion (returns `1.0` immediately).
+    #[must_use]
+    pub fn fade_in_alpha(elapsed_ms: u64, duration_ms: u32, reduce: bool) -> f32 {
+        Tween::new(0.0, 1.0, duration_ms, EASE_OUT, 0).resolve(elapsed_ms, reduce)
+    }
+
+    /// Opacity in `[0, 1]` for a fade-out started `elapsed_ms` ago over
+    /// `duration_ms`, shaped by the dismissal ease-in curve. Honors
+    /// reduced motion (returns `0.0` immediately).
+    #[must_use]
+    pub fn fade_out_alpha(elapsed_ms: u64, duration_ms: u32, reduce: bool) -> f32 {
+        Tween::new(1.0, 0.0, duration_ms, EASE_IN, 0).resolve(elapsed_ms, reduce)
+    }
+
+    /// Pixel offset for a surface sliding in from `distance_px` to its
+    /// resting position (`0.0`), started `elapsed_ms` ago over
+    /// `duration_ms`, shaped by ease-out. Honors reduced motion
+    /// (returns `0.0`).
+    #[must_use]
+    pub fn slide_in_offset(elapsed_ms: u64, duration_ms: u32, distance_px: f32, reduce: bool) -> f32 {
+        Tween::new(distance_px, 0.0, duration_ms, EASE_OUT, 0).resolve(elapsed_ms, reduce)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn motion_fade_in_runs_zero_to_one() {
+        assert!((motion::fade_in_alpha(0, 200, false) - 0.0).abs() < 1e-3);
+        assert!((motion::fade_in_alpha(200, 200, false) - 1.0).abs() < 1e-1);
+        // Reduced motion -> instant full opacity.
+        assert!((motion::fade_in_alpha(0, 200, true) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn motion_slide_in_settles_to_rest() {
+        assert!(motion::slide_in_offset(0, 200, 8.0, false) > 7.0);
+        assert!(motion::slide_in_offset(200, 200, 8.0, false).abs() < 1.0);
+        // Reduced motion -> at rest immediately.
+        assert!(motion::slide_in_offset(0, 200, 8.0, true).abs() < 1e-6);
+    }
 
     #[test]
     fn object_card_small_constructs() {
