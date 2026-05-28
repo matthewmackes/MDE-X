@@ -869,7 +869,7 @@ fn main() -> anyhow::Result<()> {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                let cards = scan("nmap", profile, &targets, &nse_dir, src, now);
+                let cards = scan("nmap", profile, &targets, &[], &nse_dir, src, now);
                 // One JSON line per host card (each carries its service
                 // children). Empty output = no hosts found / nmap absent.
                 for card in &cards {
@@ -881,8 +881,10 @@ fn main() -> anyhow::Result<()> {
                 // writes probe-inventory.json + announces probe/changed.
                 let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
                 let node_id = node_id.unwrap_or_else(default_node_id);
+                let home = std::env::var_os("HOME")
+                    .map_or_else(|| PathBuf::from("/root"), PathBuf::from);
                 let n = mackesd_core::probe_nmap::run_probe_cycle(
-                    &qnm_root, &node_id, "nmap", &nse_dir, true,
+                    &qnm_root, &node_id, &home, "nmap", &nse_dir, true,
                 );
                 println!("probe refresh: {n} host(s) in inventory");
             }

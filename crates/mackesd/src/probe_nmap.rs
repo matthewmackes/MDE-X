@@ -216,6 +216,7 @@ pub fn scan(
     binary: &str,
     profile: Profile,
     targets: &[String],
+    excludes: &[String],
     nse_dir: &str,
     source: HostSource,
     now_ts: u64,
@@ -223,7 +224,7 @@ pub fn scan(
     if targets.is_empty() {
         return Vec::new();
     }
-    let argv = match profile {
+    let mut argv = match profile {
         Profile::Fast => fast_argv(targets),
         Profile::Deep => {
             // Guard the NSE dir existence here (I/O), keeping
@@ -244,6 +245,13 @@ pub fn scan(
             deep_argv(targets, effective_nse)
         }
     };
+    // Q9 do-not-scan escape hatch — nmap's own `--exclude` keeps the
+    // excluded hosts/CIDRs out of the scan. Appended after the target
+    // spec (nmap accepts options in any position).
+    if !excludes.is_empty() {
+        argv.push("--exclude".to_owned());
+        argv.push(excludes.join(","));
+    }
     let output = match Command::new(binary).args(&argv).output() {
         Ok(o) => o,
         Err(e) => {
@@ -297,13 +305,166 @@ pub fn inventory_path(qnm_root: &Path, self_node_id: &str) -> PathBuf {
 
 /// Resolve the mesh-peer scan targets: every peer's Nebula overlay IP
 /// from the GFS-replicated bundles (the same source app_sync uses).
-/// MESH-PROBE-5 will union LAN + arbitrary targets on top of this.
 #[must_use]
 pub fn mesh_targets(qnm_root: &Path) -> Vec<String> {
     crate::mesh_media::peer_overlay_ips(qnm_root)
         .into_iter()
         .map(|(_node_id, ip)| ip)
         .collect()
+}
+
+// ── Target resolver (MESH-PROBE-5) ───────────────────────────────────
+//
+// Q5 scope = mesh peers ∪ local LAN ∪ operator-arbitrary; Q9 default =
+// scan everything, with a do-not-scan exclusion list as the escape
+// hatch (passed to nmap `--exclude`). The pure pieces
+// (`ipv4_network_cidr`, `lan_cidrs_from_ip_json`, `merge_targets`,
+// `read_toml_string_list`) are unit-tested; the env-touching wrappers
+// (`detect_lan_cidrs`, `resolve_targets`) compose them.
+
+/// Interface name-prefixes excluded from LAN detection: loopback, the
+/// Nebula overlay (mesh peers are already covered by `mesh_targets`),
+/// and the usual virtual bridges (container / VM / legacy-mesh nets).
+pub const DEFAULT_EXCLUDE_IFACE_PREFIXES: &[&str] =
+    &["lo", "nebula", "docker", "podman", "virbr", "cni", "veth", "br-"];
+
+/// Config file (under `~/.config/mde/`) of operator-arbitrary scan
+/// targets — TOML `targets = ["host", "cidr", ...]`.
+pub const ARBITRARY_TARGETS_FILE: &str = "probe-targets.toml";
+/// Config file of do-not-scan exclusions — TOML `exclude = [...]`.
+pub const DO_NOT_SCAN_FILE: &str = "probe-do-not-scan.toml";
+
+/// The resolved scan scope: targets to scan + hosts/CIDRs to exclude.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TargetSet {
+    /// Hosts / CIDRs nmap will scan.
+    pub targets: Vec<String>,
+    /// Hosts / CIDRs nmap will `--exclude` (Q9 escape hatch).
+    pub excludes: Vec<String>,
+}
+
+/// Compute the network CIDR for an IPv4 `local` address + `prefixlen`
+/// (e.g. `172.20.146.48` /16 → `172.20.0.0/16`). `None` for malformed
+/// input or a prefix > 32. Pure.
+#[must_use]
+pub fn ipv4_network_cidr(local: &str, prefixlen: u8) -> Option<String> {
+    if prefixlen > 32 {
+        return None;
+    }
+    let octets: Vec<u8> = local.split('.').filter_map(|o| o.parse().ok()).collect();
+    if octets.len() != 4 {
+        return None;
+    }
+    let ip = u32::from_be_bytes([octets[0], octets[1], octets[2], octets[3]]);
+    let mask = if prefixlen == 0 { 0 } else { u32::MAX << (32 - prefixlen) };
+    let b = (ip & mask).to_be_bytes();
+    Some(format!("{}.{}.{}.{}/{prefixlen}", b[0], b[1], b[2], b[3]))
+}
+
+/// Parse `ip -j addr` JSON into the deduped IPv4 network CIDRs of every
+/// interface whose name doesn't start with one of `exclude_prefixes`.
+/// Pure — the live wrapper [`detect_lan_cidrs`] feeds it real output.
+#[must_use]
+pub fn lan_cidrs_from_ip_json(json: &str, exclude_prefixes: &[&str]) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Iface {
+        ifname: String,
+        #[serde(default)]
+        addr_info: Vec<AddrInfo>,
+    }
+    #[derive(serde::Deserialize)]
+    struct AddrInfo {
+        family: String,
+        local: String,
+        #[serde(default)]
+        prefixlen: u8,
+    }
+    let Ok(ifaces) = serde_json::from_str::<Vec<Iface>>(json) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    for iface in ifaces {
+        if exclude_prefixes
+            .iter()
+            .any(|p| iface.ifname.starts_with(p))
+        {
+            continue;
+        }
+        for a in iface.addr_info {
+            if a.family != "inet" {
+                continue;
+            }
+            if let Some(cidr) = ipv4_network_cidr(&a.local, a.prefixlen) {
+                if !out.contains(&cidr) {
+                    out.push(cidr);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Detect the local LAN network CIDRs by shelling `ip -j addr`. Best-
+/// effort: returns empty when `ip` is missing or errors.
+#[must_use]
+pub fn detect_lan_cidrs() -> Vec<String> {
+    match Command::new("ip").args(["-j", "addr"]).output() {
+        Ok(o) if o.status.success() => {
+            lan_cidrs_from_ip_json(&String::from_utf8_lossy(&o.stdout), DEFAULT_EXCLUDE_IFACE_PREFIXES)
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Read a TOML string-array under `key` from `path`. Best-effort:
+/// missing file / parse error / wrong type → empty.
+#[must_use]
+pub fn read_toml_string_list(path: &Path, key: &str) -> Vec<String> {
+    let Ok(body) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(val) = toml::from_str::<toml::Value>(&body) else {
+        return Vec::new();
+    };
+    val.get(key)
+        .and_then(toml::Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Union `mesh` ∪ `lan` ∪ `arbitrary`, deduped, first-seen order
+/// (mesh, then lan, then arbitrary). Pure.
+#[must_use]
+pub fn merge_targets(mesh: &[String], lan: &[String], arbitrary: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in mesh.iter().chain(lan).chain(arbitrary) {
+        if !t.is_empty() && !out.contains(t) {
+            out.push(t.clone());
+        }
+    }
+    out
+}
+
+/// Resolve the full scan scope (Q5): mesh peers (from `qnm_root`) ∪
+/// detected LAN CIDRs ∪ operator-arbitrary targets (from
+/// `~/.config/mde/probe-targets.toml`), minus the do-not-scan list
+/// (`~/.config/mde/probe-do-not-scan.toml`, passed to nmap
+/// `--exclude`). `home` locates the config files (injected for tests).
+#[must_use]
+pub fn resolve_targets(qnm_root: &Path, home: &Path) -> TargetSet {
+    let mesh = mesh_targets(qnm_root);
+    let lan = detect_lan_cidrs();
+    let cfg = home.join(".config").join("mde");
+    let arbitrary = read_toml_string_list(&cfg.join(ARBITRARY_TARGETS_FILE), "targets");
+    let excludes = read_toml_string_list(&cfg.join(DO_NOT_SCAN_FILE), "exclude");
+    TargetSet {
+        targets: merge_targets(&mesh, &lan, &arbitrary),
+        excludes,
+    }
 }
 
 /// Serialize the inventory to the canonical JSON-array form (one Host
@@ -367,19 +528,20 @@ fn publish_changed(host_count: usize) {
     }
 }
 
-/// Run one probe cycle: resolve mesh targets, scan, write the
-/// inventory, and announce on the Bus if it changed. Returns the
-/// number of host cards written. Shared by the scheduled worker +
-/// the `mackesd probe refresh` CLI so there's one code path.
-pub fn run_probe_cycle(
+/// Core of one probe cycle against an already-resolved [`TargetSet`]:
+/// scan, write the inventory, announce on the Bus if it changed.
+/// Returns the number of host cards written. Taking the `TargetSet`
+/// as input keeps this deterministic + testable (no env / LAN probe);
+/// [`run_probe_cycle`] is the resolving wrapper the worker + CLI use.
+pub fn run_probe_cycle_with(
     qnm_root: &Path,
     self_node_id: &str,
     binary: &str,
+    targets: &TargetSet,
     nse_dir: &str,
     deep: bool,
 ) -> usize {
-    let targets = mesh_targets(qnm_root);
-    if targets.is_empty() {
+    if targets.targets.is_empty() {
         return 0;
     }
     let now = std::time::SystemTime::now()
@@ -387,7 +549,15 @@ pub fn run_probe_cycle(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let profile = if deep { Profile::Deep } else { Profile::Fast };
-    let cards = scan(binary, profile, &targets, nse_dir, HostSource::Mesh, now);
+    let cards = scan(
+        binary,
+        profile,
+        &targets.targets,
+        &targets.excludes,
+        nse_dir,
+        HostSource::Mesh,
+        now,
+    );
     let payload = serialize_inventory(&cards);
     let path = inventory_path(qnm_root, self_node_id);
     if write_inventory_if_changed(&path, &payload) {
@@ -401,6 +571,21 @@ pub fn run_probe_cycle(
         );
     }
     cards.len()
+}
+
+/// Resolve the full scan scope (mesh ∪ LAN ∪ arbitrary, minus
+/// do-not-scan) from `qnm_root` + `home`, then run one cycle. Shared
+/// by the scheduled worker + the `mackesd probe refresh` CLI.
+pub fn run_probe_cycle(
+    qnm_root: &Path,
+    self_node_id: &str,
+    home: &Path,
+    binary: &str,
+    nse_dir: &str,
+    deep: bool,
+) -> usize {
+    let targets = resolve_targets(qnm_root, home);
+    run_probe_cycle_with(qnm_root, self_node_id, binary, &targets, nse_dir, deep)
 }
 
 #[cfg(test)]
@@ -546,6 +731,7 @@ mod tests {
             "/nonexistent/nmap-xyz",
             Profile::Fast,
             &["10.42.0.5".to_owned()],
+            &[],
             "",
             HostSource::Mesh,
             0,
@@ -558,6 +744,7 @@ mod tests {
         let cards = scan(
             DEFAULT_NMAP_BINARY,
             Profile::Deep,
+            &[],
             &[],
             "",
             HostSource::Mesh,
@@ -621,12 +808,109 @@ mod tests {
     }
 
     #[test]
-    fn run_cycle_no_targets_writes_nothing() {
+    fn run_cycle_with_no_targets_writes_nothing() {
         let root = tmp_root("notargets");
-        let n = run_probe_cycle(&root, "self", "/nonexistent/nmap", "", true);
+        // Empty TargetSet → no scan, no inventory (deterministic; the
+        // resolving wrapper would probe the real LAN, so the core
+        // takes the resolved set as input).
+        let n = run_probe_cycle_with(
+            &root,
+            "self",
+            "/nonexistent/nmap",
+            &TargetSet::default(),
+            "",
+            true,
+        );
         let existed = inventory_path(&root, "self").exists();
         let _ = std::fs::remove_dir_all(&root);
         assert_eq!(n, 0);
         assert!(!existed, "no inventory when there are no targets");
+    }
+
+    // ── Target resolver (MESH-PROBE-5) ──────────────────────────────
+
+    #[test]
+    fn ipv4_network_cidr_masks_to_network() {
+        assert_eq!(ipv4_network_cidr("172.20.146.48", 16).as_deref(), Some("172.20.0.0/16"));
+        assert_eq!(ipv4_network_cidr("192.168.1.42", 24).as_deref(), Some("192.168.1.0/24"));
+        assert_eq!(ipv4_network_cidr("10.0.0.5", 8).as_deref(), Some("10.0.0.0/8"));
+        assert_eq!(ipv4_network_cidr("1.2.3.4", 33), None, "prefix > 32 rejected");
+        assert_eq!(ipv4_network_cidr("not.an.ip", 24), None);
+    }
+
+    #[test]
+    fn lan_cidrs_skips_loopback_and_overlay_keeps_lan() {
+        // Faithful `ip -j addr` shape: lo + nebula1 excluded, the
+        // physical iface's /16 kept as a network CIDR.
+        let json = r#"[
+            {"ifname":"lo","addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8}]},
+            {"ifname":"nebula1","addr_info":[{"family":"inet","local":"10.42.0.5","prefixlen":16}]},
+            {"ifname":"wlp2s0","addr_info":[
+                {"family":"inet","local":"192.168.1.50","prefixlen":24},
+                {"family":"inet6","local":"fe80::1","prefixlen":64}
+            ]}
+        ]"#;
+        let cidrs = lan_cidrs_from_ip_json(json, DEFAULT_EXCLUDE_IFACE_PREFIXES);
+        assert_eq!(cidrs, vec!["192.168.1.0/24".to_string()]);
+    }
+
+    #[test]
+    fn lan_cidrs_empty_for_garbage() {
+        assert!(lan_cidrs_from_ip_json("not json", DEFAULT_EXCLUDE_IFACE_PREFIXES).is_empty());
+    }
+
+    #[test]
+    fn merge_targets_unions_and_dedupes_in_order() {
+        let mesh = vec!["10.42.0.5".to_string(), "10.42.0.6".to_string()];
+        let lan = vec!["192.168.1.0/24".to_string(), "10.42.0.5".to_string()];
+        let arb = vec!["8.8.8.8".to_string(), "192.168.1.0/24".to_string()];
+        assert_eq!(
+            merge_targets(&mesh, &lan, &arb),
+            vec![
+                "10.42.0.5".to_string(),
+                "10.42.0.6".to_string(),
+                "192.168.1.0/24".to_string(),
+                "8.8.8.8".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn read_toml_string_list_extracts_array() {
+        let root = tmp_root("toml");
+        let path = root.join("probe-targets.toml");
+        std::fs::write(&path, "targets = [\"10.0.0.1\", \"192.168.0.0/24\"]\n").unwrap();
+        let got = read_toml_string_list(&path, "targets");
+        let missing = read_toml_string_list(&path, "exclude");
+        let absent = read_toml_string_list(&root.join("nope.toml"), "targets");
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(got, vec!["10.0.0.1".to_string(), "192.168.0.0/24".to_string()]);
+        assert!(missing.is_empty(), "absent key → empty");
+        assert!(absent.is_empty(), "absent file → empty");
+    }
+
+    #[test]
+    fn resolve_targets_merges_arbitrary_and_reads_excludes() {
+        // qnm_root with one peer + a home with arbitrary + exclude
+        // config. LAN detection is environment-dependent so we only
+        // assert the mesh + arbitrary + exclude pieces are present.
+        let root = tmp_root("resolve");
+        let qnm = root.join("qnm");
+        std::fs::create_dir_all(qnm.join("peerX").join("mackesd")).unwrap();
+        std::fs::write(
+            qnm.join("peerX").join("mackesd").join("nebula-bundle.json"),
+            r#"{"overlay_ip":"10.42.0.9"}"#,
+        )
+        .unwrap();
+        let home = root.join("home");
+        let cfg = home.join(".config").join("mde");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(cfg.join(ARBITRARY_TARGETS_FILE), "targets = [\"8.8.8.8\"]\n").unwrap();
+        std::fs::write(cfg.join(DO_NOT_SCAN_FILE), "exclude = [\"10.42.0.99\"]\n").unwrap();
+        let ts = resolve_targets(&qnm, &home);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(ts.targets.contains(&"10.42.0.9".to_string()), "mesh peer included");
+        assert!(ts.targets.contains(&"8.8.8.8".to_string()), "arbitrary included");
+        assert_eq!(ts.excludes, vec!["10.42.0.99".to_string()], "do-not-scan loaded");
     }
 }

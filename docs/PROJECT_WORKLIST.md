@@ -2541,14 +2541,14 @@ call-end lifecycle, never at install or login.
     - [✓] `probe-inventory.json` written atomically (temp+rename); `probe/changed` Bus publish fires only when the inventory content changes (verified by `write_inventory_detects_change_then_noop` + the e2e).
     - [✓] Manual refresh (`mackesd probe refresh`) forces an immediate deep pass — validated end-to-end against real nmap (wrote localhost inventory).
 
-- [ ] **MESH-PROBE-5: v1.0 — target resolver (mesh + LAN + arbitrary) + safety controls**
+- [✓] **MESH-PROBE-5: v1.0 — target resolver (mesh + LAN + arbitrary) + safety controls** *(shipped 2026-05-28 — session=opus-47-2026-05-28-ship-B. `probe_nmap` gains the Q5/Q9 target resolver: `resolve_targets(qnm_root, home) -> TargetSet { targets, excludes }` unions mesh-peer overlay IPs (`mesh_targets`) + detected LAN CIDRs (`detect_lan_cidrs` shells `ip -j addr`, parsed by the pure `lan_cidrs_from_ip_json` which computes network CIDRs via `ipv4_network_cidr` + skips lo/nebula/docker/podman/virbr/cni/veth/br- ifaces) + operator-arbitrary targets from `~/.config/mde/probe-targets.toml` (`targets=[…]`), deduped first-seen-order via `merge_targets`; excludes loaded from `~/.config/mde/probe-do-not-scan.toml` (`exclude=[…]`) via `read_toml_string_list`. The Q9 escape hatch is plumbed through `scan()` (new `excludes` param → nmap `--exclude <list>`). `run_probe_cycle` refactored into a testable core `run_probe_cycle_with(TargetSet)` + a resolving wrapper `run_probe_cycle(qnm_root, self_node_id, home, …)` (the worker + `probe refresh` CLI use the wrapper; tests use the core with an explicit set so they never touch the real LAN). `ProbeWorker` gains a `home` field (env `$HOME`). 39 probe tests (6 new resolver: ipv4-cidr-masking, lan-cidrs-skip-loopback/overlay, lan-garbage-empty, merge-union-dedupe, toml-list-read, resolve-merges-arbitrary+excludes); `cargo test -p mackesd` green (1097 pass; the lone intermittent `workers::heartbeat::tests::heartbeat_worker_exits_on_shutdown_token` failure is a PRE-EXISTING flaky 3s-timeout async test — passes on clean HEAD + 3/4 warm runs with this change — NOT a MESH-PROBE regression; see DEAD-FLAKY-HEARTBEAT follow-up); `cargo build --bin mackesd` clean; no-stubs + dbus-shape + legacy-mesh + public-ports + voice + runtime-reachability lints clean (dropped a `tailscale` iface-prefix that tripped legacy-mesh — unnecessary on a Nebula-only platform). DoD gate 8: the resolver widens nmap's outbound scan scope to LAN + arbitrary per the operator-confirmed Q9 lock (CFAA/ToS risk operator-accepted, design §7); the do-not-scan list is the carve-out. Cite: mesh-probe-subsystem.md §1 Q5+Q9 + §7.)*
   **As** the probe worker,
   **I want** to resolve scan targets from the nebula roster (mesh peers) + the local LAN CIDR + an operator arbitrary-target list, honoring an optional do-not-scan exclusion list,
   **so that** scope (Q5) + the Q9 "scan everything actively" default (with the exclusion escape hatch) are both served.
   **Acceptance** (each bench-observable):
-    - [ ] Resolver unions mesh-peer overlay IPs + detected LAN CIDR + `~/.config/mde/probe-targets.toml` arbitrary entries; deduped.
-    - [ ] A CIDR/IP in `~/.config/mde/probe-do-not-scan.toml` is excluded from every pass (unit-tested).
-    - [ ] Default behavior with no exclusion file = scan all resolved targets (Q9).
+    - [✓] Resolver unions mesh-peer overlay IPs + detected LAN CIDR (`ip -j addr` → network CIDRs) + `~/.config/mde/probe-targets.toml` arbitrary entries; deduped (`merge_targets`, `resolve_targets`).
+    - [✓] A CIDR/IP in `~/.config/mde/probe-do-not-scan.toml` is excluded from every pass via nmap `--exclude` (unit-tested: `resolve_targets_merges_arbitrary_and_reads_excludes`).
+    - [✓] Default with no exclusion file = scan all resolved targets (Q9) — empty exclude list ⇒ no `--exclude` flag.
 
 - [ ] **MESH-PROBE-6: v1.0 — `mackesd::probe` read library + Bus-event subscription**
   **As** every consumer,
@@ -2590,6 +2590,8 @@ call-end lifecycle, never at install or login.
     - [ ] `mackesd probe` deep pass runs on the operator's 8-peer fleet; inventory propagates peer→peer over GFS within the cadence window.
     - [ ] LAN scan identifies real surrounding hosts (router, printers, etc.) with correct service ID.
     - [ ] nmap timing (`-T` tuning) verified non-disruptive on the operator's own LAN; do-not-scan exclusion confirmed to carve out a chosen segment.
+
+- [ ] **DEAD-FLAKY-HEARTBEAT: stabilize the flaky `heartbeat_worker_exits_on_shutdown_token` test** *(opened 2026-05-28 — surfaced during MESH-PROBE-5. `crates/mackesd/src/workers/heartbeat.rs`'s shutdown test uses a 3 s `tokio::time::timeout`; under CPU load / cold tokio-runtime spin-up the worker's exit occasionally exceeds 3 s and the test fails (~25 % observed in this session), intermittently reddening the whole `cargo test -p mackesd` suite even though no production code is broken — it passes on clean HEAD + 3/4 warm runs. Not a MESH-PROBE regression. Bug-fix-against-existing-work per §0.16.)* **Acceptance:** widen the timeout (3 s → 10 s) OR make the assertion poll-with-backoff so a slow scheduler doesn't false-fail; the test must pass deterministically across ≥20 consecutive runs.
 
 #### EPIC-BUS-EXT (Bus refinements beyond BUS-1..7)
 
