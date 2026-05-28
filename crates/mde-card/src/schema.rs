@@ -112,10 +112,31 @@ pub enum CardKind {
     Zone,
     /// Free-form note.
     Note,
+    /// Saved workspace template — an ordered set of app commands that
+    /// rebuild a workspace layout in one shot (HYP-16 / Portal-51).
+    /// The launch payload lives in [`TemplateSpec`]; the full
+    /// template-card storage + Hub UI is Portal-51.
+    Template,
     /// Forward-compat — an unknown kind from a newer peer. Round-trips
     /// through serde so we never lose it.
     #[serde(untagged)]
     Other(String),
+}
+
+/// Launch payload for a [`CardKind::Template`] card — the minimal
+/// schema HYP-16's `hyprctl --batch` emitter serializes from.
+///
+/// A template targets one workspace and launches an ordered list of
+/// app commands into it. The full template-store (ULID-named JSON
+/// under `~/.local/share/mde/templates/`, the Hub "Save as
+/// template…" modal, the cascade-card render) is Portal-51; this
+/// struct is just the apply-time contract HYP-16 consumes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TemplateSpec {
+    /// Hyprland workspace id the template's apps launch into.
+    pub workspace: i32,
+    /// Ordered app launch commands (each becomes a `dispatch exec`).
+    pub apps: Vec<String>,
 }
 
 impl CardKind {
@@ -133,6 +154,7 @@ impl CardKind {
             Self::Tray => "tray",
             Self::Zone => "zone",
             Self::Note => "note",
+            Self::Template => "template",
             Self::Other(s) => s.as_str(),
         }
     }

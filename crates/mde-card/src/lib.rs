@@ -28,4 +28,4 @@ pub mod schema;
 pub use id::stable_id_for;
 pub use migration::{migrate, MigrationError, SCHEMA_VERSION};
 pub use render_mode::RenderMode;
-pub use schema::{Card, CardKind};
+pub use schema::{Card, CardKind, TemplateSpec};
