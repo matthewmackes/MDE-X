@@ -11,10 +11,10 @@
 //! | `/org/mackes/Session`      | `org.mackes.Session`               | mackes-session |
 //! | `/org/mackes/Fleet`        | `org.mackes.Fleet`                 | mackesd     |
 //!
-//! Phase A: every service struct compiles + the `#[interface]`
-//! decoration is in place, but the handler bodies return
-//! [`crate::settings::UNIMPLEMENTED`] (settings/fleet) or `()`
-//! (notifications/session). Phase B fills them in.
+//! Phase A scaffolded the service structs with `#[interface]`
+//! decoration in place; Phase B + C filled in the handler bodies,
+//! so the historical `UNIMPLEMENTED` placeholder has been retired
+//! and every dispatch path returns either a real value or `()`.
 //!
 //! `Notifications` deliberately matches the spec object path
 //! `/org/freedesktop/Notifications` so existing apps (notify-send,
