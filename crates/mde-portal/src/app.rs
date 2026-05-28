@@ -1504,12 +1504,21 @@ fn build_layout_prompt_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     // → Color conversion; until that lands, all banners share the
     // platform accent (consistent + safe against malformed hex).
     let bg = COLOR_INDIGO;
+    // ANIM (Q8 dismissal): the banner fades out over the last
+    // DISMISS_FADE_TAIL_MS before its TTL expires (shared fade with the
+    // other transient breadcrumb segments), via mde-theme::animation.
+    let fade = ttl_dismiss_fade(
+        now.signed_duration_since(state.spawned_at).num_milliseconds(),
+        LAYOUT_PROMPT_TTL_SECS * 1000,
+    );
+    let bg = Color { a: bg.a * fade, ..bg };
+    let fg = Color { a: fade, ..Color::WHITE };
     let _tag_color_for_future_tint = state.tag_color.as_deref();
     let tag_name = state.tag_name.clone();
     let layout = state.new_layout.clone();
     let prompt_label = format!("Make {tag_name} default? {layout}");
     let yes_btn: Element<'a, Message> = mouse_area(
-        text("✓").size(13.0).color(Color::WHITE),
+        text("✓").size(13.0).color(fg),
     )
     .on_press(Message::MakeTagDefaultLayout {
         tag_name: tag_name.clone(),
@@ -1519,7 +1528,7 @@ fn build_layout_prompt_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     let workspace_num = state.workspace_num;
     let layout_for_no = layout.clone();
     let no_btn: Element<'a, Message> = mouse_area(
-        text("✕").size(13.0).color(Color::WHITE),
+        text("✕").size(13.0).color(fg),
     )
     .on_press(Message::DeclineTagDefaultLayout {
         workspace_num,
@@ -1528,7 +1537,7 @@ fn build_layout_prompt_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     .into();
     container(
         iced::widget::row![
-            text(prompt_label).size(11.0).color(Color::WHITE),
+            text(prompt_label).size(11.0).color(fg),
             iced::widget::horizontal_space().width(Length::Fixed(8.0)),
             yes_btn,
             iced::widget::horizontal_space().width(Length::Fixed(4.0)),
