@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Daemon => run_daemon().await,
         Cmd::Render { template } => run_render(&template),
         Cmd::Publish(args) => mde_bus::cli::publish::run(args).await,
+        Cmd::Request(args) => mde_bus::cli::request::run(args).await,
         Cmd::Tail(args) => mde_bus::cli::tail::run(args).await,
         Cmd::Sub { op } => mde_bus::cli::sub::run(op).await,
         Cmd::Mute { op } => mde_bus::cli::mute::run(op).await,

@@ -31,6 +31,7 @@ pub mod dnd;
 pub mod hooks;
 pub mod persist;
 pub mod retention;
+pub mod rpc;
 pub mod seed;
 pub mod subs;
 pub mod surface;

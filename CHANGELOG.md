@@ -5,6 +5,18 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**Bus RPC — `action/`/`reply/` request-response pattern (2026-05-28)**
+- The Bus now supports commands with responses, not just
+  fire-and-forget events. `mde-bus request action/<domain>/<verb>
+  [body]` publishes a command and waits for a reply on
+  `reply/<request-ulid>`, printing the response or timing out
+  (default 30 s, `--timeout-secs` to change). The request message's
+  ULID is the correlation key — no extra addressing needed.
+- In-process Rust callers use `mde_bus::rpc::request` in place of a
+  D-Bus method call; this is the migration target as MDE internal
+  command surfaces move off D-Bus. Per-domain responders (gluster,
+  marks, …) land with their own features.
+
 **EPIC-SEC-BANLIST — compromised-node ban list (2026-05-28)**
 - A node-id can now be permanently banned from the mesh:
   `mackesd ca ban <node-id>`. A banned identity is refused

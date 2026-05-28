@@ -32,6 +32,7 @@ pub mod history;
 pub mod mute;
 pub mod persist;
 pub mod publish;
+pub mod request;
 pub mod retention;
 pub mod sub;
 pub mod tail;
@@ -69,6 +70,10 @@ pub enum Cmd {
     },
     /// Publish a new message to a topic.
     Publish(publish::PublishArgs),
+    /// Fire an `action/<domain>/<verb>` command and wait for its
+    /// reply on `reply/<request-ulid>` (EPIC-BUS-EXT-ACTION). Exits
+    /// non-zero on timeout so scripts can detect a missing responder.
+    Request(request::RequestArgs),
     /// Follow new messages on a topic or wildcard pattern.
     Tail(tail::TailArgs),
     /// Manage per-peer topic subscriptions.
