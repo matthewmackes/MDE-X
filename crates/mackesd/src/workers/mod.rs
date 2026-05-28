@@ -50,6 +50,7 @@ impl ShutdownToken {
     /// for normal callers; this constructor lets sibling worker
     /// modules build a token from a freshly-paired sender/receiver
     /// pair in their unit tests.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn from_receiver(rx: watch::Receiver<bool>) -> Self {
         Self { rx }
