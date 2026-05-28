@@ -200,10 +200,11 @@ def test_workbench_panel_constructs_headless(panel_cls):
 def test_panel_discovery_finds_meaningful_count():
     """Sanity: we should still discover the surviving Bucket-E
     port-gap panels (devices/keyboard, mouse, look_and_feel/appearance,
-    maintain/debloat, maintain/dependencies, maintain/reset_to_preset,
-    system/workspaces — the 7 panels post the .delete-superseded +
-    3-retire-instead-of-port pass (2026-05-26) + the port-display
-    collapse-to-RETIRE (2026-05-28, superseded by displays.rs)).
+    maintain/debloat, maintain/dependencies, maintain/reset_to_preset
+    — the 6 panels post the .delete-superseded + 3-retire-instead-of-port
+    pass (2026-05-26) + the port-display + port-workspaces
+    collapse-to-RETIRE pass (2026-05-28: display superseded by
+    displays.rs; workspaces was xfwm4-only with no sway equivalent)).
     The original >= 20 floor predated `.delete-ported.batch-1..4`;
     the floor now drops to >= 5 so this smoke still catches
     `*Panel(Gtk.Box)` registration breakage on the panels that
