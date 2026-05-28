@@ -1,40 +1,49 @@
-//! Portal-41 (v6.0, R12-Q1) — auto-derived workspace names.
+//! HYP-9 (v6.5, Portal-41 retarget) — auto-derived workspace names.
 //!
-//! Subscribes to sway's `EventType::Window` stream. Every time the
-//! focused window changes (or a window opens / closes on the focused
-//! workspace), the worker recomputes the workspace's "preferred" name
-//! and, if the current name is still auto-derived, runs
-//! `rename workspace number <num> to "<num>: <app_id>"` to sync them.
+//! Subscribes to Hyprland's event socket via `hyprland-rs`
+//! [`EventStream`]. Every time a window opens / closes / moves or the
+//! active window changes, the worker recomputes the active workspace's
+//! "preferred" name and, if the current name is still auto-derived,
+//! dispatches `RenameWorkspace(<id>, "<id>: <class>")` to sync them.
 //!
 //! Operator-set names are never overwritten. An auto-derived name is
-//! recognised by either being exactly `<num>` (numeric-only, the empty
-//! state) or starting with `<num>: ` (the canonical prefix). Anything
+//! recognised by either being exactly `<id>` (numeric-only, the empty
+//! state) or starting with `<id>: ` (the canonical prefix). Anything
 //! else is treated as operator-curated and left alone.
 //!
 //! The worker is debounced trailing-edge by 200 ms: rapid focus
-//! changes (`Alt+Tab` through five windows in under a second) collapse
-//! into a single rename pass against the final settled state. Without
-//! the debounce, sway can receive a rapid burst of renames that
-//! flicker through the breadcrumb's typewriter animation downstream
-//! (Portal-14).
+//! changes (`Super+Tab` through five windows in under a second)
+//! collapse into a single rename pass against the final settled state.
+//! Without the debounce, the breadcrumb's typewriter animation
+//! downstream (Portal-14) flickers through a burst of renames.
+//!
+//! HYP-9 ports this off the v6.0 swayipc-async implementation
+//! (`get_tree` walk + `rename workspace` command string) to the
+//! hyprland-rs `Clients`/`Workspace` data API + the `RenameWorkspace`
+//! dispatch. The pure naming helpers (`derive_workspace_name*`,
+//! `is_auto_derived`) are unchanged; only the IPC layer is rewritten.
+//! Replaces the interim HYP-9.sway-bridge.
 
 #![cfg(feature = "async-services")]
 
 use std::time::Duration;
 
 use futures_util::StreamExt as _;
-use swayipc_async::{Connection, EventType};
+use hyprland::data::{Client, Clients, Workspace};
+use hyprland::dispatch::{Dispatch, DispatchType};
+use hyprland::event_listener::{Event, EventStream};
+use hyprland::shared::{HyprData, HyprDataActive, HyprDataVec};
 
 use super::{ShutdownToken, Worker};
 
 /// Trailing-edge debounce window. Sized to outlast the typical
-/// keyboard burst (`Alt+Tab` traversal at ~100 ms/step) without
+/// keyboard burst (`Super+Tab` traversal at ~100 ms/step) without
 /// adding perceptible lag to a single deliberate focus change.
 const DEBOUNCE_WINDOW: Duration = Duration::from_millis(200);
 
-/// Backoff after a swayipc connect failure. Mirrors the
-/// `mde-portal::workspace::workspace_subscription` retry cadence so
-/// the two consumers re-attach in lockstep when sway restarts.
+/// Backoff after a Hyprland event-socket connect failure. Mirrors the
+/// `mde-portal::workspace` retry cadence so the two consumers
+/// re-attach in lockstep when Hyprland restarts.
 const RECONNECT_BACKOFF: Duration = Duration::from_secs(3);
 
 /// Empty-state worker; all state lives on the stack inside `run`.
@@ -62,59 +71,42 @@ impl Worker for WorkspaceNamerWorker {
     }
 
     async fn run(&mut self, mut shutdown: ShutdownToken) -> anyhow::Result<()> {
-        // Reconnect loop — when sway restarts (or hasn't started
+        // Reconnect loop — when Hyprland restarts (or hasn't started
         // yet on a fresh login), back off + retry instead of
         // returning Err to the supervisor. The supervisor's
         // OnFailure restart policy would still cycle us, but
         // staying inside the loop is gentler on the JoinSet.
+        //
+        // `EventStream::new()` is infallible; the socket connect
+        // happens lazily on the first poll and surfaces a connect
+        // error as the stream's first `Some(Err(_))` item — which the
+        // match below routes into the same backoff path.
         loop {
             if shutdown.is_shutdown() {
                 return Ok(());
             }
-            let mut cmd_conn = match Connection::new().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::debug!(error = %e, "workspace_namer cmd-conn connect failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
-            let event_conn = match Connection::new().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::debug!(error = %e, "workspace_namer event-conn connect failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
-            let mut events = match event_conn.subscribe([EventType::Window]).await {
-                Ok(stream) => stream,
-                Err(e) => {
-                    tracing::debug!(error = %e, "workspace_namer subscribe failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
+            let mut events = EventStream::new();
             // Run an initial pass before the first event, so a
             // mackesd restart on an already-populated session
             // converges immediately rather than waiting for the
             // next focus change.
-            rename_pass(&mut cmd_conn).await;
+            rename_pass().await;
 
             let mut pending = false;
+            // The inner loop only breaks on a stream error or
+            // end-of-stream (both → reconnect); the shutdown arm
+            // returns outright. So a break always means "reconnect
+            // after backoff".
             loop {
                 tokio::select! {
                     biased;
                     _ = shutdown.wait() => return Ok(()),
                     next = events.next() => {
                         match next {
-                            Some(Ok(swayipc_async::Event::Window(_))) => {
-                                pending = true;
-                            }
-                            Some(Ok(_)) => {
-                                // Non-Window event — ignore. The
-                                // subscribe filter should keep this
-                                // unreachable, but be defensive.
+                            Some(Ok(ev)) => {
+                                if triggers_rename(&ev) {
+                                    pending = true;
+                                }
                             }
                             Some(Err(e)) => {
                                 tracing::debug!(error = %e, "workspace_namer event stream errored; reconnecting");
@@ -128,12 +120,30 @@ impl Worker for WorkspaceNamerWorker {
                     }
                     _ = tokio::time::sleep(DEBOUNCE_WINDOW), if pending => {
                         pending = false;
-                        rename_pass(&mut cmd_conn).await;
+                        rename_pass().await;
                     }
                 }
             }
+            sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
         }
     }
+}
+
+/// `true` for the Hyprland events that can change a workspace's
+/// window set or which window holds focus — i.e. the events that
+/// might change the active workspace's preferred name. Everything
+/// else (layer surfaces, monitor add/remove, submap changes, …) is
+/// ignored so the debounce doesn't fire needlessly.
+fn triggers_rename(ev: &Event) -> bool {
+    matches!(
+        ev,
+        Event::WindowOpened(_)
+            | Event::WindowClosed(_)
+            | Event::WindowMoved(_)
+            | Event::ActiveWindowChanged(_)
+            | Event::WorkspaceChanged(_)
+            | Event::WorkspaceAdded(_)
+    )
 }
 
 /// Sleep up to `dur`, returning early if shutdown is requested.
@@ -144,93 +154,69 @@ async fn sleep_or_shutdown(dur: Duration, shutdown: &mut ShutdownToken) {
     }
 }
 
-/// One rename pass against the live sway tree. Finds the focused
-/// workspace, computes its preferred name, and renames if the
-/// current name is auto-derived and differs.
-async fn rename_pass(conn: &mut Connection) {
-    let tree = match conn.get_tree().await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::debug!(error = %e, "workspace_namer get_tree failed; skipping pass");
-            return;
-        }
-    };
-    let workspaces = match conn.get_workspaces().await {
+/// One rename pass against the live Hyprland state. Reads the active
+/// workspace + the client list, computes the preferred name, and
+/// dispatches a rename if the current name is auto-derived and differs.
+async fn rename_pass() {
+    let active = match Workspace::get_active_async().await {
         Ok(w) => w,
         Err(e) => {
-            tracing::debug!(error = %e, "workspace_namer get_workspaces failed; skipping pass");
+            tracing::debug!(error = %e, "workspace_namer get-active-workspace failed; skipping pass");
             return;
         }
     };
-    let Some(focused) = workspaces.iter().find(|w| w.focused) else {
-        return;
+    let clients = match Clients::get_async().await {
+        Ok(c) => c.to_vec(),
+        Err(e) => {
+            tracing::debug!(error = %e, "workspace_namer get-clients failed; skipping pass");
+            return;
+        }
     };
-    let app_id = focused_window_app_id(&tree, focused.num);
-    // HYP-9.sway-bridge — load the tag-manifest snapshot each pass
-    // so per-tag `name` overrides the literal app_id when the
-    // focused window's `app_id` appears in any manifest's `apps[]`.
-    // Manifest load is fail-soft: missing dir / unreadable file
-    // falls through to the legacy app_id-based naming. Cheap
-    // relative to the swayipc tree+workspaces fetches above.
+    let app_id = focused_window_app_id(&clients, active.id);
+    // HYP-8.5 — load the tag-manifest snapshot each pass so per-tag
+    // `name` overrides the literal app_id when the focused window's
+    // class appears in any manifest's `apps[]`. Manifest load is
+    // fail-soft: missing dir / unreadable file falls through to the
+    // legacy class-based naming. Cheap relative to the hyprctl
+    // round-trips above.
     let manifests = crate::config::default_manifests_dir()
         .and_then(|d| crate::config::load_tag_manifests(&d).ok());
     let desired = derive_workspace_name_with_manifests(
-        focused.num,
+        active.id,
         app_id.as_deref(),
         manifests.as_deref(),
     );
-    if !is_auto_derived(focused.num, &focused.name) {
+    if !is_auto_derived(active.id, &active.name) {
         return;
     }
-    if focused.name == desired {
+    if active.name == desired {
         return;
     }
-    let cmd = rename_command(focused.num, &desired);
-    match conn.run_command(&cmd).await {
-        Ok(_) => tracing::debug!(workspace = focused.num, %desired, "workspace_namer renamed workspace"),
-        Err(e) => tracing::warn!(workspace = focused.num, %desired, error = %e, "workspace_namer rename failed"),
+    match Dispatch::call_async(DispatchType::RenameWorkspace(active.id, Some(&desired))).await {
+        Ok(()) => tracing::debug!(workspace = active.id, %desired, "workspace_namer renamed workspace"),
+        Err(e) => tracing::warn!(workspace = active.id, %desired, error = %e, "workspace_namer rename failed"),
     }
 }
 
-/// Walk the sway tree and return the `app_id` of the focused window
-/// on workspace `target_num`, or the first window's `app_id` if none
-/// is focused. Returns `None` for an empty workspace.
-pub fn focused_window_app_id(root: &swayipc_async::Node, target_num: i32) -> Option<String> {
-    let ws_node = find_workspace(root, target_num)?;
-    let mut first: Option<String> = None;
-    let mut focused: Option<String> = None;
-    visit_leaves(ws_node, &mut |node| {
-        if node.app_id.is_some() {
-            if focused.is_none() && node.focused {
-                focused = node.app_id.clone();
-            }
-            if first.is_none() {
-                first = node.app_id.clone();
-            }
-        }
-    });
-    focused.or(first)
-}
-
-fn find_workspace(node: &swayipc_async::Node, target_num: i32) -> Option<&swayipc_async::Node> {
-    if node.node_type == swayipc_async::NodeType::Workspace && node.num == Some(target_num) {
-        return Some(node);
-    }
-    for child in &node.nodes {
-        if let Some(found) = find_workspace(child, target_num) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn visit_leaves<F: FnMut(&swayipc_async::Node)>(node: &swayipc_async::Node, f: &mut F) {
-    if node.node_type == swayipc_async::NodeType::Con && node.nodes.is_empty() {
-        f(node);
-    }
-    for child in &node.nodes {
-        visit_leaves(child, f);
-    }
+/// Return the window class of the focused window on workspace
+/// `target_ws`, or the first window's class if none on that
+/// workspace currently holds focus. Returns `None` for an empty
+/// workspace (or one whose windows all report an empty class).
+///
+/// Hyprland's `focus_history_id` is a global most-recently-focused
+/// ordering — `0` is the currently-focused window. Since the caller
+/// only ever passes the *active* workspace's id, the window with
+/// `focus_history_id == 0` (when it lives on this workspace) is that
+/// workspace's focused window; otherwise we fall back to the first
+/// client enumerated on the workspace.
+#[must_use]
+pub fn focused_window_app_id(clients: &[Client], target_ws: i32) -> Option<String> {
+    let on_ws = || clients.iter().filter(|c| c.workspace.id == target_ws);
+    let focused = on_ws()
+        .find(|c| c.focus_history_id == 0)
+        .map(|c| c.class.clone());
+    let first = on_ws().next().map(|c| c.class.clone());
+    focused.or(first).filter(|s| !s.is_empty())
 }
 
 // ── Pure helpers (testable without a sway connection) ───────────────────
@@ -305,14 +291,11 @@ pub fn is_auto_derived(num: i32, current_name: &str) -> bool {
     current_name.starts_with(&prefix)
 }
 
-/// Build the swayipc command string that renames workspace `num` to
-/// `new_name`. Embedded double-quotes are backslash-escaped so the
-/// command parses correctly even for app_ids containing quotes.
-#[must_use]
-pub fn rename_command(num: i32, new_name: &str) -> String {
-    let escaped = new_name.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("rename workspace number {num} to \"{escaped}\"")
-}
+// NOTE (HYP-9): the v6.0 `rename_command` swayipc-command-string
+// builder + its quote/backslash escaping is retired. Hyprland's
+// `DispatchType::RenameWorkspace(id, Some(name))` takes the name
+// directly + hyprland-rs owns the socket-level escaping, so there is
+// no command string to build here.
 
 #[cfg(test)]
 mod tests {
@@ -437,36 +420,12 @@ mod tests {
         assert_eq!(preferred, "5");
         assert!(is_auto_derived(num, current));
         assert_ne!(preferred, current);
-        // The worker condenses this into a rename command.
-        let cmd = rename_command(num, &preferred);
-        assert_eq!(cmd, r#"rename workspace number 5 to "5""#);
+        // The worker dispatches RenameWorkspace(num, Some(preferred));
+        // the name passes through verbatim (hyprland-rs owns escaping),
+        // so the desired-name computation above is the testable surface.
     }
 
-    // ── Bonus: rename_command escaping ─────────────────────────────────
-    //
-    // Not in the 5 required tests, but the rename command is the
-    // worker's actual side-effect surface so we lock its escaping
-    // contract too. App ids in the wild contain dots and dashes
-    // routinely (e.g. `org.mozilla.firefox`), and the rare
-    // operator-targeted quote-injection case still needs the
-    // backslash escape so swayipc parses the command.
-    #[test]
-    fn rename_command_escapes_quotes_and_backslashes() {
-        assert_eq!(
-            rename_command(2, r#"2: app"with"quotes"#),
-            r#"rename workspace number 2 to "2: app\"with\"quotes""#
-        );
-        assert_eq!(
-            rename_command(7, r"7: back\slash"),
-            r#"rename workspace number 7 to "7: back\\slash""#
-        );
-        assert_eq!(
-            rename_command(1, "1: org.mozilla.firefox"),
-            r#"rename workspace number 1 to "1: org.mozilla.firefox""#
-        );
-    }
-
-    // ── HYP-9.sway-bridge precedence tests ─────────────────────────────────
+    // ── HYP-9 manifest-precedence tests ─────────────────────────────────
     //
     // Mirror the testing shape used by workspace_router /
     // border_tinter / tag_layout / tag_autostart bridges: pure-fn
