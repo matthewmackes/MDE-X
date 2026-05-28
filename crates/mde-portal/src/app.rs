@@ -354,6 +354,11 @@ pub struct DockApp {
     status_info: StatusInfo,
     /// Live window list from swayipc tree (Portal-8.a). Empty until subscription fires.
     running_windows: Vec<WindowInfo>,
+    /// ANIM: when each running-zone group key (app_id / `#con_id`) was
+    /// first seen, so new app cells fade in on launch. New keys get a
+    /// stamp; gone keys are dropped; existing keys keep theirs (no
+    /// re-fade). See `update_running_first_seen`.
+    running_first_seen: HashMap<String, chrono::DateTime<chrono::Local>>,
     /// App-id key of the currently hovered running-zone group; `None` = no hover.
     hovered_running_group: Option<String>,
     /// Horizontal scroll offsets (px) per workspace name for marquee (Portal-5.b).
@@ -486,6 +491,7 @@ impl Default for DockApp {
             desktop_window_ids: Vec::new(),
             status_info: StatusInfo::default(),
             running_windows: Vec::new(),
+            running_first_seen: HashMap::new(),
             hovered_running_group: None,
             ws_marquee_offsets: HashMap::new(),
             visited_workspaces_lru: Vec::new(),
@@ -802,6 +808,14 @@ impl iced_layershell::Application for DockApp {
             }
             Message::WindowList(windows) => {
                 self.running_windows = windows;
+                // ANIM: stamp newly-appeared running-zone groups so
+                // their cells fade in (build_running_zone).
+                let keys = running_group_keys(&self.running_windows);
+                update_running_first_seen(
+                    &mut self.running_first_seen,
+                    &keys,
+                    chrono::Local::now(),
+                );
             }
             Message::FocusWindowById(con_id) => {
                 return Task::perform(
@@ -2255,6 +2269,36 @@ fn mark_pill_element<'a>(color: Color) -> Element<'a, Message> {
         .into()
 }
 
+/// ANIM: ms over which a newly-appeared running-zone cell fades in.
+const RUNNING_APPEAR_FADE_MS: f32 = 150.0;
+
+/// ANIM: running-zone group keys (app_id, else `#con_id`) for the
+/// currently-visible windows — the same keys `build_running_zone`
+/// groups by. Used to stamp first-seen times for the cell appear-fade.
+fn running_group_keys(windows: &[WindowInfo]) -> std::collections::BTreeSet<String> {
+    running_zone_visible_windows(windows)
+        .map(|w| {
+            w.app_id
+                .clone()
+                .unwrap_or_else(|| format!("#{}", w.con_id))
+        })
+        .collect()
+}
+
+/// ANIM: update the first-seen map against the current group keys —
+/// stamp `now` for keys not yet seen, drop keys no longer present,
+/// preserve existing keys so cells don't re-fade on every poll.
+fn update_running_first_seen(
+    map: &mut HashMap<String, chrono::DateTime<chrono::Local>>,
+    keys: &std::collections::BTreeSet<String>,
+    now: chrono::DateTime<chrono::Local>,
+) {
+    map.retain(|k, _| keys.contains(k));
+    for k in keys {
+        map.entry(k.clone()).or_insert(now);
+    }
+}
+
 fn build_running_zone<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
     use std::collections::BTreeMap;
     let mut groups: BTreeMap<String, Vec<&WindowInfo>> = BTreeMap::new();
@@ -2296,8 +2340,29 @@ fn build_running_zone<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
         let mut ws_nums: Vec<i32> = group.iter().map(|w| w.workspace_num).collect();
         ws_nums.dedup();
 
-        let bg: Option<Color> = if any_focused { Some(COLOR_INDIGO) } else { None };
-        let text_color = if any_focused { Color::WHITE } else { fg };
+        // ANIM: the cell fades in over RUNNING_APPEAR_FADE_MS from when
+        // this group's key was first seen, so apps gently appear on
+        // launch (mde_theme::animation; the existing 33 ms tick drives it).
+        let fade = match app.running_first_seen.get(label_key) {
+            Some(t) => {
+                let e = chrono::Local::now()
+                    .signed_duration_since(*t)
+                    .num_milliseconds()
+                    .max(0) as f32;
+                mde_theme::ease(
+                    (e / RUNNING_APPEAR_FADE_MS).clamp(0.0, 1.0),
+                    mde_theme::Easing::EaseOut,
+                )
+            }
+            None => 1.0,
+        };
+        let bg: Option<Color> = if any_focused {
+            Some(Color { a: COLOR_INDIGO.a * fade, ..COLOR_INDIGO })
+        } else {
+            None
+        };
+        let base_text = if any_focused { Color::WHITE } else { fg };
+        let text_color = Color { a: base_text.a * fade, ..base_text };
 
         let display: String = {
             let raw = label_key.as_str();
@@ -3579,6 +3644,29 @@ mod tests {
         // At / past the TTL: fully faded.
         assert!(ttl_dismiss_fade(ttl, ttl) <= 0.01);
         assert!((ttl_dismiss_fade(ttl + 100, ttl) - 0.0).abs() < 1e-6);
+    }
+
+    /// ANIM: running-zone first-seen map stamps new keys, preserves
+    /// existing ones (no re-fade), and drops gone ones.
+    #[test]
+    fn running_first_seen_stamps_new_keeps_existing_drops_gone() {
+        use std::collections::BTreeSet;
+        let t0 = chrono::Local::now();
+        let mut map: HashMap<String, chrono::DateTime<chrono::Local>> = HashMap::new();
+        let keys: BTreeSet<String> =
+            ["foot".to_string(), "firefox".to_string()].into_iter().collect();
+        update_running_first_seen(&mut map, &keys, t0);
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["foot"], t0);
+        // Later poll: firefox stays, foot gone, code is new.
+        let t1 = t0 + chrono::Duration::milliseconds(500);
+        let keys2: BTreeSet<String> =
+            ["firefox".to_string(), "code".to_string()].into_iter().collect();
+        update_running_first_seen(&mut map, &keys2, t1);
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["firefox"], t0, "existing key keeps its stamp (no re-fade)");
+        assert_eq!(map["code"], t1, "new key stamped now");
+        assert!(!map.contains_key("foot"), "gone key dropped");
     }
 
     /// `pulse_workspace_num` looks up the con_id via running_windows.
