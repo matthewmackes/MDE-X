@@ -214,10 +214,10 @@ pub enum CaError {
 /// Test-only mock backend that writes canned PEM strings.
 /// Used by every unit test in the CA module so they don't
 /// depend on `nebula-cert` being installed.
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 pub struct MockBackend;
 
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 impl NebulaCertBackend for MockBackend {
     fn mint_ca(
         &self,
