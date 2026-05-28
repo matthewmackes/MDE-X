@@ -23,7 +23,6 @@ use iced_layershell::to_layer_message;
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
-const CHARCOAL: Color = Color { r: 0.125, g: 0.129, b: 0.141, a: 1.0 };
 const SURFACE: Color = Color { r: 0.102, g: 0.106, b: 0.118, a: 0.97 };
 const FG: Color = Color::WHITE;
 const FG_DIM: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.55 };
@@ -474,14 +473,6 @@ mod tests {
     #[test]
     fn tab_label_power() {
         assert_eq!(Tab::Power.label(), "Power");
-    }
-
-    #[test]
-    fn charcoal_is_chromeos_lock() {
-        let r = (CHARCOAL.r * 255.0).round() as u8;
-        let g = (CHARCOAL.g * 255.0).round() as u8;
-        let b = (CHARCOAL.b * 255.0).round() as u8;
-        assert_eq!((r, g, b), (32, 33, 36), "#202124 charcoal design lock");
     }
 
     #[test]
