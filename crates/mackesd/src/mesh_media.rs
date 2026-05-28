@@ -1,34 +1,28 @@
-//! Mesh media-server discovery — Airsonic / Subsonic / Jellyfin.
+//! Mesh media-server model + peer overlay-IP enumeration.
 //!
-//! EPIC-SYNC-APP-CONFIG (Q26) — the native-Rust replacement for the
-//! discovery half of the retired `mackes/mesh_media.py`. Per the
-//! operator-delegated discovery decision (2026-05-28, "Make the
-//! discovery call" → Option A), this ports the runtime behavior of
-//! the Python module rather than the aspirational telemetry path its
-//! `DeprecationWarning` gestured at (that replacement never landed).
+//! Originally (EPIC-SYNC-APP-CONFIG) this did mesh-peer TCP-probe
+//! discovery for app_sync. **MESH-PROBE-7 (2026-05-28) retired that
+//! TCP-probe path**: media discovery now reads the shared probe
+//! inventory via `probe_nmap::peers_with_service` (one prober — the
+//! probe worker — feeds every consumer), so the bespoke
+//! `discover`/`scan_probe`/`probe_port`/`dedupe` TCP-probe is gone.
 //!
-//! Discovery is **mesh-peer TCP-probe**: enumerate every peer's
-//! Nebula overlay IP from the GFS-replicated `<qnm_root>/<peer>/
-//! mackesd/nebula-bundle.json` files (the same source
-//! [`crate::workers::gluster_worker::peer_probe_targets`] uses) and
-//! probe the two well-known media ports on each. This is the
-//! mesh-native core of the Python's discovery; it intentionally drops
-//! the Python's supplementary mDNS `_subsonic._tcp`/`_jellyfin._tcp`
-//! LAN browse — a media server reachable only over plain LAN mDNS has
-//! no Nebula trust, so auto-configuring clients to point at it
-//! conflicts with the §0 "Secure" mesh model. The mDNS-LAN path is
-//! tracked as a deferred sub-task (EPIC-SYNC-APP-CONFIG.mdns-lan) for
-//! a later session that wants the LAN-bleed behavior back.
+//! What remains is the small shared model both still need:
+//!   * [`MediaServer`] + [`server_from_probe`] — the server type
+//!     app_sync's config writers consume (app_sync builds these from
+//!     probe-inventory `HostService` rows).
+//!   * [`peer_overlay_ips`] — enumerate every peer's Nebula overlay IP
+//!     from the GFS-replicated `nebula-bundle.json` files; the probe
+//!     worker's [`crate::probe_nmap::mesh_targets`] uses this to know
+//!     which peers to scan.
 
-use std::net::TcpStream;
 use std::path::Path;
-use std::time::Duration;
 
 use serde::Deserialize;
 
 /// Minimal projection of `nebula-bundle.json` — we only need the
-/// overlay IP to probe. Serde ignores the bundle's other fields
-/// (cert PEMs, lighthouses, etc.), so this stays decoupled from
+/// overlay IP. Serde ignores the bundle's other fields (cert PEMs,
+/// lighthouses, etc.), so this stays decoupled from
 /// [`crate::ca::bundle::NebulaBundle`]'s full shape.
 #[derive(Deserialize)]
 struct BundleOverlayIp {
@@ -40,16 +34,14 @@ pub const KIND_AIRSONIC: &str = "airsonic";
 /// Jellyfin media-server kind tag.
 pub const KIND_JELLYFIN: &str = "jellyfin";
 
-/// Default Airsonic/Subsonic port (matches the retired Python).
+/// Default Airsonic/Subsonic port.
 pub const AIRSONIC_PORT: u16 = 4040;
-/// Default Jellyfin port (matches the retired Python).
+/// Default Jellyfin port.
 pub const JELLYFIN_PORT: u16 = 8096;
 
-/// Per-port TCP connect timeout. Matches the Python's 0.25 s probe so
-/// a full sweep over an 8-peer mesh stays well under a second.
-const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
-
-/// One media server reachable on the mesh.
+/// One media server reachable on the mesh. Built by app_sync from a
+/// probe-inventory `HostService` row; consumed by app_sync's Sublime
+/// Music / Delfin config writers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaServer {
     /// [`KIND_AIRSONIC`] or [`KIND_JELLYFIN`].
@@ -64,19 +56,30 @@ pub struct MediaServer {
 
 impl MediaServer {
     /// `http://<ip>:<port>` — mesh-internal; Nebula provides the
-    /// trust layer, so plain HTTP over the overlay is intentional
-    /// (mirrors the Python `MediaServer.url`).
+    /// trust layer, so plain HTTP over the overlay is intentional.
     #[must_use]
     pub fn url(&self) -> String {
         format!("http://{}:{}", self.ip, self.port)
     }
 }
 
+/// Build a [`MediaServer`] from its parts. Pure constructor.
+#[must_use]
+pub fn server_from_probe(kind: &str, host: &str, ip: &str, port: u16) -> MediaServer {
+    MediaServer {
+        kind: kind.to_owned(),
+        host: host.to_owned(),
+        ip: ip.to_owned(),
+        port,
+    }
+}
+
 /// Enumerate every peer's `(node_id, overlay_ip)` from the
 /// GFS-replicated nebula bundles under `qnm_root`. Includes the local
-/// peer's own bundle — a media server may run on this host too, which
-/// the Python's `nebula_peer_ips()` likewise included. Missing root
-/// or unreadable/!malformed bundles are skipped (best-effort).
+/// peer's own bundle. Missing root or unreadable/malformed bundles are
+/// skipped (best-effort). Used by the probe worker
+/// ([`crate::probe_nmap::mesh_targets`]) to resolve mesh-peer scan
+/// targets.
 #[must_use]
 pub fn peer_overlay_ips(qnm_root: &Path) -> Vec<(String, String)> {
     let entries = match std::fs::read_dir(qnm_root) {
@@ -103,72 +106,6 @@ pub fn peer_overlay_ips(qnm_root: &Path) -> Vec<(String, String)> {
     out
 }
 
-/// One TCP connect with a short timeout. `true` if the port accepts.
-fn probe_port(ip: &str, port: u16) -> bool {
-    let Ok(addr) = format!("{ip}:{port}").parse::<std::net::SocketAddr>() else {
-        return false;
-    };
-    TcpStream::connect_timeout(&addr, PROBE_TIMEOUT).is_ok()
-}
-
-/// Build a [`MediaServer`] from a probe hit. Pure helper (no I/O) so
-/// the kind→port mapping is unit-testable.
-#[must_use]
-pub fn server_from_probe(kind: &str, host: &str, ip: &str, port: u16) -> MediaServer {
-    MediaServer {
-        kind: kind.to_owned(),
-        host: host.to_owned(),
-        ip: ip.to_owned(),
-        port,
-    }
-}
-
-/// Probe every `(host, ip)` peer for the two media ports, returning a
-/// [`MediaServer`] per open port. The injected `probe` closure is the
-/// seam tests use to avoid real sockets; [`discover`] passes the live
-/// [`probe_port`].
-fn scan_probe<F>(peers: &[(String, String)], mut probe: F) -> Vec<MediaServer>
-where
-    F: FnMut(&str, u16) -> bool,
-{
-    let mut found = Vec::new();
-    for (host, ip) in peers {
-        if probe(ip, AIRSONIC_PORT) {
-            found.push(server_from_probe(KIND_AIRSONIC, host, ip, AIRSONIC_PORT));
-        }
-        if probe(ip, JELLYFIN_PORT) {
-            found.push(server_from_probe(KIND_JELLYFIN, host, ip, JELLYFIN_PORT));
-        }
-    }
-    found
-}
-
-/// Dedupe on `(kind, ip, port)`, preserving first-seen order. Pure
-/// helper so the dedup contract is unit-testable.
-#[must_use]
-pub fn dedupe(servers: Vec<MediaServer>) -> Vec<MediaServer> {
-    let mut seen = std::collections::BTreeSet::new();
-    let mut out = Vec::new();
-    for s in servers {
-        let key = (s.kind.clone(), s.ip.clone(), s.port);
-        if seen.insert(key) {
-            out.push(s);
-        }
-    }
-    out
-}
-
-/// Discover every mesh media server: enumerate peer overlay IPs from
-/// `qnm_root` and TCP-probe each for the Airsonic + Jellyfin ports.
-/// Best-effort — an empty/missing `qnm_root` yields an empty list
-/// (clients keep their existing config). Result is deduped on
-/// `(kind, ip, port)`.
-#[must_use]
-pub fn discover(qnm_root: &Path) -> Vec<MediaServer> {
-    let peers = peer_overlay_ips(qnm_root);
-    dedupe(scan_probe(&peers, probe_port))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,60 +117,12 @@ mod tests {
     }
 
     #[test]
-    fn scan_probe_emits_one_server_per_open_port() {
-        let peers = vec![
-            ("peer-a".to_string(), "10.42.0.5".to_string()),
-            ("peer-b".to_string(), "10.42.0.6".to_string()),
-        ];
-        // peer-a runs Airsonic; peer-b runs Jellyfin.
-        let probe = |ip: &str, port: u16| match (ip, port) {
-            ("10.42.0.5", AIRSONIC_PORT) => true,
-            ("10.42.0.6", JELLYFIN_PORT) => true,
-            _ => false,
-        };
-        let found = scan_probe(&peers, probe);
-        assert_eq!(found.len(), 2);
-        assert!(found.contains(&server_from_probe(
-            KIND_AIRSONIC,
-            "peer-a",
-            "10.42.0.5",
-            AIRSONIC_PORT
-        )));
-        assert!(found.contains(&server_from_probe(
-            KIND_JELLYFIN,
-            "peer-b",
-            "10.42.0.6",
-            JELLYFIN_PORT
-        )));
-    }
-
-    #[test]
-    fn scan_probe_emits_both_kinds_for_a_dual_host() {
-        let peers = vec![("multi".to_string(), "10.42.0.9".to_string())];
-        let found = scan_probe(&peers, |_ip, _port| true);
-        assert_eq!(found.len(), 2);
-        assert_eq!(found[0].kind, KIND_AIRSONIC);
-        assert_eq!(found[1].kind, KIND_JELLYFIN);
-    }
-
-    #[test]
-    fn scan_probe_skips_closed_ports() {
-        let peers = vec![("dark".to_string(), "10.42.0.1".to_string())];
-        let found = scan_probe(&peers, |_ip, _port| false);
-        assert!(found.is_empty());
-    }
-
-    #[test]
-    fn dedupe_collapses_same_kind_ip_port() {
-        let servers = vec![
-            server_from_probe(KIND_AIRSONIC, "a", "10.42.0.5", 4040),
-            server_from_probe(KIND_AIRSONIC, "a-dup", "10.42.0.5", 4040),
-            server_from_probe(KIND_JELLYFIN, "a", "10.42.0.5", 8096),
-        ];
-        let out = dedupe(servers);
-        assert_eq!(out.len(), 2);
-        // First-seen wins (keeps host "a", drops "a-dup").
-        assert_eq!(out[0].host, "a");
+    fn server_from_probe_sets_fields() {
+        let s = server_from_probe(KIND_JELLYFIN, "peer-b", "10.42.0.6", JELLYFIN_PORT);
+        assert_eq!(s.kind, KIND_JELLYFIN);
+        assert_eq!(s.host, "peer-b");
+        assert_eq!(s.ip, "10.42.0.6");
+        assert_eq!(s.port, 8096);
     }
 
     #[test]

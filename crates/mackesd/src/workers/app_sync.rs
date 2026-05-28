@@ -366,9 +366,42 @@ fn sync_servers(paths: &Paths, servers: &[MediaServer]) -> usize {
     servers.len()
 }
 
-/// Full cycle: discover mesh media servers, then sync configs.
+/// Discover mesh media servers from the shared probe inventory
+/// (MESH-PROBE-7). Reads `probe_nmap::peers_with_service` for each
+/// media kind instead of TCP-probing peers directly — one prober
+/// (the probe worker) now feeds every consumer. Subsonic-family
+/// servers (`airsonic` + `navidrome`, both spoken by Sublime Music)
+/// map to `KIND_AIRSONIC`; `jellyfin` maps to `KIND_JELLYFIN`. The
+/// precise `service_kind` comes from the bundled NSE detector
+/// (MESH-PROBE-3) on the worker's deep pass.
+fn discover_from_inventory(qnm_root: &std::path::Path) -> Vec<MediaServer> {
+    let mut servers = Vec::new();
+    for (probe_kind, media_kind) in [
+        ("airsonic", KIND_AIRSONIC),
+        ("navidrome", KIND_AIRSONIC),
+        ("jellyfin", KIND_JELLYFIN),
+    ] {
+        for hs in crate::probe_nmap::peers_with_service(qnm_root, probe_kind) {
+            let host = if hs.host.hostname.is_empty() {
+                hs.host.ip.clone()
+            } else {
+                hs.host.hostname.clone()
+            };
+            servers.push(mesh_media::server_from_probe(
+                media_kind,
+                &host,
+                &hs.host.ip,
+                hs.service.port,
+            ));
+        }
+    }
+    servers
+}
+
+/// Full cycle: read discovered media servers from the probe inventory,
+/// then sync configs.
 fn run_once(paths: &Paths) -> usize {
-    let servers = mesh_media::discover(&paths.qnm_root);
+    let servers = discover_from_inventory(&paths.qnm_root);
     let n = sync_servers(paths, &servers);
     if n > 0 {
         let airsonic = servers.iter().filter(|s| s.kind == KIND_AIRSONIC).count();
@@ -441,6 +474,62 @@ mod tests {
     #[test]
     fn worker_name_is_app_sync() {
         assert_eq!(build().name(), "app-sync");
+    }
+
+    #[test]
+    fn discover_from_inventory_maps_probe_services_to_media_servers() {
+        // Seed a probe inventory (MESH-PROBE-7 source): peer-a runs
+        // jellyfin, peer-b runs navidrome (a Subsonic-family server →
+        // KIND_AIRSONIC), peer-c runs ssh (ignored — not a media kind).
+        use mde_card::probe::{host_card, service_card, HostFacts, HostSource, ServiceFacts};
+        let root = tmp_home("probe-discover");
+        let seed = |peer: &str, ip: &str, kind: &str, port: u16| {
+            let dir = root.join(peer).join("mackesd");
+            std::fs::create_dir_all(&dir).unwrap();
+            let svc = service_card(
+                &ServiceFacts {
+                    port,
+                    service_kind: kind.to_owned(),
+                    product: String::new(),
+                    version: String::new(),
+                    fingerprint: String::new(),
+                },
+                1,
+            );
+            let host = host_card(
+                &HostFacts {
+                    ip: ip.to_owned(),
+                    hostname: peer.to_owned(),
+                    source: HostSource::Mesh,
+                    trust_state: String::new(),
+                    last_seen: 1,
+                },
+                vec![svc],
+                1,
+            );
+            std::fs::write(
+                dir.join(crate::probe_nmap::INVENTORY_FILENAME),
+                crate::probe_nmap::serialize_inventory(&[host]),
+            )
+            .unwrap();
+        };
+        seed("peer-a", "10.42.0.5", "jellyfin", 8096);
+        seed("peer-b", "10.42.0.6", "navidrome", 4533);
+        seed("peer-c", "10.42.0.7", "ssh", 22);
+
+        let mut servers = discover_from_inventory(&root);
+        servers.sort_by(|a, b| a.ip.cmp(&b.ip));
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(servers.len(), 2, "ssh ignored; jellyfin + navidrome kept");
+        // peer-a jellyfin → KIND_JELLYFIN.
+        assert_eq!(servers[0].ip, "10.42.0.5");
+        assert_eq!(servers[0].kind, KIND_JELLYFIN);
+        assert_eq!(servers[0].port, 8096);
+        // peer-b navidrome → KIND_AIRSONIC (Subsonic-family).
+        assert_eq!(servers[1].ip, "10.42.0.6");
+        assert_eq!(servers[1].kind, KIND_AIRSONIC);
+        assert_eq!(servers[1].port, 4533);
     }
 
     #[test]

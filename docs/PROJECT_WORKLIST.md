@@ -2559,14 +2559,14 @@ call-end lifecycle, never at install or login.
     - [✓] `peers_with_service("airsonic")` returns the hosts whose service Cards match (case-insensitive); unit-tested over a multi-peer tmpdir fixture + the `probe list --service` e2e.
     - [✓] Reactivity: in-process consumers poll `inventory()`/`inventory_fingerprint()` per tick; the `probe/changed` Bus push (MESH-PROBE-4) drives the Portal subscription via standard mde-bus subs (MESH-PROBE-9). *(reframed from a bespoke `subscribe_changed` — mackesd workers poll, they don't push-subscribe)*
 
-- [ ] **MESH-PROBE-7: v1.0 — repoint `app_sync` media-discovery onto the probe library**
+- [✓] **MESH-PROBE-7: v1.0 — repoint `app_sync` media-discovery onto the probe library** *(shipped 2026-05-28 — session=opus-47-2026-05-28-ship-B. The epic capstone: `app_sync`'s `run_once` now calls a new `discover_from_inventory(qnm_root)` that reads `probe_nmap::peers_with_service` for `airsonic` + `navidrome` (both → `KIND_AIRSONIC`, spoken by Sublime Music) + `jellyfin` (→ `KIND_JELLYFIN`) from the shared probe inventory + maps each `HostService` → `MediaServer`, replacing the bespoke `mesh_media::discover` TCP-probe. **One prober (the MESH-PROBE-4 worker) now feeds media discovery** — proving the epic end-to-end: probe worker writes `probe-inventory.json` → app_sync reads it. **Retired** `mesh_media::{discover, scan_probe, probe_port, dedupe}` + `PROBE_TIMEOUT` + their 4 tests (the TCP-probe path); `mesh_media` shrinks to the shared model (`MediaServer` + `server_from_probe` for app_sync) + `peer_overlay_ips` (the probe worker's mesh-target source via `probe_nmap::mesh_targets`). The byte-faithful Sublime/Delfin config writers + the `MediaApp` trait are UNCHANGED (still take `MediaServer`) — only the discovery source swapped. 8 app_sync tests (the 7 byte-faithful/writer tests intact + 1 new `discover_from_inventory_maps_probe_services_to_media_servers`: jellyfin→KIND_JELLYFIN, navidrome→KIND_AIRSONIC, ssh ignored) + mesh_media 4 tests; `cargo build --bin mackesd` clean; all 6 lints clean. Precise media `service_kind` comes from the bundled NSE detector (MESH-PROBE-3) on the worker's deep pass; the fast pass's generic `http` won't match (eventual-consistent within the 10min deep cadence). Cite: mesh-probe-subsystem.md §3 (consumer repoint).)*
   **As** `app_sync`,
   **I want** to read `probe::peers_with_service("airsonic"/"jellyfin")` instead of TCP-probing itself,
   **so that** the double-probe is gone + `mesh_media`'s probe path retires (Q10 consumer repoint).
   **Acceptance** (each bench-observable):
-    - [ ] `app_sync` discovery sources from `mackesd::probe`; `mesh_media::{discover, scan_probe, peer_overlay_ips}` deleted (or reduced to a thin re-export if still used).
-    - [ ] The byte-faithful Sublime/Delfin config tests still pass against probe-sourced servers.
-    - [ ] No remaining direct TCP-probe of media ports in `app_sync`/`mesh_media`.
+    - [✓] `app_sync` discovery sources from `probe_nmap::peers_with_service`; `mesh_media::{discover, scan_probe, probe_port, dedupe}` deleted (mesh_media reduced to the shared `MediaServer`/`server_from_probe` model + `peer_overlay_ips`, which probe_nmap still uses — so it's the "thin remainder" the acceptance allows, not full deletion).
+    - [✓] The byte-faithful Sublime/Delfin config tests still pass against probe-sourced servers (7 writer tests unchanged + green).
+    - [✓] No remaining direct TCP-probe of media ports in `app_sync`/`mesh_media` (the `TcpStream`/`probe_port` path is gone; discovery is inventory-read only).
 
 - [ ] **MESH-PROBE-8: v1.0 — repoint MESH-A-1/2/4/7 + connect-actions onto the inventory**
   **As** the MESH-A network-assessment surfaces,
