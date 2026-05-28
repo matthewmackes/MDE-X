@@ -3668,12 +3668,14 @@ dependencies = [
  "mackes-mesh-types",
  "mackes-nebula-https-tunnel",
  "mackes-transport",
+ "mde-card",
  "mde-kdc",
  "mde-kdc-proto",
  "mde-voice-config",
  "mdns-sd",
  "rand 0.8.6",
  "rcgen",
+ "roxmltree",
  "rusqlite",
  "rustix 0.38.44",
  "rustls",
@@ -3988,7 +3990,6 @@ name = "mde-iced-components"
 version = "0.0.0"
 dependencies = [
  "iced",
- "mde-motion",
  "mde-theme",
 ]
 
@@ -4041,10 +4042,6 @@ version = "0.0.0"
 dependencies = [
  "mackes-mesh-types",
 ]
-
-[[package]]
-name = "mde-motion"
-version = "0.0.0"
 
 [[package]]
 name = "mde-panel"
@@ -4120,7 +4117,6 @@ dependencies = [
  "iced_layershell",
  "mackes-mesh-types",
  "mde-card",
- "mde-motion",
  "mde-theme",
  "serde",
  "serde_json",
