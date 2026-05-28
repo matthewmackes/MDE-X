@@ -30,7 +30,6 @@ struct Cli {
 enum Message {
     NavNext,
     NavPrev,
-    Quit,
     /// NF-7.3 — operator clicked the Refresh button on the
     /// Preview page (or the page just became active).
     PreviewRefresh,
@@ -153,7 +152,6 @@ impl WizardApp {
                 // refresh count.
                 self.preview = pages::preview::probe();
             }
-            Message::Quit => {}
         }
         Task::none()
     }
