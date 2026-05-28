@@ -144,8 +144,13 @@ def test_diagnose_returns_lines_and_does_not_raise():
     lines = diagnose()
     assert isinstance(lines, list)
     assert any("mesh state:" in ln.lower() for ln in lines)
-    # Every layer name must appear at least once
+    # Every active layer name must appear at least once. The
+    # umbrella was pruned to 4 layers by DEAD-2.15 on 2026-05-26
+    # (thumbnailer/services/sync/browser retired with their
+    # backing modules under DEAD-2.2/2.9/2.10/2.11); fs +
+    # notifications retire under DEAD-2.12 (HW-gated v5.2) +
+    # DEAD-2.8 (BUS-4.2 hard cut). Source-of-truth list lives at
+    # `mackes.mesh:_LAYERS`.
     text = "\n".join(lines)
-    for layer in ("vpn", "ssh", "services", "fs",
-                  "sync", "notifications", "browser", "thumbnailer"):
+    for layer in ("vpn", "ssh", "fs", "notifications"):
         assert layer in text, f"layer {layer!r} missing from diagnose output"

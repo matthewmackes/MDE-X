@@ -104,7 +104,11 @@ def _install_shim() -> None:
     pytest = types.ModuleType("pytest")
     pytest.raises = _Raises
     pytest.fixture = _fixture
-    pytest.skip = lambda reason="": (_ for _ in ()).throw(_Skip(reason))
+    # pytest's real `skip()` accepts `allow_module_level=True` so a
+    # test module can short-circuit at import time. The shim ignores
+    # the kwarg (every skip path here raises _Skip identically) but
+    # must accept it to match the call sites.
+    pytest.skip = lambda reason="", **_kwargs: (_ for _ in ()).throw(_Skip(reason))
     pytest.importorskip = _importorskip
     pytest.mark = _Mark()
     pytest.fail = _fail
@@ -141,6 +145,14 @@ def main() -> int:
     for tf in test_files:
         try:
             mod = _load(tf)
+        except _Skip as e:
+            # Module-level `pytest.skip(..., allow_module_level=True)`
+            # raises _Skip during exec_module. That's a deliberate
+            # skip of the whole file (e.g. no $DISPLAY, no GTK typelib),
+            # not a load failure — count it under skips.
+            skip_n += 1
+            print(f"  SKIP {tf.name} (module-level: {e})")
+            continue
         except Exception as e:  # noqa: BLE001
             print(f"  LOAD-FAIL {tf.name}: {e}")
             fail_n += 1
