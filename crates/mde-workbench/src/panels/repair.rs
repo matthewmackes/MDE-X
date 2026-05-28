@@ -18,9 +18,22 @@
 //!     `/usr/share/applications/mde.desktop` into
 //!     `~/.local/share/applications/` so a per-user override
 //!     in that dir is reset to the canonical version)
+//!   * Restore my preset (snapshot the current configuration,
+//!     then re-apply the active preset across every section
+//!     via `mackes snapshot create` + `mackes maintain reset`)
 //!
-//! All three are safe + idempotent; the panel runs them
+//! The first three are safe + idempotent. Restore-my-preset
+//! overwrites your settings to match the active preset, so it
+//! snapshots the current configuration first — roll back from
+//! Maintain → Snapshots if needed. The panel runs each action
 //! one at a time with a per-row button.
+//!
+//! Restore-my-preset absorbs
+//! `EPIC-RETIRE-PY-WORKBENCH.port-reset-to-preset`: the v1.x
+//! `maintain/reset_to_preset.py` panel folds in here as a
+//! single recovery action (the v1.x picker + per-section
+//! toggles are the wizard's domain — Repair restores the
+//! preset the operator is already on).
 
 use iced::widget::{column, container, row, scrollable, text};
 use iced::{Element, Length, Padding, Task};
@@ -41,6 +54,7 @@ pub enum Message {
     ReloadSwayClicked,
     RestartMdedClicked,
     ReinstallDesktopClicked,
+    RestorePresetClicked,
     Finished { argv: String, output: String },
 }
 
@@ -60,6 +74,7 @@ impl RepairPanel {
                 vec!["systemctl", "--user", "restart", "mded"],
             ),
             Message::ReinstallDesktopClicked => self.dispatch_async_fn("reinstall mde.desktop"),
+            Message::RestorePresetClicked => self.dispatch_restore("restore my preset"),
             Message::Finished { argv, output } => {
                 self.busy = false;
                 self.output = output;
@@ -108,6 +123,25 @@ impl RepairPanel {
         )
     }
 
+    fn dispatch_restore(&mut self, label: &str) -> Task<crate::Message> {
+        if self.busy {
+            return Task::none();
+        }
+        self.busy = true;
+        self.status = format!("Running {label}…");
+        let label_owned = label.to_string();
+        Task::perform(
+            async move {
+                let output = restore_active_preset().await;
+                Message::Finished {
+                    argv: label_owned,
+                    output,
+                }
+            },
+            crate::Message::Repair,
+        )
+    }
+
     pub fn view(&self) -> Element<'_, crate::Message> {
         // UX-7.a — three repair actions routed through Secondary
         // (none of them is THE primary action; user picks based
@@ -129,6 +163,12 @@ impl RepairPanel {
             "Re-install MDE launcher",
             ButtonVariant::Secondary,
             (!self.busy).then(|| crate::Message::Repair(Message::ReinstallDesktopClicked)),
+            palette,
+        );
+        let restore_btn = variant_button(
+            "Restore my preset",
+            ButtonVariant::Secondary,
+            (!self.busy).then(|| crate::Message::Repair(Message::RestorePresetClicked)),
             palette,
         );
 
@@ -168,6 +208,20 @@ impl RepairPanel {
                 .spacing(2)
                 .width(Length::Fill),
                 reinstall_btn,
+            ]
+            .spacing(12),
+            row![
+                column![
+                    text("Restore my preset").size(14),
+                    text(
+                        "Snapshot your current settings, then re-apply your active \
+                         preset across every section. Roll back from Maintain → Snapshots."
+                    )
+                    .size(12)
+                ]
+                .spacing(2)
+                .width(Length::Fill),
+                restore_btn,
             ]
             .spacing(12),
             text("Output").size(14),
@@ -237,6 +291,26 @@ async fn reinstall_mde_desktop() -> String {
     }
 }
 
+/// Snapshot the current configuration, then re-apply the
+/// active preset across every section. Mirrors the v1.x
+/// Maintain → Reset to Preset panel: a snapshot is taken
+/// first (so the operator can roll back from Maintain →
+/// Snapshots), then `mackes maintain reset` re-applies the
+/// active preset. Returns the combined snapshot + apply
+/// output. If no active preset is set, `mackes maintain reset`
+/// exits non-zero and the message surfaces in the output.
+async fn restore_active_preset() -> String {
+    let snap = run_capture(&[
+        "mackes".into(),
+        "snapshot".into(),
+        "create".into(),
+        "pre-restore-preset".into(),
+    ])
+    .await;
+    let apply = run_capture(&["mackes".into(), "maintain".into(), "reset".into()]).await;
+    format!("snapshot: {snap}\n\n{apply}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,6 +345,23 @@ mod tests {
         let _ = panel.update(Message::ReinstallDesktopClicked);
         assert!(panel.busy);
         assert!(panel.status.contains("mde.desktop"));
+    }
+
+    #[test]
+    fn restore_preset_clicked_sets_busy_and_status() {
+        let mut panel = RepairPanel::new();
+        let _ = panel.update(Message::RestorePresetClicked);
+        assert!(panel.busy);
+        assert!(panel.status.contains("restore my preset"));
+    }
+
+    #[test]
+    fn restore_preset_while_busy_is_noop() {
+        let mut panel = RepairPanel::new();
+        panel.busy = true;
+        panel.status = "Running …".into();
+        let _ = panel.update(Message::RestorePresetClicked);
+        assert_eq!(panel.status, "Running …");
     }
 
     #[test]
