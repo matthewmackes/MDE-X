@@ -40,6 +40,13 @@ unreleased; tag versions get a date when they ship.
   for tag-mode, `hyprctl clients`/`--batch` for templates,
   `togglesplit`/`togglegroup`/`swapwindow` for Hub drag-to-tile;
   HYP-33 partial close).
+- HYP-2: `hyprland = "0.4.0-beta.3"` dep added to four
+  Cargo.toml files (mde-portal, mde-panel, mde-session,
+  mackesd) per the design doc Q3 lock. mackesd's entry sits
+  under the existing `async-services` feature alongside
+  swayipc-async; the two compositor IPC libs coexist during the
+  migration window. License-compatible (GPL-3.0-or-later both
+  sides). Unblocks HYP-3 + HYP-9..HYP-18 worker ports.
 - HYP-AutoMark.sway-bridge: auto_mark worker now also applies
   the focused workspace's tag manifest `marks_default` list to
   every new window (after the existing taxonomy mark). Closes

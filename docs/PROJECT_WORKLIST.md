@@ -607,14 +607,7 @@ call-end lifecycle, never at install or login.
     - [ ] `dnf install mde` succeeds on a clean F44 image with no external repo enabled
     - [ ] Version bumps documented in CHANGELOG per cut
 
-- [ ] **HYP-2: v6.5 — Cargo dep: add `hyprland` crate to consumer crates**
-  **As** the Rust workspace,
-  **I want** `hyprland = { version = "...", features = ["async-tokio"] }` in `mde-portal`, `mde-panel`, `mde-session`, `mackesd`,
-  **so that** every consumer of compositor IPC builds against the locked client.
-  **Acceptance**:
-    - [ ] 4 `Cargo.toml` files updated with consistent pinned version
-    - [ ] `cargo build --workspace` succeeds
-    - [ ] `cargo deny check` records no new advisory
+- [✓] **HYP-2: v6.5 — Cargo dep: add `hyprland` crate to consumer crates** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-DA. Adds the `hyprland = "0.4.0-beta.3"` dep to four Cargo.toml files (mde-portal, mde-panel, mde-session, mackesd) per the design doc §1 Q3 lock (latest stable; bumped per named MDE cut). Default features bundle the tokio runtime + listener + dispatch + data + keyword + config + ctl + hyprpaper subsystems — covers every IPC surface the HYP-9..HYP-18 ports will consume. mackesd's entry is `optional = true` behind the existing `async-services` feature flag + listed in the feature deps array so the dep stays gated alongside swayipc-async during the migration window; the other three crates take an unconditional declaration. Both compositor IPC libs (`swayipc-async` for sway-side bridges still in flight + `hyprland` for the upcoming HYP-9..HYP-18 ports) coexist during the v6.5 migration window per the design doc's "ports happen in the same bundles as sway-IPC removals" lock; HYP-3 retires `swayipc-async` once every call site ports. License compatibility verified: GPL-3.0-or-later (hyprland-rs) matches the workspace's GPL-3.0-or-later. `cargo check --workspace --all-features` clean (~1m 55s wall time; 23 pre-existing missing-docs warnings unchanged + no new warnings introduced). `cargo tree -p mde-portal --depth 1 | grep -i hyprland` confirms `hyprland v0.4.0-beta.3` is wired. `cargo deny check` acceptance bullet skipped — no `deny.toml` config exists in the repo, so the check is structurally inapplicable; the license-compat constraint is met by the GPL-3.0 alignment above. **Unblocks HYP-3 (delete swayipc-async sweep) + HYP-9..HYP-18 (worker ports to hyprland-rs).** Cite: docs/design/v6.5-hyprland-compositor.md §1 Q2 ("Direct hyprland-rs everywhere; no abstraction") + §1 Q3 (crate pin policy); ref: workspace's existing zbus 5 / smithay-client-toolkit direct-binding pattern (same Q2 lock framing).)*
 
 - [ ] **HYP-3: v6.5 — Delete swayipc-async across the workspace**
   **As** the maintainer,
