@@ -740,7 +740,15 @@ impl iced_layershell::Application for DockApp {
             }
             Message::BusAnnounceSegment(segment) => {
                 let now = chrono::Local::now();
-                if segment.priority == "high" {
+                if segment.priority == "urgent" {
+                    // BUS-2.5: urgent → full-screen theater takeover. A
+                    // takeover can't be the 56 px Dock, so it's its own
+                    // surface (`mde-popover urgent`); spawn once per ULID
+                    // (the GFS-poll subscription already dedups). Per the
+                    // surface table, urgent does NOT also land in the
+                    // breadcrumb.
+                    spawn_urgent_theater(&segment);
+                } else if segment.priority == "high" {
                     // BUS-2.4: high → persistent ackable card + one-shot
                     // sound (surface table: high goes to the strip, not
                     // the transient breadcrumb).
@@ -752,9 +760,9 @@ impl iced_layershell::Application for DockApp {
                         play_high_alert();
                     }
                 } else {
-                    // BUS-2.2.a: default (+ urgent until BUS-2.5 theater
-                    // lands) → TTL'd breadcrumb. Sweep expired entries +
-                    // cap at 8 (limited horizontal space; older evict).
+                    // BUS-2.2.a: default → TTL'd breadcrumb. Sweep expired
+                    // entries + cap at 8 (limited horizontal space; older
+                    // evict).
                     self.bus_announce_segments
                         .retain(|s| is_bus_segment_alive(s, now));
                     self.bus_announce_segments.push(segment);
@@ -1495,6 +1503,24 @@ fn play_high_alert() {
         .is_err()
     {
         tracing::debug!("bus high alert: canberra-gtk-play unavailable; sound skipped");
+    }
+}
+
+/// BUS-2.5: spawn the full-screen urgent theater (`mde-popover urgent`)
+/// for an `urgent` Bus segment, handing the title + body via env vars
+/// (mirrors the WM-3 / icon-mapper env hand-off). Best-effort: a failed
+/// spawn is logged, never fatal — the Dock keeps running.
+fn spawn_urgent_theater(segment: &BusAnnounceSegment) {
+    let mut cmd = std::process::Command::new("mde-popover");
+    cmd.arg("urgent");
+    if let Some(title) = &segment.title {
+        cmd.env("MDE_URGENT_TITLE", title);
+    }
+    if let Some(body) = &segment.body {
+        cmd.env("MDE_URGENT_BODY", body);
+    }
+    if let Err(e) = cmd.spawn() {
+        tracing::debug!("bus urgent: failed to spawn mde-popover urgent theater: {e}");
     }
 }
 
@@ -4006,18 +4032,20 @@ mod tests {
         assert_eq!(label.chars().count(), 60);
     }
 
-    /// `Message::BusAnnounceSegment` appends to state + sweeps
-    /// expired entries.
+    /// `Message::BusAnnounceSegment` with `default` priority appends
+    /// to the breadcrumb state + sweeps expired entries. (BUS-2.4/2.5:
+    /// `high` routes to the persistent strip + `urgent` to the theater
+    /// takeover, so only `default` lands in the TTL'd breadcrumb.)
     #[test]
     fn bus_announce_message_appends_to_state() {
         let mut app = DockApp::default();
-        let seg = make_bus_segment("urgent", Some("alert"), Some("disk full"));
+        let seg = make_bus_segment("default", Some("alert"), Some("disk full"));
         let _ = iced_layershell::Application::update(
             &mut app,
             Message::BusAnnounceSegment(seg),
         );
         assert_eq!(app.bus_announce_segments.len(), 1);
-        assert_eq!(app.bus_announce_segments[0].priority, "urgent");
+        assert_eq!(app.bus_announce_segments[0].priority, "default");
     }
 
     /// Buffer cap: 12 segments queued → 8 retained, oldest dropped.

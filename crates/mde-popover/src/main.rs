@@ -40,6 +40,7 @@ mod notifications;
 mod snap_assist;
 mod start_menu;
 mod toasts;
+mod urgent;
 mod watermark;
 mod weather;
 mod window_actions;
@@ -129,6 +130,12 @@ enum Kind {
     /// Bind via `bindsym $mod+l exec mde-popover lock`. Esc or
     /// Enter dismisses.
     Lock,
+    /// BUS-2.5 — theater takeover for `urgent` Bus messages.
+    /// Fullscreen Layer::Overlay rendering a centered urgent card
+    /// (⚠ + title + body) read from MDE_URGENT_TITLE / MDE_URGENT_BODY;
+    /// Esc / Enter / click dismisses. Spawned by the mde-portal Dock
+    /// when a `priority=urgent` Bus segment arrives.
+    Urgent,
 }
 
 fn main() -> iced_layershell::Result {
@@ -162,5 +169,6 @@ fn main() -> iced_layershell::Result {
         Kind::HostnameInfo => hostname_info::run(),
         Kind::Status => status::run(),
         Kind::Lock => lock::run(),
+        Kind::Urgent => urgent::run(),
     }
 }
