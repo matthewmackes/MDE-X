@@ -28,6 +28,19 @@ unreleased; tag versions get a date when they ship.
   command surfaces move off D-Bus. Per-domain responders (gluster,
   marks, …) land with their own features.
 
+**Mesh file conflicts surface on the Bus (2026-05-28)**
+- When the mesh-home filesystem hits a split-brain (the same file
+  edited on two peers while they were partitioned), the conflict now
+  shows up on the status-zone strip instead of staying buried in the
+  daemon log. The gluster worker publishes each detected conflict to
+  the `mesh/conflict` Bus topic at high priority alongside the
+  automatic last-writer-wins heal it already requests.
+- Each conflict is announced once (keyed on the file's GFID), so a
+  lingering conflict won't spam the strip on every 5-second scan. The
+  message names the file's GFID and the brick so you can find it.
+- (Acking a conflict from the strip — the explicit dismiss gesture —
+  lands with the portal status-zone follow-on.)
+
 **EPIC-SEC-BANLIST — compromised-node ban list (2026-05-28)**
 - A node-id can now be permanently banned from the mesh:
   `mackesd ca ban <node-id>`. A banned identity is refused
