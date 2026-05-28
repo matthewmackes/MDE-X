@@ -17,10 +17,6 @@ path = "src/lib.rs"
 # call sites there get the same widget surface area.
 iced       = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "svg", "tokio", "advanced", "canvas"] }
 mde-theme  = { path = "../mde-theme", features = ["iced"] }
-# SWAY-1 (2026-05-28) — canonical motion primitives. Re-exported +
-# wrapped by the `motion` module (src/lib.rs) as the ANIM-1..13 access
-# point so every animated surface resolves to the locked grid + curves.
-mde-motion = { path = "../mde-motion" }
 
 [lints]
 workspace = true

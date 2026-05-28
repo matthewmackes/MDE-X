@@ -1305,9 +1305,9 @@ fn ttl_dismiss_fade(elapsed_ms: i64, ttl_ms: i64) -> f32 {
     if remaining <= 0 {
         return 0.0;
     }
-    let into_fade = (DISMISS_FADE_TAIL_MS - remaining) as u64;
-    mde_motion::Tween::new(1.0, 0.0, DISMISS_FADE_TAIL_MS as u32, mde_motion::easing::EASE_IN, 0)
-        .value_at(into_fade)
+    let into_fade = (DISMISS_FADE_TAIL_MS - remaining) as f32;
+    let t = (into_fade / DISMISS_FADE_TAIL_MS as f32).clamp(0.0, 1.0);
+    mde_theme::lerp_f32(1.0, 0.0, mde_theme::ease(t, mde_theme::Easing::EaseIn))
 }
 
 /// Portal-57.c.basic — Dock breadcrumb segment for active urgent

@@ -249,27 +249,35 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 
-/// Canonical motion helpers for MDE Iced widgets, built on the
-/// [`mde_motion`] grid + curves.
+/// Canonical motion helpers for MDE Iced widgets, built on
+/// `mde_theme::animation` (the no-toolkit design-token crate's
+/// pre-existing animation system: `ease` + `lerp_f32` + `Easing`).
 ///
-/// This is the access point the ANIM-1..13 worklist epic consumes —
-/// surface authors call these (and the re-exported [`Tween`] /
-/// easings / [`grid`] / [`stagger`]) instead of hand-rolling timings,
-/// so every animation resolves to the locked grid and the no-overshoot
-/// curves. See `docs/design/sway-native-shell.md` §2 +
-/// `data/css/motion-vocabulary.css`. Filed as SWAY-1 (2026-05-28),
-/// mirroring how CR-3 shipped `object_card` here ahead of its CR-4..8
-/// consumers.
+/// Access point for the ANIM-1..13 epic — surface authors call these
+/// instead of hand-rolling timings, so every animation resolves to the
+/// locked curves. See `docs/design/sway-native-shell.md` §2 +
+/// `data/css/motion-vocabulary.css`. (SWAY-1's standalone `mde-motion`
+/// crate was retired here — it duplicated `mde_theme::animation`.)
 pub mod motion {
-    pub use mde_motion::easing::{CubicBezier, EASE_IN, EASE_OUT};
-    pub use mde_motion::{grid, stagger, Tween};
+    use mde_theme::{ease, lerp_f32, Easing};
+
+    /// Linear progress in `[0, 1]` for `elapsed_ms` against `duration_ms`.
+    fn progress(elapsed_ms: u64, duration_ms: u32) -> f32 {
+        if duration_ms == 0 {
+            return 1.0;
+        }
+        (elapsed_ms as f32 / duration_ms as f32).clamp(0.0, 1.0)
+    }
 
     /// Opacity in `[0, 1]` for a fade-in started `elapsed_ms` ago over
     /// `duration_ms`, shaped by the arrival ease-out curve. Honors
     /// reduced motion (returns `1.0` immediately).
     #[must_use]
     pub fn fade_in_alpha(elapsed_ms: u64, duration_ms: u32, reduce: bool) -> f32 {
-        Tween::new(0.0, 1.0, duration_ms, EASE_OUT, 0).resolve(elapsed_ms, reduce)
+        if reduce {
+            return 1.0;
+        }
+        ease(progress(elapsed_ms, duration_ms), Easing::EaseOut)
     }
 
     /// Opacity in `[0, 1]` for a fade-out started `elapsed_ms` ago over
@@ -277,7 +285,10 @@ pub mod motion {
     /// reduced motion (returns `0.0` immediately).
     #[must_use]
     pub fn fade_out_alpha(elapsed_ms: u64, duration_ms: u32, reduce: bool) -> f32 {
-        Tween::new(1.0, 0.0, duration_ms, EASE_IN, 0).resolve(elapsed_ms, reduce)
+        if reduce {
+            return 0.0;
+        }
+        lerp_f32(1.0, 0.0, ease(progress(elapsed_ms, duration_ms), Easing::EaseIn))
     }
 
     /// Pixel offset for a surface sliding in from `distance_px` to its
@@ -286,16 +297,16 @@ pub mod motion {
     /// (returns `0.0`).
     #[must_use]
     pub fn slide_in_offset(elapsed_ms: u64, duration_ms: u32, distance_px: f32, reduce: bool) -> f32 {
-        Tween::new(distance_px, 0.0, duration_ms, EASE_OUT, 0).resolve(elapsed_ms, reduce)
+        if reduce {
+            return 0.0;
+        }
+        lerp_f32(distance_px, 0.0, ease(progress(elapsed_ms, duration_ms), Easing::EaseOut))
     }
 
     /// Eased crossfade between two colors for theme / preset
-    /// transitions (Q33): the interpolated color at `elapsed_ms` over
-    /// `duration_ms`, shaped by the arrival ease-out curve. Per-channel
-    /// RGBA lerp, so it crossfades any token pair (background, accent,
-    /// text). Honors reduced motion (returns `to` immediately). The
-    /// canonical mechanism surfaces call to retint their color tokens
-    /// when the active preset / dark-light mode changes.
+    /// transitions (Q33): per-channel RGBA lerp at `elapsed_ms` over
+    /// `duration_ms`, shaped by the arrival ease-out curve. Honors
+    /// reduced motion (returns `to` immediately).
     #[must_use]
     pub fn theme_crossfade(
         from: iced::Color,
@@ -304,12 +315,15 @@ pub mod motion {
         duration_ms: u32,
         reduce: bool,
     ) -> iced::Color {
-        let t = Tween::new(0.0, 1.0, duration_ms, EASE_OUT, 0).resolve(elapsed_ms, reduce);
+        if reduce {
+            return to;
+        }
+        let t = ease(progress(elapsed_ms, duration_ms), Easing::EaseOut);
         iced::Color {
-            r: super::lerp(from.r, to.r, t),
-            g: super::lerp(from.g, to.g, t),
-            b: super::lerp(from.b, to.b, t),
-            a: super::lerp(from.a, to.a, t),
+            r: lerp_f32(from.r, to.r, t),
+            g: lerp_f32(from.g, to.g, t),
+            b: lerp_f32(from.b, to.b, t),
+            a: lerp_f32(from.a, to.a, t),
         }
     }
 }

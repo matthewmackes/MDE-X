@@ -46,7 +46,6 @@ members  = [
     "crates/mde-kdc-proto",
     "crates/mde-logout-dialog",
     "crates/mde-mesh-types",
-    "crates/mde-motion",
     "crates/mde-panel",
     "crates/mde-portal",
     "crates/mde-peer-card",
