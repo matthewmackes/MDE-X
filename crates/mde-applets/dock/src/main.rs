@@ -97,19 +97,29 @@ const SURFACE_BG: Color = Color {
 /// One cell on the dock. A cell is either a running sway window
 /// (with a `con_id` for focus) or a pinned-only `.desktop`
 /// (launched via `gtk-launch`).
+/// One cell in the dock — either a running window (with a
+/// `con_id` for focus) or a pinned-only `.desktop` (launched
+/// via `gtk-launch`).
 #[derive(Debug, Clone)]
-struct DockCell {
-    app_id: String,
-    label: String,
-    focused: bool,
-    urgent: bool,
-    pinned: bool,
+pub struct DockCell {
+    /// Wayland `app_id` for icon lookup + grouping with
+    /// pinned-app rows.
+    pub app_id: String,
+    /// Display label for hover-tooltip + accessibility.
+    pub label: String,
+    /// `true` when the compositor reports this window focused.
+    pub focused: bool,
+    /// `true` when the window has set `urgent`/needs-attention.
+    pub urgent: bool,
+    /// `true` when the cell originates from a pinned-app row
+    /// (vs a running window the operator hasn't pinned).
+    pub pinned: bool,
     /// `Some(con_id)` when the cell maps to a running window.
     /// `None` for pinned-only cells.
-    con_id: Option<u64>,
+    pub con_id: Option<u64>,
     /// `.desktop` basename for pinned cells. `None` for
     /// running-only cells the user hasn't pinned.
-    desktop_id: Option<String>,
+    pub desktop_id: Option<String>,
 }
 
 /// Iced application message — `#[to_layer_message]` expands
