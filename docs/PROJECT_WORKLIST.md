@@ -2461,7 +2461,7 @@ call-end lifecycle, never at install or login.
     - [ ] Both sides confirm; bi-directional subscribe grants for default federation topics (`fleet/announce` etc.).
     - [ ] BUS-7.7 implementation updated to honor explicit pairing.
 
-- [ ] **EPIC-BUS-EXT-AUDIT-BUS: Migrate BUS-7.1 audit from per-peer JSONL to `audit/<peer>` Bus topic** *(Q28)*
+- [ ] **EPIC-BUS-EXT-AUDIT-BUS: Migrate BUS-7.1 audit from per-peer JSONL to `audit/<peer>` Bus topic** *(Q28)* *(2026-05-28 scoping note — session opus-47-2026-05-27-ship-DJ attempted + backed out: mirroring every publish to `audit/<peer>` is a 3-subsystem change, not an isolated bundle — it (a) doubles the per-peer index (every publish + its audit mirror), breaking the "count == publishes" invariant ~4 existing persist tests rely on; (b) needs a retention-engine change so `audit/*` is exempt from the 24 h min-priority TTL per the "retention=forever" acceptance; (c) needs the audit/* cycle guard in Persist::write. Each is doable but the invariant shift + cross-subsystem ripple wants operator awareness before landing, not an unsupervised auto-ship. Recommend a dedicated session: land the cycle-guard + audit-mirror + retention-forever-exemption together, updating the count-based tests in one pass.)*
   **As** the audit subsystem,
   **I want** audit events on Bus instead of JSONL files,
   **so that** cross-peer audit visibility is trivial + the substrate is uniform.
