@@ -5,6 +5,22 @@
 **Status legend:**
 `[ ] Open` · `[>] In Progress` · `[✓] Done` · `[!] Blocked`
 
+> **Pre-release verification policy (operator directive 2026-05-28):**
+> No review — neither §0.11 visual screenshot review nor any operator
+> bench test — is possible until the first full release. Therefore a
+> task whose **only** remaining open `[ ]` items are `Bench-verify` /
+> `visual-smoke` / `screenshot` / `visual-diff` bullets is
+> **code-complete and closeable now**; those bullets are §0.15
+> release-gate items (they roll into the HW-* checklist), NOT per-task
+> blockers. Visual / UX / animation work lands directly on `main` to
+> the locked design specs, verified by what's mechanically checkable
+> (compile / test / headless / `sway --validate` / spec-conformance);
+> the look gets its sign-off in aggregate at the release bench. This
+> unlocks the sway-native animation epic + every bench-gated item for
+> `/ship` (cold crates only — collision rules still apply). See
+> CLAUDE.md §0.15 + memory `feedback_no_pre_release_reviews`. The 4
+> `[!]` items are *cut-process* blocked, not visual-bench — they stay.
+
 > **Release strategy (updated 2026-05-23 by operator):**
 > **v4.0.0 shipped 2026-05-22** (commit `fbd9c5a`, RPM
 > `mde-4.0.0-1.fc44.x86_64`). The current in-flight bundle is

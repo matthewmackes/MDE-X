@@ -597,6 +597,35 @@ Each `[ ]` bullet gets the operator's `[✓]` mark independently;
 the task-level `[ ]` flips to `[✓]` only when every sub-bullet
 is checked.
 
+**Pre-release review/bench is RELEASE-gated, not per-task (operator
+directive 2026-05-28).** No review — including §0.11 visual
+screenshot/PR-branch review and any operator bench test — is
+possible until the first full release. Therefore, pre-release:
+
+- §0.11's per-change screenshot-review merge gate + `ux/` PR-branch
+  lane are **SUSPENDED**; visual / UX / animation work lands directly
+  on `main` per the §0.1 default, built to the locked design specs
+  (`docs/design/*.md`) and verified by whatever is mechanically
+  checkable here — `cargo build`/`test`, headless smoke,
+  `sway --validate -c`, design-spec conformance. "No review" ≠ "no
+  verification."
+- A worklist task whose **only** remaining open items are
+  `Bench-verify` / `visual-smoke` / `screenshot` / `visual-diff`
+  bullets is **code-complete and closeable now** — those bullets are
+  §0.15 release-gate items that roll into the HW-* checklist, NOT
+  per-task blockers. Don't leave a code-done task `[ ]`/`[>]` or skip
+  picking it because a bench bullet is pending. This unlocks the
+  whole sway-native animation epic (window-deco Q26/27/28, ANIM-1..13)
+  for `/ship` — in cold (non-sibling-hot) crates only; collision
+  avoidance via `[>] session=` markers still applies.
+- The visual + HW sign-off happens in aggregate at the **release**
+  bench (the §0.15 cut gate above still requires HW-green before the
+  tag). Nothing about this weakens the release gate; it only stops
+  per-task progress from stalling on a review that cannot run yet.
+- The 4 `[!]` items (NF-6.4 / NF-20.2 / v4.0 cut tag / KDC2-6.8) stay
+  blocked — they're *cut-process* gated per [[feedback_hold_for_1_0_cut]],
+  not visual-bench. Mirrored in memory [[feedback_no_pre_release_reviews]].
+
 ### 0.16 Platform feature lock (2026-05-26)
 
 **Effective 2026-05-26 the platform is FEATURE LOCKED until the
