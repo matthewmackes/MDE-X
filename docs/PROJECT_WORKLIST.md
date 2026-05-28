@@ -753,15 +753,7 @@ call-end lifecycle, never at install or login.
     - [ ] Bench: workspace with 4 windows tiles per the locked golden-ratio master pattern
     - [ ] Retires Portal-44
 
-- [ ] **HYP-13: v6.5 — Mouse-grab resize wiring (Portal-45 retarget, amends R12 Q44)**
-  **As** an operator,
-  **I want** Mod+Right-drag to resize the focused window,
-  **so that** resizing is fast without entering a keyboard mode.
-  **Acceptance**:
-    - [ ] hyprland.conf: `bindm = SUPER, mouse:273, resizewindow`
-    - [ ] No `submap = resize` block in hyprland.conf (keyboard resize mode retired)
-    - [ ] Portal breadcrumb's mode segment never shows "resize"
-    - [ ] **Amends** [[project_v6_0_mde_portal]] R12 Q44 (mode segment use case shrinks)
+- [✓] **HYP-13: v6.5 — Mouse-grab resize wiring (Portal-45 retarget, amends R12 Q44)** *(shipped 2026-05-27 — session=opus-47-2026-05-27-ship-DA. `data/hyprland.conf` gains a new "Mouse binds" section at file-tail with `bindm = SUPER, mouse:273, resizewindow` (mouse:273 == BTN_RIGHT in Linux input.h); the inline comment block names HYP-13 + the Portal R12 Q44 amendment so future readers see why no `submap = resize` block exists. The header's "Locks reflected here" list gains a line for HYP-13. Verification: `grep -nE 'submap = resize|bindm = SUPER, mouse:273' data/hyprland.conf` returns the comment-only mention of the retired submap (line 91) + the live bindm directive (line 94); no top-level `submap = resize` directive opens a block. Portal breadcrumb's `build_mode_segment` (crates/mde-portal/src/app.rs:1239) renders empty when current_sway_mode is None — under Hyprland no submap is registered for resize so hyprctl never emits a submap event with name "resize", and the segment is structurally unable to display it. **Amends Portal R12 Q44**: the mode segment retains its tag-mode use case (HYP-47 'Enter mode' on tag cards) but the keyboard-resize submap path is retired entirely. data/sway/config retains the legacy `mode "resize"` block — that file is residue of the to-be-retired compositor and gets removed wholesale when HYP-3 (`Delete swayipc-async`) + HYP-28 (`mde-installer swaps sway dep for Hyprland`) ship. No pre-commit gates touched (config-only edit; per [[feedback_rpm_gate_skip_for_content_edits]] §0.7.4 skipped — the file is already in the spec's `%{_datadir}/%{name}/` catch-all). Cite: docs/design/v6.5-hyprland-compositor.md §1 Q15 (mouse-grab resize); ref: Apple System Settings (drag-to-resize over keyboard submap discoverability).)*
 
 - [ ] **HYP-14: v6.5 — `marks_state` mackesd worker owns per-window marks (Portal-46 retarget)**
   **As** the platform,

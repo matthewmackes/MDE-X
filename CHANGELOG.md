@@ -40,6 +40,16 @@ unreleased; tag versions get a date when they ship.
   for tag-mode, `hyprctl clients`/`--batch` for templates,
   `togglesplit`/`togglegroup`/`swapwindow` for Hub drag-to-tile;
   HYP-33 partial close).
+- HYP-13 Mod+Right-drag mouse-grab resize wired in baseline
+  `hyprland.conf` (`bindm = SUPER, mouse:273, resizewindow`);
+  no `submap = resize` block is registered so the Portal
+  breadcrumb's mode segment never surfaces a "resize" name
+  under Hyprland. Amends Portal R12 Q44 — the mode segment
+  retains its tag-mode use case (HYP-47 'Enter mode' on tag
+  cards) but the keyboard-resize submap path is retired
+  entirely. data/sway/config retains its legacy `mode "resize"`
+  block as compositor-retiring residue (cleared wholesale when
+  HYP-3 + HYP-28 land).
 
 **BUS-4.2 — GF-17 hard cut: notification_relay retired (2026-05-26)**
 - Deletes `crates/mackesd/src/workers/notification_relay.rs` —
