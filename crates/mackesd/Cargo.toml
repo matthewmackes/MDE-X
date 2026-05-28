@@ -71,6 +71,11 @@ mde-kdc = { path = "../mde-kdc", optional = true }
 # types, no I/O or async runtime needed in the base build.
 mde-kdc-proto = { path = "../mde-kdc-proto" }
 
+# EPIC-MESH-PROBE (MESH-PROBE-2) — the probe inventory IS mde-card
+# Cards (Q7): the nmap parser emits Host cards with Service children
+# via `mde_card::probe`. Pure lib (serde + sha2), no feature gate.
+mde-card = { path = "../mde-card" }
+
 # VV-1 / VV-1.5 (v4.1.0) — pure-function config generator for
 # the kamailio-mde + rtpengine-mde stack. Consumed by the
 # `mackesd voice render-config` CLI which both unit files invoke
@@ -89,6 +94,13 @@ clap = { version = "4.5", features = ["derive", "env"] }
 # everything; explicit (de)serializers per type.
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
+
+# EPIC-MESH-PROBE (MESH-PROBE-2) — read-only DOM parser for nmap's
+# `-oX` output. Already vendored in the workspace lockfile; the
+# nested host/ports/port/service attribute tree wants a real XML
+# parser rather than the substring approach gluster_worker uses for
+# its flat `--xml`.
+roxmltree   = "0.20"
 
 # KDC2-1.11 — TOML parser for /etc/mde/connect/policy.toml +
 # operator override at ~/.config/mde/connect/policy.toml.

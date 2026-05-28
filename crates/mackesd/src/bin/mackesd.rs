@@ -43,6 +43,12 @@ enum Cmd {
     /// panel + the CLI consume identical data.
     Healthz,
 
+    /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
+    Probe {
+        #[command(subcommand)]
+        action: ProbeCmd,
+    },
+
     /// GF-12.2 (v5.0.0) — pre-flight check for the GlusterFS
     /// mesh-home rollout. Walks the user's XDG dirs, sums on-
     /// disk bytes, queries `/var/lib/gluster/bricks` free
@@ -467,6 +473,32 @@ enum Cmd {
     },
 }
 
+/// EPIC-MESH-PROBE — `mackesd probe <sub>` subcommands (MESH-PROBE-2).
+/// The scheduled two-tier worker (MESH-PROBE-4) reuses the same
+/// `probe_nmap` engine; this is the operator-facing manual surface.
+#[derive(Subcommand)]
+enum ProbeCmd {
+    /// Run a one-shot nmap scan against `targets` and print the
+    /// resulting inventory cards as JSON lines. Requires `nmap`
+    /// (RPM `Requires: nmap`, MESH-PROBE-3); a missing binary prints
+    /// nothing + exits 0 (graceful-degrade).
+    Scan {
+        /// Hosts / CIDRs to scan (e.g. `10.42.0.5`). At least one.
+        #[clap(required = true)]
+        targets: Vec<String>,
+        /// Deep `-sV`/NSE identification pass (default: fast pass).
+        #[clap(long)]
+        deep: bool,
+        /// Discovery source tag recorded on each host card:
+        /// `mesh` (default) / `lan` / `arbitrary`.
+        #[clap(long, default_value = "mesh")]
+        source: String,
+        /// Bundled-NSE script dir for the deep pass (MESH-PROBE-3).
+        #[clap(long, default_value = "/usr/share/mde/nmap")]
+        nse_dir: String,
+    },
+}
+
 /// VV-1 / VV-1.5 — `mackesd voice <sub>` subcommands.
 #[derive(Subcommand)]
 enum VoiceCmd {
@@ -808,6 +840,27 @@ fn main() -> anyhow::Result<()> {
             // the live fields.
             let report = mackesd_core::health::HealthReport::empty();
             println!("{}", report.to_json_line()?);
+        }
+        Cmd::Probe { action } => {
+            let ProbeCmd::Scan { targets, deep, source, nse_dir } = action;
+            use mackesd_core::probe_nmap::{scan, Profile};
+            use mde_card::probe::HostSource;
+            let src = match source.as_str() {
+                "lan" => HostSource::Lan,
+                "arbitrary" => HostSource::Arbitrary,
+                _ => HostSource::Mesh,
+            };
+            let profile = if deep { Profile::Deep } else { Profile::Fast };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let cards = scan("nmap", profile, &targets, &nse_dir, src, now);
+            // One JSON line per host card (each carries its service
+            // children). Empty output = no hosts found / nmap absent.
+            for card in &cards {
+                println!("{}", serde_json::to_string(card)?);
+            }
         }
         Cmd::PresetLaunch { tag } => {
             // Portal-18.d (v6.0 R12, 2026-05-27) — preset launch-
