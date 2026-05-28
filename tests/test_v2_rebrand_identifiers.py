@@ -253,6 +253,7 @@ def test_spec_ships_v2_0_0_preset():
 
 
 def test_spec_ships_wayland_session_entry():
-    """CB-2.1 — the Wayland-session .desktop must install."""
+    """CB-2.1 + HYP-29 — the Wayland-session .desktop must install
+    under its v6.5-renamed name (`mde-hyprland.desktop`)."""
     spec = (REPO / "packaging" / "fedora" / "mackes-shell.spec").read_text()
-    assert "%{_datadir}/wayland-sessions/mde.desktop" in spec
+    assert "%{_datadir}/wayland-sessions/mde-hyprland.desktop" in spec
