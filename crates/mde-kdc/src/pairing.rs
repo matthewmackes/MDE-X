@@ -355,15 +355,6 @@ fn tempfile_path(dir: &Path, target: &Path) -> PathBuf {
     dir.join(format!(".{name}.tmp.{}", std::process::id()))
 }
 
-trait PathBufExt {
-    fn clear(&mut self);
-}
-impl PathBufExt for PathBuf {
-    fn clear(&mut self) {
-        *self = PathBuf::new();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
