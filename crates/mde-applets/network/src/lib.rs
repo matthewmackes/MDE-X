@@ -9,6 +9,9 @@
 
 use mde_applet_api::{AppletId, AppletSlot, HostMessage};
 
+/// Build the static applet manifest the host registers at
+/// startup. Slot = TopBarRight alongside the other status chips
+/// (audio, mesh-status, clock).
 #[must_use]
 pub fn manifest() -> mde_applet_api::AppletManifest {
     mde_applet_api::AppletManifest {
@@ -24,7 +27,11 @@ pub fn manifest() -> mde_applet_api::AppletManifest {
 /// NAME,TYPE,DEVICE,STATE connection show --active`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActiveConnection {
+    /// Connection `NAME` from nmcli — e.g. the SSID for wifi
+    /// or the profile name for wired/VPN.
     pub name: String,
+    /// Connection `TYPE` from nmcli — `802-11-wireless`,
+    /// `802-3-ethernet`, `wireguard`, etc.
     pub kind: String,
 }
 
@@ -132,6 +139,10 @@ pub fn format_chip_with_reconnect(
 /// reconnect suffix.
 pub const RECONNECT_TOAST_SECONDS: u32 = 5;
 
+/// Process a host control message and return `true` when the
+/// applet should keep running. Only [`HostMessage::Shutdown`]
+/// stops the event loop; every other variant is a host-side
+/// hint the renderer reacts to elsewhere.
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)

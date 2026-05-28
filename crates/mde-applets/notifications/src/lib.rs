@@ -20,6 +20,10 @@ use std::path::PathBuf;
 use mde_applet_api::{AppletId, AppletSlot, HostMessage};
 use serde::Deserialize;
 
+/// Build the static applet manifest the host registers at
+/// startup. Slot = Overlay because the notifications center
+/// renders as a modal popover rather than embedded in a
+/// top-bar slot.
 #[must_use]
 pub fn manifest() -> mde_applet_api::AppletManifest {
     mde_applet_api::AppletManifest {
@@ -87,12 +91,18 @@ pub fn is_phone_origin(row: &NotificationRow) -> bool {
     row.origin == "phone"
 }
 
+/// Absolute path to the notifications cache the mackes daemon
+/// writes. Falls back to `./...` when `$HOME` is unset (the
+/// degenerate test-fixture case).
 #[must_use]
 pub fn notifications_cache_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     PathBuf::from(home).join(".cache/mackes/notifications.json")
 }
 
+/// Parse the JSON cache body into a list of rows. Malformed
+/// input returns an empty list — the center's empty-state is
+/// indistinguishable from a parse failure to the operator.
 #[must_use]
 pub fn parse_notifications(raw: &str) -> Vec<NotificationRow> {
     serde_json::from_str(raw).unwrap_or_default()
@@ -175,6 +185,10 @@ pub fn format_center(groups: &[(String, Vec<NotificationRow>)]) -> String {
     out.trim_end_matches('\n').to_string()
 }
 
+/// Process a host control message and return `true` when the
+/// applet should keep running. Only [`HostMessage::Shutdown`]
+/// stops the event loop; every other variant is a host-side
+/// hint the renderer reacts to elsewhere.
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)
