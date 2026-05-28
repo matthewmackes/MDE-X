@@ -288,6 +288,30 @@ pub mod motion {
     pub fn slide_in_offset(elapsed_ms: u64, duration_ms: u32, distance_px: f32, reduce: bool) -> f32 {
         Tween::new(distance_px, 0.0, duration_ms, EASE_OUT, 0).resolve(elapsed_ms, reduce)
     }
+
+    /// Eased crossfade between two colors for theme / preset
+    /// transitions (Q33): the interpolated color at `elapsed_ms` over
+    /// `duration_ms`, shaped by the arrival ease-out curve. Per-channel
+    /// RGBA lerp, so it crossfades any token pair (background, accent,
+    /// text). Honors reduced motion (returns `to` immediately). The
+    /// canonical mechanism surfaces call to retint their color tokens
+    /// when the active preset / dark-light mode changes.
+    #[must_use]
+    pub fn theme_crossfade(
+        from: iced::Color,
+        to: iced::Color,
+        elapsed_ms: u64,
+        duration_ms: u32,
+        reduce: bool,
+    ) -> iced::Color {
+        let t = Tween::new(0.0, 1.0, duration_ms, EASE_OUT, 0).resolve(elapsed_ms, reduce);
+        iced::Color {
+            r: super::lerp(from.r, to.r, t),
+            g: super::lerp(from.g, to.g, t),
+            b: super::lerp(from.b, to.b, t),
+            a: super::lerp(from.a, to.a, t),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -308,6 +332,18 @@ mod tests {
         assert!(motion::slide_in_offset(200, 200, 8.0, false).abs() < 1.0);
         // Reduced motion -> at rest immediately.
         assert!(motion::slide_in_offset(0, 200, 8.0, true).abs() < 1e-6);
+    }
+
+    #[test]
+    fn motion_theme_crossfade_interpolates_channels() {
+        let black = iced::Color::from_rgb(0.0, 0.0, 0.0);
+        let white = iced::Color::from_rgb(1.0, 1.0, 1.0);
+        // Start = from.
+        assert!((motion::theme_crossfade(black, white, 0, 200, false).r - 0.0).abs() < 1e-3);
+        // End ~= to.
+        assert!((motion::theme_crossfade(black, white, 200, 200, false).r - 1.0).abs() < 1e-1);
+        // Reduced motion -> to immediately.
+        assert!((motion::theme_crossfade(black, white, 0, 200, true).r - 1.0).abs() < 1e-6);
     }
 
     #[test]
