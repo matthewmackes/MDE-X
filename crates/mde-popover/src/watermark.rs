@@ -14,7 +14,7 @@
 //!   * [`WatermarkState`] + [`WatermarkState::load`] — snapshot of
 //!     MDE version, Fedora release, build hash/date, hostname, and
 //!     pending-update count.
-//!   * [`WatermarkState::render_line`] — Win10 system-identity
+//!   * [`WatermarkState::identity_line`] — short system-identity
 //!     string used by `start_menu.rs`'s footer.
 //!   * [`current_pending_count`] — fast cache read (no dnf spawn).
 //!   * [`spawn_pkexec_dnf_upgrade`] — pkexec-elevated dnf upgrade,
@@ -60,34 +60,6 @@ impl WatermarkState {
             hostname: read_hostname(),
             pending_updates: read_pending_update_count(),
         }
-    }
-
-    /// Single-line system-identity label rendered into the start-menu
-    /// footer. Empty when no updates are pending — the footer hides
-    /// the update-count chip in that case, but still shows the
-    /// version + hostname segment via [`identity_line`].
-    #[must_use]
-    pub fn render_line(&self) -> String {
-        if self.pending_updates == 0 {
-            return String::new();
-        }
-        let hash = self
-            .build_hash
-            .as_deref()
-            .map(|h| format!(" · {h}"))
-            .unwrap_or_default();
-        let date = self
-            .build_date
-            .as_deref()
-            .map(|d| format!(" · Built {d}"))
-            .unwrap_or_default();
-        format!(
-            "MDE {ver}{hash}{date} · Fedora {release} · {host} · {n} updates pending",
-            ver = self.mde_version,
-            release = self.fedora_release,
-            host = self.hostname,
-            n = self.pending_updates,
-        )
     }
 
     /// Always-visible system-identity segment — the part the footer
@@ -326,28 +298,6 @@ mod tests {
         let path = dir.path().join("count");
         std::fs::write(&path, "abc\n").unwrap();
         assert_eq!(parse_count_file(&path), 0);
-    }
-
-    #[test]
-    fn render_empty_when_no_pending_updates() {
-        let state = WatermarkState::default();
-        assert!(state.render_line().is_empty());
-    }
-
-    #[test]
-    fn render_line_includes_version_and_count() {
-        let state = WatermarkState {
-            mde_version: "4.0.1".into(),
-            fedora_release: "44".into(),
-            hostname: "host".into(),
-            pending_updates: 7,
-            ..Default::default()
-        };
-        let line = state.render_line();
-        assert!(line.contains("MDE 4.0.1"));
-        assert!(line.contains("Fedora 44"));
-        assert!(line.contains("host"));
-        assert!(line.contains("7 updates pending"));
     }
 
     #[test]
