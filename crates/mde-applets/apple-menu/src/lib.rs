@@ -14,6 +14,11 @@
 
 use mde_applet_api::{AppletId, AppletSlot, HostMessage};
 
+/// Build the static applet manifest the host registers at
+/// startup. Slot = Overlay because the centered Spotlight-style
+/// launcher renders on the wlr-layer-shell overlay layer in
+/// response to Super+Space rather than embedded in a top-bar
+/// slot.
 #[must_use]
 pub fn manifest() -> mde_applet_api::AppletManifest {
     mde_applet_api::AppletManifest {
@@ -30,14 +35,20 @@ pub fn manifest() -> mde_applet_api::AppletManifest {
 /// drives how the UI renders the icon column.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResultKind {
+    /// `.desktop`-derived application hit.
     App,
+    /// Freedesktop XBEL recents-file hit.
     Recent,
+    /// Inline math-expression evaluation hit.
     Math,
 }
 
+/// One result row surfaced by the launcher.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hit {
+    /// Result kind drives the icon column + activation behavior.
     pub kind: ResultKind,
+    /// Display label rendered in the result row.
     pub label: String,
     /// Score — higher is better. Caller sorts DESC.
     pub score: u32,
@@ -52,9 +63,13 @@ pub struct Hit {
 /// tools).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AppRow {
+    /// Desktop-id without the `.desktop` suffix.
     pub id: String,
+    /// `Name=…` value (locale-stripped to the English fallback).
     pub name: String,
+    /// `Comment=…` value — empty when absent.
     pub comment: String,
+    /// `Exec=…` value — empty when absent.
     pub exec: String,
 }
 
@@ -361,6 +376,10 @@ pub fn format_hits(hits: &[Hit]) -> String {
         .join("\n")
 }
 
+/// Process a host control message and return `true` when the
+/// applet should keep running. Only [`HostMessage::Shutdown`]
+/// stops the event loop; every other variant is a host-side
+/// hint the renderer reacts to elsewhere.
 #[must_use]
 pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)

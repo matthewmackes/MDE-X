@@ -1,3 +1,10 @@
+//! Binary entry point for the Super+Space centered launcher
+//! applet (Spotlight-style). Walks the desktop-entry index +
+//! XBEL recents + supports inline math evaluation; writes the
+//! ranked hit list to the host over stdio. `--manifest` prints
+//! the applet's manifest JSON and exits (called by the panel
+//! host during registration discovery).
+
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
