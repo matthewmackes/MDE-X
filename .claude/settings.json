@@ -13,6 +13,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-start-context.sh"
+          }
+        ]
+      }
     ]
   }
 }
