@@ -29,8 +29,9 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use futures_util::StreamExt as _;
+use hyprland::dispatch::{Dispatch, DispatchType};
+use hyprland::event_listener::{Event, EventStream};
 use mackes_mesh_types::TagStore;
-use swayipc_async::{Connection, EventType};
 
 use super::workspace_router::find_owning_tag;
 use super::{ShutdownToken, Worker};
@@ -66,48 +67,24 @@ impl Worker for TagAutostartWorker {
     }
 
     async fn run(&mut self, mut shutdown: ShutdownToken) -> anyhow::Result<()> {
+        // Reconnect loop. `EventStream::new()` is infallible; a
+        // connect failure surfaces as the stream's first Err item +
+        // routes into the backoff path below.
         loop {
             if shutdown.is_shutdown() {
                 return Ok(());
             }
-            let mut cmd_conn = match Connection::new().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::debug!(error = %e, "tag_autostart cmd-conn connect failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
-            let event_conn = match Connection::new().await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::debug!(error = %e, "tag_autostart event-conn connect failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
-            let mut events = match event_conn.subscribe([EventType::Workspace]).await {
-                Ok(stream) => stream,
-                Err(e) => {
-                    tracing::debug!(error = %e, "tag_autostart subscribe failed; backing off");
-                    sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
-                    continue;
-                }
-            };
+            let mut events = EventStream::new();
             loop {
                 tokio::select! {
                     biased;
                     _ = shutdown.wait() => return Ok(()),
                     next = events.next() => {
                         match next {
-                            Some(Ok(swayipc_async::Event::Workspace(ws_ev))) => {
-                                if ws_ev.change == swayipc_async::WorkspaceChange::Init {
-                                    if let Some(node) = ws_ev.current.as_ref() {
-                                        if let Some(num) = node.num {
-                                            self.handle_init(&mut cmd_conn, num).await;
-                                        }
-                                    }
-                                }
+                            // Hyprland's `WorkspaceAdded` is the analog
+                            // of sway's `WorkspaceChange::Init`.
+                            Some(Ok(Event::WorkspaceAdded(data))) => {
+                                self.handle_init(data.id).await;
                             }
                             Some(Ok(_)) => {}
                             Some(Err(e)) => {
@@ -122,6 +99,7 @@ impl Worker for TagAutostartWorker {
                     }
                 }
             }
+            sleep_or_shutdown(RECONNECT_BACKOFF, &mut shutdown).await;
         }
     }
 }
@@ -137,7 +115,12 @@ impl TagAutostartWorker {
     /// Fire autostart for workspace `num` if its owning tag has a
     /// non-empty `autostart` list AND we haven't already fired
     /// for this workspace.
-    async fn handle_init(&mut self, conn: &mut Connection, num: i32) {
+    async fn handle_init(&mut self, num: i32) {
+        // Negative ids are Hyprland special/named workspaces — no
+        // autostart routing.
+        if num <= 0 {
+            return;
+        }
         if !self.should_fire(num) {
             return;
         }
@@ -167,9 +150,8 @@ impl TagAutostartWorker {
         }
         self.seen.insert(num);
         for app_id in &effective_apps {
-            let cmd = exec_command(app_id);
-            match conn.run_command(&cmd).await {
-                Ok(_) => tracing::debug!(workspace = num, %app_id, "tag_autostart fired"),
+            match Dispatch::call_async(DispatchType::Exec(app_id)).await {
+                Ok(()) => tracing::debug!(workspace = num, %app_id, "tag_autostart fired"),
                 Err(e) => tracing::warn!(workspace = num, %app_id, error = %e, "tag_autostart exec failed"),
             }
         }
@@ -189,15 +171,10 @@ impl TagAutostartWorker {
     }
 }
 
-/// Build the swayipc `exec` command string for `app_id`. Wraps
-/// the command in shell-friendly double quotes with backslash
-/// escapes so app_ids that happen to contain spaces or quotes
-/// (rare but possible — e.g. `/usr/bin/foo bar`) still parse.
-#[must_use]
-pub fn exec_command(app_id: &str) -> String {
-    let escaped = app_id.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("exec \"{escaped}\"")
-}
+// NOTE (HYP-11): the v6.0 `exec_command` swayipc command-string
+// builder + its escaping is retired. Hyprland's
+// `DispatchType::Exec(app_id)` takes the command directly; hyprland-rs
+// owns socket-level escaping, so there's no string to build here.
 
 /// HYP-11.sway-bridge — resolve the effective autostart list.
 ///
@@ -235,18 +212,11 @@ pub fn effective_autostart_list(
 mod tests {
     use super::*;
 
-    #[test]
-    fn exec_command_escapes_quotes_and_backslashes() {
-        assert_eq!(exec_command("helix"), r#"exec "helix""#);
-        assert_eq!(
-            exec_command(r#"firefox "tab title""#),
-            r#"exec "firefox \"tab title\"""#
-        );
-        assert_eq!(
-            exec_command(r"path\with\slashes"),
-            r#"exec "path\\with\\slashes""#
-        );
-    }
+    // NOTE (HYP-11): the exec_command escaping test is retired with
+    // the function — autostart now fires via the typed
+    // `DispatchType::Exec(app_id)` and hyprland-rs owns escaping. The
+    // effective_autostart_list precedence tests below remain the
+    // worker's testable surface.
 
     #[test]
     fn should_fire_returns_true_for_unseen_workspace() {
