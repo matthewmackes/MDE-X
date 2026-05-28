@@ -89,6 +89,21 @@ unreleased; tag versions get a date when they ship.
   block as compositor-retiring residue (cleared wholesale when
   HYP-3 + HYP-28 land).
 
+**BUS-6.7 — fleet-wide broadcast snooze (2026-05-28)**
+- `mde-bus mute <topic> --duration 1h` now silences a topic across
+  every peer for the duration, then auto-unmutes. Snoozes ride the
+  GFS-replicated `dnd.yaml`, so a snooze set on one peer reaches the
+  others within the ~1 s heal + watcher window. Durations accept
+  `90s` / `30m` / `1h` / `2d`.
+- Without `--duration`, `mute` keeps its existing local per-peer
+  behavior (writes `subs.yaml`); the fleet snooze is the opt-in
+  `--duration` path. `mute remove <topic> --bus-root <p>` clears a
+  snooze early, before it expires.
+- A snoozed topic is routed silently to the persist + audit store
+  but not to display surfaces. `override=dnd` still bypasses, so
+  genuine emergencies surface even on a snoozed topic. Toggling DND
+  on/off preserves in-flight snoozes.
+
 **BUS-6.5 — cross-topic correlation engine complete (2026-05-28)**
 - The correlation evaluator now runs as a daemon loop: every 2 s it
   polls the per-peer Bus index for new messages on each rule's

@@ -79,6 +79,14 @@ pub fn dispatch(msg: &StoredMessage, surfaces: &dyn Surfaces) {
 /// `tags` is the message's tag list (typically `[
 /// "priority=high", "source=fleet", ...]`) including any
 /// `override=dnd` bypass marker.
+///
+/// BUS-6.7 — a fleet-wide topic snooze (in `state.snoozes`) also
+/// suppresses routing: if any unexpired snooze pattern matches the
+/// message topic, the message is log-silent. The message's own
+/// `ts_unix_ms` serves as "now" for the expiry check — it was just
+/// written, so its timestamp is the dispatch instant. The
+/// `override=dnd` bypass still wins over a snooze, matching the DND
+/// emergency-bypass contract.
 pub fn dispatch_with_dnd(
     msg: &StoredMessage,
     state: &crate::dnd::DndState,
@@ -88,6 +96,12 @@ pub fn dispatch_with_dnd(
     surfaces: &dyn Surfaces,
 ) {
     if crate::dnd::is_suppressed(state, topic_hours, tags, now_local_seconds) {
+        surfaces.log_silent(msg);
+        return;
+    }
+    if !tags.contains(&"override=dnd")
+        && crate::dnd::is_snoozed(&state.snoozes, &msg.topic, msg.ts_unix_ms)
+    {
         surfaces.log_silent(msg);
         return;
     }
@@ -310,6 +324,106 @@ mod tests {
         let s = RecordingSurfaces::new();
         dispatch(&msg("u5", "garbage"), &s);
         assert_eq!(s.tray_and_badge_ulids(), vec!["u5".to_string()]);
+        assert!(s.log_silent_ulids().is_empty());
+    }
+
+    // ── BUS-6.7 snooze dispatch gate ────────────────────────────────
+
+    fn msg_on(ulid: &str, priority: &str, topic: &str, ts_ms: i64) -> StoredMessage {
+        StoredMessage {
+            ulid: ulid.to_string(),
+            topic: topic.to_string(),
+            priority: priority.to_string(),
+            title: None,
+            body: Some("b".to_string()),
+            ts_unix_ms: ts_ms,
+            file_path: format!("{topic}/{ulid}.json"),
+        }
+    }
+
+    fn snoozed_state(topic: &str, until: i64) -> crate::dnd::DndState {
+        crate::dnd::DndState {
+            snoozes: vec![crate::dnd::TopicSnooze {
+                topic: topic.to_string(),
+                until_unix_ms: until,
+                set_by_peer: "peerA".to_string(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn snoozed_topic_is_log_silent() {
+        let now = 1_000_000_000_000_i64;
+        let s = RecordingSurfaces::new();
+        let state = snoozed_state("fleet/sec", now + 60_000);
+        // A high-priority message that would normally hit the status
+        // strip is silenced because fleet/sec is snoozed.
+        dispatch_with_dnd(
+            &msg_on("u1", "high", "fleet/sec", now),
+            &state,
+            crate::dnd::TopicQuietHours::default(),
+            &[],
+            0,
+            &s,
+        );
+        assert_eq!(s.log_silent_ulids(), vec!["u1".to_string()]);
+        assert!(s.status_strip_and_sound_ulids().is_empty());
+    }
+
+    #[test]
+    fn non_snoozed_topic_dispatches_normally() {
+        let now = 1_000_000_000_000_i64;
+        let s = RecordingSurfaces::new();
+        let state = snoozed_state("fleet/sec", now + 60_000);
+        // Different topic → not snoozed → normal dispatch.
+        dispatch_with_dnd(
+            &msg_on("u2", "high", "fleet/announce", now),
+            &state,
+            crate::dnd::TopicQuietHours::default(),
+            &[],
+            0,
+            &s,
+        );
+        assert_eq!(s.status_strip_and_sound_ulids(), vec!["u2".to_string()]);
+        assert!(s.log_silent_ulids().is_empty());
+    }
+
+    #[test]
+    fn expired_snooze_dispatches_normally() {
+        let now = 1_000_000_000_000_i64;
+        let s = RecordingSurfaces::new();
+        // Snooze expired 1 ms before the message ts → no suppression.
+        let state = snoozed_state("fleet/sec", now - 1);
+        dispatch_with_dnd(
+            &msg_on("u3", "high", "fleet/sec", now),
+            &state,
+            crate::dnd::TopicQuietHours::default(),
+            &[],
+            0,
+            &s,
+        );
+        assert_eq!(s.status_strip_and_sound_ulids(), vec!["u3".to_string()]);
+    }
+
+    #[test]
+    fn override_dnd_tag_bypasses_snooze() {
+        let now = 1_000_000_000_000_i64;
+        let s = RecordingSurfaces::new();
+        let state = snoozed_state("fleet/sec", now + 60_000);
+        // override=dnd is the emergency bypass — it beats a snooze too.
+        dispatch_with_dnd(
+            &msg_on("u4", "urgent", "fleet/sec", now),
+            &state,
+            crate::dnd::TopicQuietHours::default(),
+            &["override=dnd"],
+            0,
+            &s,
+        );
+        assert_eq!(
+            s.theater_wallpaper_phone_ulids(),
+            vec!["u4".to_string()]
+        );
         assert!(s.log_silent_ulids().is_empty());
     }
 }

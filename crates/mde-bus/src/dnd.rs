@@ -49,6 +49,15 @@ pub struct DndState {
     /// means the source can differ from the local peer.
     #[serde(default)]
     pub set_by_peer: String,
+    /// BUS-6.7 — fleet-wide timed topic snoozes. Each entry mutes
+    /// a topic (or wildcard) on every peer until its `until_unix_ms`
+    /// expiry. Rides the same GFS-replicated `dnd.yaml`, so a snooze
+    /// set on peer-A propagates to peer-B within the GFS heal
+    /// window. Distinct from the global `active` toggle (which gates
+    /// everything) and from per-peer `subs.yaml` mute patterns
+    /// (which are local, not fleet-wide).
+    #[serde(default)]
+    pub snoozes: Vec<TopicSnooze>,
 }
 
 impl Default for DndState {
@@ -57,8 +66,79 @@ impl Default for DndState {
             active: false,
             since_unix_ms: 0,
             set_by_peer: String::new(),
+            snoozes: Vec::new(),
         }
     }
+}
+
+/// BUS-6.7 — one fleet-wide timed topic snooze. Lives in the
+/// GFS-replicated `dnd.yaml` so it applies on every peer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TopicSnooze {
+    /// Topic or MQTT-style wildcard pattern to silence (`+` single-
+    /// level, `#` multi-level). Matched against the message topic
+    /// via [`crate::wildcard::matches`].
+    pub topic: String,
+    /// Expiry — wall-clock milliseconds since the Unix epoch. The
+    /// snooze is inactive once `now_unix_ms >= until_unix_ms`
+    /// (auto-unmute). No separate cleanup needed for correctness;
+    /// [`prune_expired_snoozes`] tidies the on-disk list opportun-
+    /// istically on each write.
+    pub until_unix_ms: i64,
+    /// Hostname of the peer that set the snooze — surfaced in the
+    /// snooze list so operators see who silenced a topic.
+    #[serde(default)]
+    pub set_by_peer: String,
+}
+
+/// Pure-fn — `true` when an unexpired snooze pattern matches
+/// `topic` at `now_unix_ms`. Expired entries (`until <= now`) are
+/// ignored, so the auto-unmute is implicit — no cleanup pass is
+/// required for the gate to be correct.
+#[must_use]
+pub fn is_snoozed(snoozes: &[TopicSnooze], topic: &str, now_unix_ms: i64) -> bool {
+    snoozes
+        .iter()
+        .any(|s| s.until_unix_ms > now_unix_ms && crate::wildcard::matches(&s.topic, topic))
+}
+
+/// Drop every snooze whose expiry has passed (`until <= now`).
+/// Called before writing `dnd.yaml` so the on-disk list doesn't
+/// accumulate dead entries — purely cosmetic, since [`is_snoozed`]
+/// already ignores expired entries.
+#[must_use]
+pub fn prune_expired_snoozes(snoozes: Vec<TopicSnooze>, now_unix_ms: i64) -> Vec<TopicSnooze> {
+    snoozes
+        .into_iter()
+        .filter(|s| s.until_unix_ms > now_unix_ms)
+        .collect()
+}
+
+/// Parse a duration string (`90s` / `30m` / `1h` / `2d`) into
+/// seconds. The numeric part must be a non-negative integer; the
+/// suffix is one of `s` / `m` / `h` / `d`. Returns `None` on any
+/// malformed input (no suffix, unknown suffix, negative, non-
+/// numeric, empty).
+#[must_use]
+pub fn parse_duration_secs(s: &str) -> Option<i64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let split = s.find(|c: char| !c.is_ascii_digit())?;
+    if split == 0 {
+        return None; // no leading number
+    }
+    let (num, unit) = s.split_at(split);
+    let n: i64 = num.parse().ok()?;
+    let mult = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
+        _ => return None,
+    };
+    n.checked_mul(mult)
 }
 
 /// Per-topic quiet-hour window. Both fields are seconds-since-
@@ -350,12 +430,112 @@ mod tests {
         assert!(s.set_by_peer.is_empty());
     }
 
+    // ── BUS-6.7 snooze helper tests ─────────────────────────────────
+
+    fn snooze(topic: &str, until: i64) -> TopicSnooze {
+        TopicSnooze {
+            topic: topic.to_string(),
+            until_unix_ms: until,
+            set_by_peer: "peerA".to_string(),
+        }
+    }
+
+    #[test]
+    fn is_snoozed_matches_unexpired_exact_topic() {
+        let now = 1_000_000_000_000_i64;
+        let snoozes = vec![snooze("fleet/sec", now + 60_000)];
+        assert!(is_snoozed(&snoozes, "fleet/sec", now));
+        assert!(!is_snoozed(&snoozes, "fleet/announce", now));
+    }
+
+    #[test]
+    fn is_snoozed_respects_expiry() {
+        let now = 1_000_000_000_000_i64;
+        // Expired 1 ms ago → not snoozed.
+        let snoozes = vec![snooze("fleet/sec", now - 1)];
+        assert!(!is_snoozed(&snoozes, "fleet/sec", now));
+        // until == now is treated as expired (strict >).
+        let exact = vec![snooze("fleet/sec", now)];
+        assert!(!is_snoozed(&exact, "fleet/sec", now));
+    }
+
+    #[test]
+    fn is_snoozed_honors_wildcards() {
+        let now = 1_000_000_000_000_i64;
+        let snoozes = vec![snooze("mon/#", now + 60_000)];
+        assert!(is_snoozed(&snoozes, "mon/cpu", now));
+        assert!(is_snoozed(&snoozes, "mon/disk/sda", now));
+        assert!(!is_snoozed(&snoozes, "fleet/sec", now));
+        let plus = vec![snooze("peer/+/alerts", now + 60_000)];
+        assert!(is_snoozed(&plus, "peer/fedora/alerts", now));
+        assert!(!is_snoozed(&plus, "peer/fedora/system", now));
+    }
+
+    #[test]
+    fn prune_expired_snoozes_drops_only_expired() {
+        let now = 1_000_000_000_000_i64;
+        let snoozes = vec![
+            snooze("live", now + 60_000),
+            snooze("dead", now - 1),
+            snooze("edge", now), // until == now → expired
+        ];
+        let pruned = prune_expired_snoozes(snoozes, now);
+        assert_eq!(pruned.len(), 1);
+        assert_eq!(pruned[0].topic, "live");
+    }
+
+    #[test]
+    fn parse_duration_secs_accepts_all_units() {
+        assert_eq!(parse_duration_secs("90s"), Some(90));
+        assert_eq!(parse_duration_secs("30m"), Some(1_800));
+        assert_eq!(parse_duration_secs("1h"), Some(3_600));
+        assert_eq!(parse_duration_secs("2d"), Some(172_800));
+        assert_eq!(parse_duration_secs(" 1h "), Some(3_600)); // trimmed
+        assert_eq!(parse_duration_secs("0s"), Some(0));
+    }
+
+    #[test]
+    fn parse_duration_secs_rejects_malformed() {
+        assert_eq!(parse_duration_secs(""), None);
+        assert_eq!(parse_duration_secs("h"), None); // no number
+        assert_eq!(parse_duration_secs("10"), None); // no unit
+        assert_eq!(parse_duration_secs("10y"), None); // unknown unit
+        assert_eq!(parse_duration_secs("abc"), None);
+        assert_eq!(parse_duration_secs("-5m"), None); // negative
+        assert_eq!(parse_duration_secs("1.5h"), None); // non-integer
+    }
+
+    #[test]
+    fn snoozes_survive_yaml_round_trip() {
+        let now = 1_000_000_000_000_i64;
+        let s = DndState {
+            active: false,
+            since_unix_ms: 0,
+            set_by_peer: String::new(),
+            snoozes: vec![snooze("fleet/sec", now + 60_000)],
+        };
+        let yaml = serde_yaml::to_string(&s).unwrap();
+        let back: DndState = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
+    fn dnd_state_without_snoozes_field_parses() {
+        // Forward-compat: a pre-BUS-6.7 dnd.yaml (no `snoozes:` key)
+        // must still parse with an empty snooze list.
+        let yaml = "active: true\nsince_unix_ms: 5\nset_by_peer: fedora\n";
+        let s: DndState = serde_yaml::from_str(yaml).unwrap();
+        assert!(s.active);
+        assert!(s.snoozes.is_empty());
+    }
+
     #[test]
     fn dnd_state_roundtrips_yaml() {
         let s = DndState {
             active: true,
             since_unix_ms: 1_700_000_000_000,
             set_by_peer: "fedora".to_string(),
+            ..Default::default()
         };
         let yaml = serde_yaml::to_string(&s).unwrap();
         let back: DndState = serde_yaml::from_str(&yaml).unwrap();
@@ -431,6 +611,7 @@ mod tests {
             active: true,
             since_unix_ms: 1_000,
             set_by_peer: "fedora".to_string(),
+            ..Default::default()
         };
         let hours = TopicQuietHours::default();
         let tags_with_override = ["priority=urgent", "override=dnd"];
@@ -492,6 +673,7 @@ mod tests {
             active: true,
             since_unix_ms: 1_700_000_000_000,
             set_by_peer: "fedora".to_string(),
+            ..Default::default()
         };
         save_default(&tmp, &original).unwrap();
         let loaded = load_default(&tmp);
@@ -529,6 +711,7 @@ mod tests {
             active: true,
             since_unix_ms: 1_700_000_000_000,
             set_by_peer: "fedora".to_string(),
+            ..Default::default()
         };
         save_default(&tmp, &existing).unwrap();
         let watcher = DndWatcher::new(tmp.clone());
@@ -568,6 +751,7 @@ mod tests {
             active: true,
             since_unix_ms: 1_700_000_000_000,
             set_by_peer: "fedora".to_string(),
+            ..Default::default()
         };
         save_default(&tmp, &flipped).unwrap();
         assert_eq!(watcher.tick_once(), DndTickOutcome::Reloaded);

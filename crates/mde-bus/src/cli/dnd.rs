@@ -90,10 +90,15 @@ fn local_hostname() -> String {
 /// state so callers can echo it or assert on it in tests.
 pub fn set_state(bus_root: &std::path::Path, active: bool) -> Result<dnd::DndState> {
     let now_ms = chrono::Local::now().timestamp_millis();
+    // Preserve any BUS-6.7 fleet snoozes when toggling DND — they
+    // share `dnd.yaml` but are independent of the global toggle, so
+    // flipping DND on/off must not wipe an in-flight snooze.
+    let existing = dnd::load_default(bus_root);
     let state = dnd::DndState {
         active,
         since_unix_ms: now_ms,
         set_by_peer: local_hostname(),
+        snoozes: existing.snoozes,
     };
     dnd::save_default(bus_root, &state)
         .with_context(|| format!("save dnd.yaml to {}", bus_root.display()))?;
@@ -200,6 +205,7 @@ mod tests {
             active: true,
             since_unix_ms: 1_700_000_000_000,
             set_by_peer: "fedora".to_string(),
+            ..Default::default()
         };
         let out = format_status(&s);
         assert!(out.contains("DND: on"));
