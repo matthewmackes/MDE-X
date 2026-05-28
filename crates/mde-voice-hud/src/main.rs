@@ -69,6 +69,12 @@ const PEER_NAME_PLACEHOLDER: &str = "Operator";
 /// for layer-shell actions (size, anchor, margin changes etc.)
 /// which we don't use directly here but the runtime expects to
 /// exist.
+// The `to_layer_message` proc-macro injects layer-shell-specific
+// variants (size / anchor / margin / etc.) onto the enum but
+// doesn't propagate the hand-written doc comments. Allow-list
+// scoped to the enum keeps the macro-side warnings quiet while
+// preserving the doc requirement on every hand-written variant.
+#[allow(missing_docs)]
 #[to_layer_message]
 #[derive(Debug, Clone)]
 pub enum Message {
