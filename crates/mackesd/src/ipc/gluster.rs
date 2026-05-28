@@ -25,7 +25,7 @@
 
 #![cfg(feature = "async-services")]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;

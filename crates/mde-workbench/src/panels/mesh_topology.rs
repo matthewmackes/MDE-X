@@ -23,7 +23,7 @@ use std::time::SystemTime;
 
 use iced::widget::canvas::{self, Canvas, Frame, Path, Stroke, Text};
 use iced::widget::{button, column, container, row, scrollable, text, Space};
-use iced::{Background, Border, Color, Element, Length, Padding, Point, Rectangle, Renderer, Size, Task, Theme};
+use iced::{Background, Border, Color, Element, Length, Padding, Point, Rectangle, Renderer, Task, Theme};
 use mde_theme::{
     mde_icon, FontSize, Icon, IconSize, ObjectCard, Palette, TypeRole, CARD_GRID_GAP,
 };

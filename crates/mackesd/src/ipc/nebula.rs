@@ -25,7 +25,6 @@
 
 #![cfg(feature = "async-services")]
 
-use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};

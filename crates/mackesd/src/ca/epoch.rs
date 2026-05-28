@@ -27,7 +27,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-use super::{mint, sign, CaError, NebulaCertBackend};
+use super::{sign, CaError, NebulaCertBackend};
 
 /// Outcome of one rotation call. Carries the new + old
 /// epoch numbers so the caller can render an audit-log line.
