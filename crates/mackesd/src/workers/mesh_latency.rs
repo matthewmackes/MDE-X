@@ -48,6 +48,7 @@ pub const DEFAULT_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 /// Per-peer ping deadline. ping(8) `-W` accepts seconds.
 pub const PING_TIMEOUT_SECS: u32 = 1;
 
+/// One peer's measured latency for a single ping pass.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PeerLatency {
     /// Round-trip latency in milliseconds. `None` when the
@@ -57,6 +58,10 @@ pub struct PeerLatency {
     pub ok: bool,
 }
 
+/// One pass of the mesh-latency worker — every peer measured
+/// at the same wall-clock instant. Serialized to
+/// `~/.cache/mackes/mesh-latency.json` for the panel UI to
+/// render + for QNM-Shared drift detection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LatencySnapshot {
     /// Unix-epoch seconds when the snapshot was written.

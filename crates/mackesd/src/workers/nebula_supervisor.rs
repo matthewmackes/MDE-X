@@ -298,7 +298,11 @@ impl Worker for NebulaSupervisor {
 /// gets the lighthouse-roster client section only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigRole {
+    /// Lighthouse-eligible role — config file carries the
+    /// full lighthouse listener section.
     Host,
+    /// Mesh-peer role — config file carries the lighthouse-
+    /// roster client section only (no listener).
     Peer,
 }
 

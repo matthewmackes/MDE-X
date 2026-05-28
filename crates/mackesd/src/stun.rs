@@ -158,7 +158,10 @@ pub enum StunError {
     /// reply or junk.
     BadMagic,
     /// Message-type field wasn't a binding success response.
-    NotBindingSuccess { kind: u16 },
+    NotBindingSuccess {
+        /// The unexpected STUN message-type the server returned.
+        kind: u16,
+    },
     /// Message-length field didn't agree with the actual buffer
     /// size.
     LengthMismatch {

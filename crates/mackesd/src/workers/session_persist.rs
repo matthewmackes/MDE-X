@@ -58,8 +58,11 @@ pub struct WorkspaceSnapshot {
 /// a schema_version for forward-compat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionSnapshot {
+    /// Snapshot schema version — readers refuse newer-than-known
+    /// values + accept older ones via defaulted fields.
     #[serde(default = "default_schema_version")]
     pub schema_version: u32,
+    /// Per-workspace state captured at snapshot time.
     #[serde(default)]
     pub workspaces: Vec<WorkspaceSnapshot>,
 }

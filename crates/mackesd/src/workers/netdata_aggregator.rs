@@ -68,8 +68,14 @@ pub const DEFAULT_ROLE_HOST_MARKER: &str = "/var/lib/mackesd/nebula/role.host";
 /// has held the leader role recently.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AggregatorPointer {
+    /// `node_id` of the peer currently holding the aggregator
+    /// leader lock.
     pub node_id: String,
+    /// Nebula overlay IP children stream telemetry to.
     pub overlay_ip: String,
+    /// Unix-epoch seconds when this pointer was published.
+    /// Readers compare timestamps when multiple peers have
+    /// recently held the leader role.
     pub epoch_s: u64,
 }
 
