@@ -56,12 +56,10 @@ crates/mackesd/src/transport/https443.rs
 crates/mackesd/src/topology/
 data/nebula/
 data/systemd/nebula
-mackes/headscale_postgres.py
 mackes/mesh_nebula.py
 crates/mackes-panel/
 tests/
 crates/mackesd/tests/
-crates/mackesd/src/workers/lan_discovery.rs
 crates/mackesd/src/workers/voice_config.rs
 crates/mackesd/src/workers/wol.rs
 crates/mackesd/src/voice/materialize.rs
