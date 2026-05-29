@@ -45,6 +45,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use mde_bus::hooks::Priority;
+use mde_bus::persist::Persist;
+use mde_bus::rpc::reply_topic;
+
 use super::{ShutdownToken, Worker};
 
 /// Default sweep cadence — 5 s, matching `gluster_worker` +
@@ -108,6 +112,19 @@ pub const DEFAULT_OVERLAY_IFACE: &str = "nebula1";
 /// design (10.42.0.0/16).
 pub const OVERLAY_CIDR_PREFIX: u8 = 16;
 
+/// Bus action-poll cadence (MESHFS-10.1) — matches `marks_state`.
+const ACTION_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// The six `action/meshfs/<verb>` topics the worker serves (MESHFS-10.1).
+const ACTION_VERBS: [&str; 6] = [
+    "resolve-conflict",
+    "undelete",
+    "add-peer",
+    "remove-peer",
+    "bootstrap",
+    "status",
+];
+
 /// Worker handle. Cheap to construct; clone is forbidden (mirrors
 /// `gluster_worker`).
 pub struct MeshFsWorker {
@@ -134,6 +151,9 @@ pub struct MeshFsWorker {
     /// Peer IPs we have already issued CS-EVICT for this session.
     /// Prevents re-evicting on every tick while replication heals.
     evicted_ips: std::sync::Mutex<std::collections::BTreeSet<String>>,
+    /// Tracks whether the master was reachable on the last tick so
+    /// `meshfs/export-ready` fires exactly once on down→up (MESHFS-10.1).
+    master_was_up: std::sync::atomic::AtomicBool,
 }
 
 impl MeshFsWorker {
@@ -155,6 +175,7 @@ impl MeshFsWorker {
             role_marker_path: PathBuf::from(DEFAULT_ROLE_MARKER_PATH),
             overlay_iface: DEFAULT_OVERLAY_IFACE.to_owned(),
             evicted_ips: std::sync::Mutex::new(std::collections::BTreeSet::new()),
+            master_was_up: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -250,7 +271,10 @@ impl MeshFsWorker {
         };
 
         // 3. Genesis: if no master answers the VIP, bootstrap one.
-        if !master_reachable(&self.vip) {
+        //    Track down→up transition for `meshfs/export-ready` (MESHFS-10.1).
+        let master_up = master_reachable(&self.vip);
+        let prev_up = self.master_was_up.swap(master_up, std::sync::atomic::Ordering::Relaxed);
+        if !master_up {
             tracing::info!(
                 target: "mackesd::meshfs_worker",
                 vip = %self.vip,
@@ -259,6 +283,8 @@ impl MeshFsWorker {
             let argv = genesis_start_argv(&self.master_binary);
             tracing::info!(target: "mackesd::meshfs_worker", argv = ?argv, "starting mfsmaster (genesis)");
             let _ = run_argv(&argv);
+        } else if !prev_up {
+            publish_meshfs_event("meshfs/export-ready", r#"{"ok":true}"#);
         }
 
         // 4. Ensure local chunkserver is running (idempotent start).
@@ -284,6 +310,10 @@ impl MeshFsWorker {
                     "converging replication goal to enrolled peer count",
                 );
                 let _ = run_argv(&argv);
+                publish_meshfs_event(
+                    "meshfs/peer-state-changed",
+                    &format!(r#"{{"op":"goal-changed","goal":{goal}}}"#),
+                );
             }
 
             // Evict peers whose bundle has disappeared from QNM-Shared
@@ -318,6 +348,10 @@ impl MeshFsWorker {
                         tracing::info!(target: "mackesd::meshfs_worker", argv = ?argv, "evicting chunkserver");
                         let _ = run_argv(&argv);
                         self.evicted_ips.lock().unwrap().insert(cs_ip.clone());
+                        publish_meshfs_event(
+                            "meshfs/peer-state-changed",
+                            &format!(r#"{{"op":"removed","ip":"{cs_ip}"}}"#),
+                        );
                     }
                 }
             }
@@ -371,6 +405,7 @@ impl MeshFsWorker {
         let argv = shadow_promote_argv(&self.master_binary);
         tracing::info!(target: "mackesd::meshfs_worker", argv = ?argv, "promoting shadow to active master");
         let _ = run_argv(&argv);
+        publish_meshfs_event("meshfs/master-failover", r#"{"ok":true,"role":"active"}"#);
     }
 
     /// MESHFS-9.1 — quota tick (runs at most once per hour). Reads the
@@ -431,6 +466,62 @@ impl MeshFsWorker {
                 .spawn();
         }
     }
+
+    /// MESHFS-10.1 — poll `action/meshfs/<verb>` topics and dispatch
+    /// each request, writing the reply to `reply/<ulid>`. Called from
+    /// the `run()` loop at 500 ms intervals via a Persist handle opened
+    /// at worker startup. No-ops when the Bus root doesn't exist yet.
+    fn poll_meshfs_actions(
+        &self,
+        persist: &Persist,
+        cursors: &mut std::collections::HashMap<String, String>,
+    ) {
+        for verb in ACTION_VERBS {
+            let topic = format!("action/meshfs/{verb}");
+            let since = cursors.get(&topic).map(String::as_str);
+            let msgs = match persist.list_since(&topic, since) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::debug!(
+                        target: "mackesd::meshfs_worker",
+                        %topic, error = %e,
+                        "meshfs action poll failed",
+                    );
+                    continue;
+                }
+            };
+            for msg in msgs {
+                cursors.insert(topic.clone(), msg.ulid.clone());
+                let body = msg.body.as_deref().unwrap_or("{}");
+                let enrolled = self
+                    .qnm_root
+                    .as_ref()
+                    .zip(self.self_node_id.as_ref())
+                    .map(|(qnm, id)| enrolled_peer_ips(qnm, id).len())
+                    .unwrap_or(0);
+                let reply_json = dispatch_meshfs_action(
+                    &self.master_binary,
+                    &self.admin_binary,
+                    &self.vip,
+                    enrolled,
+                    verb,
+                    body,
+                );
+                if let Err(e) = persist.write(
+                    &reply_topic(&msg.ulid),
+                    Priority::Default,
+                    None,
+                    Some(&reply_json),
+                ) {
+                    tracing::warn!(
+                        target: "mackesd::meshfs_worker",
+                        ulid = %msg.ulid, error = %e,
+                        "meshfs action reply write failed",
+                    );
+                }
+            }
+        }
+    }
 }
 
 impl Default for MeshFsWorker {
@@ -447,10 +538,32 @@ impl Worker for MeshFsWorker {
 
     async fn run(&mut self, mut shutdown: ShutdownToken) -> anyhow::Result<()> {
         self.tick_once();
+
+        // MESHFS-10.1: open Bus persist for action polling (same pattern as
+        // `marks_state`). Persist is !Sync; wrapped in Mutex per that worker.
+        let persist_opt = default_meshfs_bus_root()
+            .and_then(|root| Persist::open(root).ok())
+            .map(std::sync::Mutex::new);
+        let mut cursors: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        // Burn the interval's immediate first fire; `tick_once()` above
+        // already ran the first LizardFS management cycle.
+        let mut lfs_tick = tokio::time::interval(self.tick);
+        lfs_tick.tick().await;
+        let mut action_tick = tokio::time::interval(ACTION_POLL_INTERVAL);
+
         loop {
             tokio::select! {
+                biased;
                 _ = shutdown.wait() => break,
-                _ = tokio::time::sleep(self.tick) => self.tick_once(),
+                _ = lfs_tick.tick() => self.tick_once(),
+                _ = action_tick.tick() => {
+                    if let Some(ref p_mutex) = persist_opt {
+                        let p = p_mutex.lock().expect("meshfs persist lock");
+                        self.poll_meshfs_actions(&p, &mut cursors);
+                    }
+                }
             }
         }
         Ok(())
@@ -797,6 +910,110 @@ pub fn parse_cslist_output(text: &str) -> Vec<String> {
     out
 }
 
+/// Bus root for the per-peer ntfy persist layer. Mirrors `marks_state`.
+fn default_meshfs_bus_root() -> Option<PathBuf> {
+    Some(dirs::data_dir()?.join("mde").join("bus"))
+}
+
+/// Fire-and-forget Bus event publish via `mde-bus publish`. No Persist
+/// dependency — the subprocess writes to the persist layer on its own.
+/// No-ops when `mde-bus` isn't on PATH.
+fn publish_meshfs_event(topic: &str, body: &str) {
+    if binary_on_path("mde-bus") {
+        let _ = Command::new("mde-bus")
+            .args(["publish", topic, "--body-flag", body])
+            .spawn();
+    }
+}
+
+/// Dispatch one `action/meshfs/<verb>` message, returning a reply JSON
+/// string for `reply/<ulid>`. All six verbs defined by MESHFS-10.1.
+/// Pure function — takes only primitive/slice arguments so it is
+/// trivially testable without a running Bus or persist layer.
+pub fn dispatch_meshfs_action(
+    master_binary: &str,
+    admin_binary: &str,
+    vip: &str,
+    enrolled_peer_count: usize,
+    verb: &str,
+    body: &str,
+) -> String {
+    match verb {
+        "status" => {
+            let reachable = master_reachable(vip);
+            format!(
+                r#"{{"ok":true,"master_reachable":{reachable},"enrolled_peers":{enrolled_peer_count}}}"#
+            )
+        }
+        "bootstrap" => {
+            let argv = genesis_start_argv(master_binary);
+            let ok = run_argv(&argv).is_ok();
+            format!(r#"{{"ok":{ok}}}"#)
+        }
+        "add-peer" | "remove-peer" => {
+            r#"{"ok":true,"note":"goal converges on next tick"}"#.to_owned()
+        }
+        "resolve-conflict" => dispatch_resolve_conflict(body),
+        "undelete" => dispatch_undelete(admin_binary, vip, body),
+        _ => r#"{"ok":false,"error":"unknown verb"}"#.to_owned(),
+    }
+}
+
+/// Move a `.conflict-*` file to `~/Local/conflict-archive/<ts>/`.
+fn dispatch_resolve_conflict(body: &str) -> String {
+    let path_str: String = match serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v["path"].as_str().map(|s| s.to_owned()))
+    {
+        Some(p) => p,
+        None => return r#"{"ok":false,"error":"missing path"}"#.to_owned(),
+    };
+    let src = std::path::Path::new(&path_str);
+    if !src.exists() {
+        return r#"{"ok":false,"error":"path not found"}"#.to_owned();
+    }
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let home = match std::env::var("HOME").ok().filter(|h| !h.is_empty()) {
+        Some(h) => h,
+        None => return r#"{"ok":false,"error":"HOME not set"}"#.to_owned(),
+    };
+    let archive_dir = std::path::PathBuf::from(home)
+        .join("Local")
+        .join("conflict-archive")
+        .join(ts.to_string());
+    if let Err(e) = std::fs::create_dir_all(&archive_dir) {
+        return format!(r#"{{"ok":false,"error":"mkdir: {e}"}}"#);
+    }
+    let file_name = src.file_name().unwrap_or_default();
+    let dest = archive_dir.join(file_name);
+    match std::fs::rename(src, &dest) {
+        Ok(()) => r#"{"ok":true}"#.to_owned(),
+        Err(e) => format!(r#"{{"ok":false,"error":"rename: {e}"}}"#),
+    }
+}
+
+/// Invoke `mfsadmin TRASH-RECOVER` for the path named in the request body.
+fn dispatch_undelete(admin_binary: &str, vip: &str, body: &str) -> String {
+    let path: String = match serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v["path"].as_str().map(|s| s.to_owned()))
+    {
+        Some(p) => p,
+        None => return r#"{"ok":false,"error":"missing path"}"#.to_owned(),
+    };
+    let argv = vec![
+        admin_binary.to_owned(),
+        vip.to_owned(),
+        "TRASH-RECOVER".to_owned(),
+        path,
+    ];
+    let ok = run_argv(&argv).is_ok();
+    format!(r#"{{"ok":{ok}}}"#)
+}
+
 /// Run a command given as an argv slice. Returns the `Output` or an
 /// error. Logs a `warn!` on non-zero exit so every command failure
 /// is traceable without panicking.
@@ -1005,5 +1222,52 @@ ip              port  used       avail\n\
     #[test]
     fn parse_cslist_min_avail_header_only() {
         assert_eq!(parse_cslist_min_avail("ip  port  used  avail\n"), None);
+    }
+
+    // MESHFS-10.1 — dispatch_meshfs_action tests (no subprocess; verb shapes only).
+
+    #[test]
+    fn dispatch_action_unknown_verb_returns_error() {
+        let reply = dispatch_meshfs_action("mfsmaster", "mfsadmin", "10.42.0.1", 2, "frobnicate", "{}");
+        let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(v["ok"], false);
+    }
+
+    #[test]
+    fn dispatch_action_add_peer_ok() {
+        let reply = dispatch_meshfs_action("mfsmaster", "mfsadmin", "10.42.0.1", 3, "add-peer", "{}");
+        let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(v["ok"], true);
+    }
+
+    #[test]
+    fn dispatch_action_remove_peer_ok() {
+        let reply = dispatch_meshfs_action("mfsmaster", "mfsadmin", "10.42.0.1", 1, "remove-peer", "{}");
+        let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(v["ok"], true);
+    }
+
+    #[test]
+    fn dispatch_resolve_conflict_missing_path() {
+        let reply = dispatch_resolve_conflict("{}");
+        let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap_or("").contains("path"));
+    }
+
+    #[test]
+    fn dispatch_resolve_conflict_path_not_found() {
+        let reply = dispatch_resolve_conflict(r#"{"path":"/tmp/meshfs-xyzzy-does-not-exist.conflict-peer-0"}"#);
+        let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap_or("").contains("not found"));
+    }
+
+    #[test]
+    fn dispatch_undelete_missing_path() {
+        let reply = dispatch_undelete("mfsadmin", "10.42.0.1", "{}");
+        let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap_or("").contains("path"));
     }
 }

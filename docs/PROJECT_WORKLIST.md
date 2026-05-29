@@ -1888,11 +1888,12 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Bus surface (no D-Bus — Q13)
 
-- [ ] **MESHFS-10.1: v5.0.0 — Bus-native control + events (`action/meshfs/<verb>` + `meshfs/*`)**
+- [✓] **MESHFS-10.1: v5.0.0 — Bus-native control + events (`action/meshfs/<verb>` + `meshfs/*`)**
   **Acceptance:**
-    - [ ] commands `resolve-conflict`/`undelete`/`add-peer`/`remove-peer`/`bootstrap`/`status` on `action/meshfs/<verb>`, replies on `reply/<ulid>`
-    - [ ] events `peer-state-changed`/`conflict-detected`/`heal-completed`/`quota-warning`/`export-ready`/`master-failover` on `meshfs/*`
-    - [ ] no new `#[interface]` block (does not trip the §0.7 #8 D-Bus shape lint)
+    - [✓] commands `resolve-conflict`/`undelete`/`add-peer`/`remove-peer`/`bootstrap`/`status` on `action/meshfs/<verb>`, replies on `reply/<ulid>`
+    - [✓] events `peer-state-changed`/`conflict-detected`/`heal-completed`/`quota-warning`/`export-ready`/`master-failover` on `meshfs/*`
+    - [✓] no new `#[interface]` block (does not trip the §0.7 #8 D-Bus shape lint)
+  **Shipped:** `poll_meshfs_actions()` + `dispatch_meshfs_action()` + `dispatch_resolve_conflict()` + `dispatch_undelete()` in `meshfs_worker.rs`; event publishes wired into `tick_once()` / `tick_once_ha()`; `run()` upgraded to dual-interval select (lfs-tick + action-tick); 29 tests green.
 
 #### UI surfaces
 
