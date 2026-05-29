@@ -127,13 +127,27 @@ pub fn spawn_heartbeat_worker(
     shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
+        use std::sync::atomic::Ordering;
         let interval = std::time::Duration::from_secs(HEARTBEAT_INTERVAL_S);
-        while !shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+        // Check the shutdown flag every 100 ms instead of sleeping the
+        // full interval between checks — otherwise a shutdown request
+        // mid-interval isn't honored until the next wake (up to the
+        // full HEARTBEAT_INTERVAL_S), which both stretched the
+        // supervisor's SIGTERM→exit latency and raced the worker
+        // shutdown test (DEAD-FLAKY-HEARTBEAT, 2026-05-28). Chunked
+        // sleep makes shutdown responsive within ~100 ms.
+        const CHECK_CHUNK: std::time::Duration = std::time::Duration::from_millis(100);
+        while !shutdown.load(Ordering::Relaxed) {
             let hb = build_heartbeat(&node_id, None);
             if let Err(e) = write_heartbeat(&qnm_root, &hb) {
                 eprintln!("heartbeat: write failed: {e}");
             }
-            std::thread::sleep(interval);
+            // Interruptible interval sleep.
+            let mut slept = std::time::Duration::ZERO;
+            while slept < interval && !shutdown.load(Ordering::Relaxed) {
+                std::thread::sleep(CHECK_CHUNK);
+                slept += CHECK_CHUNK;
+            }
         }
     })
 }
