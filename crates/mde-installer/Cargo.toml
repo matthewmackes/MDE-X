@@ -24,6 +24,12 @@ path = "src/lib.rs"
 clap        = { version = "4.5", features = ["derive"] }
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
+# INST-5 preflight size/file-count walk; follow_links(false) so Nebula
+# cert symlinks don't pull external paths into the wipe summary.
+walkdir     = "2"
+# INST-5 audit-log filename: deterministic, time-sortable ULID (matches
+# the MON-3 / mde-bus ulid = "1" lock).
+ulid        = "1"
 # PEERVER-3 — peer-data convergence reader (PeerRecord + read_peers).
 # The shared types crate, NOT mackesd_core, so the installer reads
 # peer-data without the heavy control-plane dep.

@@ -62,7 +62,15 @@ fn run(args: &Args) -> Result<u8, String> {
     let profile = resolve_profile(args)?;
     println!("Install profile: {profile} — {}", profile.describe());
 
-    // Preflight — what the wipe will remove.
+    // INST-6 — is this a lossy downgrade off the previously-installed
+    // profile (dropping the brick and/or desktop)? Drives the extra
+    // typed-`<prev>` confirm below and the audit-log WARNING line.
+    let prev_profile = wipe::read_installed_profile();
+    let lossy = prev_profile
+        .is_some_and(|prev| mde_installer::profile::is_lossy_downgrade(prev, profile));
+
+    // Preflight — what the wipe will remove, with du-style size + file
+    // count per path (INST-5a).
     let all = wipe::local_state_paths();
     let targets = wipe::existing(&all);
     println!("\nLocal MDE state to be wiped:");
@@ -70,7 +78,13 @@ fn run(args: &Args) -> Result<u8, String> {
         println!("  (none — clean machine)");
     } else {
         for p in &targets {
-            println!("  {}", p.display());
+            let (bytes, files) = wipe::path_usage(p);
+            let plural = if files == 1 { "" } else { "s" };
+            println!(
+                "  {}  ({}, {files} file{plural})",
+                p.display(),
+                wipe::human_size(bytes)
+            );
         }
     }
     // INST-5 peer-impact: who will see this node leave the mesh.
@@ -90,7 +104,22 @@ fn run(args: &Args) -> Result<u8, String> {
         );
     }
 
+    if lossy {
+        if let Some(prev) = prev_profile {
+            println!(
+                "\n(!) lossy downgrade: {prev} -> {profile} tears down the \
+                 {prev}-profile pieces (brick and/or desktop)."
+            );
+        }
+    }
+
     if args.dry_run {
+        if let Some(prev) = prev_profile.filter(|_| lossy) {
+            println!(
+                "[dry-run] would require typing `{prev}` (the previous profile) \
+                 after the NUKE confirm to proceed with the downgrade."
+            );
+        }
         if profile.needs_desktop_rpm() && !desktop_rpm_present() {
             println!("[dry-run] would `dnf install -y mde-desktop` (building up to the full desktop).");
         }
@@ -116,6 +145,24 @@ fn run(args: &Args) -> Result<u8, String> {
         if !ok {
             return Err("not confirmed — aborted".to_string());
         }
+        // INST-6 — extra confirm on a lossy downgrade: make the operator
+        // type the previous profile name so reflexive `NUKE` muscle-memory
+        // can't silently demote a workstation to a routing-only lighthouse.
+        if let Some(prev) = prev_profile.filter(|_| lossy) {
+            let ok = confirm::require_typed(
+                prev.as_str(),
+                &format!(
+                    "Currently `{prev}`. Type `{prev}` to confirm leaving the \
+                     {prev}-profile state: "
+                ),
+            )
+            .map_err(|e| format!("reading downgrade confirmation: {e}"))?;
+            if !ok {
+                return Err(format!(
+                    "downgrade to {profile} not confirmed — aborted; no changes made."
+                ));
+            }
+        }
     } else if !args.yes {
         return Err(
             "no TTY for the NUKE confirm; re-run with --yes (and --profile) for unattended installs"
@@ -124,6 +171,11 @@ fn run(args: &Args) -> Result<u8, String> {
     }
 
     let mut audit = Vec::new();
+    // INST-6 — record the downgrade at the top of the audit trail (the
+    // only signal on the `--yes` path, which skips both confirms).
+    if let Some(prev) = prev_profile.filter(|_| lossy) {
+        audit.push(format!("WARNING: lossy downgrade from {prev} to {profile}"));
+    }
     audit.push(format!("profile: {profile}"));
 
     // A4 — build up to the full desktop: pull mde-desktop if the
@@ -292,11 +344,10 @@ fn run_birthrights(profile: Profile) -> Result<(), String> {
 fn write_audit_log(lines: &[String]) -> std::io::Result<PathBuf> {
     let dir = PathBuf::from("/var/log/mde");
     fs::create_dir_all(&dir)?;
-    let ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let path = dir.join(format!("wipe-{ms}.log"));
+    // INST-5c — ULID filename: time-sortable + collision-free, matching
+    // the `wipe-<ulid>.log` path INST-12's auto-trigger expects.
+    let id = ulid::Ulid::new();
+    let path = dir.join(format!("wipe-{id}.log"));
     let mut f = fs::File::create(&path)?;
     for line in lines {
         writeln!(f, "{line}")?;

@@ -10,8 +10,10 @@
 //! Server build-up there is no cert or brick, so this is the complete
 //! path for the canonical install.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use walkdir::WalkDir;
 
 use crate::profile::Profile;
 
@@ -41,6 +43,54 @@ pub fn local_state_paths() -> Vec<PathBuf> {
 #[must_use]
 pub fn existing(paths: &[PathBuf]) -> Vec<PathBuf> {
     paths.iter().filter(|p| p.exists()).cloned().collect()
+}
+
+/// On-disk bytes + file count for a path (INST-5 preflight summary).
+/// Walks without following symlinks so the Nebula cert symlinks under
+/// `~/.config/mde/` don't pull external paths (or their sizes) into the
+/// total. Returns `(bytes, file_count)`; unreadable entries are skipped
+/// rather than aborting the walk.
+#[must_use]
+pub fn path_usage(root: &Path) -> (u64, u64) {
+    let mut bytes = 0u64;
+    let mut files = 0u64;
+    for entry in WalkDir::new(root).follow_links(false).into_iter().flatten() {
+        // Count regular files (and their apparent size); dirs/symlinks
+        // contribute the count of what they point at, not their target.
+        if entry.file_type().is_file() {
+            if let Ok(meta) = entry.metadata() {
+                bytes += meta.len();
+                files += 1;
+            }
+        }
+    }
+    (bytes, files)
+}
+
+/// `du -sh`-style human size (powers of 1024, one decimal past KiB).
+#[must_use]
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    format!("{size:.1} {}", UNITS[unit])
+}
+
+/// Read the previous install profile from the marker file, if present.
+/// Missing / unparsable marker → `None` (treated as no-previous-profile,
+/// so INST-6's lossy-downgrade confirm doesn't fire on a first install).
+#[must_use]
+pub fn read_installed_profile() -> Option<Profile> {
+    std::fs::read_to_string(PROFILE_MARKER)
+        .ok()
+        .and_then(|s| s.trim().parse::<Profile>().ok())
 }
 
 /// Remove each path in `paths` that exists. Per-path result is logged
@@ -133,6 +183,25 @@ mod tests {
         assert!(!present.exists());
         assert!(log.iter().any(|l| l.starts_with("removed:")));
         assert!(log.iter().any(|l| l.contains("skip (absent)")));
+    }
+
+    #[test]
+    fn path_usage_counts_files_and_bytes() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("a/b")).unwrap();
+        fs::write(dir.path().join("a/one.txt"), b"hello").unwrap(); // 5
+        fs::write(dir.path().join("a/b/two.txt"), b"worldwide").unwrap(); // 9
+        let (bytes, files) = path_usage(dir.path());
+        assert_eq!(files, 2);
+        assert_eq!(bytes, 14);
+    }
+
+    #[test]
+    fn human_size_scales() {
+        assert_eq!(human_size(512), "512 B");
+        assert_eq!(human_size(1024), "1.0 KiB");
+        assert_eq!(human_size(1536), "1.5 KiB");
+        assert_eq!(human_size(5 * 1024 * 1024), "5.0 MiB");
     }
 
     #[test]

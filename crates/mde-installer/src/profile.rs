@@ -56,6 +56,30 @@ impl Profile {
     pub const fn all() -> [Self; 3] {
         [Self::Lighthouse, Self::Headless, Self::Full]
     }
+
+    /// Capability rank: each profile is a strict superset of the one
+    /// below it (`lighthouse` ⊂ `headless` ⊂ `full`). Used to tell an
+    /// upgrade (rank rises, nothing lost) from a lossy downgrade (rank
+    /// falls, the brick and/or desktop get torn down).
+    #[must_use]
+    const fn rank(self) -> u8 {
+        match self {
+            Self::Lighthouse => 0,
+            Self::Headless => 1,
+            Self::Full => 2,
+        }
+    }
+}
+
+/// Whether moving from `prev` to `new` drops capabilities the operator
+/// currently has (the brick on `headless`/`full`, the desktop on
+/// `full`). A lossy downgrade gets INST-6's extra typed-`<prev>` confirm
+/// so muscle-memory `NUKE` doesn't silently demote a workstation to a
+/// routing-only lighthouse. Same-profile reinstalls and upgrades are not
+/// lossy.
+#[must_use]
+pub fn is_lossy_downgrade(prev: Profile, new: Profile) -> bool {
+    new.rank() < prev.rank()
 }
 
 impl fmt::Display for Profile {
@@ -119,5 +143,26 @@ mod tests {
         assert!(Profile::Full.needs_desktop_rpm());
         assert!(!Profile::Headless.needs_desktop_rpm());
         assert!(!Profile::Lighthouse.needs_desktop_rpm());
+    }
+
+    #[test]
+    fn downgrades_are_lossy() {
+        use Profile::{Full, Headless, Lighthouse};
+        assert!(is_lossy_downgrade(Full, Headless));
+        assert!(is_lossy_downgrade(Full, Lighthouse));
+        assert!(is_lossy_downgrade(Headless, Lighthouse));
+    }
+
+    #[test]
+    fn upgrades_and_same_profile_are_not_lossy() {
+        use Profile::{Full, Headless, Lighthouse};
+        // Upgrades.
+        assert!(!is_lossy_downgrade(Lighthouse, Headless));
+        assert!(!is_lossy_downgrade(Lighthouse, Full));
+        assert!(!is_lossy_downgrade(Headless, Full));
+        // Same-profile reinstalls.
+        for p in Profile::all() {
+            assert!(!is_lossy_downgrade(p, p));
+        }
     }
 }
