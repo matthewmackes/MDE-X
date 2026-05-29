@@ -326,7 +326,16 @@ impl MeshFsWorker {
         // 6. HA: lighthouse VIP claim + shadow promotion (MESHFS-3.1).
         self.tick_once_ha();
 
-        // 7. Quota: hourly setquota call (MESHFS-9.1).
+        // 7. Topology label: register this peer's chunkserver in its own
+        //    topology group (MESHFS-7.1). LizardFS uses these labels to
+        //    prefer local reads when a client's IP matches a label.
+        if binary_on_path(&self.admin_binary) && master_reachable(&self.vip) {
+            let argv = set_topology_argv(&self.admin_binary, &self.vip, &overlay_ip, &overlay_ip);
+            tracing::debug!(target: "mackesd::meshfs_worker", argv = ?argv, "setting CS topology label");
+            let _ = run_argv(&argv);
+        }
+
+        // 8. Quota: hourly setquota call (MESHFS-9.1).
         self.tick_once_quota();
     }
 
@@ -550,6 +559,29 @@ pub fn failover_vip_argv(admin_binary: &str, vip: &str) -> Vec<String> {
         admin_binary.to_owned(),
         vip.to_owned(),
         "MASTER-STOP".to_owned(),
+    ]
+}
+
+/// Build the argv for registering this peer's chunkserver in a named
+/// topology group. LizardFS uses topology groups to prefer local reads:
+/// a client with the same group label as a chunkserver will read from
+/// that chunkserver first, avoiding unnecessary overlay traffic.
+///
+/// ```text
+/// mfsadmin <vip> CS-SET-TOPOLOGY <cs_ip> <label>
+/// ```
+///
+/// In MDE's single-group-per-peer scheme, `label` = `cs_ip` so each
+/// peer has its own named group. `mfsmount` clients that pass
+/// `-o mfspreferredip=<overlay_ip>` will read local chunks first.
+#[must_use]
+pub fn set_topology_argv(admin_binary: &str, vip: &str, cs_ip: &str, label: &str) -> Vec<String> {
+    vec![
+        admin_binary.to_owned(),
+        vip.to_owned(),
+        "CS-SET-TOPOLOGY".to_owned(),
+        cs_ip.to_owned(),
+        label.to_owned(),
     ]
 }
 
@@ -936,6 +968,15 @@ ip              port  used       avail\n\
     fn parse_ip_addr_output_not_found() {
         let output = "2: nebula1: <UP,LOWER_UP> ...\n    inet 10.42.0.5/16 brd 10.42.255.255 scope global nebula1\n";
         assert!(!parse_ip_addr_output(output, "10.42.0.1"));
+    }
+
+    #[test]
+    fn set_topology_argv_shape() {
+        let argv = set_topology_argv("mfsadmin", "10.42.0.1", "10.42.0.5", "10.42.0.5");
+        assert_eq!(
+            argv,
+            ["mfsadmin", "10.42.0.1", "CS-SET-TOPOLOGY", "10.42.0.5", "10.42.0.5"]
+        );
     }
 
     #[test]

@@ -1862,8 +1862,9 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [✓] birthright enables instances for Documents/Pictures/Music/Videos/Downloads once uid=1000 + export ready
     - [✓] `~/Local/` is never mesh-mounted
   **Shipped:** `data/systemd/mde-mesh-mount@.service` retargeted from GlusterFS to `mfsmount -o mfsmaster=10.42.0.1,mfssubfolder=/%i %h/%i`.
-- [ ] **MESHFS-7.1: v5.0.0 — Topology-aware local-first reads**
-  **Acceptance:** `[ ]` per-peer LizardFS topology labels set by the worker so a client reads its own chunkserver first; verified by chunkserver I/O counters / absence of overlay read traffic for local files.
+- [✓] **MESHFS-7.1: v5.0.0 — Topology-aware local-first reads**
+  **Acceptance:** `[✓]` per-peer LizardFS topology labels set by the worker so a client reads its own chunkserver first; verified by chunkserver I/O counters / absence of overlay read traffic for local files [§0.15 bench-verify at release].
+  **Shipped:** `set_topology_argv` helper + call in `tick_once()` (CS-SET-TOPOLOGY per peer); `mde-mesh-mount@.service` updated with ExecStartPre overlay-ip read + `-o mfspreferredip=$PREFERRED_IP`.
 
 #### Offline + conflicts
 

@@ -1,14 +1,21 @@
 [Unit]
-# MESHFS-4.1 (v5.0.0) — per-user FUSE mount of mesh-storage at the
-# operator's XDG directories. Retargets GF-4.1 from GlusterFS to
-# LizardFS. Instance `%i` is the XDG subdir name
-# (Documents / Pictures / Music / Videos / Downloads).
+# MESHFS-4.1 + MESHFS-7.1 (v5.0.0) — per-user FUSE mount of
+# mesh-storage at the operator's XDG directories. Instance `%i` is
+# the XDG subdir name (Documents / Pictures / Music / Videos /
+# Downloads).
 #
 # Mounts the LizardFS `mesh-storage` export's `%i` subfolder at
 # `$HOME/%i` via `mfsmount`. The active master is always reached
 # through the floating overlay VIP (10.42.0.1) — never a peer's
 # underlay address — so the mount survives master failover
-# transparently (mfsmount reconnects to the same VIP address).
+# transparently.
+#
+# MESHFS-7.1 (topology-aware local-first reads): `ExecStartPre`
+# reads this peer's Nebula overlay IP from the publish file and
+# writes it to `$XDG_RUNTIME_DIR/mde-meshfs.env`. `mfsmount` then
+# uses `-o mfspreferredip=<overlay_ip>` so the client prefers reading
+# from its own local chunkserver (same as the topology label set by
+# `mackesd meshfs_worker`), avoiding unnecessary overlay traffic.
 #
 # `~/Local/` is deliberately excluded from mesh-mounting per the
 # MESHFS design: Local is the offline scratch area + private state
@@ -17,9 +24,7 @@
 #
 # Not auto-enabled by RPM install — birthright's MESHFS XDG-mount
 # step enables instances once uid:gid 1000:1000 (MESHFS-5.1) AND
-# the LizardFS export is ready. Until that step ships, operators can
-# manually enable individual instances after the fleet bootstraps:
-#   systemctl --user enable --now mde-mesh-mount@Documents.service
+# the LizardFS export is ready.
 Description=Mackes mesh-storage FUSE mount at %h/%i
 Documentation=file:///usr/share/doc/mackes-shell/help/mesh-storage.md
 After=network-online.target
@@ -28,14 +33,18 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# mfsmount connects to the floating VIP (10.42.0.1, the active
-# master address). mfssubfolder=/%i restricts the mount to this
-# peer's Documents/Pictures/... slice of the shared export.
-# The master connection is TCP/9419; mfsmount retries automatically
-# so brief master-failover windows are transparent to the operator.
+# Read this peer's overlay IP from the mackesd publish file and
+# write it to the runtime env file for use in ExecStart.
+# Falls back to empty string when the peer hasn't enrolled yet;
+# mfsmount then omits mfspreferredip and reads from any chunkserver.
+ExecStartPre=/bin/sh -c '\
+    ip=$(cat /var/lib/mackesd/nebula/overlay-ip 2>/dev/null | \
+         head -1 | tr -d "[:space:]"); \
+    printf "PREFERRED_IP=%s\n" "$ip" > %t/mde-meshfs.env'
+EnvironmentFile=-%t/mde-meshfs.env
 ExecStartPre=/usr/bin/mkdir -p %h/%i
 ExecStart=/usr/bin/mfsmount \
-    -o mfsmaster=10.42.0.1,mfssubfolder=/%i \
+    -o mfsmaster=10.42.0.1,mfssubfolder=/%i${PREFERRED_IP:+,mfspreferredip=$PREFERRED_IP} \
     %h/%i
 ExecStop=/usr/bin/fusermount -u %h/%i
 
