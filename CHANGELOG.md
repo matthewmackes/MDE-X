@@ -5,6 +5,33 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**Installation manager + fleet updater (`mde-install` / `mde-update`) (2026-05-29)**
+- `mde-install` converges a machine to a known-clean state for one of
+  three profiles — **lighthouse** (routing-only), **headless** (storage
+  peer, no desktop), or **full** (workstation with the sway desktop) —
+  then runs birthrights. The blessed path is a clean Fedora Server CLI you
+  build up from: `dnf install mde-core` + `mde-install --profile=…`, then
+  `dnf install mde-desktop` + `mde-install --profile=full` to add the
+  desktop. An interactive picker runs when you don't pass `--profile`.
+- Three safety confirms before anything is wiped: type the literal
+  `NUKE`; an extra "type the previous profile name" confirm on a lossy
+  downgrade (e.g. `full → lighthouse`, which would drop your desktop);
+  and, for unattended (`--yes`) runs, an audit log written to
+  `/var/log/mde/wipe-<id>.log` (with a `WARNING: lossy downgrade …` first
+  line where applicable) before any change. The pre-flight summary now
+  lists each path to be wiped with its size + file count and the peers
+  that will see this node leave the mesh.
+- `mde-update` shows a fleet version table (with `(!)`/`(!!)` skew
+  markers and scriptable exit codes). `mde-update --coordinate <version>`
+  rolls an upgrade across every peer hands-off: each peer's `mackesd`
+  runs `dnf upgrade` on its own schedule, then — once enough peers are
+  ready and a grace window (default 4h) has passed — applies the new bits
+  with `mde-install --yes` automatically. Peers offline during the window
+  catch up on next boot; `mde-update --cancel <version>` rolls back.
+- A post-install smoke check verifies the profile actually came up
+  (services active, brick mounted, session present) before reporting
+  success.
+
 **Media-server sync is now native (no Python daemon) (2026-05-28)**
 - Keeping your Sublime Music + Delfin (Jellyfin) configs pointed at the
   mesh's media servers is now handled directly by `mackesd` instead of a
