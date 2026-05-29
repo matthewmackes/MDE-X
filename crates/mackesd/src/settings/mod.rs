@@ -5,12 +5,10 @@
 //! daemon uses to read and write every "settings knob" a user (or a
 //! fleet revision) can twist: theme, fonts, displays, power, etc.
 //!
-//! Phase A only ships the **surface** — the `SettingKey` enum, the
-//! `SettingValue` payload wrapper, the `Setting` row struct, and the
-//! `apply()` / `current()` dispatcher signatures. Each per-concern
-//! applier (`theme::apply`, `font::apply`, ...) is a stub that
-//! returns `Err(Unimplemented)` until Phase C wires the real backend
-//! (GSettings / fontconfig / wlr-output-management / login1 / udisks2).
+//! This module exposes the `SettingKey` enum, the `SettingValue` payload
+//! wrapper, the `Setting` row struct, and the `apply()` / `current()`
+//! dispatcher. Each per-concern applier (`theme::apply`, `font::apply`, …)
+//! is fully implemented (Phase A surface + Phase C backends both landed).
 //!
 //! The sync store API (rusqlite via `crate::store::with_transaction`)
 //! is the durable side. The async DBus surface in `crate::ipc::settings`
@@ -328,14 +326,11 @@ pub struct ApplyOutcome {
 }
 
 /// Dispatcher: route a (key, value) pair to the applier owning it.
-/// Phase A returns `Err(Unimplemented)` for every variant; Phase C
-/// fills in the real implementations.
 ///
 /// # Errors
 ///
 /// Returns an error if the applier rejects the value (wrong shape,
-/// out-of-range, missing backend), or if the per-concern module
-/// hasn't shipped its real implementation yet.
+/// out-of-range, or missing backend).
 pub fn apply(key: SettingKey, value: &SettingValue) -> anyhow::Result<()> {
     match key {
         SettingKey::ThemeName
@@ -558,10 +553,9 @@ mod tests {
     }
 
     #[test]
-    fn apply_dispatches_unimplemented_keys_to_phase_a_stub() {
-        // Phase C is complete — every applier now ships. This
-        // test is retained as a smoke that the dispatcher reaches
-        // every key (none panics, none routes to nothing).
+    fn apply_dispatcher_covers_every_key() {
+        // Smoke: every SettingKey has a handler in the dispatcher
+        // (none panics, none routes to nothing).
         for &key in SettingKey::all() {
             // Use a type-mismatching value so apply() returns a
             // shape-validation error rather than actually mutating
