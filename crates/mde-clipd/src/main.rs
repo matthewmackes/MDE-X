@@ -12,6 +12,7 @@ use clap::Parser;
 use tracing::info;
 use wayland_client::Connection;
 
+mod blobstore;
 mod proto;
 mod publish;
 mod session;

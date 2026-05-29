@@ -59,6 +59,8 @@ pub struct AppState {
     pending_pub: Option<PendingPub>,
     /// Total regular clipboard changes observed this session.
     pub selection_count: u64,
+    /// BUS-5.3: count of successful publishes. GC runs every 50 publishes.
+    publish_count: u64,
 }
 
 impl AppState {
@@ -71,6 +73,7 @@ impl AppState {
             prev_primary: None,
             pending_pub: None,
             selection_count: 0,
+            publish_count: 0,
         }
     }
 }
@@ -288,8 +291,13 @@ pub fn run(conn: &Connection, config: &Config) -> anyhow::Result<()> {
 
     info!(
         initial_mimes = state.pending_mimes.len(),
-        "mde-clipd: watching clipboard (BUS-5.2 publish enabled)"
+        "mde-clipd: watching clipboard (BUS-5.2 publish + BUS-5.3 GC enabled)"
     );
+
+    // BUS-5.3: initial GC pass to clean up blobs from any previous run.
+    if let Err(e) = crate::blobstore::gc_orphaned_blobs(&config.bus_root, &config.data_home) {
+        warn!(error = %e, "clipboard: startup GC failed — continuing");
+    }
 
     loop {
         queue
@@ -314,15 +322,31 @@ pub fn run(conn: &Connection, config: &Config) -> anyhow::Result<()> {
                     mime = %pending.selected_mime,
                     "clipboard: compositor wrote no data — skipping publish"
                 );
-            } else if let Err(e) = crate::publish::publish_clipboard(
-                &config.bus_root,
-                &config.data_home,
-                &config.peer_id,
-                &pending.mimes,
-                &pending.selected_mime,
-                &data,
-            ) {
-                warn!(error = %e, "clipboard: publish to bus failed");
+            } else {
+                match crate::publish::publish_clipboard(
+                    &config.bus_root,
+                    &config.data_home,
+                    &config.peer_id,
+                    &pending.mimes,
+                    &pending.selected_mime,
+                    &data,
+                ) {
+                    Ok(()) => {
+                        state.publish_count += 1;
+                        // BUS-5.3: periodic GC every 50 publishes.
+                        if state.publish_count % 50 == 0 {
+                            if let Err(e) = crate::blobstore::gc_orphaned_blobs(
+                                &config.bus_root,
+                                &config.data_home,
+                            ) {
+                                warn!(error = %e, "clipboard: periodic GC failed");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "clipboard: publish to bus failed");
+                    }
+                }
             }
         }
     }
@@ -338,6 +362,7 @@ mod tests {
     fn new_state_is_empty() {
         let s = AppState::new();
         assert_eq!(s.selection_count, 0);
+        assert_eq!(s.publish_count, 0);
         assert!(s.pending_mimes.is_empty());
         assert!(s.pending_offer.is_none());
         assert!(s.prev_selection.is_none());
