@@ -102,7 +102,6 @@ pub mod health_reconciler;
 // kdeconnectd wrapper. The native KDC host worker
 // (`workers::kdc_host`) replaces it in the v2.1+ stack.
 pub mod kdc_host;
-pub mod lan_discovery;
 pub mod mdns;
 pub mod mesh_latency;
 pub mod mesh_router;
