@@ -12,7 +12,7 @@
 # runtime root at /var/run/rtpengine-mde/, separate user
 # `_rtpengine_mde`.
 Description=MDE per-host RTPengine SRTP relay (VV-1.5)
-Documentation=file:///usr/share/mackes-shell/docs/design/v4.1-voice-video.md
+Documentation=file:///usr/share/mde/docs/design/v4.1-voice-video.md
 After=network-online.target nebula.service mackesd.service
 Wants=network-online.target
 Requires=mackesd.service

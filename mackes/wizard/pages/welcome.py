@@ -17,7 +17,7 @@ from mackes.gtk_common import title_label, info_label
 
 def _hero_logo_path() -> Path | None:
     candidates = [
-        Path("/usr/share/mackes-shell/branding/MACKES-XFCE-LOGO.png"),
+        Path("/usr/share/mde/branding/MACKES-XFCE-LOGO.png"),
         Path(__file__).resolve().parents[3] / "branding" / "MACKES-XFCE-LOGO.png",
     ]
     for p in candidates:

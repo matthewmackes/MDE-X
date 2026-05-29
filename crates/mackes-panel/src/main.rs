@@ -307,12 +307,12 @@ const PLACEHOLDER_CSS: &[u8] = b"
 
 /// Standard install location for the shipped `PatternFly` tokens.
 const TOKEN_CSS_PATHS: &[&str] = &[
-    "/usr/share/mackes-shell/data/css/tokens.css",
-    "/usr/share/mackes-shell/data/css/mackes.css",
+    "/usr/share/mde/data/css/tokens.css",
+    "/usr/share/mde/data/css/mackes.css",
 ];
 
 /// Fallback wallpaper used when the active preset's path is missing.
-const DEFAULT_WALLPAPER: &str = "/usr/share/mackes-shell/branding/standard-wallpaper.png";
+const DEFAULT_WALLPAPER: &str = "/usr/share/mde/branding/standard-wallpaper.png";
 
 fn main() -> glib::ExitCode {
     // Phase 10.6.8 — `--recover` is a read-only preview of the
@@ -1361,7 +1361,7 @@ fn apply_wallpaper(window: &gtk::ApplicationWindow, geom: &FallbackGeometry, wit
 
 /// Locate the active wallpaper. Looks in the running user's mackes-shell
 /// state.json first; falls back to the standard wallpaper shipped under
-/// `/usr/share/mackes-shell/branding/`.
+/// `/usr/share/mde/branding/`.
 fn resolve_wallpaper_path() -> Option<PathBuf> {
     if let Some(p) = wallpaper_from_state() {
         if Path::new(&p).is_file() {

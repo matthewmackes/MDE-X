@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO_FILE="/etc/yum.repos.d/mackes-shell.repo"
-SHIP_DIR="${MACKES_SHELL_SHARE:-/usr/share/mackes-shell}"
+SHIP_DIR="${MACKES_SHELL_SHARE:-/usr/share/mde}"
 SOURCE="${SHIP_DIR}/data/dnf/mackes-shell.repo"
 
 if [[ ! -f "$SOURCE" ]]; then

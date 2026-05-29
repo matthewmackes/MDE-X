@@ -17,7 +17,7 @@ from typing import Optional
 from mackes.logging import log_action
 
 GREETER_CONF = Path("/etc/lightdm/lightdm-gtk-greeter.conf")
-STANDARD_WALLPAPER = Path("/usr/share/mackes-shell/branding/standard-wallpaper.png")
+STANDARD_WALLPAPER = Path("/usr/share/mde/branding/standard-wallpaper.png")
 # Accent-per-preset, mirrored to greeter via the gtk-theme + a small CSS overlay
 GREETER_DROPIN = Path("/etc/lightdm/lightdm.conf.d/50-mackes.conf")
 

@@ -20,7 +20,7 @@ fi
 
 # Locate baseline: prefer system install (RPM), fall back to dev repo.
 for candidate in \
-    "/usr/share/mackes-shell/data/xfce-baseline/$PRESET" \
+    "/usr/share/mde/data/xfce-baseline/$PRESET" \
     "$(cd "$(dirname "$0")/.." && pwd)/data/xfce-baseline/$PRESET"; do
     if [[ -d "$candidate" ]]; then
         BASELINE_DIR="$candidate"
@@ -31,7 +31,7 @@ done
 if [[ -z "${BASELINE_DIR:-}" ]]; then
     echo "ERROR: no baseline found for preset '$PRESET'" >&2
     echo "Tried:" >&2
-    echo "  /usr/share/mackes-shell/data/xfce-baseline/$PRESET" >&2
+    echo "  /usr/share/mde/data/xfce-baseline/$PRESET" >&2
     echo "  data/xfce-baseline/$PRESET (dev repo)" >&2
     exit 1
 fi

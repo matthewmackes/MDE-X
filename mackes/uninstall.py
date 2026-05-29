@@ -235,7 +235,7 @@ def _remove_v22_leftovers(report, log_handle, progress) -> None:
 def _run_restore_xfce_settings(report, log_handle, progress) -> None:
     """Q18 lock — explicit call before dnf remove."""
     helpers = [
-        Path("/usr/share/mackes-shell/install-helpers/restore-xfce-settings.sh"),
+        Path("/usr/share/mde/install-helpers/restore-xfce-settings.sh"),
         Path(__file__).resolve().parents[1] / "install-helpers" / "restore-xfce-settings.sh",
     ]
     for script in helpers:

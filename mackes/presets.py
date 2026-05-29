@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover - YAML is a hard dep at runtime
 # Search order: user-local first (overrides shipped), then shipped data dir.
 USER_PRESET_DIR = CONFIG_DIR / "presets"
 SHIPPED_PRESET_DIRS = [
-    Path("/usr/share/mackes-shell/data/presets"),
+    Path("/usr/share/mde/data/presets"),
     Path(__file__).resolve().parent.parent / "data" / "presets",
 ]
 
@@ -178,7 +178,7 @@ def apply_appearance(preset: Preset) -> list[str]:
     # desktop because the preset's wallpaper path didn't survive.
     if wp and not Path(str(wp)).exists():
         for fallback in (
-            "/usr/share/mackes-shell/branding/standard-wallpaper.png",
+            "/usr/share/mde/branding/standard-wallpaper.png",
             str(Path(__file__).resolve().parent.parent
                 / "branding" / "standard-wallpaper.png"),
         ):

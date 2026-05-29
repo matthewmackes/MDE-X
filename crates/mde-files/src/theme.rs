@@ -181,7 +181,7 @@ pub fn theme() -> iced::Theme {
 fn locate_tokens_css() -> Option<PathBuf> {
     [
         PathBuf::from("/usr/share/mde/css/tokens.css"),
-        PathBuf::from("/usr/share/mackes-shell/data/css/tokens.css"),
+        PathBuf::from("/usr/share/mde/data/css/tokens.css"),
         PathBuf::from("data/css/tokens.css"),
         PathBuf::from("../../data/css/tokens.css"),
     ]

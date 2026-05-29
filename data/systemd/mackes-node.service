@@ -1,6 +1,6 @@
 [Unit]
 Description=Mackes Shell — mesh node services
-Documentation=file:///usr/share/mackes-shell/help/headless.md
+Documentation=file:///usr/share/mde/help/headless.md
 After=network-online.target headscale.service
 Wants=network-online.target
 PartOf=multi-user.target

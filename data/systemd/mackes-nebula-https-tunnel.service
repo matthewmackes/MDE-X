@@ -13,7 +13,7 @@
 # (Restart=on-failure covers the brief gap during the
 # cert swap).
 Description=Mackes Nebula HTTPS-tunnel (covert TCP/443) (NF-3.3)
-Documentation=file:///usr/share/mackes-shell/help/nebula.md
+Documentation=file:///usr/share/mde/help/nebula.md
 After=nebula.service network-online.target
 Wants=network-online.target
 BindsTo=nebula.service

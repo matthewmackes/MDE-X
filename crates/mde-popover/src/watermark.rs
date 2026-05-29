@@ -116,7 +116,7 @@ fn read_pending_update_count() -> u32 {
 fn read_build_file_for_hash() -> Option<String> {
     read_build_meta(&[
         "/usr/share/mde/build-hash",
-        "/usr/share/mackes-shell/build-hash",
+        "/usr/share/mde/build-hash",
         "build-hash",
     ])
 }
@@ -124,7 +124,7 @@ fn read_build_file_for_hash() -> Option<String> {
 fn read_build_file_for_date() -> Option<String> {
     read_build_meta(&[
         "/usr/share/mde/build-date",
-        "/usr/share/mackes-shell/build-date",
+        "/usr/share/mde/build-date",
         "build-date",
     ])
 }

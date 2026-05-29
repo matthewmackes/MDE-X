@@ -18,7 +18,7 @@ from mackes.gtk_common import title_label
 
 
 _WALL_CANDIDATES = (
-    Path("/usr/share/mackes-shell/data/wallpapers"),
+    Path("/usr/share/mde/data/wallpapers"),
     Path(__file__).resolve().parents[3] / "data" / "wallpapers",
 )
 

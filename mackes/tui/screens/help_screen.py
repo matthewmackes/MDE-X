@@ -9,7 +9,7 @@ def build() -> Container:
     body = Container()
     body.compose_add_child(Static(
         "[b]Help[/b]\n"
-        "[#c6c6c6]Quick reference. Full docs at /usr/share/mackes-shell/help/ "
+        "[#c6c6c6]Quick reference. Full docs at /usr/share/mde/help/ "
         "or via `mackes help <topic>`.[/]\n"
     ))
     try:

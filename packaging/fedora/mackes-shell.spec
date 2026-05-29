@@ -136,7 +136,7 @@ Recommends:     flatpak
 
 # Fleet management birthright (v1.3.0) — ansible-pull on every node,
 # playbook tree replicated through QNM-Shared. The 7 curated roles ship
-# under /usr/share/mackes-shell/data/ansible/playbooks/.
+# under /usr/share/mde/data/ansible/playbooks/.
 Requires:       ansible-core
 Requires:       python3-ansible-runner
 Requires:       podman
@@ -554,19 +554,9 @@ if [ -d data/xfce-baseline ]; then
     cp -r data/xfce-baseline %{buildroot}%{_datadir}/%{appname}/data/
 fi
 
-# A1 fix (2026-05-29) — back-compat path symlink. The package
-# renamed mackes-shell -> mde at v2.0, and all shipped data moved to
-# %{_datadir}/%{appname}/ == /usr/share/mde/. But the path migration
-# was only half-done: ~40 consumers (Python in mackes/, several Rust
-# crates, install-helpers/*.sh, systemd unit Documentation= lines,
-# packaging/iso/mde.ks) still read /usr/share/mackes-shell/. On an
-# installed system those paths did not exist, so e.g. birthright
-# could not find its shipped data/branding (it silently fell back to
-# its source-tree path, masking the bug in dev). This relative
-# symlink makes every legacy /usr/share/mackes-shell/ reference
-# resolve to the real /usr/share/mde/ tree. Tracked for full consumer
-# migration (then drop this) under INST-DATADIR-SWEEP.
-ln -sfn %{appname} %{buildroot}%{_datadir}/mackes-shell
+# INST-DATADIR-SWEEP complete (2026-05-29): all ~40 legacy
+# /usr/share/mackes-shell/ consumers migrated to /usr/share/mde/.
+# The compat symlink (ln -sfn mde mackes-shell) is removed here.
 
 # 3a. Mackes Shell branding — hero logo (About / Wizard / Dashboard) +
 #     standard wallpaper (desktop + LightDM greeter)
@@ -578,7 +568,7 @@ install -d %{buildroot}%{_datadir}/%{appname}/help
 cp docs/help/*.md %{buildroot}%{_datadir}/%{appname}/help/
 
 # 3c. Apple-menu "About Mackes" credits + license file (1.0.7+).
-#     Consumed by mackes/about.py via /usr/share/mackes-shell/ABOUT.txt.
+#     Consumed by mackes/about.py via /usr/share/mde/ABOUT.txt.
 install -D -m 0644 data/ABOUT.txt %{buildroot}%{_datadir}/%{appname}/ABOUT.txt
 
 # 3d. Build-identity files (v2.0.3) — written here so both panel
@@ -685,7 +675,7 @@ done
 install -D -m 0440 data/sudoers.d/mackes-shell               %{buildroot}/etc/sudoers.d/mackes-shell
 install -D -m 0755 bin/mackes-wm                              %{buildroot}%{_bindir}/mackes-wm
 
-# 1.0.7 — default i3 config shipped to /usr/share/mackes-shell/i3/.
+# 1.0.7 — default i3 config shipped to /usr/share/mde/i3/.
 # mackes-wm seeds ~/.config/i3/config from this file on first switch.
 install -D -m 0644 data/i3/config %{buildroot}%{_datadir}/%{appname}/i3/config
 # 1.1.x — Phase 6.4 hotkeys + Phase 3.6 apple-menu shortcut land as a
@@ -1314,9 +1304,6 @@ echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to fini
 %{py3_sitelib}/mackes/
 %{py3_sitelib}/mackes_shell-%{version}.dist-info/
 %{_datadir}/%{appname}/
-# A1 fix — back-compat symlink: /usr/share/mackes-shell -> mde, so the
-# ~40 legacy consumers still reading /usr/share/mackes-shell/ resolve.
-%{_datadir}/mackes-shell
 # Metainfo for the dev.mackes.MDE upstream identity. Stays in
 # base so `appstream-cli` / dnf metadata clients can list MDE
 # even on lighthouse installs.

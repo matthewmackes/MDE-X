@@ -21,11 +21,11 @@ from mackes import __version__
 # Where the credits file lives once the RPM is installed. We also fall
 # back to the source-tree copy so `python -m mackes --about` works in a
 # checked-out repo without installing. Phase 0.8 will swap the
-# `/usr/share/mackes-shell/` prefix to `/usr/share/mde/`; we probe
+# `/usr/share/mde/` prefix to `/usr/share/mde/`; we probe
 # both so the About window works during the transition.
 _INSTALLED_PATHS = [
     Path("/usr/share/mde/ABOUT.txt"),
-    Path("/usr/share/mackes-shell/ABOUT.txt"),
+    Path("/usr/share/mde/ABOUT.txt"),
 ]
 _REPO_PATH = Path(__file__).resolve().parents[1] / "data" / "ABOUT.txt"
 
@@ -41,7 +41,7 @@ def _resolve_about_text() -> str:
         "=================================\n\n"
         "ABOUT.txt could not be located. The RPM ships it at\n"
         "/usr/share/mde/ABOUT.txt (or, for v1.x boxes,\n"
-        "/usr/share/mackes-shell/ABOUT.txt) — if you see this\n"
+        "/usr/share/mde/ABOUT.txt) — if you see this\n"
         "message, the package install is incomplete.\n"
     )
 

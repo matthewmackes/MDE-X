@@ -192,7 +192,7 @@ pub fn locate_accent_css(preset: &str) -> Option<PathBuf> {
     let filename = format!("{preset}.css");
     [
         PathBuf::from("/usr/share/mde/css/accents").join(&filename),
-        PathBuf::from("/usr/share/mackes-shell/data/css/accents").join(&filename),
+        PathBuf::from("/usr/share/mde/data/css/accents").join(&filename),
         PathBuf::from("data/css/accents").join(&filename),
         PathBuf::from("../../data/css/accents").join(&filename),
     ]

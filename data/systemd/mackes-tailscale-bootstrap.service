@@ -1,6 +1,6 @@
 [Unit]
 Description=Mackes Mesh — Tailscale-bootstrap presence (seed peer only)
-Documentation=file:///usr/share/mackes-shell/help/mesh-vpn.md
+Documentation=file:///usr/share/mde/help/mesh-vpn.md
 After=network-online.target
 ConditionPathExists=/var/lib/mackes/mesh-vpn/seed.json
 Wants=network-online.target

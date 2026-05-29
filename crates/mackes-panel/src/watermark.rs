@@ -291,7 +291,7 @@ fn mackes_version() -> String {
 /// the RPM `%install` step from the source tarball's `.git_short`
 /// file). On dev checkouts that file is missing; fall back to "dev".
 ///
-/// The `/usr/share/mackes-shell/` path is retained as a fallback for
+/// The `/usr/share/mde/` path is retained as a fallback for
 /// the one-release v1.x → v2.0 compatibility window — operators who
 /// upgraded in place may still have files at the legacy path until
 /// `mde-migrate-from-1x` lands a `/usr/share/` reshuffle (a separate
@@ -300,7 +300,7 @@ fn mackes_version() -> String {
 pub fn build_hash() -> String {
     read_build_file(&[
         "/usr/share/mde/build-hash",
-        "/usr/share/mackes-shell/build-hash",
+        "/usr/share/mde/build-hash",
         "build-hash",
     ])
     .unwrap_or_else(|| "dev".to_owned())
@@ -319,7 +319,7 @@ pub fn build_hash() -> String {
 pub fn build_date() -> String {
     read_build_file(&[
         "/usr/share/mde/build-date",
-        "/usr/share/mackes-shell/build-date",
+        "/usr/share/mde/build-date",
         "build-date",
     ])
     .unwrap_or_default()

@@ -53,7 +53,7 @@ MESH_PUB_PATH       = SSH_DIR / "mackes_mesh_ed25519.pub"
 AUTHORIZED_KEYS     = SSH_DIR / "authorized_keys"
 MESH_KEYS_DIR       = CONFIG_DIR / "mesh-ssh-keys"   # local cache of all peer pubkeys
 MESH_POLICY_PATH    = CONFIG_DIR / "mesh-ssh-policy.yaml"
-MESH_POLICY_EXAMPLE = Path("/usr/share/mackes-shell/data/mesh-ssh-policy.example.yaml")
+MESH_POLICY_EXAMPLE = Path("/usr/share/mde/data/mesh-ssh-policy.example.yaml")
 MESH_AUDIT_LOG      = DATA_DIR / "logs" / "mesh-ssh-audit.jsonl"
 
 # Surgical authorized_keys markers — Mackes only touches lines between

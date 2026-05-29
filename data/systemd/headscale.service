@@ -1,6 +1,6 @@
 [Unit]
 Description=Headscale — Mackes self-hosted Tailscale control plane
-Documentation=file:///usr/share/mackes-shell/help/mesh-vpn.md
+Documentation=file:///usr/share/mde/help/mesh-vpn.md
 After=network-online.target
 ConditionPathExists=/etc/headscale/config.yaml
 Wants=network-online.target

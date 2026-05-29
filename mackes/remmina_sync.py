@@ -370,7 +370,7 @@ def uninstall_units() -> bool:
 
 def _data_systemd_dir() -> Optional[Path]:
     for cand in (
-        Path("/usr/share/mackes-shell/data/systemd"),
+        Path("/usr/share/mde/data/systemd"),
         Path(__file__).resolve().parent.parent / "data" / "systemd",
     ):
         if cand.is_dir():

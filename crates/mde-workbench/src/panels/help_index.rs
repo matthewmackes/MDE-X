@@ -136,7 +136,7 @@ fn discover_topics() -> Vec<HelpTopic> {
     let mut out = Vec::new();
     for dir in [
         Path::new("/usr/share/mde/help"),
-        Path::new("/usr/share/mackes-shell/help"),
+        Path::new("/usr/share/mde/help"),
         Path::new("docs/help"),
     ] {
         let Ok(rd) = std::fs::read_dir(dir) else {

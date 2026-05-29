@@ -35,7 +35,7 @@ _STATUS_SLUG_TO_PANEL = {
 }
 
 _CSS_ROOTS = (
-    Path("/usr/share/mackes-shell/data/css"),
+    Path("/usr/share/mde/data/css"),
     Path(__file__).resolve().parent.parent / "data" / "css",
 )
 

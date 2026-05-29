@@ -7,7 +7,7 @@
 # Idempotent. Re-running updates the files in place.
 set -euo pipefail
 
-SHIP_DIR="${MACKES_SHELL_SHARE:-/usr/share/mackes-shell}"
+SHIP_DIR="${MACKES_SHELL_SHARE:-/usr/share/mde}"
 
 if [[ $EUID -ne 0 ]]; then
     echo "install-recovery: must run as root (sudo $0)" >&2

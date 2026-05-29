@@ -33,7 +33,7 @@ ExecStartPost=-/usr/bin/sh -c '/usr/bin/xdg-mime default mde-files.desktop inode
 # created at v1.x and never refreshed. Idempotent: appends only if
 # absent. Runs `swaymsg reload` so the new exec line takes effect
 # this session without a re-login.
-ExecStartPost=-/usr/share/mackes-shell/install-helpers/sync-user-sway-exec-lines.sh
+ExecStartPost=-/usr/share/mde/install-helpers/sync-user-sway-exec-lines.sh
 Restart=on-failure
 RestartSec=5
 # Hardening (lighter than mded.service since this owns the user

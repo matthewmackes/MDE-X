@@ -2,7 +2,7 @@
 
 Mackes installs its actual data (presets, wallpapers, desktop entry, icon)
 via the .spec file's %install section, not via package_data, because the
-canonical install path is /usr/share/mackes-shell/, not inside the Python
+canonical install path is /usr/share/mde/, not inside the Python
 sitelib.
 """
 from __future__ import annotations

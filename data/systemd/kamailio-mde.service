@@ -20,7 +20,7 @@
 # + voice_public). VV-1 ships the minimal default; VV-2 makes the
 # generator policy-aware.
 Description=MDE per-host Kamailio daemon (VV-1)
-Documentation=file:///usr/share/mackes-shell/docs/design/v4.1-voice-video.md
+Documentation=file:///usr/share/mde/docs/design/v4.1-voice-video.md
 After=network-online.target nebula.service mackesd.service rtpengine-mde.service
 Wants=network-online.target rtpengine-mde.service
 # RTPengine must be up before Kamailio so the rtpengine module's

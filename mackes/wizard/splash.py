@@ -41,7 +41,7 @@ _DEFAULT_H = 720
 def video_path() -> Optional[Path]:
     """Resolve the bundled MP4 — installed path first, source-tree fallback."""
     for p in (
-        Path("/usr/share/mackes-shell/branding/MACKES-XFCE-LOGO.mp4"),
+        Path("/usr/share/mde/branding/MACKES-XFCE-LOGO.mp4"),
         Path(__file__).resolve().parent.parent.parent / "branding"
             / "MACKES-XFCE-LOGO.mp4",
     ):

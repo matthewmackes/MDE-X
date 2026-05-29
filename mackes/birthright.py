@@ -76,14 +76,14 @@ def _data_roots() -> List[Path]:
     """Return ordered list of candidate data roots (installed > source-tree).
 
     The RPM ships data to ``/usr/share/mde/`` (the package renamed
-    mackes-shell -> mde at v2.0); ``/usr/share/mackes-shell`` is a
+    mackes-shell -> mde at v2.0); ``/usr/share/mde`` is a
     back-compat symlink to it. We probe the canonical ``mde`` path
     first so this works even if the compat symlink is ever dropped,
     then the legacy path, then the source tree (dev checkout).
     """
     return [
         Path("/usr/share/mde/data"),
-        Path("/usr/share/mackes-shell/data"),
+        Path("/usr/share/mde/data"),
         Path(__file__).resolve().parent.parent / "data",
     ]
 
@@ -97,10 +97,10 @@ def _find_data(*rel: str) -> Path | None:
 
 
 def _branding(*rel: str) -> Path | None:
-    """Branding lives at /usr/share/mde/branding/ (RPM; /usr/share/mackes-shell is a compat symlink) or repo branding/."""
+    """Branding lives at /usr/share/mde/branding/ (RPM; /usr/share/mde is a compat symlink) or repo branding/."""
     for root in (
         Path("/usr/share/mde/branding"),
-        Path("/usr/share/mackes-shell/branding"),
+        Path("/usr/share/mde/branding"),
         Path(__file__).resolve().parent.parent / "branding",
     ):
         p = root.joinpath(*rel)
@@ -2083,7 +2083,7 @@ def apply_enforce_i3(_preset: Preset) -> List[str]:
     4. Hide any user-installed mackes-maximizer.desktop autostart
        entry by writing a `Hidden=true` override.
     5. Make sure `~/.config/i3/config` exists; if not, seed it from
-       the shipped /usr/share/mackes-shell/i3/config (matches what
+       the shipped /usr/share/mde/i3/config (matches what
        the legacy mackes-wm switch flow did).
     """
     actions: List[str] = []
@@ -2152,7 +2152,7 @@ def apply_enforce_i3(_preset: Preset) -> List[str]:
 
     # ---- 5. seed ~/.config/i3/config if missing ----
     user_i3_config = home / ".config" / "i3" / "config"
-    default_i3_config = Path("/usr/share/mackes-shell/i3/config")
+    default_i3_config = Path("/usr/share/mde/i3/config")
     if not user_i3_config.exists():
         if default_i3_config.is_file():
             try:

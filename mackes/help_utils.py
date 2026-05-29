@@ -28,11 +28,11 @@ from typing import Optional
 # Topic discovery + ordering
 # ---------------------------------------------------------------------------
 
-# Help docs ship under /usr/share/mackes-shell/help in the RPM; in
+# Help docs ship under /usr/share/mde/help in the RPM; in
 # a dev tree they live at <repo>/docs/help. Try both, first one
 # wins.
 _HELP_ROOTS = (
-    Path("/usr/share/mackes-shell/help"),
+    Path("/usr/share/mde/help"),
     Path(__file__).resolve().parent.parent / "docs" / "help",
 )
 

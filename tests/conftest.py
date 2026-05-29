@@ -62,7 +62,7 @@ def isolated_xdg(tmp_path, monkeypatch):
     mackes.state.ensure_dirs()
 
     # Keep the runtime preset lookups inside the dev tree so an
-    # already-installed `/usr/share/mackes-shell/` from a previous RPM build
+    # already-installed `/usr/share/mde/` from a previous RPM build
     # doesn't shadow the local repo's data dirs during tests.
     import mackes.presets as _presets
     monkeypatch.setattr(_presets, "SHIPPED_PRESET_DIRS",

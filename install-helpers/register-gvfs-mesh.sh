@@ -18,7 +18,7 @@ fi
 # 3. Install the user systemd unit (system unit already in /usr/lib/...)
 USER_UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$USER_UNIT_DIR"
-SRC="/usr/share/mackes-shell/data/systemd/mackes-gvfsd-mesh.service"
+SRC="/usr/share/mde/data/systemd/mackes-gvfsd-mesh.service"
 [[ -f "$SRC" ]] || SRC="$(dirname "$0")/../data/systemd/mackes-gvfsd-mesh.service"
 
 if [[ -f "$SRC" ]]; then
