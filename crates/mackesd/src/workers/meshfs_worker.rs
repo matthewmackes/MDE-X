@@ -100,6 +100,12 @@ pub const EXPORT_NAME: &str = "mesh-storage";
 /// Mount path for the LizardFS client.
 pub const DEFAULT_MOUNT_PATH: &str = "/mnt/mesh-storage";
 
+/// MESHFS-6.1 — offline write staging directory. Writes that fail when the
+/// master is unreachable land here; `meshfs_worker` replays them on reconnect.
+/// Directory structure mirrors the mesh mount: `stage/<rel>` maps to
+/// `<mesh_mount>/<rel>`.
+pub const STAGE_DIR: &str = "/var/lib/mde/meshfs/stage";
+
 /// Marker file written by the wizard on lighthouse peers — same path as
 /// `nebula_supervisor::DEFAULT_ROLE_HOST_MARKER`. Presence → VIP-eligible.
 pub const DEFAULT_ROLE_MARKER_PATH: &str = "/var/lib/mackesd/nebula/role.host";
@@ -371,6 +377,17 @@ impl MeshFsWorker {
 
         // 8. Quota: hourly setquota call (MESHFS-9.1).
         self.tick_once_quota();
+
+        // 9. MESHFS-6.1 — Replay staged offline writes now that master is up.
+        //    Skipped when master is unreachable (don't replay into a down master;
+        //    wait for the next tick when it recovers).
+        if master_up {
+            let stage = Path::new(STAGE_DIR);
+            let mount = Path::new(DEFAULT_MOUNT_PATH);
+            for line in replay_all_staged(stage, mount, &overlay_ip) {
+                tracing::info!(target: "mackesd::meshfs_worker", "{line}");
+            }
+        }
     }
 
     /// MESHFS-3.1 — HA tick: claim or relinquish the floating overlay
@@ -1014,6 +1031,144 @@ fn dispatch_undelete(admin_binary: &str, vip: &str, body: &str) -> String {
     format!(r#"{{"ok":{ok}}}"#)
 }
 
+// ── MESHFS-6.1: offline staging + LWW replay ────────────────────────────────
+
+/// Outcome of replaying one staged file.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReplayOutcome {
+    /// Staged file applied to the mesh mount (no conflict or staged won).
+    Applied { mesh_path: PathBuf },
+    /// Staged file won the LWW race; old mesh file renamed to the conflict path.
+    ConflictStagedWins { mesh_path: PathBuf, conflict_path: PathBuf },
+    /// Mesh file won the LWW race; staged file renamed to the conflict path.
+    ConflictMeshWins { conflict_path: PathBuf },
+    /// Replay skipped (IO error or could not determine relative path).
+    Skipped { reason: String },
+}
+
+/// Recursively collect regular files under `dir` into `out`.
+fn collect_staged_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_staged_files(&path, out);
+        } else if path.is_file() {
+            out.push(path);
+        }
+    }
+}
+
+/// Walk `stage_dir` and return the paths of all staged files. Returns an
+/// empty Vec when the stage dir doesn't exist (clean peer — nothing to replay).
+#[must_use]
+pub fn staged_files(stage_dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if stage_dir.is_dir() {
+        collect_staged_files(stage_dir, &mut out);
+    }
+    out
+}
+
+/// Replay one staged file to the mesh mount using last-write-wins mtime.
+///
+/// - If the mesh path doesn't exist: copy staged → mesh, delete staged.
+/// - If mesh path exists and staged mtime > mesh mtime: staged wins →
+///   rename mesh to `<mesh>.conflict-<host>-<ts>`, copy staged → mesh,
+///   delete staged.
+/// - If mesh path exists and staged mtime <= mesh mtime: mesh wins →
+///   rename staged to `<staged>.conflict-<host>-<ts>` (no overwrite).
+#[must_use]
+pub fn replay_file_lww(staged: &Path, mesh_path: &Path, host: &str) -> ReplayOutcome {
+    // Staged mtime — required for any comparison.
+    let staged_mtime = match std::fs::metadata(staged).and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(e) => return ReplayOutcome::Skipped { reason: format!("staged stat: {e}") },
+    };
+
+    if !mesh_path.exists() {
+        // No conflict — just copy staged to mesh.
+        if let Some(parent) = mesh_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::copy(staged, mesh_path) {
+            return ReplayOutcome::Skipped { reason: format!("copy to mesh: {e}") };
+        }
+        let _ = std::fs::remove_file(staged);
+        return ReplayOutcome::Applied { mesh_path: mesh_path.to_path_buf() };
+    }
+
+    let mesh_mtime = match std::fs::metadata(mesh_path).and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(e) => return ReplayOutcome::Skipped { reason: format!("mesh stat: {e}") },
+    };
+
+    let ts = staged_mtime
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    if staged_mtime > mesh_mtime {
+        // Staged wins: rename old mesh file to conflict path, copy staged → mesh.
+        let conflict_name = format!(
+            "{}.conflict-{host}-{ts}",
+            mesh_path.file_name().unwrap_or_default().to_string_lossy()
+        );
+        let conflict_path = mesh_path.with_file_name(conflict_name);
+        if let Err(e) = std::fs::rename(mesh_path, &conflict_path) {
+            return ReplayOutcome::Skipped { reason: format!("rename mesh to conflict: {e}") };
+        }
+        if let Err(e) = std::fs::copy(staged, mesh_path) {
+            // Rollback the rename so the mesh file isn't lost.
+            let _ = std::fs::rename(&conflict_path, mesh_path);
+            return ReplayOutcome::Skipped { reason: format!("copy to mesh (after rename): {e}") };
+        }
+        let _ = std::fs::remove_file(staged);
+        ReplayOutcome::ConflictStagedWins { mesh_path: mesh_path.to_path_buf(), conflict_path }
+    } else {
+        // Mesh wins: staged file is the loser — rename it to conflict path.
+        let conflict_name = format!(
+            "{}.conflict-{host}-{ts}",
+            staged.file_name().unwrap_or_default().to_string_lossy()
+        );
+        let conflict_path = staged.with_file_name(conflict_name);
+        if let Err(e) = std::fs::rename(staged, &conflict_path) {
+            return ReplayOutcome::Skipped { reason: format!("rename staged to conflict: {e}") };
+        }
+        ReplayOutcome::ConflictMeshWins { conflict_path }
+    }
+}
+
+/// Walk the stage dir, compute each file's mesh path (via the relative
+/// path under `stage_dir`), and replay it via LWW. Returns log lines.
+#[must_use]
+pub fn replay_all_staged(stage_dir: &Path, mesh_mount: &Path, host: &str) -> Vec<String> {
+    let mut log = Vec::new();
+    for staged in staged_files(stage_dir) {
+        let rel = match staged.strip_prefix(stage_dir) {
+            Ok(r) => r,
+            Err(_) => {
+                log.push(format!("meshfs replay: skip {} (not under stage dir)", staged.display()));
+                continue;
+            }
+        };
+        let mesh_path = mesh_mount.join(rel);
+        let outcome = replay_file_lww(&staged, &mesh_path, host);
+        let msg = match &outcome {
+            ReplayOutcome::Applied { mesh_path: mp } =>
+                format!("meshfs replay: applied staged {} → {}", staged.display(), mp.display()),
+            ReplayOutcome::ConflictStagedWins { mesh_path: mp, conflict_path: cp } =>
+                format!("meshfs replay: staged wins (LWW) {} → {}; mesh loser → {}", staged.display(), mp.display(), cp.display()),
+            ReplayOutcome::ConflictMeshWins { conflict_path: cp } =>
+                format!("meshfs replay: mesh wins (LWW) {}; staged loser → {}", staged.display(), cp.display()),
+            ReplayOutcome::Skipped { reason } =>
+                format!("meshfs replay: skip {} ({reason})", staged.display()),
+        };
+        log.push(msg);
+    }
+    log
+}
+
 /// Run a command given as an argv slice. Returns the `Output` or an
 /// error. Logs a `warn!` on non-zero exit so every command failure
 /// is traceable without panicking.
@@ -1269,5 +1424,94 @@ ip              port  used       avail\n\
         let v: serde_json::Value = serde_json::from_str(&reply).unwrap();
         assert_eq!(v["ok"], false);
         assert!(v["error"].as_str().unwrap_or("").contains("path"));
+    }
+
+    // MESHFS-6.1 — offline staging + LWW replay tests.
+
+    #[test]
+    fn staged_files_empty_when_dir_absent() {
+        let files = staged_files(Path::new("/nonexistent/stage-xyzzy-123"));
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn staged_files_walks_recursively() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("docs");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"a").unwrap();
+        std::fs::write(sub.join("b.txt"), b"b").unwrap();
+        let mut files = staged_files(dir.path());
+        files.sort();
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().any(|f| f.file_name().unwrap() == "a.txt"));
+        assert!(files.iter().any(|f| f.file_name().unwrap() == "b.txt"));
+    }
+
+    #[test]
+    fn replay_file_lww_applies_when_mesh_absent() {
+        let stage_dir = tempfile::tempdir().unwrap();
+        let mesh_dir = tempfile::tempdir().unwrap();
+        let staged = stage_dir.path().join("doc.txt");
+        std::fs::write(&staged, b"offline content").unwrap();
+        let mesh_path = mesh_dir.path().join("doc.txt");
+        let outcome = replay_file_lww(&staged, &mesh_path, "testpeer");
+        assert!(matches!(outcome, ReplayOutcome::Applied { .. }));
+        assert_eq!(std::fs::read_to_string(&mesh_path).unwrap(), "offline content");
+        assert!(!staged.exists(), "staged file should be removed after replay");
+    }
+
+    #[test]
+    fn replay_file_lww_staged_wins_when_newer() {
+        let stage_dir = tempfile::tempdir().unwrap();
+        let mesh_dir = tempfile::tempdir().unwrap();
+        // Write mesh file first, then staged file (so staged is newer by mtime).
+        let mesh_path = mesh_dir.path().join("data.bin");
+        std::fs::write(&mesh_path, b"mesh version").unwrap();
+        // Sleep briefly to ensure a mtime difference.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let staged = stage_dir.path().join("data.bin");
+        std::fs::write(&staged, b"staged version").unwrap();
+        let outcome = replay_file_lww(&staged, &mesh_path, "testpeer");
+        assert!(matches!(outcome, ReplayOutcome::ConflictStagedWins { .. }));
+        assert_eq!(std::fs::read_to_string(&mesh_path).unwrap(), "staged version");
+        // Conflict file should exist with the old mesh content.
+        if let ReplayOutcome::ConflictStagedWins { conflict_path, .. } = outcome {
+            assert!(conflict_path.exists());
+            let name = conflict_path.file_name().unwrap().to_string_lossy();
+            assert!(name.contains("conflict-testpeer"), "name: {name}");
+        }
+    }
+
+    #[test]
+    fn replay_file_lww_mesh_wins_when_newer() {
+        let stage_dir = tempfile::tempdir().unwrap();
+        let mesh_dir = tempfile::tempdir().unwrap();
+        let staged = stage_dir.path().join("note.txt");
+        std::fs::write(&staged, b"old staged").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let mesh_path = mesh_dir.path().join("note.txt");
+        std::fs::write(&mesh_path, b"newer mesh").unwrap();
+        let outcome = replay_file_lww(&staged, &mesh_path, "testpeer");
+        assert!(matches!(outcome, ReplayOutcome::ConflictMeshWins { .. }));
+        // Mesh file unchanged.
+        assert_eq!(std::fs::read_to_string(&mesh_path).unwrap(), "newer mesh");
+        // Staged renamed to conflict.
+        assert!(!staged.exists());
+        if let ReplayOutcome::ConflictMeshWins { conflict_path } = outcome {
+            let name = conflict_path.file_name().unwrap().to_string_lossy();
+            assert!(name.contains("conflict-testpeer"), "name: {name}");
+        }
+    }
+
+    #[test]
+    fn replay_all_staged_returns_log_lines() {
+        let stage_dir = tempfile::tempdir().unwrap();
+        let mesh_dir = tempfile::tempdir().unwrap();
+        std::fs::write(stage_dir.path().join("file1.txt"), b"data1").unwrap();
+        std::fs::write(stage_dir.path().join("file2.txt"), b"data2").unwrap();
+        let log = replay_all_staged(stage_dir.path(), mesh_dir.path(), "testpeer");
+        assert_eq!(log.len(), 2, "expected 2 log lines, got: {log:?}");
+        assert!(log.iter().all(|l| l.contains("meshfs replay")));
     }
 }

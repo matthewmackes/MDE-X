@@ -1853,13 +1853,14 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Offline + conflicts
 
-- [ ] **MESHFS-6.1: v5.0.0 — Offline write staging + reconnect replay with LWW conflict resolution**
+- [✓] **MESHFS-6.1: v5.0.0 — Offline write staging + reconnect replay with LWW conflict resolution**
   **As** a disconnected peer, **I want** to read + write my files offline, **so that** a parked laptop still works.
   **Acceptance:**
-    - [ ] offline reads served by the local shadow + local chunkserver
-    - [ ] offline writes land in `/var/lib/mde/meshfs/stage/`; `meshfs_worker` replays to the master on reconnect
-    - [ ] replay collision → higher mtime wins, loser renamed `<file>.conflict-<host>-<ts>` in place
-    - [ ] a peer never self-promotes its shadow to active while merely isolated (no split-brain)
+    - [✓] offline reads served by the local shadow + local chunkserver
+    - [✓] offline writes land in `/var/lib/mde/meshfs/stage/`; `meshfs_worker` replays to the master on reconnect
+    - [✓] replay collision → higher mtime wins, loser renamed `<file>.conflict-<host>-<ts>` in place
+    - [✓] a peer never self-promotes its shadow to active while merely isolated (no split-brain)
+  **Shipped:** `STAGE_DIR` constant + `ReplayOutcome` enum + `staged_files`/`replay_file_lww`/`replay_all_staged` in `meshfs_worker.rs`; step 9 wired into `tick_once()` — replays when `master_up`; conflict loser renamed `<name>.conflict-<host>-<ts>`; 35 tests green (6 new replay tests).
 
 #### Trash + quota
 
