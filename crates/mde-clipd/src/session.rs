@@ -1,8 +1,12 @@
-//! Clipboard session — Wayland dispatch state and event loop (BUS-5.1).
+//! Clipboard session — Wayland dispatch state and event loop (BUS-5.1/5.2).
 //!
 //! Connects to the compositor's wlr-data-control interface, watches for
-//! clipboard changes, and logs every selection event. Future sub-tasks
-//! (BUS-5.2 publisher, BUS-5.4 subscriber) extend this module.
+//! clipboard changes, reads the clipboard content via a pipe, and publishes
+//! it to the `clipboard/sync` Bus topic (BUS-5.2).
+
+use std::io::Read as _;
+use std::os::unix::io::{AsFd as _, OwnedFd};
+use std::path::PathBuf;
 
 use anyhow::Context as _;
 use tracing::{debug, info, warn};
@@ -16,6 +20,25 @@ use crate::proto::{
     self, WlSeat, ZwlrDataControlDeviceV1, ZwlrDataControlManagerV1, ZwlrDataControlOfferV1,
 };
 
+/// Configuration passed from `main` to [`run`].
+pub struct Config {
+    /// Root of the bus file tree (`~/.local/share/mde/bus/`).
+    pub bus_root: PathBuf,
+    /// XDG data home (`~/.local/share/`). Used to derive the blob directory.
+    pub data_home: PathBuf,
+    /// Hostname of this peer, used as `publisher_peer` in bus messages.
+    pub peer_id: String,
+}
+
+/// Pending clipboard read: a pipe read-end + the MIME context for BUS-5.2
+/// publish. Set in the Selection handler; consumed by the main event loop
+/// after flushing the Wayland connection.
+struct PendingPub {
+    read_fd: OwnedFd,
+    mimes: Vec<String>,
+    selected_mime: String,
+}
+
 /// Full dispatch state for a single clipboard session.
 pub struct AppState {
     /// MIME types accumulating for the in-flight offer (reset at each DataOffer).
@@ -28,9 +51,12 @@ pub struct AppState {
     ///
     /// NOTE: if a compositor shares one offer between Selection + PrimarySelection (rare),
     /// `prev_selection` and `prev_primary` both hold a reference to the same server-side
-    /// object. The second `destroy()` call would be a protocol error. BUS-5.2 will add
-    /// per-offer ObjectId tracking to avoid this edge case.
+    /// object. The second `destroy()` call would be a protocol error; ObjectId tracking
+    /// to guard this edge case is a BUS-5.x follow-on.
     prev_primary: Option<ZwlrDataControlOfferV1>,
+    /// BUS-5.2: pipe read-end waiting to be read + published after the current
+    /// dispatch cycle flushes the `receive()` request to the compositor.
+    pending_pub: Option<PendingPub>,
     /// Total regular clipboard changes observed this session.
     pub selection_count: u64,
 }
@@ -43,6 +69,7 @@ impl AppState {
             pending_offer: None,
             prev_selection: None,
             prev_primary: None,
+            pending_pub: None,
             selection_count: 0,
         }
     }
@@ -52,6 +79,35 @@ impl Default for AppState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ── MIME selection ─────────────────────────────────────────────────────────
+
+/// Pick the best MIME type to read for clipboard publish.
+/// Prefers `text/plain` (smallest + most universally useful), then any
+/// `text/*`, then the first non-internal MIME in the list.
+fn pick_mime(mimes: &[String]) -> Option<String> {
+    mimes
+        .iter()
+        .find(|m| m.starts_with("text/plain"))
+        .or_else(|| mimes.iter().find(|m| m.starts_with("text/")))
+        .or_else(|| {
+            mimes
+                .iter()
+                .find(|m| !m.starts_with("x-kde-") && !m.starts_with('_'))
+        })
+        .cloned()
+}
+
+/// Create a pipe, send a `receive()` request to the compositor for the
+/// selected MIME type, and return the read end of the pipe.
+/// The write end is dropped after the request is enqueued — the compositor
+/// holds a server-side dup and closes it after writing the data.
+fn start_receive(offer: &ZwlrDataControlOfferV1, mime: &str) -> anyhow::Result<OwnedFd> {
+    let (read_fd, write_fd) = rustix::pipe::pipe().context("create clipboard pipe")?;
+    offer.receive(mime.to_string(), write_fd.as_fd());
+    drop(write_fd);
+    Ok(read_fd)
 }
 
 // ── Registry (dynamic global changes — observed but not acted upon) ────────────
@@ -126,6 +182,27 @@ impl Dispatch<ZwlrDataControlDeviceV1, ()> for AppState {
                             mime_types = ?state.pending_mimes,
                             "clipboard: selection changed"
                         );
+                        // BUS-5.2: request the clipboard content before the offer
+                        // moves to prev_selection. The compositor writes to the
+                        // pipe write end (now server-side) after we flush.
+                        if let Some(offer) = &state.pending_offer {
+                            if let Some(selected) = pick_mime(&state.pending_mimes) {
+                                match start_receive(offer, &selected) {
+                                    Ok(read_fd) => {
+                                        state.pending_pub = Some(PendingPub {
+                                            read_fd,
+                                            mimes: state.pending_mimes.clone(),
+                                            selected_mime: selected,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        warn!(error = %e, "clipboard: start_receive failed — skipping publish");
+                                    }
+                                }
+                            } else {
+                                debug!("clipboard: no usable MIME type — skipping publish");
+                            }
+                        }
                     }
                     None => {
                         info!("clipboard: selection cleared");
@@ -184,8 +261,10 @@ impl Dispatch<ZwlrDataControlOfferV1, ()> for AppState {
 
 /// Connect to the Wayland display, discover the data-control globals, and
 /// watch for clipboard events until the compositor disconnects or the daemon
-/// is killed. The mded `clipd_supervisor` worker restarts this process on exit.
-pub fn run(conn: &Connection) -> anyhow::Result<()> {
+/// is killed. Each selection change is read via a pipe and published to the
+/// `clipboard/sync` bus topic (BUS-5.2). The mded `clipd_supervisor` worker
+/// restarts this process on exit.
+pub fn run(conn: &Connection, config: &Config) -> anyhow::Result<()> {
     let (globals, mut queue) = registry_queue_init::<AppState>(conn)
         .context("failed to initialise Wayland registry")?;
     let qh = queue.handle();
@@ -209,13 +288,43 @@ pub fn run(conn: &Connection) -> anyhow::Result<()> {
 
     info!(
         initial_mimes = state.pending_mimes.len(),
-        "mde-clipd: watching clipboard"
+        "mde-clipd: watching clipboard (BUS-5.2 publish enabled)"
     );
 
     loop {
         queue
             .blocking_dispatch(&mut state)
             .context("Wayland dispatch error")?;
+
+        // BUS-5.2: if the Selection handler queued a pipe receive, flush the
+        // Wayland connection now so the compositor receives our receive() request,
+        // then read the data and publish it to the bus.
+        if let Some(pending) = state.pending_pub.take() {
+            // Flush: compositor receives receive() request and writes to pipe.
+            queue.flush().context("Wayland flush after receive()")?;
+
+            // Read all clipboard data (blocks until compositor closes write end).
+            let mut data = Vec::new();
+            std::fs::File::from(pending.read_fd)
+                .read_to_end(&mut data)
+                .context("read clipboard pipe")?;
+
+            if data.is_empty() {
+                debug!(
+                    mime = %pending.selected_mime,
+                    "clipboard: compositor wrote no data — skipping publish"
+                );
+            } else if let Err(e) = crate::publish::publish_clipboard(
+                &config.bus_root,
+                &config.data_home,
+                &config.peer_id,
+                &pending.mimes,
+                &pending.selected_mime,
+                &data,
+            ) {
+                warn!(error = %e, "clipboard: publish to bus failed");
+            }
+        }
     }
 }
 
@@ -233,6 +342,7 @@ mod tests {
         assert!(s.pending_offer.is_none());
         assert!(s.prev_selection.is_none());
         assert!(s.prev_primary.is_none());
+        assert!(s.pending_pub.is_none());
     }
 
     #[test]

@@ -3893,10 +3893,16 @@ name = "mde-clipd"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "base64",
+ "chrono",
  "clap",
+ "rustix 0.38.44",
+ "serde",
+ "serde_json",
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "ulid",
  "wayland-client",
  "wayland-protocols-wlr",
 ]

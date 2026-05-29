@@ -20,6 +20,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 wayland-client         = "0.31"
 wayland-protocols-wlr  = { version = "0.3", features = ["client"] }
 
+# BUS-5.2 — clipboard publish to bus topic tree
+rustix      = { version = "0.38", features = ["pipe"] }
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+base64      = "0.22"
+ulid        = "1"
+chrono      = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
 [dev-dependencies]
 tempfile = "3"
 
