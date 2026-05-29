@@ -68,10 +68,22 @@ fn run(args: &Args) -> Result<(), String> {
             println!("  {}", p.display());
         }
     }
-    println!(
-        "Peers affected: not shown — cross-peer impact needs mackesd peer-version \
-         tracking (INST-PEERVER, not yet shipped)."
-    );
+    // INST-5 peer-impact: who will see this node leave the mesh.
+    // Sourced from the converged GFS peer-files (PEERVER-3).
+    let local = mde_installer::peers::local_hostname();
+    let others: Vec<String> = mde_installer::peers::list_peers()
+        .into_iter()
+        .filter(|p| p.hostname != local)
+        .map(|p| p.hostname)
+        .collect();
+    if others.is_empty() {
+        println!("Peers affected: none (no other peers in the mesh peer registry).");
+    } else {
+        println!(
+            "Peers that will see this node leave the mesh: {}",
+            others.join(", ")
+        );
+    }
 
     if args.dry_run {
         if profile.needs_desktop_rpm() && !desktop_rpm_present() {

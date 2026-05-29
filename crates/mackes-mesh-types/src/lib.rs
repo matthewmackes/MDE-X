@@ -19,6 +19,10 @@ pub mod connect;
 // NF-11.1 (v2.5) — Nebula facts surface for the peer card.
 pub mod nebula;
 pub mod peer_probe;
+// PEERVER-1 (v2.7, 2026-05-29) — peer-data convergence records.
+// Shared home so mackesd (writer, heartbeat tick) + mde-installer
+// (reader) use one path; docs/design/v2.7-peer-data-convergence.md.
+pub mod peers;
 // Portal-18.a (v6.0 R12 lock 2026-05-26) — universal tag schema +
 // per-peer storage layer. Lands here (rather than in a fresh crate)
 // because every existing consumer of `mackes-mesh-types` is also a

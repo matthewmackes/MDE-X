@@ -4788,7 +4788,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 #### PEERVER-1..6: v2.7 — peer-data convergence substrate (locked 2026-05-29, `docs/design/v2.7-peer-data-convergence.md`)
 
-- [ ] **v2.7: PEERVER-1 — peer-file schema + shared reader in `mackes-mesh-types`**
+- [✓] **v2.7: PEERVER-1 — peer-file schema + shared reader in `mackes-mesh-types`** *(shipped 2026-05-29 — session=opus-48-2026-05-29-ship-PV. New `crates/mackes-mesh-types/src/peers.rs`: `PeerRecord {hostname, mde_version, last_seen_ms, health}` (serde) + `peers_dir` + `default_mesh_home` + `read_peers` (unions `*.json`, skips malformed/temp, sorted) + `write_peer_record` (atomic temp+rename) + `age_ms`/`is_stale`. 6 unit tests. Consumed externally by mde-installer (PEERVER-3) → reachability lint satisfied.)*
   **As** any tool that needs the fleet's per-peer state,
   **I want** a shared `PeerRecord {hostname, mde_version, last_seen_ms, health}` type + a `read_peers(dir) -> Vec<PeerRecord>` that unions `~/.mde-mesh/peers/*.json`,
   **so that** both `mackesd` and `mde-installer` read converged peer-data from one code path without linking the heavy `mackesd_core`.
@@ -4809,7 +4809,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - [ ] Write is skipped when content is unchanged AND last write was <1 tick ago (churn guard).
   **Blockers:** PEERVER-1.
 
-- [ ] **v2.7: PEERVER-3 — wire the readers (mde-update / mde-install preflight / INST-3b)**
+- [✓] **v2.7: PEERVER-3 — wire the readers (mde-update / mde-install preflight / INST-3b)** *(shipped 2026-05-29 — session=opus-48-2026-05-29-ship-PV. `mde-installer` deps `mackes-mesh-types`; new `crates/mde-installer/src/peers.rs` (the INST-3b peer_registry) re-exports `PeerRecord`/`read_peers` + adds `list_peers()` (unions the GFS peers dir; synthesizes a local row from `rpm -q` if absent) + `Skew {Match,Minor,Major,Unknown}` + `classify_skew` + `STALE_THRESHOLD_MS`. INST-9: `mde-update` now prints the real HOSTNAME/VERSION/LAST-SEEN table with `(!)`/`(!!)` skew markers + STALE flag + exit 0/1/2 + `--json`. INST-5: `mde-install` preflight peer-impact lists real peers. 6 skew tests; 23 mde-installer tests total green. Closes INST-3b.)*
   **As** `mde-update` and `mde-install`,
   **I want** to read the converged peer list from `~/.mde-mesh/peers/` directly,
   **so that** version-skew + peer-impact work with no broker/D-Bus/mackesd dependency.
@@ -4830,7 +4830,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - [ ] Unit test: after a mirror tick, `list_nodes` rows carry the peer-file versions.
   **Blockers:** PEERVER-1.
 
-- [ ] **v2.7: PEERVER-5 — stale-peer rendering + decommission file removal**
+- [ ] **v2.7: PEERVER-5 — stale-peer rendering + decommission file removal** *(PARTIAL 2026-05-29: stale rendering ✓ — `PeerRecord::is_stale` + `STALE_THRESHOLD_MS` (10 min) + `mde-update` marks stale rows. STILL OPEN: `mde-install`'s wipe sequence must remove this node's `peers/<hostname>.json` (own-row authority = file is presence) — lands with PEERVER-2's writer so write+remove are symmetric.)*
   **As** an operator reading the fleet view,
   **I want** peers whose file is older than a stale threshold marked stale, and a decommissioned peer's file removed,
   **so that** the list reflects reality.
@@ -4849,7 +4849,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - [ ] `mde-update` on A lists both peers with correct versions; bump B's RPM → A shows the skew marker.
   **Blockers:** PEERVER-1..4. Release-bench item per §0.15.
 
-- [>] **v2.7: INST-3 `crates/mde-installer/` crate ships with `mde-install` + `mde-update` binaries + shared lib (Tier 1)** — **INST-3a SHIPPED 2026-05-29** (session=opus-48-2026-05-29-ship-INST); **INST-3b BLOCKED** on INST-PEERVER.
+- [✓] **v2.7: INST-3 `crates/mde-installer/` crate ships with `mde-install` + `mde-update` binaries + shared lib (Tier 1)** — **INST-3a SHIPPED 2026-05-29** (session=opus-48-2026-05-29-ship-INST); **INST-3b CLOSED 2026-05-29** by PEERVER-3 (the `peers` module = the peer_registry, reading the GFS peer-files via `mackes-mesh-types` — no `mackesd_core` link, no D-Bus).
   *INST-3a (done):* new `crates/mde-installer/` workspace member with `lib.rs` exporting `profile` / `confirm` / `intent_file` / `wipe`, plus `[[bin]] mde-install` + `[[bin]] mde-update`. `cargo build -p mde-installer` clean; **17 unit tests green** (profile roundtrip/parse, confirm picker+typed-NUKE via injected readers, intent-file roundtrip/idempotent-ready, wipe path-planning). `mde-install --help` / `--profile=X --dry-run` / `mde-update --help` all produce real output (no `todo!()`). Spec installs both to `%{_bindir}` under base `mde-core`. Lib modules are real: `profile` (enum+FromStr+describe), `confirm` (TTY detect + typed-string + numeric picker, reader/writer-injected for tests), `intent_file` (serde_json upgrade-intent IO — INST-10), `wipe` (config-path wipe + systemctl stop/start + profile marker). `mde-install` flow: resolve profile (flag or picker or refuse-on-no-TTY) → preflight path list → typed-NUKE confirm (or `--yes` + audit log) → wipe local state → `python3 -m mackes.birthright --profile=X --noninteractive`.
   *INST-3b (blocked):* `peer_registry` mackesd-IPC client — needs **INST-PEERVER** (mackesd has no per-peer version query). Lib intentionally omits it per §0.12 rather than stub.
   *Also deliberately deferred (no stubs):* Nebula cert-revoke + GlusterFS brick-teardown (the re-install half of INST-7) — needs a mackesd `Ca.Revoke` method that doesn't exist. The clean-Fedora-Server build-up path (the canonical install) has no cert/brick, so INST-3a is complete for it.
@@ -4886,7 +4886,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Profile enum lives in `mde-installer::lib::profile::Profile` with `FromStr`.
     - Blockers: INST-3 (crate must exist).
 
-- [>] **v2.7: INST-5 Pre-flight summary + typed `NUKE` confirm + `--yes` audit log (Tier 1)** *(PARTIAL 2026-05-29 via INST-3a: typed-`NUKE` confirm ✓ (`confirm::require_typed`), `--yes` skip + audit log at `/var/log/mde/wipe-<ms>.log` ✓, preflight path list ✓. STILL OPEN: (a) `du -sh`-style size + file-count per path (only the path list prints now); (b) peer-impact section — needs INST-PEERVER (mackesd peer query); (c) audit-log filename uses epoch-ms not ULID. Sub-bullets (a)/(c) are buildable now as a follow-up; (b) is blocked.)*
+- [>] **v2.7: INST-5 Pre-flight summary + typed `NUKE` confirm + `--yes` audit log (Tier 1)** *(PARTIAL 2026-05-29 via INST-3a: typed-`NUKE` confirm ✓ (`confirm::require_typed`), `--yes` skip + audit log at `/var/log/mde/wipe-<ms>.log` ✓, preflight path list ✓. (b) peer-impact section ✓ 2026-05-29 via PEERVER-3 (lists real peers from the GFS registry). STILL OPEN: (a) `du -sh`-style size + file-count per wiped path (only the path list prints now); (c) audit-log filename uses epoch-ms not ULID. Both are small buildable follow-ups.)*
   **As** a mackes-shell operator about to wipe every shred of MDE state on this box,
   **I want** to see exactly what's about to be destroyed and which peers will be affected, then type the literal word `NUKE` to proceed,
   **so that** I never destroy data by reflexively pressing `y` and so that scripted unattended runs leave an audit trail I can recover after the fact.
@@ -4959,7 +4959,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 #### `mde-update` — peer version check + barrier coordination
 
-- [ ] **v2.7: INST-9 `mde-update` report-only peer-version listing via mackesd IPC (Tier 1)**
+- [✓] **v2.7: INST-9 `mde-update` report-only peer-version listing (Tier 1)** *(shipped 2026-05-29 via PEERVER-3 — `mde-update` prints the 3-column HOSTNAME/VERSION/LAST-SEEN table from the unioned GFS peer-files, `(!)` minor-skew / `(!!)` major-skew markers vs local, STALE flag past the threshold, exit 0/1/2 for scripted gating, `--json` array. Data path is the GFS `peers/` dir, NOT mackesd IPC — the original "via mackesd IPC" framing is superseded by the PEERVER file-convergence design (D-Bus retires). Real cross-peer rows populate once PEERVER-2 ships the heartbeat writer; until then the table shows self.)*
   **As** a mackes-shell operator wondering whether the fleet is at a consistent version,
   **I want** to type `mde-update` and see a table of every peer's hostname + currently-installed `mde` RPM version + last-seen timestamp,
   **so that** I can spot version skew without manually SSHing into every peer or grepping mackesd's SQLite by hand.

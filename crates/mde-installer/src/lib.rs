@@ -10,13 +10,13 @@
 //! * [`wipe`] — local MDE-state wipe (config-path scope) + service
 //!   control + the installed-profile marker.
 //!
+//! * [`peers`] — peer registry + version-skew (PEERVER-3, closes
+//!   INST-3b). Reads the converged peer-data from the GFS-replicated
+//!   `<mesh-home>/peers/` dir (no mackesd/D-Bus/Bus dependency), per
+//!   `docs/design/v2.7-peer-data-convergence.md`.
+//!
 //! Deliberately **not** here yet:
 //!
-//! * `peer_registry` (INST-3b) — querying mackesd for per-peer
-//!   `(hostname, version, last_seen)`. Blocked on **INST-PEERVER**:
-//!   mackesd does not track per-peer RPM versions and exposes no such
-//!   query. Building a client against a non-existent surface would
-//!   violate §0.12 (no stubs), so it is split out.
 //! * Nebula cert-revoke + GlusterFS brick-teardown (the re-install
 //!   half of INST-7) — blocked on a mackesd `Ca.Revoke` method that
 //!   does not exist. On a clean Fedora-Server build-up there is no
@@ -25,5 +25,6 @@
 
 pub mod confirm;
 pub mod intent_file;
+pub mod peers;
 pub mod profile;
 pub mod wipe;

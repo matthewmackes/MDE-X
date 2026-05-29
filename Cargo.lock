@@ -3998,6 +3998,7 @@ name = "mde-installer"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "mackes-mesh-types",
  "serde",
  "serde_json",
  "tempfile",
