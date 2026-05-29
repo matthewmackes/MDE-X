@@ -45,7 +45,8 @@ pub mod applet_host;
 // v3.0.3 — clipboard.rs moved to crates/mde-popover/src/clipboard.rs
 // (the helpers are popover-side; the clip-history popover lives
 // there too).
-pub mod dock_dnd;
+// DEAD-3.a (2026-05-29) — dock_dnd.rs removed: dead X11 XDND port never
+// wired into the Iced panel; dock drag-to-pin is Portal-7's Wayland model.
 // v3.0.3 — expose.rs moved to crates/mde-popover/src/expose.rs
 // (the F3 exposé grid is a popover surface, not panel chrome).
 pub mod hero;
