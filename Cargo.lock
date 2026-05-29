@@ -3888,6 +3888,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mde-clipd"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "tempfile",
+ "tracing",
+ "tracing-subscriber",
+ "wayland-client",
+ "wayland-protocols-wlr",
+]
+
+[[package]]
 name = "mde-config"
 version = "0.0.0"
 dependencies = [

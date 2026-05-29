@@ -215,6 +215,9 @@ pub mod wol;
 // paces clean-exit restarts. Broker + mDNS + persistence land
 // inside the binary in BUS-1.2/1.3/1.4.
 pub mod bus_supervisor;
+// BUS-5.1 — clipboard daemon supervisor. Spawns one `mde-clipd` process
+// per Wayland session; idles when $WAYLAND_DISPLAY is unset.
+pub mod clipd_supervisor;
 // Portal-41 (v6.0 R12-Q1, 2026-05-26) — auto-derived workspace names.
 // Subscribes to sway's Window event stream; debounces 200 ms; renames
 // the focused workspace to `<num>: <app_id>` whenever the focused

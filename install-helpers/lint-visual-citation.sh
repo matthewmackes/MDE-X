@@ -59,7 +59,8 @@ VISUAL_SURFACES_REGEX='^(crates/mde-[^/]+/src/.*\.rs$|data/css/.*\.css$|data/pre
 #   mde-alert-emit   — MON-3 alert→JSON CLI
 #   mde-kdc-proto    — KDC2 wire-protocol library
 #   mde-mesh-types   — shared mesh type definitions
-NON_VISUAL_CRATES_REGEX='^crates/(mde-installer|mde-alert-emit|mde-kdc-proto|mde-mesh-types)/'
+#   mde-clipd        — BUS-5 Wayland clipboard daemon (no Iced UI)
+NON_VISUAL_CRATES_REGEX='^crates/(mde-installer|mde-alert-emit|mde-kdc-proto|mde-mesh-types|mde-clipd)/'
 
 # Get the staged files (commit-msg hook) OR HEAD's modified
 # files (stand-alone mode).

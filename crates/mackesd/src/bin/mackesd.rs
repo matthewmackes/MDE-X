@@ -3244,6 +3244,15 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("bus_supervisor".into());
 
+        // BUS-5.1 — clipboard daemon. Spawns one `mde-clipd` process per
+        // Wayland session. Idles gracefully when $WAYLAND_DISPLAY is unset
+        // (e.g., early in the boot sequence or on a headless peer).
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::clipd_supervisor::ClipdSupervisor::new(),
+            RestartPolicy::Always,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("clipd_supervisor".into());
+
         // Portal-41 (v6.0 R12-Q1) — auto-derived workspace names.
         // Subscribes to sway's window-event stream, debounces 200 ms,
         // and renames the focused workspace to `<num>: <app_id>`
