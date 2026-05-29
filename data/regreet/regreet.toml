@@ -25,9 +25,11 @@ greeting_msg = "Mackes Desktop Environment"
 # greeter alongside the panel + Workbench. The greeter.css file
 # `@import`s tokens.css then overrides regreet-specific selectors.
 style = "/usr/share/mde/theme/greeter.css"
-# Read sessions exclusively from the MDE-curated dir. DM-5's
-# `apply_display_manager()` step creates this dir and symlinks
-# `mde.desktop` into it; nothing else lands there.
+# Read sessions exclusively from the MDE-curated dir. The mde-desktop
+# RPM's %post creates this dir and symlinks `mde.desktop` into it at
+# install time (SWAY-9.a — must be install-time, not a first-login
+# birthright step, or the pre-auth picker would have nothing to show);
+# nothing else lands there.
 sessions_dir = "/var/lib/mde/wayland-sessions"
 
 [background]
