@@ -1712,6 +1712,89 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 - [ ] **GF-15.1: On phone pairing, create `~/Documents/From-<phone-name>/` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs live KDC2 inbound file handler + a paired Android phone + mesh-home FUSE mount to verify the drop-folder replicates across peers. Doesn't gate the cut.)* (idempotent, replicated by the mesh).
 - [ ] **GF-15.2: Smoke test — pair a phone, push a file, observe on a second peer [HW carve-out]** within `<2 s` (LAN) or `<heal-interval>` (WAN). *(Hardware-Testing-epic carve-out per `feedback_no_cut_until_worklist_empty.md` — needs a real Android phone + a real 2-peer Mackes mesh. Doesn't gate the cut.)*
 
+### PRINT-1..PRINT-10: v5.0.0 — Auto CUPS print sharing + sync (`cups_sync`, locked 2026-05-29 via 8-Q survey)
+
+> Design lock: `docs/design/v5.0.0-cups-print-sharing.md`. A printer on
+> any peer auto-appears + is usable on every peer. `mackesd::cups_sync`
+> converges queues/PPDs/defaults via `mesh-storage` (write-own-file,
+> import-union); jobs route through the host peer's CUPS over the overlay
+> (`ipp://<host-overlay>:631`). All local printers auto-shared (flat-
+> trust); remote queues named `<queue>@<host>`; driverless IPP-Everywhere
+> + PPD replication for legacy. **Operator-elevated to v5.0.0 cut-blocking
+> core (§11.1 C8) 2026-05-29** — see AI_GOVERNANCE §11. Per §0.16 the
+> feature lock was operator-lifted for this scope + re-engaged once the
+> epic landed.
+
+- [ ] **PRINT-1: v5.0.0 — `cups` + `cups-filters` in base `mde-core`; profile gating + overlay Listen**
+  **As** an operator, **I want** the print stack present on every printing peer, **so that** sharing works without a separate install.
+  **Acceptance** (each bench-observable):
+    - [ ] `mde-core` hard-`Requires: cups, cups-filters`; `rpmspec -P` clean
+    - [ ] birthright enables `cups.service` + sets `cupsd` `Listen <overlay-ip>:631` (never `0.0.0.0` — passes §0.7 #10 public-port lint) on headless + full
+    - [ ] lighthouse profile does NOT enable cups_sync (verified absent from its worker roster)
+- [ ] **PRINT-2: v5.0.0 — `mackesd::cups_sync` worker: publish local queues + PPDs to mesh-storage**
+  **Acceptance:**
+    - [ ] 5s-tick worker (gluster_worker shape); silent no-op without `cupsd`/`lpadmin`
+    - [ ] writes `<mesh-storage>/printers/<host>.json` (`{host, overlay_ip, queues[], written_at_ms}`) each tick
+    - [ ] copies each legacy (non-IPP) queue's PPD to `<mesh-storage>/printers/ppd/<host>/<queue>.ppd`
+    - [ ] pure-fn `own_record` unit-tested
+- [ ] **PRINT-3: v5.0.0 — Import the union as `<queue>@<host>` remote queues + prune vanished**
+  **Acceptance:**
+    - [ ] reads union of `printers/*.json` (minus self); `lpadmin -p "<queue>@<host>" -E -v ipp://<host-overlay>:631/printers/<queue> -m everywhere` (or `-P <replicated ppd>` for legacy)
+    - [ ] prunes local `<q>@<host>` queues whose host-file disappeared
+    - [ ] pure-fns `import_plan` / `lpadmin_argv` / `prune_list` unit-tested
+- [ ] **PRINT-4: v5.0.0 — Host-side sharing so routed jobs reach the hardware**
+  **Acceptance:**
+    - [ ] host sets `cupsctl --share-printers` + per-queue `printer-is-shared=true` + a `<Location>` allowing the overlay CIDR
+    - [ ] a job submitted on peer B to `<queue>@A` prints on A's physical printer (end-to-end over the overlay)
+- [ ] **PRINT-5: v5.0.0 — Fleet default printer + saved option presets with LWW conflict**
+  **Acceptance:**
+    - [ ] `<mesh-storage>/printers/_defaults.json` holds the fleet default + per-queue presets
+    - [ ] conflicting writes resolve last-write-wins by `written_at_ms`; applied via `lpoptions`
+    - [ ] pure-fn `resolve_defaults_lww` unit-tested
+- [ ] **PRINT-6: v5.0.0 — Auto-join on Nebula `EnrollmentCompleted` + birthright wiring**
+  **Acceptance:** `[ ]` worker subscribes to `EnrollmentCompleted` → publish+import on enroll; `[ ]` birthright (headless+full) configures cups + overlay Listen.
+- [ ] **PRINT-7: v5.0.0 — Workbench printers panel: show `@host` remote queues + host reachability**
+  **Acceptance:** `[ ]` `mde-workbench` printers panel lists remote `<queue>@<host>` queues distinctly from local; `[ ]` shows whether the host peer is reachable (queue greyed when host offline).
+- [ ] **PRINT-8: v5.0.0 — Bus surface `action/printers/{sync-now,list}` + `event/printers/<host>`**
+  **Acceptance:** `[ ]` `action/printers/sync-now` forces a converge; `[ ]` `event/printers/<host>` published on queue add/remove; no new D-Bus interface.
+- [ ] **PRINT-9: v5.0.0 — Docs (`docs/help/printers.md`) + CHANGELOG + voice/lint pass**
+  **Acceptance:** `[ ]` help doc covers auto-share + `@host` naming + host-asleep behavior; `[ ]` CHANGELOG entry; `[ ]` voice-lint clean.
+- [ ] **PRINT-10: v5.0.0 — Tests + ≥2-peer HW bench [HW carve-out, §0.15 release-gated]** — print from B to A's USB printer over the overlay; verify overlay-only `:631` bind; default/preset LWW; prune on removal.
+
+### FWMON-1..FWMON-7: v5.0.0 — Firewall activity monitoring (`firewall_monitor`, locked 2026-05-29 via 7-Q survey)
+
+> Design lock: `docs/design/v5.0.0-firewall-activity-monitor.md`. Every
+> peer watches firewalld `LogDenied` journal entries for denied inbound
+> attempts, filters out the mesh's own + established traffic, appends
+> net-new external denials to `<mesh-storage>/firewall/<host>.jsonl`
+> (readers union, centerless), raises a threshold alert (≥N from one
+> source) via Bus → FDO notification, and surfaces an Activity section in
+> the existing Workbench firewall panel. New `mackesd::firewall_monitor`
+> worker (separate from `firewall_preset`), 7-day rolling window.
+> **Operator-elevated to v5.0.0 cut-blocking core (§11.1 C9) 2026-05-29.**
+> Per §0.16 the lock was operator-lifted + re-engaged once the epic landed.
+
+- [ ] **FWMON-1: v5.0.0 — Enable firewalld `LogDenied=all` in birthright (all profiles)**
+  **As** an operator, **I want** denied packets logged, **so that** the monitor has a data source.
+  **Acceptance** (each bench-observable):
+    - [ ] birthright runs `firewall-cmd --set-log-denied=all --permanent` + reload on every profile
+    - [ ] `firewall-cmd --get-log-denied` returns `all` post-install
+- [ ] **FWMON-2: v5.0.0 — `mackesd::firewall_monitor` worker: parse journal + Q14 noise filter**
+  **Acceptance:**
+    - [ ] new worker (separate from `firewall_preset`), 5s tick, persisted journal cursor, silent no-op without journal access
+    - [ ] `parse_denied_line` extracts `{ts, src_ip, dport, proto, iface}` by `KEY=` token (tolerant of field reorder)
+    - [ ] `is_overlay_or_established` filter drops UDP/4242 + TCP/443(LH) + RELATED,ESTABLISHED; keeps net-new external
+    - [ ] both pure-fns unit-tested
+- [ ] **FWMON-3: v5.0.0 — Append to `<mesh-storage>/firewall/<host>.jsonl` + 7-day rolling trim**
+  **Acceptance:** `[ ]` kept events appended one-per-line `{ts_ms,host,src_ip,dport,proto,iface}`; `[ ]` lines older than 7d trimmed each tick (`trim_older_than` unit-tested); own-file authority.
+- [ ] **FWMON-4: v5.0.0 — Threshold alert → Bus `event/firewall/<host>` → FDO notification**
+  **Acceptance:** `[ ]` ≥N denials from one `src_ip` in the window → one Bus event (deduped per source per window, not per-packet); `[ ]` routes to an FDO notification via the `mde-alert-emit`/`alert_relay` path; `[ ]` `threshold_tripped` unit-tested.
+- [ ] **FWMON-5: v5.0.0 — Workbench firewall panel Activity section (per-peer union)**
+  **Acceptance:** `[ ]` `mde-workbench/src/panels/firewall.rs` gains an Activity section: recent denials table + top-source rollup + per-peer counts read from the union of `firewall/*.jsonl`.
+- [ ] **FWMON-6: v5.0.0 — Docs (`docs/help/firewall.md` activity section) + CHANGELOG + lints**
+  **Acceptance:** `[ ]` help doc explains what's monitored + the alert threshold + the filter; `[ ]` CHANGELOG entry; `[ ]` voice-lint clean.
+- [ ] **FWMON-7: v5.0.0 — Tests + ≥2-peer HW bench [HW carve-out, §0.15 release-gated]** — off-mesh port-knock appears in the JSONL + the cross-peer Activity rollup; overlay/established traffic produces no records; a scan raises exactly one notification; 7-day trim.
+
 ### MESHFS-1..MESHFS-18: v5.0.0 — LizardFS `mesh-storage` (primary file sync, locked 2026-05-29 via 25-Q survey)
 
 > **Replaces the GF-1..GF-15 GlusterFS epic in full** (SUPERSEDED-bannered

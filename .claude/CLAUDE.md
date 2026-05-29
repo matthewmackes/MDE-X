@@ -798,6 +798,18 @@ we're at it, ..." scope creep.
   reconcile LizardFS's transient single active master with HA shadows
   on every peer. Stays v5.0.0 (swap in place; nothing shipped). Lock
   re-engaged after the MESHFS epic landed in the worklist 2026-05-29.
+- **2026-05-29 — PRINT-1..PRINT-10 + FWMON-1..FWMON-7** (auto CUPS
+  print sharing/sync + firewall activity monitoring). Operator-issued
+  lift for a 15-Q /plan survey. Locks at
+  `docs/design/v5.0.0-cups-print-sharing.md` +
+  `docs/design/v5.0.0-firewall-activity-monitor.md` + memory
+  [[project_v5_0_0_print_and_firewall_monitor]]. **Operator explicitly
+  elevated BOTH to v5.0.0 cut-blocking core (AI_GOVERNANCE §11.1 C8 +
+  C9), overriding the §0.17 minimal-core default** — they widen the cut
+  gate (pre-cut-check must see PRINT-* + FWMON-* green). `cups_sync` +
+  `firewall_monitor` mackesd workers; both converge via `mesh-storage`
+  (write-own-file / readers-union, PEERVER pattern). Lock re-engaged
+  after both epics landed in the worklist 2026-05-29.
 
 **Why this rule:** the active worklist already represents 324
 items across 15+ epics. Continuing to add scope while draining is

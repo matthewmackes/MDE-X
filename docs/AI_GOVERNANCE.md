@@ -316,6 +316,18 @@ essential to a *usable, installable mesh desktop*:
 | C5 | **Bus foundation (BUS-1 + BUS-2)** — notifications + high-priority surfaces work end-to-end | BUS |
 | C6 | **4 presets implemented** (ChromeOS Classic L/D + Ableton 12 L/D) | Q79 |
 | C7 | **Operator HW smoke on ≥2 peers** — per-bullet acceptance per 25-Q Q13; full 8-peer bench is a post-5.0 hardening pass, not a cut blocker | Q98 + Q13 (25-Q) |
+| C8 | **PRINT-*** auto CUPS print sharing + sync — a printer on any peer is usable from every peer (`cups_sync` worker) | operator-elevated 2026-05-29 (15-Q survey) |
+| C9 | **FWMON-*** firewall activity monitoring — denied-packet watch + cross-peer Activity view + threshold alerts (`firewall_monitor` worker) | operator-elevated 2026-05-29 (15-Q survey) |
+
+> **C8 + C9 added 2026-05-29 by operator directive.** A 15-Q `/plan`
+> survey scoped auto CUPS print sharing/sync (PRINT-*) + firewall activity
+> monitoring (FWMON-*); the operator explicitly elevated **both to
+> v5.0.0 cut-blocking core**, overriding the §0.17 "minimal core" default
+> (which would have routed them to §11.2 post-5.0 continuous main). Design
+> locks: `docs/design/v5.0.0-cups-print-sharing.md`,
+> `docs/design/v5.0.0-firewall-activity-monitor.md`. This widens the
+> v5.0.0 cut gate — `make pre-cut-check` must see PRINT-* + FWMON-* green
+> before the cut.
 
 ### 11.2 Post-5.0 — continuous main (NOT cut-blocking)
 
