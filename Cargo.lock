@@ -3994,6 +3994,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mde-installer"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "mde-kdc"
 version = "0.0.0"
 dependencies = [

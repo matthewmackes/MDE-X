@@ -1,0 +1,32 @@
+[package]
+name        = "mde-installer"
+description = "INST-3 (v2.7) — the MDE installation manager + paired updater. `mde-install` converges a node to a known-clean state for a given install profile (lighthouse/headless/full) and runs birthrights; `mde-update` coordinates fleet-wide upgrades via a GlusterFS intent-file barrier. Shipped by the base `mde-core` RPM (the headless substrate), not `mde-desktop`."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+[[bin]]
+name = "mde-install"
+path = "src/bin/mde-install.rs"
+
+[[bin]]
+name = "mde-update"
+path = "src/bin/mde-update.rs"
+
+[lib]
+name = "mde_installer"
+path = "src/lib.rs"
+
+[dependencies]
+clap        = { version = "4.5", features = ["derive"] }
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

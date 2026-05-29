@@ -970,6 +970,16 @@ install -D -m 0755 target/release/mackesd \
 install -D -m 0644 data/systemd/mackesd.service \
     %{buildroot}%{_unitdir}/mackesd.service
 
+# INST-3 (v2.7) — installation manager + updater. Universal substrate
+# (work without a Python interpreter on lighthouse VPS boxes), so they
+# ship in base `mde-core`, NOT `mde-desktop`. `cargo build --release
+# --workspace` above already builds them (mde-installer is a workspace
+# member).
+install -D -m 0755 target/release/mde-install \
+    %{buildroot}%{_bindir}/mde-install
+install -D -m 0755 target/release/mde-update \
+    %{buildroot}%{_bindir}/mde-update
+
 # CB-1 — Iced MDE Workbench preview (1.1.1). Ships alongside the
 # v1.x GTK3 panel so users can try the v2.0.0 Workbench surface
 # early; CB-1.12 retires the Python `mackes/workbench/` tree once
@@ -1253,6 +1263,9 @@ echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to fini
 %{_bindir}/mackes
 %{_bindir}/mackesd
 %{_bindir}/mded
+# INST-3 (v2.7) — installer + updater, universal substrate (base).
+%{_bindir}/mde-install
+%{_bindir}/mde-update
 # mde-* wrapper + migrators stay in base — they're invocable
 # on lighthouses too (the migrators run pre-install on every
 # upgrade path, with or without a GUI).
