@@ -82,6 +82,18 @@ pub const EXPORT_NAME: &str = "mesh-storage";
 /// Mount path for the LizardFS client.
 pub const DEFAULT_MOUNT_PATH: &str = "/mnt/mesh-storage";
 
+/// Marker file written by the wizard on lighthouse peers — same path as
+/// `nebula_supervisor::DEFAULT_ROLE_HOST_MARKER`. Presence → VIP-eligible.
+pub const DEFAULT_ROLE_MARKER_PATH: &str = "/var/lib/mackesd/nebula/role.host";
+
+/// Nebula overlay interface name (default). Operators may override if
+/// Nebula is configured with a non-default interface name.
+pub const DEFAULT_OVERLAY_IFACE: &str = "nebula1";
+
+/// Nebula overlay CIDR prefix length. Fixed at /16 per the open-mesh
+/// design (10.42.0.0/16).
+pub const OVERLAY_CIDR_PREFIX: u8 = 16;
+
 /// Worker handle. Cheap to construct; clone is forbidden (mirrors
 /// `gluster_worker`).
 pub struct MeshFsWorker {
@@ -94,6 +106,12 @@ pub struct MeshFsWorker {
     vip: String,
     qnm_root: Option<PathBuf>,
     self_node_id: Option<String>,
+    /// Marker file whose existence indicates this peer is a lighthouse
+    /// and therefore VIP-eligible for the active master role.
+    role_marker_path: PathBuf,
+    /// Nebula overlay interface on which the floating VIP is claimed or
+    /// released via `ip addr add/del`.
+    overlay_iface: String,
     /// Peer IPs we have already issued CS-EVICT for this session.
     /// Prevents re-evicting on every tick while replication heals.
     evicted_ips: std::sync::Mutex<std::collections::BTreeSet<String>>,
@@ -113,6 +131,8 @@ impl MeshFsWorker {
             vip: DEFAULT_VIP.to_owned(),
             qnm_root: None,
             self_node_id: None,
+            role_marker_path: PathBuf::from(DEFAULT_ROLE_MARKER_PATH),
+            overlay_iface: DEFAULT_OVERLAY_IFACE.to_owned(),
             evicted_ips: std::sync::Mutex::new(std::collections::BTreeSet::new()),
         }
     }
@@ -155,6 +175,22 @@ impl MeshFsWorker {
     #[must_use]
     pub fn with_vip(mut self, vip: impl Into<String>) -> Self {
         self.vip = vip.into();
+        self
+    }
+
+    /// Override the role-marker path. Tests redirect to a tempfile so
+    /// HA logic can be exercised without `/var/lib/mackesd` access.
+    #[must_use]
+    pub fn with_role_marker_path(mut self, path: PathBuf) -> Self {
+        self.role_marker_path = path;
+        self
+    }
+
+    /// Override the Nebula overlay interface name. Tests use a loopback
+    /// alias or skip the VIP path via a missing binary guard.
+    #[must_use]
+    pub fn with_overlay_iface(mut self, iface: impl Into<String>) -> Self {
+        self.overlay_iface = iface.into();
         self
     }
 
@@ -257,6 +293,43 @@ impl MeshFsWorker {
                 }
             }
         }
+
+        // 6. HA: lighthouse VIP claim + shadow promotion (MESHFS-3.1).
+        self.tick_once_ha();
+    }
+
+    /// MESHFS-3.1 — HA tick: claim or relinquish the floating overlay
+    /// VIP based on the role-marker (lighthouse gate) + master
+    /// reachability. Only lighthouses (peers whose `role.host` marker
+    /// exists) are VIP-eligible; ordinary workstation peers skip this
+    /// path entirely.
+    ///
+    /// When the active master becomes unreachable:
+    ///   1. If we don't already hold the VIP, claim it via
+    ///      `ip addr add <vip>/<prefix> dev <iface>`.
+    ///   2. (Re)start `mfsmaster -a` so the local shadow promotes itself
+    ///      to active master — LizardFS HA-cluster mode picks up the
+    ///      promotion once the VIP is on this interface.
+    pub fn tick_once_ha(&self) {
+        // Only lighthouses can hold the VIP.
+        if !self.role_marker_path.exists() {
+            return;
+        }
+        // If the master is still reachable at the VIP, nothing to do.
+        if master_reachable(&self.vip) {
+            return;
+        }
+        // Master is down. Claim VIP if not already ours, then promote.
+        let we_hold = vip_is_local(&self.vip, &self.overlay_iface);
+        if !we_hold {
+            let argv = vip_claim_argv(&self.vip, &self.overlay_iface, OVERLAY_CIDR_PREFIX);
+            tracing::info!(target: "mackesd::meshfs_worker", argv = ?argv, "claiming mesh-storage VIP (master failover)");
+            let _ = run_argv(&argv);
+        }
+        // Promote local shadow to active master.
+        let argv = shadow_promote_argv(&self.master_binary);
+        tracing::info!(target: "mackesd::meshfs_worker", argv = ?argv, "promoting shadow to active master");
+        let _ = run_argv(&argv);
     }
 }
 
@@ -305,7 +378,7 @@ pub fn binary_on_path(name: &str) -> bool {
 /// so the tick loop doesn't stall on an unreachable VIP.
 #[must_use]
 pub fn master_reachable(vip: &str) -> bool {
-    use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+    use std::net::{TcpStream, ToSocketAddrs};
     let addr_str = format!("{vip}:{MFSMASTER_PORT}");
     let Ok(mut addrs) = addr_str.to_socket_addrs() else {
         return false;
@@ -387,6 +460,82 @@ pub fn failover_vip_argv(admin_binary: &str, vip: &str) -> Vec<String> {
         vip.to_owned(),
         "MASTER-STOP".to_owned(),
     ]
+}
+
+/// Build the argv for claiming the floating VIP on the Nebula overlay
+/// interface. Executed by `tick_once_ha()` when a lighthouse detects
+/// the active master is unreachable and it doesn't already hold the VIP.
+///
+/// ```text
+/// ip addr add <vip>/<prefix_len> dev <iface>
+/// ```
+#[must_use]
+pub fn vip_claim_argv(vip: &str, iface: &str, prefix_len: u8) -> Vec<String> {
+    vec![
+        "ip".to_owned(),
+        "addr".to_owned(),
+        "add".to_owned(),
+        format!("{vip}/{prefix_len}"),
+        "dev".to_owned(),
+        iface.to_owned(),
+    ]
+}
+
+/// Build the argv for releasing the floating VIP from the Nebula overlay
+/// interface. Executed when this lighthouse relinquishes the master role.
+///
+/// ```text
+/// ip addr del <vip>/<prefix_len> dev <iface>
+/// ```
+#[must_use]
+pub fn vip_release_argv(vip: &str, iface: &str, prefix_len: u8) -> Vec<String> {
+    vec![
+        "ip".to_owned(),
+        "addr".to_owned(),
+        "del".to_owned(),
+        format!("{vip}/{prefix_len}"),
+        "dev".to_owned(),
+        iface.to_owned(),
+    ]
+}
+
+/// Build the argv for promoting the local shadow master to active.
+/// LizardFS HA-cluster mode: passing `-a` on start instructs the master
+/// daemon to immediately take the active role rather than shadowing.
+///
+/// ```text
+/// mfsmaster -a start
+/// ```
+#[must_use]
+pub fn shadow_promote_argv(master_binary: &str) -> Vec<String> {
+    vec![
+        master_binary.to_owned(),
+        "-a".to_owned(),
+        "start".to_owned(),
+    ]
+}
+
+/// Parse `ip addr show dev <iface>` output to determine whether `vip`
+/// is currently assigned to the interface. Pure — no subprocess.
+///
+/// Looks for `inet <vip>/` anywhere in the output (the `ip addr`
+/// format is `inet A.B.C.D/prefix`).
+#[must_use]
+pub fn parse_ip_addr_output(text: &str, vip: &str) -> bool {
+    let needle = format!("inet {vip}/");
+    text.contains(&needle)
+}
+
+/// `true` if the floating VIP is currently assigned to `iface` on this
+/// host. Shells `ip addr show dev <iface>`; returns `false` on any
+/// subprocess error (binary absent, interface doesn't exist, etc.).
+#[must_use]
+pub fn vip_is_local(vip: &str, iface: &str) -> bool {
+    let Ok(out) = Command::new("ip").args(["addr", "show", "dev", iface]).output() else {
+        return false;
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    parse_ip_addr_output(&text, vip)
 }
 
 /// Scan `<qnm_root>/*/mackesd/nebula-bundle.json` to discover
@@ -603,5 +752,35 @@ ip              port  used       avail\n\
             .with_master_binary("this-binary-does-not-exist-xyzzy-42");
         // Shouldn't panic or block.
         worker.tick_once();
+    }
+
+    #[test]
+    fn vip_claim_argv_shape() {
+        let argv = vip_claim_argv("10.42.0.1", "nebula1", 16);
+        assert_eq!(argv, ["ip", "addr", "add", "10.42.0.1/16", "dev", "nebula1"]);
+    }
+
+    #[test]
+    fn vip_release_argv_shape() {
+        let argv = vip_release_argv("10.42.0.1", "nebula1", 16);
+        assert_eq!(argv, ["ip", "addr", "del", "10.42.0.1/16", "dev", "nebula1"]);
+    }
+
+    #[test]
+    fn shadow_promote_argv_shape() {
+        let argv = shadow_promote_argv("mfsmaster");
+        assert_eq!(argv, ["mfsmaster", "-a", "start"]);
+    }
+
+    #[test]
+    fn parse_ip_addr_output_found() {
+        let output = "2: nebula1: <UP,LOWER_UP> ...\n    inet 10.42.0.1/16 brd 10.42.255.255 scope global nebula1\n";
+        assert!(parse_ip_addr_output(output, "10.42.0.1"));
+    }
+
+    #[test]
+    fn parse_ip_addr_output_not_found() {
+        let output = "2: nebula1: <UP,LOWER_UP> ...\n    inet 10.42.0.5/16 brd 10.42.255.255 scope global nebula1\n";
+        assert!(!parse_ip_addr_output(output, "10.42.0.1"));
     }
 }

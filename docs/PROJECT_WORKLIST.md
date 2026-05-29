@@ -1843,12 +1843,13 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [✓] CA-revoke → evict chunkserver, re-replicate to hold goal=N, drop shadow, lower goal; fail VIP over first if it held the active master
     - [✓] pure-fn helpers extracted (argv shapes, binary-on-path, export-exists) + unit tests with a mocked CLI shim
   **Shipped:** `crates/mackesd/src/workers/meshfs_worker.rs` (13 tests green); wired in `run_serve` via `with_qnm_peer_discovery`.
-- [ ] **MESHFS-3.1: v5.0.0 — Master HA: floating overlay VIP + shadow promotion via the leader lock**
+- [✓] **MESHFS-3.1: v5.0.0 — Master HA: floating overlay VIP + shadow promotion via the leader lock**
   **Acceptance:**
-    - [ ] worker claims/relinquishes the mesh-storage VIP on the overlay interface per the QNM-Shared leader lock
-    - [ ] on active-master loss the next leader promotes its local shadow (`mfsmetarestore`) + claims the VIP within the heartbeat window
-    - [ ] all `mfsmount`/chunkserver configs target the VIP, never an underlay address
-    - [ ] only lighthouses are VIP-eligible
+    - [✓] worker claims/relinquishes the mesh-storage VIP on the overlay interface per the QNM-Shared leader lock
+    - [✓] on active-master loss the next leader promotes its local shadow (`mfsmetarestore`) + claims the VIP within the heartbeat window
+    - [✓] all `mfsmount`/chunkserver configs target the VIP, never an underlay address
+    - [✓] only lighthouses are VIP-eligible
+  **Shipped:** `tick_once_ha()` in `meshfs_worker.rs` — role-marker gate + `vip_claim_argv` / `vip_release_argv` / `shadow_promote_argv` / `parse_ip_addr_output` helpers; 5 new tests (18 total green).
 
 #### Birthright + mount
 
