@@ -243,6 +243,20 @@ scan VERB-EXECUTE-VS-RUN \
     '--include=*.rs --include=*.py --include=*.desktop' \
     active
 
+# SWAY-6 (Q84, 2026-05-29) — compositor proper-name must not appear in
+# user-visible labels. "sway" / "i3" are implementation details; user-
+# facing copy should say "compositor" / "window manager" / "MDE" instead.
+# Conservative pattern: only capitalized forms ("Sway", "I3") that would
+# appear as proper nouns in button labels / panel titles. Lowercase forms
+# ("sway", "i3") are left to code strings (binary names, paths, thread
+# IDs) — they are excluded by the case-sensitive match. Pattern mirrors
+# FORBIDDEN-LEGACY-MESH (capitalized proper-noun guard).
+scan FORBIDDEN-COMPOSITOR-NAMES \
+    '"[^"]*(Sway|I3)\b[^"]*"' \
+    'compositor proper-name "Sway"/"I3" must not appear in user-visible labels (Q84 — say "compositor" or "MDE" instead)' \
+    '--include=*.rs --include=*.py --include=*.desktop' \
+    active
+
 # ──────────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────────

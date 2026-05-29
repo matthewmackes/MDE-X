@@ -612,7 +612,7 @@ call-end lifecycle, never at install or login.
 - [ ] **SWAY-3: Headless verification** — extend the HW-3 `WLR_BACKENDS=headless` harness with worker-exercise assertions (Q5/Q81); reduce-motion CI asserts static render (Q99).
 - [ ] **SWAY-4: marks worker on sway** — salvage `marks_state` from `mde-x` commit `c913bed1`: keep the pure MarksStore (add/remove/list/match) + Bus responder; port IPC hyprland-rs → swayipc (sway native marks) (Q89/Q94). Replaces the HYP-14 marks_state + the HYP-AutoMark sway-bridge.
 - [ ] **SWAY-5: template emitter on sway** — salvage from `mde-x` commit `d3c81f3d`: keep `CardKind::Template` + `TemplateSpec`; retarget the batch emitter `hyprctl --batch` → `swaymsg` (`;`-separated) (Q90/Q94). Satisfies Portal-51.
-- [ ] **SWAY-6: voice-tone lint** — extend `install-helpers/lint-voice.sh` to fail on user-visible "sway"/"i3" (compositor is an implementation detail) (Q84).
+- [✓] **SWAY-6: voice-tone lint** — extend `install-helpers/lint-voice.sh` to fail on user-visible "sway"/"i3" (compositor is an implementation detail) (Q84). *(shipped 2026-05-29 — added FORBIDDEN-COMPOSITOR-NAMES scan: capitalized `"Sway"`/`"I3"` proper-noun forms only (conservative, mirrors FORBIDDEN-LEGACY-MESH pattern); lowercase code strings excluded. Lint passes clean on full codebase.)*
 - [ ] **SWAY-7: motion-token lint** — low-effort gate: motion in `crates/mde-*/src` uses `mde-motion` tokens, no ad-hoc durations (Q93).
 - [ ] **SWAY-8: installer + config** — installer pulls Fedora-repo sway + seeds MDE sway config (Q51); `mde-config` generates sway config GFS-replicated (Q52); shared config + per-peer EDID overlay (Q53); inotify `swaymsg reload` + crossfade on edit (Q54).
 
