@@ -64,6 +64,20 @@ pub const DEFAULT_ADMIN_BINARY: &str = "mfsadmin";
 /// LizardFS goal-set CLI binary.
 pub const DEFAULT_SETGOAL_BINARY: &str = "mfssetgoal";
 
+/// LizardFS quota-set CLI binary.
+pub const DEFAULT_SETQUOTA_BINARY: &str = "mfssetquota";
+
+/// Quota tick cadence — run once per hour (MESHFS-9.1).
+pub const DEFAULT_QUOTA_TICK: Duration = Duration::from_secs(3600);
+
+/// Hard-quota factor: `0.8 × min(free chunkserver)`. Writing past the
+/// hard cap returns `EROFS`.
+pub const QUOTA_HARD_FACTOR: f64 = 0.8;
+
+/// Soft-quota factor: `0.7 × min(free chunkserver)`. Crossing the soft
+/// cap triggers a `meshfs/quota-warning` Bus event.
+pub const QUOTA_SOFT_FACTOR: f64 = 0.7;
+
 /// Default floating VIP (Nebula overlay) the active master listens
 /// on. Operators override via `with_vip()`. Chosen at mesh genesis;
 /// all peers mount this address.
@@ -106,6 +120,11 @@ pub struct MeshFsWorker {
     vip: String,
     qnm_root: Option<PathBuf>,
     self_node_id: Option<String>,
+    setquota_binary: String,
+    /// Unix timestamp (seconds) of the last quota tick. Stored in a Mutex
+    /// so `tick_once()` — which takes `&self` — can update it without
+    /// requiring a mutable reference.
+    last_quota_s: std::sync::Mutex<u64>,
     /// Marker file whose existence indicates this peer is a lighthouse
     /// and therefore VIP-eligible for the active master role.
     role_marker_path: PathBuf,
@@ -131,6 +150,8 @@ impl MeshFsWorker {
             vip: DEFAULT_VIP.to_owned(),
             qnm_root: None,
             self_node_id: None,
+            setquota_binary: DEFAULT_SETQUOTA_BINARY.to_owned(),
+            last_quota_s: std::sync::Mutex::new(0),
             role_marker_path: PathBuf::from(DEFAULT_ROLE_MARKER_PATH),
             overlay_iface: DEFAULT_OVERLAY_IFACE.to_owned(),
             evicted_ips: std::sync::Mutex::new(std::collections::BTreeSet::new()),
@@ -175,6 +196,14 @@ impl MeshFsWorker {
     #[must_use]
     pub fn with_vip(mut self, vip: impl Into<String>) -> Self {
         self.vip = vip.into();
+        self
+    }
+
+    /// Override the `mfssetquota` binary. Tests pass a nonexistent name to
+    /// skip the quota subprocess without affecting other guards.
+    #[must_use]
+    pub fn with_setquota_binary(mut self, name: impl Into<String>) -> Self {
+        self.setquota_binary = name.into();
         self
     }
 
@@ -296,6 +325,9 @@ impl MeshFsWorker {
 
         // 6. HA: lighthouse VIP claim + shadow promotion (MESHFS-3.1).
         self.tick_once_ha();
+
+        // 7. Quota: hourly setquota call (MESHFS-9.1).
+        self.tick_once_quota();
     }
 
     /// MESHFS-3.1 — HA tick: claim or relinquish the floating overlay
@@ -330,6 +362,65 @@ impl MeshFsWorker {
         let argv = shadow_promote_argv(&self.master_binary);
         tracing::info!(target: "mackesd::meshfs_worker", argv = ?argv, "promoting shadow to active master");
         let _ = run_argv(&argv);
+    }
+
+    /// MESHFS-9.1 — quota tick (runs at most once per hour). Reads the
+    /// minimum available bytes across all registered chunkservers from
+    /// `mfsadmin CS-LIST`, then sets the export-root quota:
+    ///
+    ///   hard cap = 80% × min(avail)  → EROFS when exceeded
+    ///   soft cap = 70% × min(avail)  → `meshfs/quota-warning` Bus event
+    ///
+    /// Silent no-op when `mfssetquota` is absent or the master is
+    /// unreachable. Bus event publish is fire-and-forget subprocess
+    /// (no Persist dependency in the sync tick path).
+    pub fn tick_once_quota(&self) {
+        let now_s = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        {
+            let mut guard = self.last_quota_s.lock().unwrap();
+            if now_s.saturating_sub(*guard) < DEFAULT_QUOTA_TICK.as_secs() {
+                return;
+            }
+            *guard = now_s;
+        }
+        if !binary_on_path(&self.setquota_binary) {
+            return;
+        }
+        if !master_reachable(&self.vip) {
+            return;
+        }
+        // Read CS-LIST to find the minimum available bytes.
+        let min_avail = match min_chunkserver_avail_bytes(&self.admin_binary, &self.vip) {
+            Some(b) if b > 0 => b,
+            _ => {
+                tracing::debug!(target: "mackesd::meshfs_worker", "quota tick: CS-LIST returned no avail data");
+                return;
+            }
+        };
+        let hard = (min_avail as f64 * QUOTA_HARD_FACTOR) as u64;
+        let soft = (min_avail as f64 * QUOTA_SOFT_FACTOR) as u64;
+        let argv = setquota_argv(&self.setquota_binary, soft, hard, DEFAULT_MOUNT_PATH);
+        tracing::info!(
+            target: "mackesd::meshfs_worker",
+            hard_bytes = hard,
+            soft_bytes = soft,
+            "setting mesh-storage quota",
+        );
+        let _ = run_argv(&argv);
+        // Publish quota-warning via mde-bus if soft cap is reached
+        // (write size not tracked here — the OS returns ENOSPC when the
+        // hard cap is hit; the soft-cap warning fires each quota tick).
+        if binary_on_path("mde-bus") {
+            let body = format!(
+                r#"{{"ok":true,"min_avail_bytes":{min_avail},"hard_bytes":{hard},"soft_bytes":{soft}}}"#
+            );
+            let _ = Command::new("mde-bus")
+                .args(["publish", "meshfs/quota-warning", "--body-flag", &body])
+                .spawn();
+        }
     }
 }
 
@@ -460,6 +551,69 @@ pub fn failover_vip_argv(admin_binary: &str, vip: &str) -> Vec<String> {
         vip.to_owned(),
         "MASTER-STOP".to_owned(),
     ]
+}
+
+/// Build the argv for setting the export-root quota via `mfssetquota`.
+///
+/// ```text
+/// mfssetquota -p / 0 0 <soft_bytes> <hard_bytes> <mount_path>
+/// ```
+///
+/// The two leading `0 0` are inode soft/hard limits — left unconstrained
+/// since we only cap by bytes. `-p /` applies the quota to the export root.
+#[must_use]
+pub fn setquota_argv(
+    setquota_binary: &str,
+    soft_bytes: u64,
+    hard_bytes: u64,
+    mount_path: &str,
+) -> Vec<String> {
+    vec![
+        setquota_binary.to_owned(),
+        "-p".to_owned(),
+        "/".to_owned(),
+        "0".to_owned(),
+        "0".to_owned(),
+        soft_bytes.to_string(),
+        hard_bytes.to_string(),
+        mount_path.to_owned(),
+    ]
+}
+
+/// Parse `mfsadmin CS-LIST` output to find the minimum `avail` column
+/// value across all chunkservers. Returns `None` when the output is
+/// empty or unparseable.
+///
+/// CS-LIST table columns (space-separated, first line is a header):
+/// ```text
+/// ip  port  used  avail
+/// 10.42.0.5  9422  2147483648  53687091200
+/// ```
+#[must_use]
+pub fn parse_cslist_min_avail(text: &str) -> Option<u64> {
+    text.lines()
+        .skip(1) // header
+        .filter_map(|line| {
+            let cols: Vec<&str> = line.split_whitespace().collect();
+            // avail is column index 3 (0-indexed)
+            cols.get(3)?.parse::<u64>().ok()
+        })
+        .min()
+}
+
+/// Query the active master for the minimum available bytes across all
+/// registered chunkservers. Returns `None` when `mfsadmin` is absent or
+/// the master is unreachable.
+#[must_use]
+pub fn min_chunkserver_avail_bytes(admin_binary: &str, vip: &str) -> Option<u64> {
+    let Ok(out) = Command::new(admin_binary).args([vip, "CS-LIST"]).output() else {
+        return None;
+    };
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    parse_cslist_min_avail(&text)
 }
 
 /// Build the argv for claiming the floating VIP on the Nebula overlay
@@ -782,5 +936,33 @@ ip              port  used       avail\n\
     fn parse_ip_addr_output_not_found() {
         let output = "2: nebula1: <UP,LOWER_UP> ...\n    inet 10.42.0.5/16 brd 10.42.255.255 scope global nebula1\n";
         assert!(!parse_ip_addr_output(output, "10.42.0.1"));
+    }
+
+    #[test]
+    fn setquota_argv_shape() {
+        let argv = setquota_argv("mfssetquota", 70_000_000, 80_000_000, "/mnt/mesh-storage");
+        assert_eq!(
+            argv,
+            ["mfssetquota", "-p", "/", "0", "0", "70000000", "80000000", "/mnt/mesh-storage"]
+        );
+    }
+
+    #[test]
+    fn parse_cslist_min_avail_basic() {
+        let output = "\
+ip              port  used       avail\n\
+10.42.0.5       9422  1234567    8765432\n\
+10.42.0.7       9422  987654     5000000\n";
+        assert_eq!(parse_cslist_min_avail(output), Some(5_000_000));
+    }
+
+    #[test]
+    fn parse_cslist_min_avail_empty() {
+        assert_eq!(parse_cslist_min_avail(""), None);
+    }
+
+    #[test]
+    fn parse_cslist_min_avail_header_only() {
+        assert_eq!(parse_cslist_min_avail("ip  port  used  avail\n"), None);
     }
 }

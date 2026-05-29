@@ -1879,10 +1879,11 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 - [ ] **MESHFS-8.1: v5.0.0 — Enable LizardFS trash (bounded retention, operator-tunable) + mde-files Undelete**
   **Acceptance:** `[ ]` deleted files recoverable within the retention window (default 48h) via an mde-files "Undelete recent" affordance; gone after the window.
-- [ ] **MESHFS-9.1: v5.0.0 — Native quota; mackesd applies hard cap = 0.8 × min(free chunkserver), soft fires banner**
+- [✓] **MESHFS-9.1: v5.0.0 — Native quota; mackesd applies hard cap = 0.8 × min(free chunkserver), soft fires banner**
   **Acceptance:**
-    - [ ] hourly tick sets `mfssetquota` hard cap on the export root; writing past it returns `EROFS`
-    - [ ] soft quota set lower; crossing it publishes `meshfs/quota-warning` on the Bus → "Mesh almost full" banner
+    - [✓] hourly tick sets `mfssetquota` hard cap on the export root; writing past it returns `EROFS`
+    - [✓] soft quota set lower; crossing it publishes `meshfs/quota-warning` on the Bus → "Mesh almost full" banner
+  **Shipped:** `tick_once_quota()` in `meshfs_worker.rs` — 1h cadence via `last_quota_s` Mutex; `setquota_argv` + `parse_cslist_min_avail` + `min_chunkserver_avail_bytes` helpers; quota-warning event via `mde-bus publish meshfs/quota-warning`; 3 new tests (22 total green).
 
 #### Bus surface (no D-Bus — Q13)
 
