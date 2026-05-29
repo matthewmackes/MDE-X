@@ -5,6 +5,21 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**Printers auto-share across the mesh (2026-05-29)**
+- A printer added on any peer now appears — and works — on every other
+  peer automatically, with no per-peer setup. A background `cups_sync`
+  service keeps the fleet's printer list in sync over your Nebula mesh.
+- Printing to another peer's printer routes the job over the encrypted
+  mesh to that peer's CUPS, which spools it to the hardware — so a USB
+  printer on your desktop is usable from your laptop anywhere.
+- Remote printers show as `<printer>@<host>` with an online/offline
+  state for the host peer (Workbench → Printers). Your default printer
+  and saved options sync too (most-recent-wins on a conflict).
+- Modern printers are driverless (IPP Everywhere); older printers share
+  the host's driver definition so other peers get the right options.
+  Workstation + headless peers participate; routing-only lighthouses
+  skip it. See `docs/help/printers.md`.
+
 **LizardFS mesh-storage (replaces GlusterFS) (2026-05-29)**
 - `mesh-storage` replaces `mesh-home` (GlusterFS) as the fleet's
   shared filesystem. LizardFS provides goal=N replication (every
