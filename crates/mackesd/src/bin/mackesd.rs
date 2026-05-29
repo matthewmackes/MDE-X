@@ -2866,6 +2866,19 @@ fn run_serve(
             }
         }
 
+        // MESHFS-2.1 (v5.0.0) — LizardFS mesh-storage fleet supervisor.
+        // Follows the gluster_worker pattern: silent no-op when the
+        // mfsmaster/mfschunkserver binaries are absent.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::meshfs_worker::MeshFsWorker::new()
+                .with_qnm_peer_discovery(qnm_root.clone(), node_id.clone()),
+            RestartPolicy::Always,
+        ));
+        worker_names
+            .lock()
+            .expect("worker_names mutex")
+            .push("meshfs_worker".into());
+
         // INST-11 + INST-12 + INST-13 (v2.7) — fleet upgrade-barrier
         // worker. Runs on every peer; silently no-ops until a
         // `mde-update --coordinate <ver>` writes an intent file into

@@ -134,6 +134,11 @@ pub mod nebula_ca_backup;
 // the GF-1.3.a overlay-ip publish file is missing (peer
 // hasn't completed Nebula enrollment).
 pub mod gluster_worker;
+// MESHFS-2.1 (v5.0.0) — LizardFS mesh-storage fleet supervisor.
+// Follows the gluster_worker pattern exactly; silent no-op when
+// the mfsmaster/mfschunkserver binaries are absent or the
+// overlay-ip publish file doesn't yet exist.
+pub mod meshfs_worker;
 // INST-11 + INST-12 + INST-13 (v2.7) — fleet upgrade-barrier
 // worker. Runs on every peer: watches `<mesh-home>/upgrade-
 // intent/*.json` (written by `mde-update --coordinate`), runs

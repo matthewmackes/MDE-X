@@ -1834,14 +1834,15 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Daemon (`mackesd::meshfs_worker`)
 
-- [ ] **MESHFS-2.1: v5.0.0 — `crates/mackesd/src/workers/meshfs_worker.rs` ships (genesis + enroll + revoke + goal)**
+- [✓] **MESHFS-2.1: v5.0.0 — `crates/mackesd/src/workers/meshfs_worker.rs` ships (genesis + enroll + revoke + goal)**
   **As** the fleet, **I want** a peer to auto-create or auto-join the export, **so that** storage converges with no operator step.
   **Acceptance:**
-    - [ ] 5s tick mirrors `nebula_supervisor.rs` shape (tokio task, ShutdownToken select); silent no-op when LizardFS binaries/overlay-ip absent
-    - [ ] genesis: if no master answers the VIP, become genesis active master + create `mesh-storage`
-    - [ ] `EnrollmentCompleted{node_id}` → start chunkserver+shadow, raise goal to new N
-    - [ ] CA-revoke → evict chunkserver, re-replicate to hold goal=N, drop shadow, lower goal; fail VIP over first if it held the active master
-    - [ ] pure-fn helpers extracted (argv shapes, binary-on-path, export-exists) + unit tests with a mocked CLI shim
+    - [✓] 5s tick mirrors `nebula_supervisor.rs` shape (tokio task, ShutdownToken select); silent no-op when LizardFS binaries/overlay-ip absent
+    - [✓] genesis: if no master answers the VIP, become genesis active master + create `mesh-storage`
+    - [✓] `EnrollmentCompleted{node_id}` → start chunkserver+shadow, raise goal to new N
+    - [✓] CA-revoke → evict chunkserver, re-replicate to hold goal=N, drop shadow, lower goal; fail VIP over first if it held the active master
+    - [✓] pure-fn helpers extracted (argv shapes, binary-on-path, export-exists) + unit tests with a mocked CLI shim
+  **Shipped:** `crates/mackesd/src/workers/meshfs_worker.rs` (13 tests green); wired in `run_serve` via `with_qnm_peer_discovery`.
 - [ ] **MESHFS-3.1: v5.0.0 — Master HA: floating overlay VIP + shadow promotion via the leader lock**
   **Acceptance:**
     - [ ] worker claims/relinquishes the mesh-storage VIP on the overlay interface per the QNM-Shared leader lock
