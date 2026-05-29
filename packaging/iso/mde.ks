@@ -111,35 +111,42 @@ cat > /etc/skel/.config/mde/state.json <<'EOF'
 }
 EOF
 
-# CB-2.3 — LightDM default session = mde so newly created accounts
-# land on the MDE Wayland session. configure-lightdm.sh writes the
-# matching drop-in for the live-iso install; on a normal install
-# the same script runs via the first-run wizard.
-mkdir -p /etc/lightdm/lightdm.conf.d
-cat > /etc/lightdm/lightdm.conf.d/50-mde.conf <<'EOF'
-[Seat:*]
-user-session=mde
-EOF
+# DM-1/DM-2 (A2 fix, 2026-05-29) — boot to the greetd greeter
+# (LightDM retired per the DM-* survey). The RPM ships the MDE
+# greetd config to /usr/share/mde/greetd/config.toml (the Fedora
+# greetd RPM owns /etc/greetd/config.toml, so we install over it
+# here rather than dual-owning at dnf time). `cage -s -- regreet`
+# is the kiosk greeter chain. The newly-created account lands on
+# the MDE Wayland session via regreet's MDE-only session picker
+# (regreet.toml). First login runs the provisioning wizard
+# (/etc/skel state.json has provisioned:false), which converges
+# the box. Previously this block wrote /etc/lightdm/*, which left
+# the ISO with greetd installed but LightDM configured.
+if [ -f /usr/share/mde/greetd/config.toml ]; then
+    install -D -m 0644 /usr/share/mde/greetd/config.toml /etc/greetd/config.toml
+fi
+systemctl enable greetd.service 2>/dev/null || :
+systemctl set-default graphical.target 2>/dev/null || :
 
 # CB-3.4 — register the comps group so future installs can
 # `dnf groupinstall mackes-desktop-environment`.
 dnf groups mark install mackes-desktop-environment 2>/dev/null || :
 
 # Add the MDE dnf repo for future upgrades.
-if [ -x /usr/share/mackes-shell/install-helpers/add-mackes-repo.sh ]; then
-    /usr/share/mackes-shell/install-helpers/add-mackes-repo.sh || true
+if [ -x /usr/share/mde/install-helpers/add-mackes-repo.sh ]; then
+    /usr/share/mde/install-helpers/add-mackes-repo.sh || true
 fi
 
 # Wire the recovery boot entry (idempotent on re-runs).
-if [ -x /usr/share/mackes-shell/install-helpers/install-recovery.sh ]; then
-    /usr/share/mackes-shell/install-helpers/install-recovery.sh || true
+if [ -x /usr/share/mde/install-helpers/install-recovery.sh ]; then
+    /usr/share/mde/install-helpers/install-recovery.sh || true
 fi
 
 # CB-4.3 — branding hook. Install the MDE wallpaper as the
-# system-wide default backdrop (used by the LightDM greeter +
+# system-wide default backdrop (used by the greetd/regreet greeter +
 # first-run wizard).
-if [ -f /usr/share/mackes-shell/branding/standard-wallpaper.png ]; then
-    install -D -m 0644 /usr/share/mackes-shell/branding/standard-wallpaper.png \
+if [ -f /usr/share/mde/branding/standard-wallpaper.png ]; then
+    install -D -m 0644 /usr/share/mde/branding/standard-wallpaper.png \
         /usr/share/backgrounds/mde-default.png
 fi
 

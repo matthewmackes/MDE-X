@@ -32,6 +32,7 @@ Public API:
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import threading
@@ -226,14 +227,22 @@ class AdminSession:
             capture: bool = True) -> tuple[int, str]:
         """Execute `cmd` with admin privileges.
 
-        v1.4.1 priority order:
+        Priority order:
+          0. Already root (EUID 0) → run the command directly. (A7,
+             2026-05-29) When invoked from `sudo mde-install`, we're
+             already root; routing through pkexec would fail in a
+             non-interactive root context (no polkit agent), and sudo
+             is redundant. This makes birthright steps work when the
+             installer drives them as root.
           1. NOPASSWD sudoers drop-in active → `sudo -n` (no prompt ever)
           2. Session explicitly unlocked → `sudo -n` (cached creds)
           3. pkexec fallback (single GUI prompt) → `pkexec`
           4. Bare sudo (terminal prompt) → `sudo`
           5. No elevation available → raw command (will fail if it needs root)
         """
-        if shutil.which("sudo") and (
+        if os.geteuid() == 0:
+            full = list(cmd)
+        elif shutil.which("sudo") and (
             self._unlocked or self._has_nopasswd_coverage()
         ):
             full = ["sudo", "-n", *cmd]

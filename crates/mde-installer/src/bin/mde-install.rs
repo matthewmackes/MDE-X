@@ -36,6 +36,10 @@ struct Args {
     /// Print the plan without changing anything.
     #[arg(long)]
     dry_run: bool,
+
+    /// Tar existing MDE state to /var/lib/mde/backups/ before the wipe (recovery escape hatch).
+    #[arg(long)]
+    backup: bool,
 }
 
 fn main() -> ExitCode {
@@ -52,12 +56,6 @@ fn main() -> ExitCode {
 fn run(args: &Args) -> Result<(), String> {
     let profile = resolve_profile(args)?;
     println!("Install profile: {profile} — {}", profile.describe());
-    if profile.needs_desktop_rpm() && !desktop_rpm_present() {
-        println!(
-            "note: the `full` profile needs the `mde-desktop` RPM; install it with \
-             `dnf install mde-desktop` to get the sway desktop (mesh substrate still installs)."
-        );
-    }
 
     // Preflight — what the wipe will remove.
     let all = wipe::local_state_paths();
@@ -76,6 +74,12 @@ fn run(args: &Args) -> Result<(), String> {
     );
 
     if args.dry_run {
+        if profile.needs_desktop_rpm() && !desktop_rpm_present() {
+            println!("[dry-run] would `dnf install -y mde-desktop` (building up to the full desktop).");
+        }
+        if args.backup {
+            println!("[dry-run] would tar existing MDE state to /var/lib/mde/backups/ before wiping.");
+        }
         println!("\n[dry-run] would stop {:?}, wipe the paths above, write the \
                   profile marker, restart services, then run birthrights for {profile}.",
                  wipe::MANAGED_SERVICES);
@@ -102,6 +106,28 @@ fn run(args: &Args) -> Result<(), String> {
     let mut audit = Vec::new();
     audit.push(format!("profile: {profile}"));
 
+    // A4 — build up to the full desktop: pull mde-desktop if the
+    // profile needs it and it isn't installed (the "build up from a
+    // Fedora Server CLI" path). Done before the wipe so a missing
+    // repo fails loudly before anything is destroyed.
+    if profile.needs_desktop_rpm() && !desktop_rpm_present() {
+        let msg = ensure_desktop_rpm()?;
+        println!("{msg}");
+        audit.push(msg);
+    }
+
+    // A6 — optional pre-wipe backup (recovery escape hatch; there is
+    // no version history per Q25, so this is the only undo).
+    if args.backup && !targets.is_empty() {
+        match backup_state(&targets) {
+            Ok(p) => {
+                println!("backup: {}", p.display());
+                audit.push(format!("backup: {}", p.display()));
+            }
+            Err(e) => return Err(format!("backup failed (aborting before wipe): {e}")),
+        }
+    }
+
     // Wipe sequence (clean-install scope).
     for line in wipe::stop_services(wipe::MANAGED_SERVICES) {
         audit.push(line);
@@ -126,9 +152,60 @@ fn run(args: &Args) -> Result<(), String> {
     }
 
     // Birthrights for the profile.
-    run_birthrights(profile)?;
+    if let Err(e) = run_birthrights(profile) {
+        return Err(format!(
+            "{e}\n  recover: run `python3 -m mackes.birthright_rollback` or re-run \
+             `mde-install --profile={profile}` (idempotent); the audit log above lists \
+             what changed."
+        ));
+    }
     println!("\nmde-install: {profile} node converged.");
     Ok(())
+}
+
+/// `dnf install -y mde-desktop` — pull the Wayland desktop addon when
+/// building up to the full profile from a headless base.
+fn ensure_desktop_rpm() -> Result<String, String> {
+    println!("Building up to the full desktop: installing mde-desktop…");
+    let status = Command::new("dnf")
+        .args(["install", "-y", "mde-desktop"])
+        .status()
+        .map_err(|e| format!("spawning dnf: {e}"))?;
+    if status.success() {
+        Ok("installed mde-desktop".to_string())
+    } else {
+        Err(format!(
+            "could not install mde-desktop (dnf exit {}). The full profile needs it — \
+             configure the MDE dnf repo (or `dnf install mde-desktop` manually) and re-run.",
+            status.code().unwrap_or(-1)
+        ))
+    }
+}
+
+/// Tar the existing MDE-state paths to `/var/lib/mde/backups/` before
+/// the wipe. Returns the tarball path.
+fn backup_state(paths: &[PathBuf]) -> std::io::Result<PathBuf> {
+    let dir = PathBuf::from("/var/lib/mde/backups");
+    fs::create_dir_all(&dir)?;
+    let ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let tarball = dir.join(format!("mde-state-{ms}.tar.gz"));
+    let mut cmd = Command::new("tar");
+    cmd.arg("-czf").arg(&tarball);
+    for p in paths {
+        cmd.arg(p);
+    }
+    let status = cmd.status()?;
+    if status.success() {
+        Ok(tarball)
+    } else {
+        Err(std::io::Error::other(format!(
+            "tar exited {}",
+            status.code().unwrap_or(-1)
+        )))
+    }
 }
 
 fn resolve_profile(args: &Args) -> Result<Profile, String> {

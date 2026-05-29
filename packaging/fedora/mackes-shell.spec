@@ -1185,21 +1185,20 @@ usermod -aG _rtpengine_mde _kamailio_mde 2>/dev/null || :
 systemctl enable --now sshd.service || :
 # Refresh systemd unit cache so the new mackes-* units are visible.
 systemctl daemon-reload || :
-# Phase 12.1 — initialize the mackesd store on install/upgrade. The
-# migrate subcommand is idempotent (no-op if schema is current).
-systemctl enable --now mackesd.service 2>/dev/null || :
-# GF-1.2 (v5.0.0) — enable glusterd so the mesh-home volume
-# (managed by the future `gluster_worker` in mackesd) can be
-# bootstrapped + joined without a manual operator step.
-# `glusterd` only binds locally until GF-1.3's Nebula-overlay
-# drop-in lands; it's safe to enable on first install.
-systemctl enable --now glusterd.service 2>/dev/null || :
-# MON-1 (v2.6) — enable netdata so the birthright
-# `apply_netdata_monitor` step + the future MON-1.b dynamic
-# stream-block rewriter have a live daemon to reload. Bound
-# to 127.0.0.1 in the default config until birthright writes
-# the overlay-bind block.
-systemctl enable --now netdata.service 2>/dev/null || :
+# A8 (2026-05-29) — enable (but do NOT --now start) the mesh
+# services here. `mde-install` stops → wipes /var/lib/mde →
+# restarts them during convergence, so starting them in %post just
+# means they briefly run against config that's about to be wiped.
+# `enable` (no --now) means they come up on the next boot / when
+# mde-install's start_services step runs, whichever is first.
+# Phase 12.1 — mackesd store init is idempotent (migrate on start).
+systemctl enable mackesd.service 2>/dev/null || :
+# GF-1.2 (v5.0.0) — glusterd for the mesh-home volume (binds
+# locally until GF-1.3's Nebula-overlay drop-in lands).
+systemctl enable glusterd.service 2>/dev/null || :
+# MON-1 (v2.6) — netdata for the apply_netdata_monitor birthright
+# step (bound to 127.0.0.1 until birthright writes the overlay bind).
+systemctl enable netdata.service 2>/dev/null || :
 # VV-1 + VV-1.5 (v4.1.0) — voice stack state + spool + TLS dirs.
 # Config trees /etc/kamailio-mde/ + /etc/rtpengine-mde/ are owned
 # by the RPM (root:root 0755) so the generated config files end
@@ -1227,12 +1226,13 @@ systemctl daemon-reload 2>/dev/null || :
 # never break the host's sudo behavior.
 visudo -c -f /etc/sudoers.d/mackes-shell >/dev/null 2>&1 \
     || rm -f /etc/sudoers.d/mackes-shell
-# Rebuild the GTK icon caches for the vendored icon themes
-gtk-update-icon-cache -f -t %{_datadir}/icons/Black-Sun     2>/dev/null || :
-gtk-update-icon-cache -f -t %{_datadir}/icons/Mackes-Carbon 2>/dev/null || :
-# v4.0.1: refresh the fontconfig cache so newly-installed Geologica
-# is visible to fc-list / Iced / GTK at next session start.
-fc-cache -fv %{_datadir}/fonts/geologica 2>/dev/null || :
+# A5 (2026-05-29) — GTK icon-cache + fontconfig refreshes moved to
+# `%post -n mde-desktop` below: base `mde-core` is headless (no GTK,
+# no rendered icons/fonts), so caching them here was both wasted work
+# and a layering violation. The dead `fc-cache .../fonts/geologica`
+# line was also dropped — Geologica was retired for Roboto (Q44) and
+# fonts now come from dnf-installed packages (mde-desktop Requires),
+# not a vendored /usr/share/fonts/geologica tree that no longer ships.
 # CB-3.4 — register the comps group so `dnf groupinstall
 # mackes-desktop-environment` resolves on this host. Silently no-ops
 # on systems where dnf-plugins-core isn't available.
@@ -1247,6 +1247,17 @@ dnf groups mark install mackes-desktop-environment 2>/dev/null || :
 rm -f /usr/share/xsessions/xfce11-i3-plank.desktop \
       /usr/share/xsessions/xfce11.desktop \
       /usr/share/xsessions/mackes.desktop 2>/dev/null || :
+
+# A5 (2026-05-29) — GUI asset caches belong with the desktop addon,
+# not the headless base. gtk-update-icon-cache needs GTK (an
+# mde-desktop dep) and only matters once a UI renders. (Mackes-Carbon
+# is mid-retirement to Material Symbols per Q43/Q97; cached here until
+# EPIC-UI-MATERIAL removes it. Roboto/Material fonts come from
+# dnf-installed font packages, which carry their own fontconfig
+# triggers — no manual fc-cache needed.)
+%post -n mde-desktop
+gtk-update-icon-cache -f -t %{_datadir}/icons/Black-Sun     2>/dev/null || :
+gtk-update-icon-cache -f -t %{_datadir}/icons/Mackes-Carbon 2>/dev/null || :
 
 %preun
 # Only on uninstall, not upgrade ($1 == 0 → final removal)

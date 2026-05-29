@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Mackes Desktop Environment (MDE) — PatternFly-styled installer.
+# Mackes Desktop Environment (MDE) — bootstrap installer.
 #
 #   curl -fsSL https://raw.githubusercontent.com/matthewmackes/MAP2-RELEASES/main/install.sh | bash
 #
-# Phases (each shown as a Carbon-styled box in the terminal):
+# Phases (each shown as a styled box in the terminal):
 #   1. Detect Fedora release + architecture
 #   2. Resolve the latest release tag from GitHub
-#   3. Download the RPM (with spinner)
+#   3. Download the base mde-core RPM (with spinner)
 #   4. Install via dnf (live dimmed log lines, not a silent multi-minute wait)
-#   5. Hand off to the first-run wizard
+#   5. Add the MDE dnf repo (so mde-desktop + upgrades resolve)
+#   6. Converge the node with `sudo mde-install` (profile picker → birthrights)
 
 set -euo pipefail
 
@@ -50,10 +51,10 @@ banner() {
         "$C_DIM" "$C_RESET" \
         $((61 - 50)) " " \
         "$C_ACCENT" "$C_RESET"
-    printf '%b│%b  %bPatternFly 6 · Wayland · Fedora%b%*s%b│%b\n' \
+    printf '%b│%b  %bChromeOS Classic · Wayland · Fedora%b%*s%b│%b\n' \
         "$C_ACCENT" "$C_RESET" \
         "$C_DIM" "$C_RESET" \
-        $((61 - 35)) " " \
+        $((61 - 39)) " " \
         "$C_ACCENT" "$C_RESET"
     printf '%b└─────────────────────────────────────────────────────────────┘%b\n\n' "$C_ACCENT" "$C_RESET"
 }
@@ -128,7 +129,7 @@ LOG="$(mktemp -t mackes-install.XXXXXX.log)"
 TMP="$(mktemp -d -t mackes-install.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-TOTAL=5
+TOTAL=6
 
 # ---- Phase 1: detect ------------------------------------------------------
 phase_start 1 $TOTAL "Detect Fedora release"
@@ -199,30 +200,45 @@ fi
 phase_start 4 $TOTAL "Install RPM"
 phase_ok "done"
 
-# ---- Phase 5: hand off ----------------------------------------------------
-phase_start 5 $TOTAL "Launch first-run wizard"
-if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-    phase_ok "starting"
-    printf '\n%b%s%b  %bRun %bmde --wizard%b%b to re-open setup anytime.%b\n\n' \
-        "$C_DIM" "$DOT" "$C_RESET" \
-        "$C_DIM" \
-        "$C_TEXT" "$C_DIM" \
-        "$C_RESET" "$C_RESET"
-    exec mde
+# ---- Phase 5: add the MDE dnf repo ----------------------------------------
+# So `mde-install --profile=full` can pull mde-desktop, and so future
+# `dnf upgrade` resolves. The helper ships in the base RPM we just
+# installed (A1: data lives under /usr/share/mde/).
+phase_start 5 $TOTAL "Add MDE dnf repo"
+if [ -x /usr/share/mde/install-helpers/add-mackes-repo.sh ]; then
+    if sudo /usr/share/mde/install-helpers/add-mackes-repo.sh >>"$LOG" 2>&1; then
+        phase_ok "repo configured"
+    else
+        phase_fail "repo helper failed (continuing; mde-desktop may need manual install)"
+    fi
 else
-    phase_ok "headless — run mde later"
-    # CB-5.4 — no DISPLAY + no WAYLAND_DISPLAY → user is on a TTY.
-    # MDE 2.0.0 is Wayland-only (sway is the locked compositor), so
-    # nudge them toward picking the new session from the greeter.
-    printf '\n%b%s%b  %bMDE 2.0.0 needs a Wayland session.%b On next login, pick %b"Mackes Desktop Environment"%b\n' \
-        "$C_ACCENT" "$DOT" "$C_RESET" \
-        "$C_BOLD" "$C_RESET" \
+    phase_ok "skipped (helper not present)"
+fi
+
+# ---- Phase 6: converge with mde-install -----------------------------------
+# A3 — the base RPM is installed; now converge the node. `mde-install`
+# is the canonical convergence tool (the profile picker → wipe →
+# birthrights flow). On `full` it pulls mde-desktop itself (A4), so the
+# Fedora-Server-CLI build-up path works from one command.
+phase_start 6 $TOTAL "Converge with mde-install"
+if [ ! -x /usr/bin/mde-install ]; then
+    phase_fail "mde-install missing — base RPM may be incomplete"
+    err "Expected /usr/bin/mde-install from the mde-core RPM; see $LOG"
+fi
+phase_ok "starting"
+printf '\n%b%s%b  %bRunning %bsudo mde-install%b — pick a profile (Full builds the desktop).%b\n\n' \
+    "$C_DIM" "$DOT" "$C_RESET" \
+    "$C_DIM" "$C_TEXT" "$C_DIM" "$C_RESET"
+# Hand the real terminal to mde-install for its interactive picker +
+# typed-NUKE confirm. Under `curl … | bash`, this script's stdin is
+# the pipe (not a TTY), so we redirect mde-install's stdin from
+# /dev/tty. When there's no controlling terminal (CI / fully
+# unattended), fall back to printing the manual command.
+if [ -e /dev/tty ]; then
+    exec sudo /usr/bin/mde-install < /dev/tty
+else
+    printf '%b%s%b  %bNo terminal for the profile picker.%b Finish setup with:\n' \
+        "$C_ACCENT" "$DOT" "$C_RESET" "$C_BOLD" "$C_RESET"
+    printf '       %bsudo mde-install --profile=full%b   (or lighthouse|headless)\n\n' \
         "$C_TEXT" "$C_RESET"
-    printf '%b%s%b  from the greeter session menu, then %bmde --wizard%b re-opens setup.%b\n' \
-        "$C_ACCENT" " " "$C_RESET" \
-        "$C_TEXT" "$C_RESET" "$C_RESET"
-    printf '\n%b%s%b  %bHeadless TUI:%b run %bmde --tui%b in a terminal.%b\n\n' \
-        "$C_DIM" "$DOT" "$C_RESET" \
-        "$C_DIM" "$C_RESET" \
-        "$C_TEXT" "$C_RESET" "$C_RESET"
 fi
