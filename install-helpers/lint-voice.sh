@@ -181,7 +181,7 @@ scan FORBIDDEN-CARBON-VOCAB \
 scan FORBIDDEN-COMING-SOON \
     '"(coming soon|TBD|tbd|WIP|work in progress|not yet implemented|soon™|early access)"' \
     'aspirational "coming soon" / "TBD" / "WIP" labels leaked into user-visible copy (§0.12 + 25-Q Q9)' \
-    '--include=*.rs --include=*.py --include=*.desktop'
+    '-i --include=*.rs --include=*.py --include=*.desktop'
 
 # Aspirational labels embedded INSIDE quoted user strings — e.g.
 # "Networks (coming soon)" / "Voice (beta)" / "Files [WIP]".
@@ -191,10 +191,11 @@ scan FORBIDDEN-COMING-SOON \
 # parenthetical / bracketed form is the operator-facing
 # aspirational-label idiom; bare technical mentions of beta/
 # alpha/etc. inside long descriptive strings are not caught.
+# -i so "Coming soon" and "coming soon" are both caught.
 scan FORBIDDEN-LABEL-SUFFIX \
     '"[^"]*[\[\(](coming soon|TBD|WIP|work in progress|early access|alpha|beta|preview|experimental)[\]\)][^"]*"' \
     'aspirational label suffix leaked into user-visible copy (§0.12 + 25-Q Q9)' \
-    '--include=*.rs --include=*.py --include=*.desktop'
+    '-i --include=*.rs --include=*.py --include=*.desktop'
 
 # ──────────────────────────────────────────────────────────────
 # Verb discipline (locked §Verb discipline)
