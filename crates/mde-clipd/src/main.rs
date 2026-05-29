@@ -13,6 +13,7 @@ use tracing::info;
 use wayland_client::Connection;
 
 mod blobstore;
+mod conflict;
 mod proto;
 mod publish;
 mod session;

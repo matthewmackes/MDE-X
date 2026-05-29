@@ -63,20 +63,45 @@ fn run_subscriber_loop(bus_root: &Path, local_peer: &str) {
             }
         };
 
+        // Collect all new messages in this poll cycle as a batch so
+        // conflict::resolve_batch can merge simultaneous cross-peer copies
+        // rather than applying them in arbitrary order.
+        let mut batch: Vec<crate::conflict::DecodedMsg> = Vec::new();
+
         for ulid in &ulids {
             if !seen.contains(ulid) {
                 seen.insert(ulid.clone());
                 let msg_path = topic_dir.join(format!("{ulid}.json"));
-                process_message(&msg_path, local_peer);
+                let content = match std::fs::read_to_string(&msg_path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!(
+                            path = %msg_path.display(),
+                            error = %e,
+                            "clipboard/subscriber: read failed"
+                        );
+                        continue;
+                    }
+                };
+                if let Some((msg, data)) = decode_message(&content, local_peer) {
+                    batch.push(crate::conflict::DecodedMsg {
+                        ulid: ulid.clone(),
+                        peer: msg.publisher_peer,
+                        mime: msg.selected_mime,
+                        data,
+                    });
+                }
             }
+        }
+
+        if let Some((data, mime)) = crate::conflict::resolve_batch(batch) {
+            apply_clipboard(&data, &mime);
         }
     }
 }
 
 // ── Message processing ─────────────────────────────────────────────────────
 
-/// List all non-tmp ULID stems present in `topic_dir`. Returns an empty
-/// set if the directory does not exist yet (first-run path).
 pub(crate) fn collect_ulids(topic_dir: &Path) -> anyhow::Result<BTreeSet<String>> {
     let mut out = BTreeSet::new();
     if !topic_dir.exists() {
@@ -93,21 +118,6 @@ pub(crate) fn collect_ulids(topic_dir: &Path) -> anyhow::Result<BTreeSet<String>
     Ok(out)
 }
 
-fn process_message(msg_path: &Path, local_peer: &str) {
-    let content = match std::fs::read_to_string(msg_path) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(path = %msg_path.display(), error = %e, "clipboard/subscriber: read failed");
-            return;
-        }
-    };
-
-    let Some((msg, data)) = decode_message(&content, local_peer) else {
-        return;
-    };
-
-    apply_clipboard(&data, &msg.selected_mime);
-}
 
 /// Parse a bus envelope JSON, return `(ClipboardSyncMsg, payload_bytes)` if
 /// the message is from a different peer and the payload decodes cleanly.
