@@ -1041,6 +1041,76 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+
+            // MESHFS-14.1 — extract LizardFS snapshot if present.
+            match plaintext.meshfs_snapshot.as_ref() {
+                None => {
+                    eprintln!(
+                        "[state-restore] bundle has no meshfs snapshot (CA-only, pre-MESHFS, or Gluster-only bundle) — skipping LizardFS step",
+                    );
+                }
+                Some(snap) => {
+                    std::fs::create_dir_all(&recovery_dir).with_context(|| {
+                        format!("mkdir {}", recovery_dir.display())
+                    })?;
+                    let mut wrote = 0usize;
+                    // Write metadata dump for `mfsmaster --import-metadata`.
+                    if let Some(dump) = snap.metadata_dump.as_deref() {
+                        let path = recovery_dir.join("metadata.mfs.dump");
+                        std::fs::write(&path, dump).with_context(|| {
+                            format!("writing {}", path.display())
+                        })?;
+                        wrote += 1;
+                        eprintln!(
+                            "[state-restore] meshfs: wrote {} ({} bytes)",
+                            path.display(), dump.len(),
+                        );
+                    }
+                    // Write exports config for re-application.
+                    if let Some(cfg) = snap.exports_config.as_deref() {
+                        let path = recovery_dir.join("mfsexports.cfg");
+                        std::fs::write(&path, cfg).with_context(|| {
+                            format!("writing {}", path.display())
+                        })?;
+                        wrote += 1;
+                        eprintln!(
+                            "[state-restore] meshfs: wrote {} ({} bytes)",
+                            path.display(), cfg.len(),
+                        );
+                    }
+                    // Write CS list for topology reference.
+                    if let Some(cs) = snap.cs_list.as_deref() {
+                        let path = recovery_dir.join("cs-list.txt");
+                        std::fs::write(&path, cs).with_context(|| {
+                            format!("writing {}", path.display())
+                        })?;
+                        wrote += 1;
+                        eprintln!(
+                            "[state-restore] meshfs: wrote {} ({} bytes)",
+                            path.display(), cs.len(),
+                        );
+                    }
+                    if wrote == 0 {
+                        eprintln!(
+                            "[state-restore] meshfs snapshot present but every section was empty — nothing to apply",
+                        );
+                    } else {
+                        let goal_hint = snap.goal.map_or_else(
+                            || "N (re-count enrolled peers)".to_owned(),
+                            |g| g.to_string(),
+                        );
+                        eprintln!(
+                            "[state-restore] meshfs: {wrote} file(s) at {dir}; restore steps:\n\
+                             1. cp {dir}/mfsexports.cfg /etc/mfs/mfsexports.cfg\n\
+                             2. mfsmaster --import-metadata {dir}/metadata.mfs.dump\n\
+                             3. mfsmaster start  # starts the active master\n\
+                             4. mfssetgoal -r {goal_hint} /mnt/mesh-storage\n\
+                             (see docs/help/mesh-recovery.md)",
+                            dir = recovery_dir.display(),
+                        );
+                    }
+                }
+            }
         }
         Cmd::PreflightGlusterHeadroom { brick_dir, home } => {
             // GF-12.2 — pre-flight headroom check for the

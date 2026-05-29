@@ -1905,8 +1905,9 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Backup + phone bridge
 
-- [ ] **MESHFS-14.1: v5.0.0 — Extend `mackesd_state_backup` with `mfsmetadump` + LizardFS topology/goal/quota config**
-  **Acceptance:** `[ ]` single encrypted tarball carries Nebula CA + metadata dump + export config; `mackesd state restore <bundle>` rebuilds both on a bare peer.
+- [✓] **MESHFS-14.1: v5.0.0 — Extend `mackesd_state_backup` with `mfsmetadump` + LizardFS topology/goal/quota config**
+  **Acceptance:** `[✓]` single encrypted tarball carries Nebula CA + metadata dump + export config; `mackesd state restore <bundle>` rebuilds both on a bare peer.
+  **Shipped:** `crates/mackesd/src/meshfs/snapshot.rs` (MeshFsSnapshot + collect(); 9 tests); `BundlePlaintext.meshfs_snapshot` field (schema_version 3); nebula_ca_backup stitches LizardFS snapshot; state restore handler extracts metadata dump + exports config + CS list to recovery dir with operator instructions.
 - [ ] **MESHFS-15.1: v5.0.0 — KDC2 phone share → `~/Documents/From-<phone-name>/` drop folder (carry GF-5/GF-15)** *(file-share UI removal already scoped under GF-5; this retargets the drop folder onto mesh-storage)*.
 
 #### Docs + lint + tests

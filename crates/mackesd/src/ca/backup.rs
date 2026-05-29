@@ -99,6 +99,12 @@ pub struct BundlePlaintext {
     /// signal for restore.
     #[serde(default)]
     pub gluster_snapshot: Option<crate::gluster::snapshot::GlusterSnapshot>,
+    /// MESHFS-14.1 (v5.0.0) — optional LizardFS snapshot.
+    /// `None` when neither `mfsmetadump` nor `mfsadmin` is on
+    /// PATH (Gluster-only or pre-MESHFS peer). Bumps
+    /// `schema_version` to 3 in the backup worker when present.
+    #[serde(default)]
+    pub meshfs_snapshot: Option<crate::meshfs::snapshot::MeshFsSnapshot>,
 }
 
 /// One CA cert + matching private key entry.
@@ -427,13 +433,13 @@ pub fn assemble_from_store(
         ca_certs,
         peer_certs,
         // CA-side `assemble_from_store` stays at schema_version
-        // 1 — it doesn't have access to the gluster CLI from
-        // inside the SQL transaction. The state-backup worker
-        // is what stitches the gluster snapshot in (and bumps
-        // schema_version to 2 at the same time); the CA-only
-        // CLI path (`mackesd ca export`) deliberately leaves
-        // this field None.
+        // 1 — it doesn't have access to the gluster/meshfs CLI
+        // from inside the SQL transaction. The state-backup worker
+        // stitches the FS snapshots in (bumping schema_version to
+        // 2 for Gluster, 3 for LizardFS); the CA-only CLI path
+        // (`mackesd ca export`) deliberately leaves both None.
         gluster_snapshot: None,
+        meshfs_snapshot: None,
     })
 }
 
@@ -489,6 +495,7 @@ mod tests {
                 retired_at: None,
             }],
             gluster_snapshot: None,
+            meshfs_snapshot: None,
             peer_certs: vec![PeerCertRow {
                 node_id: "peer:anvil".into(),
                 epoch: 0,

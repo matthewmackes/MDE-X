@@ -215,6 +215,17 @@ impl NebulaCaBackup {
             plaintext.schema_version = 2;
             plaintext.gluster_snapshot = snapshot;
         }
+        // MESHFS-14.1 — fold a LizardFS snapshot into the bundle.
+        // Returns None when mfsmetadump + mfsadmin are both absent.
+        // Bumps schema_version to 3 so the restore CLI knows to
+        // apply the meshfs step.
+        let meshfs_snap = crate::meshfs::snapshot::collect(
+            &crate::meshfs::snapshot::SnapshotConfig::default(),
+        );
+        if meshfs_snap.is_some() {
+            plaintext.schema_version = 3;
+            plaintext.meshfs_snapshot = meshfs_snap;
+        }
         let sealed = crate::ca::backup::seal(passphrase, &plaintext)
             .map_err(|e| BackupTickError::Seal(e.to_string()))?;
         let armored = crate::ca::backup::armor(&sealed, plaintext.exported_at);

@@ -32,6 +32,8 @@ pub mod events;
 pub mod fleet;
 pub mod health;
 pub mod gluster;
+// MESHFS-14.1 (v5.0.0) — LizardFS state snapshot for the backup bundle.
+pub mod meshfs;
 pub mod identity;
 pub mod leader;
 pub mod legacy_inventory;
