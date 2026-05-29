@@ -2349,10 +2349,22 @@ call-end lifecycle, never at install or login.
   **I want** D-Bus retired for MDE-internal IPC (FDO standards interop retained),
   **so that** "Bus for everything" (Q20) is the single command + event channel.
   **Acceptance** (each bench-observable):
-    - [ ] Per-service migration plan: 5 services (Mesh / Shell / Notifications / Voice / Files) each → `action/<domain>/<verb>` topics + `reply/<ulid>` response topics.
+    - [✓] Per-service migration plan *(shipped 2026-05-28 — session=opus-2026-05-28-ship-portRP; full `#[interface]` survey + caller inventory + categorization, lifted into DBUS-1..DBUS-6 sub-tasks below; surfaced 3 gating findings).*
     - [ ] Existing zbus `#[interface]` blocks removed; replaced by Bus subscribers.
     - [ ] `grep -rln "#\[interface\]" crates/mackesd/src/ipc/` returns zero matches for MDE-internal services (FDO interop e.g., `org.freedesktop.Notifications` allow-listed).
     - [ ] CLAUDE.md updated to reflect D-Bus retirement; Bus is the canonical IPC.
+
+  **Migration plan (2026-05-28 survey — session=opus-2026-05-28-ship-portRP):** 16 MDE-internal `#[interface]` services across 5 crates + `org.freedesktop.Notifications` (FDO interop — ALLOW-LISTED, never migrated). Three findings gate the migrations:
+  1. **Poll-latency.** `mde-bus::rpc::await_reply` is POLL-based (`DEFAULT_POLL_INTERVAL` loop + sleep). Interactive control (`Portal.goto/focus`, `Workbench.focus`) is instant on D-Bus; on poll-Bus it is a UX-latency regression. These need a low-latency Bus path (the broker's live ntfy stream, not the GFS-poll the other consumers use) OR stay D-Bus as a documented exception — **decision pending**, gates DBUS-2/DBUS-3.
+  2. **Sibling-callers.** `MDE.Session` + `MDE.Portal` have callers inside `crates/mackesd/src/ipc/` (the live EPIC-MESH-PROBE session's hot crate). Migrating their callers collides — sequence after that session's mackesd work lands.
+  3. **Single-instance.** `MDE.Shell.Workbench` is a D-Bus name-ownership single-instance pattern (detect-existing + `focus(slug)`-raise). Name-ownership is inherently D-Bus/socket; only the `focus` call is action-shaped — likely a documented exception, not a full migration.
+
+- [ ] **DBUS-1: Migrate `dev.mackes.MDE.Session` (mde-session) → `action/session/{logout,restart,shutdown,lock,save-layout}`.** Async-OK (fire-and-forget session control — latency-tolerant). Replace the `#[interface]` in `crates/mde-session/src/session.rs` with a Bus responder (poll `action/session/+`, dispatch, reply on `reply/<ulid>`); repoint callers `mde-session/src/{lock,main}.rs`; shrink the dbus-shape allow-list. **Gated on the sibling** — a caller lives in `crates/mackesd/src/ipc/session.rs` (sibling-hot). Bench: logout/shutdown/lock round-trip.
+- [ ] **DBUS-2: Migrate `dev.mackes.MDE.Portal` (mde-portal) → `action/shell/{goto,focus,lock,open-uri,toggle-dnd,restart}`.** MIXED: `goto`/`focus` are latency-sensitive (finding #1); `lock`/`open-uri`/`toggle-dnd`/`restart` are async-OK. Callers: `mde-portal/src/{uri,mde_open_main}.rs` (own) + `mackesd/src/ipc/{portal,mod}.rs` (sibling). **Gated on finding #1 (latency decision) + the sibling.**
+- [ ] **DBUS-3: Migrate `dev.mackes.MDE.Shell.Workbench` (mde-workbench) `focus(slug)` → `action/shell/workbench-focus`; keep name-ownership single-instance on D-Bus (documented exception per finding #3).** Self-contained (callers all in `mde-workbench/src/{main,app}.rs` — non-sibling). `focus` is interactive — **gated on finding #1 (latency).**
+- [ ] **DBUS-4: Migrate `dev.mackes.MDE.Connect1` (mde-kdc) → `action/connect/{list-devices,get-device,pair-device,…}`.** Async-OK device ops (KDC2 surface). Verify the full caller set + the phone-pairing criticality before the hard cut; bench-gated (breaking pairing is high-impact).
+- [ ] **DBUS-5: Migrate the mackesd `crates/mackesd/src/ipc/` services** (Fleet, Fleet.Files, Gluster.Status, Nebula.Status, Session, Settings, Shell, Shell.{Downloads,FileOperations,Inbox,Outbox}) → `action/<domain>/<verb>`. The bulk + the acceptance grep target. **Gated on the EPIC-MESH-PROBE sibling** (mackesd is their hot crate). `org.freedesktop.Notifications` stays (FDO interop, allow-listed).
+- [ ] **DBUS-6: Update CLAUDE.md §0.7 gate #8 + §0.14 + AI_GOVERNANCE.md to reflect D-Bus retirement** (Bus canonical; FDO interop the sole exception). Closes the EPIC's 4th acceptance bullet after DBUS-1..5.
 
 - [>] **EPIC-RETIRE-QNM: Rename QNM-Shared → MDE-Workgroup across code + docs + memory** *(Q14 + Q77)* *(session=opus-cw-2026-05-26-01:00 — Phase A user-visible docs done; Phase B internal `qnm_root` symbol rename is a separate large refactor pending parallel-session quiescence)*
   **As** the platform,
