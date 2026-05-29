@@ -4784,12 +4784,70 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     2. **No cross-peer gossip substrate exists (bullet 2 is the real epic).** Every `INSERT/UPDATE nodes` is local (enrollment / CA-epoch sourced); nothing pulls peer node-data over the overlay and merges it. So a peer can only know its OWN RPM version — `list_peers` would return self + NULLs. Real skew detection needs a **node-data sync substrate** that isn't built. Split out as **INST-PEERVER-GOSSIP**.
     3. **Bullet 3 (a `Fleet` D-Bus `list_peers` method) is against direction.** AI_GOVERNANCE §3.3 retires D-Bus by 1.0 for Bus action/reply; the dbus-shape lint guards net-new surface; the existing `Fleet` methods are all `not implemented` stubs. The query must be a **Bus topic or a direct store read**, not a new D-Bus method.
   Also §0.8: a local-only `mde_version` writer with no reader is an unreachable-pub-fn half-build (INST-9/mde-update doesn't link `mackesd_core`), so the write + query + transport are interdependent — they can't land as isolated slices without the gossip + IPC-transport decisions.
-  **Recommendation:** route INST-PEERVER through `/plan` to design (a) the node-data gossip/convergence substrate (GFS-replicated per-peer `<peer>.json` vs Bus `peers/<host>` topic vs overlay RPC) and (b) the query transport (Bus `action/fleet/list-peers` → `reply/<ulid>`). Then it ships clean. The `mde_version` migration is the only piece safe to land standalone, and it's not worth a commit until the rest is designed.
+  **PLANNED 2026-05-29** via 5-Q `/plan` survey → `docs/design/v2.7-peer-data-convergence.md`. Locks: GFS per-peer files (`~/.mde-mesh/peers/<hostname>.json`) + write-own-file-on-heartbeat-tick + own-row authority + readers union the files directly (no D-Bus/Bus) + mackesd mirrors into `nodes`. Resolves all three conflicts. INST-PEERVER is now the PEERVER-1..6 breakdown below; INST-3b/INST-5/INST-9 consume the shared reader (PEERVER-3).
 
-- [ ] **v2.7: INST-PEERVER-GOSSIP (NEW 2026-05-29 from the INST-PEERVER re-scope) — node-data convergence substrate**
-  **Context:** mackesd has no mechanism to converge the `nodes` table across peers — each node's table reflects only its own enrollment/CA view. Cross-peer version skew (INST-9), peer-impact preflight (INST-5), and INST-3b's `peer_registry` all depend on knowing OTHER peers' state.
-  **Acceptance (to be locked in /plan):** a centerless convergence path (no central server) — each peer publishes `(hostname, mde_version, last_heartbeat_ms, health)` and every peer merges the others' into its `nodes` table. Candidate substrates: GFS-replicated `~/.mde-mesh/peers/<hostname>.json` (slow-state file polling per §3.1) OR a Bus `peers/<hostname>` retained topic. Must fit the open-mesh / flat-trust directive.
-  **Blockers:** design decision (/plan). Then unblocks INST-PEERVER query + INST-9 real skew table.
+#### PEERVER-1..6: v2.7 — peer-data convergence substrate (locked 2026-05-29, `docs/design/v2.7-peer-data-convergence.md`)
+
+- [ ] **v2.7: PEERVER-1 — peer-file schema + shared reader in `mackes-mesh-types`**
+  **As** any tool that needs the fleet's per-peer state,
+  **I want** a shared `PeerRecord {hostname, mde_version, last_seen_ms, health}` type + a `read_peers(dir) -> Vec<PeerRecord>` that unions `~/.mde-mesh/peers/*.json`,
+  **so that** both `mackesd` and `mde-installer` read converged peer-data from one code path without linking the heavy `mackesd_core`.
+  **Acceptance** (each bench-observable):
+    - [ ] `crates/mackes-mesh-types/` exports `PeerRecord` (serde) + `peers_dir(mesh_home)` + `read_peers(dir)` (skips malformed files, one record per file).
+    - [ ] `write_peer_record(dir, &rec)` writes `<hostname>.json` atomically (temp + rename).
+    - [ ] Unit tests: round-trip; union of N files; malformed file skipped not fatal; empty dir → empty vec.
+  **Blockers:** none.
+
+- [ ] **v2.7: PEERVER-2 — write own peer-file on the mackesd heartbeat tick**
+  **As** a mesh peer,
+  **I want** mackesd to write my `~/.mde-mesh/peers/<hostname>.json` on each heartbeat tick with my live `mde-core` version + fresh `last_seen_ms` + health,
+  **so that** every other peer's replicated view of me stays current.
+  **Acceptance** (each bench-observable):
+    - [ ] mackesd detects the local `mde-core` version via `rpm -q --qf '%{VERSION}' mde-core` on startup (cached; re-checked every Nth tick).
+    - [ ] The heartbeat worker calls `write_peer_record` each tick (reachable from `run_serve` — §0.8).
+    - [ ] On a live box, `cat ~/.mde-mesh/peers/$(hostname).json` shows the current version + a recent `last_seen_ms`.
+    - [ ] Write is skipped when content is unchanged AND last write was <1 tick ago (churn guard).
+  **Blockers:** PEERVER-1.
+
+- [ ] **v2.7: PEERVER-3 — wire the readers (mde-update / mde-install preflight / INST-3b)**
+  **As** `mde-update` and `mde-install`,
+  **I want** to read the converged peer list from `~/.mde-mesh/peers/` directly,
+  **so that** version-skew + peer-impact work with no broker/D-Bus/mackesd dependency.
+  **Acceptance** (each bench-observable):
+    - [ ] `mde-installer` deps `mackes-mesh-types`; a `peers` module wraps `read_peers`.
+    - [ ] INST-9: `mde-update` (no flag) prints the real HOSTNAME/VERSION/LAST-SEEN table from the union, with `(!)` minor-skew + `(!!)` major-skew markers + the documented exit codes; `--json` emits the array.
+    - [ ] INST-5: `mde-install` preflight peer-impact lists peers from the union (replacing the "INST-PEERVER not shipped" placeholder).
+    - [ ] INST-3b: the `mde-installer::peer_registry` module is the `read_peers` wrapper (closes INST-3b).
+  **Blockers:** PEERVER-1, PEERVER-2.
+
+- [ ] **v2.7: PEERVER-4 — mackesd mirrors peer-files into the `nodes` table**
+  **As** mackesd's own consumers (Workbench mesh view, health reconciler),
+  **I want** the converged peer versions merged into the `nodes` table,
+  **so that** they see versions/liveness without each re-reading the files.
+  **Acceptance** (each bench-observable):
+    - [ ] Migration `crates/mackesd/migrations/0012_peer_version.sql` adds `mde_version TEXT` to `nodes`; registered in `store::MIGRATIONS` (version 12); `migrate()` idempotent.
+    - [ ] The heartbeat reader unions `peers/*.json` and `UPDATE nodes SET mde_version=?, last_heartbeat_at=? WHERE node_id`/name matches.
+    - [ ] Unit test: after a mirror tick, `list_nodes` rows carry the peer-file versions.
+  **Blockers:** PEERVER-1.
+
+- [ ] **v2.7: PEERVER-5 — stale-peer rendering + decommission file removal**
+  **As** an operator reading the fleet view,
+  **I want** peers whose file is older than a stale threshold marked stale, and a decommissioned peer's file removed,
+  **so that** the list reflects reality.
+  **Acceptance** (each bench-observable):
+    - [ ] `read_peers` consumers compute age from `last_seen_ms`; `mde-update` marks peers stale past the threshold (default in the design doc).
+    - [ ] `mde-install`'s wipe sequence removes this node's `peers/<hostname>.json` (own-row authority = file is presence).
+    - [ ] Unit test: a record older than the threshold is classified stale.
+  **Blockers:** PEERVER-1, PEERVER-3.
+
+- [ ] **v2.7: PEERVER-6 — 2-peer convergence bench [HW carve-out]**
+  **As** the operator,
+  **I want** to confirm two real peers converge each other's version within a heartbeat interval,
+  **so that** the substrate is proven on hardware.
+  **Acceptance** (each bench-observable):
+    - [ ] On a 2-peer mesh, after peer B comes online, peer A's `peers/` dir contains B's file within one heartbeat interval.
+    - [ ] `mde-update` on A lists both peers with correct versions; bump B's RPM → A shows the skew marker.
+  **Blockers:** PEERVER-1..4. Release-bench item per §0.15.
 
 - [>] **v2.7: INST-3 `crates/mde-installer/` crate ships with `mde-install` + `mde-update` binaries + shared lib (Tier 1)** — **INST-3a SHIPPED 2026-05-29** (session=opus-48-2026-05-29-ship-INST); **INST-3b BLOCKED** on INST-PEERVER.
   *INST-3a (done):* new `crates/mde-installer/` workspace member with `lib.rs` exporting `profile` / `confirm` / `intent_file` / `wipe`, plus `[[bin]] mde-install` + `[[bin]] mde-update`. `cargo build -p mde-installer` clean; **17 unit tests green** (profile roundtrip/parse, confirm picker+typed-NUKE via injected readers, intent-file roundtrip/idempotent-ready, wipe path-planning). `mde-install --help` / `--profile=X --dry-run` / `mde-update --help` all produce real output (no `todo!()`). Spec installs both to `%{_bindir}` under base `mde-core`. Lib modules are real: `profile` (enum+FromStr+describe), `confirm` (TTY detect + typed-string + numeric picker, reader/writer-injected for tests), `intent_file` (serde_json upgrade-intent IO — INST-10), `wipe` (config-path wipe + systemctl stop/start + profile marker). `mde-install` flow: resolve profile (flag or picker or refuse-on-no-TTY) → preflight path list → typed-NUKE confirm (or `--yes` + audit log) → wipe local state → `python3 -m mackes.birthright --profile=X --noninteractive`.
