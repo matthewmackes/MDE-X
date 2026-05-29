@@ -6,7 +6,7 @@
 //! peer, with phone-origin rows badged via the locked glyph.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use iced::widget::{column, container, mouse_area, row, scrollable, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Task, Theme};
@@ -20,6 +20,11 @@ use mde_applet_notifications::{
 
 const WIDTH: u32 = 480;
 const HEIGHT: u32 = 600;
+
+// BUS-2.3 — priority accent colors (Carbon red/orange/blue, matching BUS-2.2).
+const BUS_URGENT_COLOR: Color = Color { r: 0.91, g: 0.30, b: 0.36, a: 1.0 };
+const BUS_HIGH_COLOR: Color   = Color { r: 0.93, g: 0.55, b: 0.21, a: 1.0 };
+const BUS_DEFAULT_COLOR: Color = Color { r: 0.20, g: 0.69, b: 1.00, a: 1.0 };
 
 const ACCENT: Color = Color {
     r: 0.169,
@@ -53,6 +58,119 @@ const SURFACE_BG: Color = Color {
     a: 0.97,
 };
 
+// ──────────────────────────────────────────────────────────────
+// BUS-2.3 — Bus message integration (pure data layer)
+// ──────────────────────────────────────────────────────────────
+
+/// A Bus message loaded from the GFS file tree for popover display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BusPopoverMessage {
+    pub ulid: String,
+    pub topic: String,
+    pub priority: String,
+    pub title: String,
+    pub body: String,
+}
+
+/// Resolve `$XDG_DATA_HOME/mde/bus` (or `~/.local/share/mde/bus`).
+#[must_use]
+pub fn bus_data_root() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join("mde").join("bus"))
+}
+
+/// Parse one Bus JSON file from the store.
+/// Returns `None` for `min`-priority or malformed files.
+/// Mirrors `parse_breadcrumb_file` from `mde-portal/src/workspace.rs`.
+#[must_use]
+pub fn parse_bus_message(path: &Path, ulid: &str, topic: &str) -> Option<BusPopoverMessage> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let outer: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let priority = outer
+        .get("priority")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .to_string();
+    if priority == "min" {
+        return None;
+    }
+    let title = outer
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let body = outer
+        .get("body")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Some(BusPopoverMessage { ulid: ulid.to_string(), topic: topic.to_string(), priority, title, body })
+}
+
+/// Walk `dir` recursively, collecting `(topic, ulid, path)` for each
+/// ULID-named `.json` file. Topic is the relative path of the parent
+/// directory from `bus_root` with `/` separators.
+fn collect_bus_files(dir: &Path, bus_root: &Path, out: &mut Vec<(String, String, PathBuf)>) {
+    let Ok(iter) = std::fs::read_dir(dir) else { return };
+    for entry in iter.flatten() {
+        let path = entry.path();
+        let name_os = entry.file_name();
+        let name = name_os.to_str().unwrap_or("");
+        if path.is_dir() {
+            if !name.starts_with('.') {
+                collect_bus_files(&path, bus_root, out);
+            }
+        } else if name.ends_with(".json") {
+            let parent = path.parent().unwrap_or(bus_root);
+            let rel = parent
+                .strip_prefix(bus_root)
+                .map(|p| p.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
+                .unwrap_or_default();
+            // Skip top-level (index.sqlite sibling) and audit/ paths.
+            if rel.is_empty() || rel.starts_with("audit") {
+                continue;
+            }
+            let ulid = name.trim_end_matches(".json").to_string();
+            out.push((rel, ulid, path));
+        }
+    }
+}
+
+/// Load all displayable Bus messages from `bus_root`, skipping
+/// `min`-priority, audit topics, and malformed files.
+#[must_use]
+pub fn load_bus_messages(bus_root: &Path) -> Vec<BusPopoverMessage> {
+    let mut triples: Vec<(String, String, PathBuf)> = Vec::new();
+    collect_bus_files(bus_root, bus_root, &mut triples);
+    triples
+        .into_iter()
+        .filter_map(|(topic, ulid, path)| parse_bus_message(&path, &ulid, &topic))
+        .collect()
+}
+
+/// Partition `messages` (excluding `acked` ULIDs) into
+/// `(urgent, high, default)` buckets, newest-first within each.
+#[must_use]
+pub fn bucket_by_priority<'a>(
+    messages: &'a [BusPopoverMessage],
+    acked: &std::collections::HashSet<String>,
+) -> (Vec<&'a BusPopoverMessage>, Vec<&'a BusPopoverMessage>, Vec<&'a BusPopoverMessage>) {
+    let active: Vec<&BusPopoverMessage> =
+        messages.iter().filter(|m| !acked.contains(&m.ulid)).collect();
+    let mut urgent: Vec<&BusPopoverMessage> =
+        active.iter().copied().filter(|m| m.priority == "urgent").collect();
+    let mut high: Vec<&BusPopoverMessage> =
+        active.iter().copied().filter(|m| m.priority == "high").collect();
+    let mut default: Vec<&BusPopoverMessage> = active
+        .iter()
+        .copied()
+        .filter(|m| m.priority != "urgent" && m.priority != "high")
+        .collect();
+    for bucket in [&mut urgent, &mut high, &mut default] {
+        bucket.sort_by(|a, b| b.ulid.cmp(&a.ulid));
+    }
+    (urgent, high, default)
+}
+
 #[to_layer_message]
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -71,6 +189,8 @@ pub enum Message {
     /// BUG-8.c — collapse / expand a single group bucket. Key
     /// is the bucket label (peer name or app_id).
     ToggleCollapse(String),
+    /// BUS-2.3 — move a Bus message ULID to the acked-list.
+    AckBusMessage(String),
 }
 
 /// BUG-8.c — group layout selector. Default is `Peer` so existing
@@ -96,6 +216,11 @@ pub struct App {
     /// BUG-8.c — bucket keys the user has collapsed. Persists
     /// for the popover's lifetime. Click the header to flip.
     collapsed: std::collections::HashSet<String>,
+    /// BUS-2.3 — Bus messages loaded from the GFS file tree at open.
+    bus_messages: Vec<BusPopoverMessage>,
+    /// BUS-2.3 — ULIDs the operator has acked; filtered from the
+    /// active buckets and shown in the acked-list section instead.
+    bus_acked: std::collections::HashSet<String>,
 }
 
 impl iced_layershell::Application for App {
@@ -108,13 +233,23 @@ impl iced_layershell::Application for App {
         let muted_peers = load_muted_peers();
         let group_mode = GroupMode::Peer;
         let groups = load_groups_for(group_mode, &muted_peers);
-        tracing::info!(group_count = groups.len(), muted = muted_peers.len(), "notifications popover open");
+        let bus_messages = bus_data_root()
+            .map(|root| load_bus_messages(&root))
+            .unwrap_or_default();
+        tracing::info!(
+            group_count = groups.len(),
+            muted = muted_peers.len(),
+            bus_messages = bus_messages.len(),
+            "notifications popover open"
+        );
         (
             Self {
                 groups,
                 muted_peers,
                 group_mode,
                 collapsed: std::collections::HashSet::new(),
+                bus_messages,
+                bus_acked: std::collections::HashSet::new(),
             },
             Task::none(),
         )
@@ -168,6 +303,10 @@ impl iced_layershell::Application for App {
                 } else {
                     self.collapsed.insert(key);
                 }
+                Task::none()
+            }
+            Message::AckBusMessage(ulid) => {
+                self.bus_acked.insert(ulid);
                 Task::none()
             }
             _ => Task::none(),
@@ -296,6 +435,98 @@ impl iced_layershell::Application for App {
             }
             list = list.push(group_column);
         }
+
+        // BUS-2.3 — Bus Messages section (priority-bucketed, below FDO).
+        {
+            let (urgent, high, default) = bucket_by_priority(&self.bus_messages, &self.bus_acked);
+            let acked_msgs: Vec<&BusPopoverMessage> = self
+                .bus_messages
+                .iter()
+                .filter(|m| self.bus_acked.contains(&m.ulid))
+                .collect();
+            let has_bus = !urgent.is_empty() || !high.is_empty() || !default.is_empty() || !acked_msgs.is_empty();
+            if !self.bus_messages.is_empty() || has_bus {
+                // Section divider + header
+                list = list.push(Space::with_height(Length::Fixed(8.0)));
+                list = list.push(
+                    container(Space::with_height(Length::Fixed(1.0)))
+                        .width(Length::Fill)
+                        .style(|_: &Theme| container::Style {
+                            background: Some(iced::Background::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.08 })),
+                            ..Default::default()
+                        }),
+                );
+                list = list.push(Space::with_height(Length::Fixed(6.0)));
+                let bus_active_total = urgent.len() + high.len() + default.len();
+                list = list.push(
+                    text(format!("Bus Messages  ({bus_active_total} active)"))
+                        .size(11)
+                        .color(FG_FAINT),
+                );
+                // Urgent bucket
+                if !urgent.is_empty() {
+                    list = list.push(
+                        text(format!("⚠ Urgent  ({})", urgent.len()))
+                            .size(10)
+                            .color(BUS_URGENT_COLOR),
+                    );
+                    for msg in urgent.iter().take(20) {
+                        list = list.push(render_bus_row(msg));
+                    }
+                }
+                // High bucket
+                if !high.is_empty() {
+                    list = list.push(
+                        text(format!("! High  ({})", high.len()))
+                            .size(10)
+                            .color(BUS_HIGH_COLOR),
+                    );
+                    for msg in high.iter().take(20) {
+                        list = list.push(render_bus_row(msg));
+                    }
+                }
+                // Default bucket
+                if !default.is_empty() {
+                    list = list.push(
+                        text(format!("Default  ({})", default.len()))
+                            .size(10)
+                            .color(BUS_DEFAULT_COLOR),
+                    );
+                    for msg in default.iter().take(20) {
+                        list = list.push(render_bus_row(msg));
+                    }
+                }
+                // Empty state
+                if bus_active_total == 0 && acked_msgs.is_empty() {
+                    list = list.push(
+                        container(text("No bus messages").size(13).color(FG_MUTED))
+                            .padding(Padding { top: 6.0, right: 0.0, bottom: 0.0, left: 0.0 }),
+                    );
+                }
+                // Acked-list (if any)
+                if !acked_msgs.is_empty() {
+                    list = list.push(
+                        text(format!("✓ Acked  ({})", acked_msgs.len()))
+                            .size(10)
+                            .color(FG_FAINT),
+                    );
+                    for msg in acked_msgs.iter().take(10) {
+                        list = list.push(
+                            container(
+                                text(format!(
+                                    "✓  {}",
+                                    if msg.title.is_empty() { &msg.topic } else { &msg.title }
+                                ))
+                                .size(11)
+                                .color(FG_FAINT),
+                            )
+                            .padding(Padding { top: 3.0, right: 8.0, bottom: 3.0, left: 8.0 }),
+                        );
+                    }
+                }
+            }
+        }
+
         if !self.muted_peers.is_empty() {
             let muted_list: Vec<&str> = self.muted_peers.iter().map(|s| s.as_str()).collect();
             list = list.push(
@@ -500,6 +731,66 @@ pub fn run() -> iced_layershell::Result {
         },
         ..Default::default()
     })
+}
+
+/// BUS-2.3 — render one Bus message row with an "Ack" button on the right.
+fn render_bus_row(msg: &BusPopoverMessage) -> Element<'_, Message> {
+    let priority_color = match msg.priority.as_str() {
+        "urgent" => BUS_URGENT_COLOR,
+        "high"   => BUS_HIGH_COLOR,
+        _        => BUS_DEFAULT_COLOR,
+    };
+    let topic_label = text(format!("[{}]", msg.topic))
+        .size(10)
+        .color(priority_color);
+    let title_label = text(if msg.title.is_empty() { msg.topic.as_str() } else { msg.title.as_str() })
+        .size(12)
+        .color(FG_TEXT);
+    let body_label = if msg.body.is_empty() {
+        text("").size(11).color(FG_MUTED)
+    } else {
+        text(msg.body.chars().take(100).collect::<String>())
+            .size(11)
+            .color(FG_MUTED)
+    };
+    let ack_ulid = msg.ulid.clone();
+    let ack_btn: Element<'_, Message> = iced::widget::Button::new(
+        text("Ack").size(10).color(FG_MUTED),
+    )
+    .padding(Padding { top: 2.0, right: 6.0, bottom: 2.0, left: 6.0 })
+    .style(|_t: &Theme, status: iced::widget::button::Status| {
+        let bg = match status {
+            iced::widget::button::Status::Hovered => Color { r: 0.18, g: 0.18, b: 0.20, a: 1.0 },
+            _ => Color::TRANSPARENT,
+        };
+        iced::widget::button::Style {
+            background: Some(Background::Color(bg)),
+            text_color: FG_MUTED,
+            border: Border {
+                color: Color { a: 0.12, ..Color::WHITE },
+                width: 1.0,
+                radius: 3.0.into(),
+            },
+            shadow: Shadow::default(),
+        }
+    })
+    .on_press(Message::AckBusMessage(ack_ulid))
+    .into();
+
+    let text_col = column![topic_label, title_label, body_label].spacing(1);
+    let content_row = row![
+        text_col,
+        Space::with_width(Length::Fill),
+        ack_btn,
+    ]
+    .align_y(iced::Alignment::Center)
+    .spacing(6);
+
+    container(content_row)
+        .padding(Padding { top: 5.0, right: 8.0, bottom: 5.0, left: 8.0 })
+        .style(row_surface)
+        .width(Length::Fill)
+        .into()
 }
 
 fn render_row(row_data: &NotificationRow) -> Element<'_, Message> {
@@ -711,5 +1002,110 @@ mod tests {
         let raw = serialize_mutes(&m);
         let back = parse_mutes(&raw);
         assert_eq!(back, m);
+    }
+
+    // ── BUS-2.3 tests ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_bus_message_decodes_high_priority_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let ulid = "01JABCDEFGHJKMNPQRST";
+        let json = r#"{"ulid":"01JABCDEFGHJKMNPQRST","topic":"fleet/announce","priority":"high","title":"Test title","body":"Test body","ts_unix_ms":1700000000000,"file_path":"fleet/announce/01JABCDEFGHJKMNPQRST.json"}"#;
+        let path = dir.path().join(format!("{ulid}.json"));
+        std::fs::write(&path, json).unwrap();
+        let msg = parse_bus_message(&path, ulid, "fleet/announce").unwrap();
+        assert_eq!(msg.ulid, ulid);
+        assert_eq!(msg.priority, "high");
+        assert_eq!(msg.title, "Test title");
+        assert_eq!(msg.body, "Test body");
+        assert_eq!(msg.topic, "fleet/announce");
+    }
+
+    #[test]
+    fn parse_bus_message_filters_min_priority() {
+        let dir = tempfile::tempdir().unwrap();
+        let ulid = "01JBBBBBBBBBBBBBBBBB";
+        let json = r#"{"ulid":"01JBBBBBBBBBBBBBBBBB","topic":"debug/info","priority":"min","title":"x","body":"y","ts_unix_ms":0,"file_path":""}"#;
+        let path = dir.path().join(format!("{ulid}.json"));
+        std::fs::write(&path, json).unwrap();
+        assert!(parse_bus_message(&path, ulid, "debug/info").is_none());
+    }
+
+    #[test]
+    fn parse_bus_message_returns_none_for_malformed_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("01JCCC.json");
+        std::fs::write(&path, "not json at all").unwrap();
+        assert!(parse_bus_message(&path, "01JCCC", "fleet/announce").is_none());
+    }
+
+    fn make_msg(ulid: &str, priority: &str) -> BusPopoverMessage {
+        BusPopoverMessage {
+            ulid: ulid.to_string(),
+            topic: "fleet/announce".to_string(),
+            priority: priority.to_string(),
+            title: format!("{priority} message"),
+            body: "body".to_string(),
+        }
+    }
+
+    #[test]
+    fn bucket_by_priority_groups_three_buckets() {
+        let msgs = vec![
+            make_msg("01ZAAA", "urgent"),
+            make_msg("01ZBBB", "high"),
+            make_msg("01ZCCC", "default"),
+        ];
+        let acked = std::collections::HashSet::new();
+        let (urgent, high, default) = bucket_by_priority(&msgs, &acked);
+        assert_eq!(urgent.len(), 1);
+        assert_eq!(high.len(), 1);
+        assert_eq!(default.len(), 1);
+        assert_eq!(urgent[0].ulid, "01ZAAA");
+        assert_eq!(high[0].ulid, "01ZBBB");
+        assert_eq!(default[0].ulid, "01ZCCC");
+    }
+
+    #[test]
+    fn bucket_by_priority_excludes_acked_ulids() {
+        let msgs = vec![
+            make_msg("01ZAAA", "urgent"),
+            make_msg("01ZBBB", "high"),
+        ];
+        let mut acked = std::collections::HashSet::new();
+        acked.insert("01ZAAA".to_string());
+        let (urgent, high, _) = bucket_by_priority(&msgs, &acked);
+        assert!(urgent.is_empty(), "acked urgent must be excluded");
+        assert_eq!(high.len(), 1);
+    }
+
+    #[test]
+    fn bucket_by_priority_newest_first_within_bucket() {
+        let msgs = vec![
+            make_msg("01ZAAA", "high"),  // older ULID
+            make_msg("01ZZZZ", "high"),  // newer ULID
+        ];
+        let acked = std::collections::HashSet::new();
+        let (_, high, _) = bucket_by_priority(&msgs, &acked);
+        assert_eq!(high[0].ulid, "01ZZZZ", "newer ULID must sort first");
+    }
+
+    #[test]
+    fn load_bus_messages_reads_nested_topic_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let topic_dir = dir.path().join("fleet").join("announce");
+        std::fs::create_dir_all(&topic_dir).unwrap();
+        let ulid = "01JABCDEFGHJKMNPQRST";
+        let json = format!(r#"{{"ulid":"{ulid}","topic":"fleet/announce","priority":"default","title":"Mesh event","body":"peer joined","ts_unix_ms":0,"file_path":""}}"#);
+        std::fs::write(topic_dir.join(format!("{ulid}.json")), &json).unwrap();
+        // audit/ files must be skipped
+        let audit_dir = dir.path().join("audit");
+        std::fs::create_dir_all(&audit_dir).unwrap();
+        std::fs::write(audit_dir.join("2026-05-29.jsonl"), "skip me\n").unwrap();
+
+        let msgs = load_bus_messages(dir.path());
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].ulid, ulid);
+        assert_eq!(msgs[0].topic, "fleet/announce");
     }
 }
