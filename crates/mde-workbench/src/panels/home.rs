@@ -27,10 +27,9 @@
 //!   PropertiesChanged + Nebula peer/transport signals +
 //!   Fleet revision signals into `Message::DbusEvent`.
 //!
-//! Coming-soon capabilities (File Sharing v5.0.0, Phone Pairing
-//! v2.1, Voice & Video v4.1.0) render with a disabled "Coming
-//! soon" button — the row signals roadmap intent without
-//! pretending to be configurable.
+//! Capabilities without a settings panel (File Sharing v5.0.0, Phone
+//! Pairing v2.1, Voice & Video v4.1.0) render no button — the row
+//! shows the live status pill and description without a Configure jump.
 
 use std::path::PathBuf;
 
@@ -136,8 +135,7 @@ pub struct CapabilityRow {
     /// "3 of 5 peers online" or "last sync 2 minutes ago".
     pub sub_status: Option<String>,
     /// Where the Configure button takes the user. `None` =>
-    /// the capability is coming-soon or has no settings panel;
-    /// render the button disabled with "Coming soon".
+    /// the capability has no settings panel yet; omit the button.
     pub jump: Option<(Group, &'static str)>,
 }
 
@@ -1123,10 +1121,7 @@ fn jump_button<'a>(row_data: &'a CapabilityRow, palette: Palette) -> Element<'a,
             .on_press(crate::Message::SelectPanel { group, panel })
             .into()
     } else {
-        button(text("Coming soon").size(13))
-            .padding(Padding::from([6u16, 14u16]))
-            .style(disabled_style)
-            .into()
+        column![].into()
     }
 }
 
