@@ -51,6 +51,16 @@ fi
 # directory (when EPIC-UI-PRESETS lands).
 VISUAL_SURFACES_REGEX='^(crates/mde-[^/]+/src/.*\.rs$|data/css/.*\.css$|data/presets/.*$)'
 
+# …but not every crates/mde-* is a UI. These are headless CLI /
+# protocol / type / lib crates with NO Iced/visual surface, so a
+# commit touching only them does not warrant a design-doc citation.
+# Keep this list tight — only crates with genuinely no rendered UI.
+#   mde-installer    — mde-install / mde-update CLI (INST-3)
+#   mde-alert-emit   — MON-3 alert→JSON CLI
+#   mde-kdc-proto    — KDC2 wire-protocol library
+#   mde-mesh-types   — shared mesh type definitions
+NON_VISUAL_CRATES_REGEX='^crates/(mde-installer|mde-alert-emit|mde-kdc-proto|mde-mesh-types)/'
+
 # Get the staged files (commit-msg hook) OR HEAD's modified
 # files (stand-alone mode).
 if [ -n "${1:-}" ]; then
@@ -59,8 +69,8 @@ else
     CHANGED="$(git diff --name-only HEAD 2>/dev/null || git diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null || true)"
 fi
 
-# Filter to visual surfaces.
-VISUAL_HITS="$(printf '%s\n' "$CHANGED" | grep -E "$VISUAL_SURFACES_REGEX" || true)"
+# Filter to visual surfaces, then drop the non-visual CLI/lib crates.
+VISUAL_HITS="$(printf '%s\n' "$CHANGED" | grep -E "$VISUAL_SURFACES_REGEX" | grep -vE "$NON_VISUAL_CRATES_REGEX" || true)"
 
 if [ -z "$VISUAL_HITS" ]; then
     echo "lint-visual-citation.sh: clean (no visual surface in this commit)"
