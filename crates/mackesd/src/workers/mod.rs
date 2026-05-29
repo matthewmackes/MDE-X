@@ -146,6 +146,13 @@ pub mod cups_sync;
 // the mfsmaster/mfschunkserver binaries are absent or the
 // overlay-ip publish file doesn't yet exist.
 pub mod meshfs_worker;
+// FWMON-2..4 (v5.0.0) — firewall-denied event monitor. Reads
+// kernel journal entries logged by firewalld's LogDenied=all
+// setting, filters overlay + established traffic, appends
+// net-new denials to <mesh-storage>/firewall/<host>.jsonl,
+// trims 7-day window, and fires Bus alert on threshold.
+// Separate from `firewall_preset` (port-open convergence).
+pub mod firewall_monitor;
 // INST-11 + INST-12 + INST-13 (v2.7) — fleet upgrade-barrier
 // worker. Runs on every peer: watches `<mesh-home>/upgrade-
 // intent/*.json` (written by `mde-update --coordinate`), runs

@@ -3082,6 +3082,27 @@ fn run_serve(
             tracing::info!("cups_sync: skipped (lighthouse profile)");
         }
 
+        // FWMON-2..4 (v5.0.0) — firewall-denied event monitor.
+        // Reads kernel journal entries logged by firewalld's
+        // LogDenied=all setting (enabled by birthright's
+        // apply_firewall_log_denied step), filters overlay +
+        // established traffic, appends denials to
+        // <mesh-storage>/firewall/<host>.jsonl, and fires a Bus
+        // alert when one source crosses the threshold.
+        let fw_host = std::fs::read_to_string("/etc/hostname")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| node_id.clone());
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::firewall_monitor::FirewallMonitorWorker::new(fw_host),
+            RestartPolicy::Always,
+        ));
+        worker_names
+            .lock()
+            .expect("worker_names mutex")
+            .push("firewall_monitor".into());
+
         // EPIC-MESH-PROBE (MESH-PROBE-4) — scheduled two-tier nmap
         // probe worker. Resolves mesh-peer overlay IPs, scans them
         // (fast 60s / deep 10min), writes this peer's

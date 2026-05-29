@@ -1767,20 +1767,20 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 > **Operator-elevated to v5.0.0 cut-blocking core (§11.1 C9) 2026-05-29.**
 > Per §0.16 the lock was operator-lifted + re-engaged once the epic landed.
 
-- [ ] **FWMON-1: v5.0.0 — Enable firewalld `LogDenied=all` in birthright (all profiles)**
+- [>] **FWMON-1: v5.0.0 — Enable firewalld `LogDenied=all` in birthright (all profiles)** session=opus-48-2026-05-29-ship-FWMON
   **As** an operator, **I want** denied packets logged, **so that** the monitor has a data source.
   **Acceptance** (each bench-observable):
     - [ ] birthright runs `firewall-cmd --set-log-denied=all --permanent` + reload on every profile
     - [ ] `firewall-cmd --get-log-denied` returns `all` post-install
-- [ ] **FWMON-2: v5.0.0 — `mackesd::firewall_monitor` worker: parse journal + Q14 noise filter**
+- [>] **FWMON-2: v5.0.0 — `mackesd::firewall_monitor` worker: parse journal + Q14 noise filter** session=opus-48-2026-05-29-ship-FWMON
   **Acceptance:**
     - [ ] new worker (separate from `firewall_preset`), 5s tick, persisted journal cursor, silent no-op without journal access
     - [ ] `parse_denied_line` extracts `{ts, src_ip, dport, proto, iface}` by `KEY=` token (tolerant of field reorder)
     - [ ] `is_overlay_or_established` filter drops UDP/4242 + TCP/443(LH) + RELATED,ESTABLISHED; keeps net-new external
     - [ ] both pure-fns unit-tested
-- [ ] **FWMON-3: v5.0.0 — Append to `<mesh-storage>/firewall/<host>.jsonl` + 7-day rolling trim**
+- [>] **FWMON-3: v5.0.0 — Append to `<mesh-storage>/firewall/<host>.jsonl` + 7-day rolling trim** session=opus-48-2026-05-29-ship-FWMON
   **Acceptance:** `[ ]` kept events appended one-per-line `{ts_ms,host,src_ip,dport,proto,iface}`; `[ ]` lines older than 7d trimmed each tick (`trim_older_than` unit-tested); own-file authority.
-- [ ] **FWMON-4: v5.0.0 — Threshold alert → Bus `event/firewall/<host>` → FDO notification**
+- [>] **FWMON-4: v5.0.0 — Threshold alert → Bus `event/firewall/<host>` → FDO notification** session=opus-48-2026-05-29-ship-FWMON
   **Acceptance:** `[ ]` ≥N denials from one `src_ip` in the window → one Bus event (deduped per source per window, not per-packet); `[ ]` routes to an FDO notification via the `mde-alert-emit`/`alert_relay` path; `[ ]` `threshold_tripped` unit-tested.
 - [ ] **FWMON-5: v5.0.0 — Workbench firewall panel Activity section (per-peer union)**
   **Acceptance:** `[ ]` `mde-workbench/src/panels/firewall.rs` gains an Activity section: recent denials table + top-source rollup + per-peer counts read from the union of `firewall/*.jsonl`.

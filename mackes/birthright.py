@@ -1149,6 +1149,55 @@ def apply_print_sharing(_preset: Preset) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# 13.6 Firewall log-denied — enable LogDenied=all in firewalld (FWMON-1)
+# ---------------------------------------------------------------------------
+
+
+def apply_firewall_log_denied(_preset: Preset) -> List[str]:
+    """FWMON-1: Set firewalld LogDenied=all so denied packets appear in
+    the journal (required by `mackesd::firewall_monitor`).
+
+    All profiles run this step — the monitor worker runs on every peer
+    (lighthouse + headless + full) so the data source must be active
+    everywhere. Idempotent: `--set-log-denied=all` is a no-op when
+    already set.
+    """
+    actions: List[str] = []
+    if shutil.which("firewall-cmd") is None:
+        actions.append(
+            "firewall-log-denied: firewall-cmd not installed — skipping "
+            "(firewalld is a v5.0.0 dependency; `dnf install firewalld`)"
+        )
+        log_action(actions[-1])
+        return actions
+
+    rc, _ = _run_root(
+        ["firewall-cmd", "--set-log-denied=all", "--permanent"], timeout=30
+    )
+    if rc != 0:
+        actions.append(
+            "firewall-log-denied: --set-log-denied=all failed (rc={}); "
+            "firewall_monitor will have no journal data source".format(rc)
+        )
+        log_action(actions[-1])
+        return actions
+
+    rc, _ = _run_root(["firewall-cmd", "--reload"], timeout=30)
+    if rc == 0:
+        actions.append(
+            "firewall-log-denied: LogDenied=all — firewalld reloaded"
+        )
+    else:
+        actions.append(
+            "firewall-log-denied: set-log-denied succeeded but reload "
+            "failed (rc={}); change takes effect on next firewalld "
+            "restart".format(rc)
+        )
+    log_action(actions[-1])
+    return actions
+
+
+# ---------------------------------------------------------------------------
 # 14. Quick Network Mesh (QNM) — install + enable (v1.5.2 birthright)
 # ---------------------------------------------------------------------------
 
@@ -2698,6 +2747,7 @@ STEP_FUNCS: "dict[str, Callable[[Preset], List[str]]]" = {
     "user-dirs":         apply_user_dirs,
     "mesh":              apply_qnm,
     "gluster":           apply_gluster_bootstrap,
+    "firewall-log-denied": apply_firewall_log_denied,
     # --- headless + full ---
     "fleet":             apply_fleet,
     "monitor":           apply_netdata_monitor,
@@ -2722,7 +2772,7 @@ STEP_FUNCS: "dict[str, Callable[[Preset], List[str]]]" = {
     "thunar-autostart":  apply_thunar_autostart,
 }
 
-_MESH_STEPS: tuple[str, ...] = ("uid-normalize", "user-dirs", "mesh", "gluster")
+_MESH_STEPS: tuple[str, ...] = ("uid-normalize", "user-dirs", "mesh", "gluster", "firewall-log-denied")
 _HEADLESS_EXTRA: tuple[str, ...] = ("fleet", "monitor", "clipboard", "print-sharing")
 _DESKTOP_EXTRA: tuple[str, ...] = (
     "third-party-repos", "system-update", "flathub", "themes", "fonts",
