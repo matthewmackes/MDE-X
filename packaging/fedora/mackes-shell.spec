@@ -1230,6 +1230,18 @@ if [ "$1" = "0" ]; then
     /usr/share/%{appname}/install-helpers/restore-xfce-settings.sh || :
 fi
 
+# INST-2 (v2.7) — post-transaction convergence banner. %posttrans
+# runs once at the end of every dnf transaction (install AND
+# upgrade), so the operator always sees the reminder to run the
+# installer. echo-only — no binary is invoked, so unattended dnf,
+# image builds, and rpm-ostree complete normally (Fedora packaging
+# guideline). Voice-and-tone: factual, no emoji/exclamation.
+%posttrans
+echo ">>> mde-core installed. Run \`sudo mde-install\` to finish setup."
+
+%posttrans -n mde-desktop
+echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to finish setup."
+
 %files
 %license LICENSE
 %doc README.md CHANGELOG.md docs/MACKES_SHELL_SPEC.md docs/MIGRATION_FROM_V2.2.md

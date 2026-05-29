@@ -4732,7 +4732,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Carbon glyph(s): n/a (packaging).
     - Blockers: none — this is a pure spec refactor; existing v4.0.x binaries continue building under the addon RPM.
 
-- [ ] **v2.7: INST-2 `%posttrans` banner on both RPMs (Tier 1)**
+- [✓] **v2.7: INST-2 `%posttrans` banner on both RPMs (Tier 1)** *(shipped 2026-05-29 — session=opus-48-2026-05-29-ship-INST. Added `%posttrans` to base `mde-core` (`>>> mde-core installed. Run \`sudo mde-install\` to finish setup.`) and `%posttrans -n mde-desktop` (`>>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to finish setup.`). `%posttrans` fires once per transaction on both install + upgrade; echo-only so unattended dnf / image builds / rpm-ostree are unaffected. Voice-tone compliant (factual, no emoji/exclamation). Verified `rpmspec -P` exit 0 + both banners render. dnf-output confirmation is a §0.15 release-bench item per the no-RPM rule. Unblocked by INST-1's subpackage split.)*
   **As** a mackes-shell operator who just ran `dnf install mde`,
   **I want** a one-line banner at the end of dnf telling me to run `sudo mde-install` next,
   **so that** I never end up on a half-configured machine wondering why the wizard didn't open.
@@ -4748,7 +4748,37 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 #### Crate scaffold
 
-- [ ] **v2.7: INST-3 `crates/mde-installer/` crate ships with `mde-install` + `mde-update` binaries + shared lib (Tier 1)**
+> **⚠ UPSTREAM DEPENDENCY GAP (found 2026-05-29, session=opus-48-ship-INST):**
+> INST-3's `peer_registry` module + INST-5's peer-impact preflight +
+> INST-9's `mde-update` version listing all assume mackesd exposes a
+> per-peer `(hostname, version, last_seen)` query. **It does not.**
+> mackesd's `nodes` table (`crates/mackesd/src/nebula_roster.rs`)
+> tracks `node_id/name/public_key/role/health/enrolled_at` — **no
+> installed-RPM-version column and no last_seen**, and the
+> `dev.mackes.MDE.Fleet` interface (`crates/mackesd/src/ipc/fleet.rs`)
+> has only revision methods (`push/list/diff_revisions`), no
+> peer-version query. Per §0.12 ("build the subsystem it depends on
+> first"), **INST-PEERVER must land before INST-3's peer_registry /
+> INST-5 preflight / INST-9 can be built complete.** The non-peer
+> parts of INST-3 (intent_file IO, wipe sequencing, confirm prompts,
+> profile enum, the `mde-install --profile` wipe+birthrights flow)
+> are buildable now and can ship as INST-3a; peer_registry is INST-3b
+> (blocked on INST-PEERVER).
+
+- [ ] **v2.7: INST-PEERVER (NEW 2026-05-29, prerequisite for INST-3b/INST-5/INST-9) — mackesd per-peer version tracking + Fleet query**
+  **As** the installer + updater,
+  **I want** mackesd to record each peer's installed `mde-core` RPM version + a `last_seen` timestamp in the `nodes` table and expose them over the `dev.mackes.MDE.Fleet` interface,
+  **so that** `mde-install` can show peer-impact and `mde-update` can detect version skew without a new network surface.
+  **Acceptance** (each bench-observable):
+    - [ ] `nodes` schema gains `mde_version TEXT` + `last_seen_ms INTEGER` columns (migration in `crates/mackesd/src/nebula_roster.rs`); a mackesd worker refreshes the local row's version via `rpm -q --qf '%{VERSION}' mde-core` on startup + each fleet-sync tick.
+    - [ ] Peers gossip their `(hostname, mde_version, last_seen_ms)` over the existing fleet-sync path (no new port) so every peer's `nodes` table converges.
+    - [ ] `dev.mackes.MDE.Fleet` gains `list_peers() -> Vec<(String hostname, String version, i64 last_seen_ms)>`.
+    - [ ] Unit tests: schema migration is idempotent; `list_peers` returns the local row when isolated; version string parses for skew comparison.
+  **Implementation notes:**
+    - This is the §0.12 "build the subsystem first" prerequisite the INST-3 gap note above documents. Keep it on the **Bus** action/reply path where possible per AI_GOVERNANCE §3.3 (D-Bus retires by cut); if it must use the interim Fleet D-Bus interface, add it to the dbus-shape lint allow-list with a retirement note.
+    - Blockers: none — pure mackesd-side work.
+
+- [ ] **v2.7: INST-3 `crates/mde-installer/` crate ships with `mde-install` + `mde-update` binaries + shared lib (Tier 1)** *(2026-05-29: split per §0.12 — INST-3a = crate + intent_file + wipe + confirm + profile enum + `mde-install --profile` wipe+birthrights flow (buildable now; couples with INST-8 for the birthright shell-out); INST-3b = `peer_registry` client (BLOCKED on INST-PEERVER — mackesd has no peer-version query yet, see gap note above).)*
   **As** a mackes-shell operator,
   **I want** the installer and updater to be Rust binaries shipped by the `mde` RPM at `/usr/bin/mde-install` and `/usr/bin/mde-update`,
   **so that** they're tab-completable, work without a Python interpreter on lighthouse VPS boxes, and share the same peer-registry + GlusterFS intent-file IO code path.
