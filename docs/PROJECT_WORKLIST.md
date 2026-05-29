@@ -1500,6 +1500,21 @@ call-end lifecycle, never at install or login.
 
 ### GF-1..GF-15: v5.0.0 — GlusterFS mesh-home (primary file sync, locked 2026-05-24 via 25-Q survey)
 
+> **⚠️ SUPERSEDED 2026-05-29 by the MESHFS-* epic (LizardFS).** A 25-Q
+> survey (2026-05-29) replaced GlusterFS *entirely* with LizardFS as the
+> v5.0.0 mesh filesystem. The export renames `mesh-home` → `mesh-storage`;
+> the §0 master rule wording moves "Centerless" → "No-Fixed-Center" to
+> reconcile LizardFS's single active master with HA shadows everywhere.
+> This GF-1..GF-15 section is retained as **history only** — do not pick
+> its `[ ]` tasks. The live epic is **MESHFS-*** below; the design lock is
+> `docs/design/v5.0.0-mesh-storage-lizardfs.md` (supersedes
+> `docs/design/v5.0.0-gluster-mesh-home.md`). Reusable shipped GF code
+> (uid-normalize GF-3.1, enroll/revoke plumbing, mount-unit pattern GF-4.1,
+> mde-files Resolve UI GF-13) is referenced by the MESHFS tasks; the rest
+> is removed by the cutover step (MESHFS final task, Q25). Per §0.16 the
+> feature lock was operator-lifted for this swap and re-engaged once this
+> epic landed in the worklist.
+
 > **v5.0.0 = SemVer-major bump.** KDC2 file-transfer removal is a
 > user-visible breaking change for paired phones; GlusterFS fold-in is
 > the headline feature carried by the bump.
@@ -1654,6 +1669,131 @@ call-end lifecycle, never at install or login.
 
 - [ ] **GF-15.1: On phone pairing, create `~/Documents/From-<phone-name>/` [HW carve-out]** *(HW carve-out tagged 2026-05-24 per `feedback_no_cut_until_worklist_empty.md`: needs live KDC2 inbound file handler + a paired Android phone + mesh-home FUSE mount to verify the drop-folder replicates across peers. Doesn't gate the cut.)* (idempotent, replicated by the mesh).
 - [ ] **GF-15.2: Smoke test — pair a phone, push a file, observe on a second peer [HW carve-out]** within `<2 s` (LAN) or `<heal-interval>` (WAN). *(Hardware-Testing-epic carve-out per `feedback_no_cut_until_worklist_empty.md` — needs a real Android phone + a real 2-peer Mackes mesh. Doesn't gate the cut.)*
+
+### MESHFS-1..MESHFS-18: v5.0.0 — LizardFS `mesh-storage` (primary file sync, locked 2026-05-29 via 25-Q survey)
+
+> **Replaces the GF-1..GF-15 GlusterFS epic in full** (SUPERSEDED-bannered
+> above). Design lock: `docs/design/v5.0.0-mesh-storage-lizardfs.md`.
+> LizardFS is the sole mesh FS; the export renames `mesh-home` →
+> `mesh-storage`; every peer is chunkserver + auto-promotable shadow
+> master + client (`goal = N`); the active master floats among lighthouses
+> behind a Nebula-overlay VIP with mackesd-driven shadow promotion. §0
+> master rule wording amended "Centerless" → "No-Fixed-Center"
+> (AI_GOVERNANCE.md §0). Per §0.16 the feature lock was operator-lifted for
+> this swap (2026-05-29) and re-engaged once this epic landed.
+>
+> **Cutover (Q25, §0.12):** build MESHFS end-to-end *behind* the existing
+> Gluster code; the final task (MESHFS-18) removes all GlusterFS deps /
+> code / units / source refs in one commit. Main is never FS-less and
+> never dual-stack.
+>
+> **Packaging note (Q11):** LizardFS is bundled from a pinned maintained-
+> fork commit built in CI (no Fedora repo / COPR). **Risk flagged in the
+> design doc §7:** SaunaFS is the actively-developed successor; the
+> FS-agnostic `meshfs` naming makes a later pivot near-zero-churn. Honors
+> the operator's explicit LizardFS choice.
+
+#### Substrate (CI bundle + install)
+
+- [ ] **MESHFS-1.1: v5.0.0 — Bundle LizardFS binaries in the MDE RPM (CI-built from a pinned fork commit)**
+  **As** an operator, **I want** LizardFS installed by the MDE package without an external repo, **so that** a peer is self-contained and reproducible.
+  **Acceptance** (each bench-observable):
+    - [ ] CI builds `mfsmaster`/`mfschunkserver`/`mfsmount`/admin tools from a pinned commit + caches the artifact
+    - [ ] the MDE RPM ships the binaries under `%{_bindir}`/`%{_sbindir}`; `rpmspec -P` clean
+    - [ ] `Requires: glusterfs-server, glusterfs-fuse` is NOT added (removed entirely at MESHFS-18)
+    - [ ] `%post` enables `mfschunkserver` + `mfsmaster` (shadow) units idempotently
+- [ ] **MESHFS-1.2: v5.0.0 — Storage paths `/var/lib/mde/meshfs/{chunks,meta,stage}/` + free-space guard**
+  **Acceptance:**
+    - [ ] RPM ships the three dirs as `%dir 0750` owned appropriately
+    - [ ] `mackesd preflight-meshfs-headroom` warns when `< 1.5 × sizeof(XDG content)` free (port of GF-12.2)
+
+#### Daemon (`mackesd::meshfs_worker`)
+
+- [ ] **MESHFS-2.1: v5.0.0 — `crates/mackesd/src/workers/meshfs_worker.rs` ships (genesis + enroll + revoke + goal)**
+  **As** the fleet, **I want** a peer to auto-create or auto-join the export, **so that** storage converges with no operator step.
+  **Acceptance:**
+    - [ ] 5s tick mirrors `nebula_supervisor.rs` shape (tokio task, ShutdownToken select); silent no-op when LizardFS binaries/overlay-ip absent
+    - [ ] genesis: if no master answers the VIP, become genesis active master + create `mesh-storage`
+    - [ ] `EnrollmentCompleted{node_id}` → start chunkserver+shadow, raise goal to new N
+    - [ ] CA-revoke → evict chunkserver, re-replicate to hold goal=N, drop shadow, lower goal; fail VIP over first if it held the active master
+    - [ ] pure-fn helpers extracted (argv shapes, binary-on-path, export-exists) + unit tests with a mocked CLI shim
+- [ ] **MESHFS-3.1: v5.0.0 — Master HA: floating overlay VIP + shadow promotion via the leader lock**
+  **Acceptance:**
+    - [ ] worker claims/relinquishes the mesh-storage VIP on the overlay interface per the QNM-Shared leader lock
+    - [ ] on active-master loss the next leader promotes its local shadow (`mfsmetarestore`) + claims the VIP within the heartbeat window
+    - [ ] all `mfsmount`/chunkserver configs target the VIP, never an underlay address
+    - [ ] only lighthouses are VIP-eligible
+
+#### Birthright + mount
+
+- [ ] **MESHFS-5.1: v5.0.0 — Keep the uid/gid 1000:1000 birthright normalization for LizardFS** (reuses shipped `apply_uid_normalize`, GF-3.1).
+  **Acceptance:** `[ ]` primary account normalized to 1000:1000 pre-mount; cross-peer ownership shows correctly in `mesh-storage`.
+- [ ] **MESHFS-4.1: v5.0.0 — Per-user systemd mount unit `mde-meshfs-mount@.service` (retarget GF-4.1 to LizardFS)**
+  **Acceptance:**
+    - [ ] unit `mfsmount -o ...` of `mesh-storage` subdir `%i` at `%h/%i` against the VIP; `ExecStop` `fusermount -u`
+    - [ ] birthright enables instances for Documents/Pictures/Music/Videos/Downloads once uid=1000 + export ready
+    - [ ] `~/Local/` is never mesh-mounted
+- [ ] **MESHFS-7.1: v5.0.0 — Topology-aware local-first reads**
+  **Acceptance:** `[ ]` per-peer LizardFS topology labels set by the worker so a client reads its own chunkserver first; verified by chunkserver I/O counters / absence of overlay read traffic for local files.
+
+#### Offline + conflicts
+
+- [ ] **MESHFS-6.1: v5.0.0 — Offline write staging + reconnect replay with LWW conflict resolution**
+  **As** a disconnected peer, **I want** to read + write my files offline, **so that** a parked laptop still works.
+  **Acceptance:**
+    - [ ] offline reads served by the local shadow + local chunkserver
+    - [ ] offline writes land in `/var/lib/mde/meshfs/stage/`; `meshfs_worker` replays to the master on reconnect
+    - [ ] replay collision → higher mtime wins, loser renamed `<file>.conflict-<host>-<ts>` in place
+    - [ ] a peer never self-promotes its shadow to active while merely isolated (no split-brain)
+
+#### Trash + quota
+
+- [ ] **MESHFS-8.1: v5.0.0 — Enable LizardFS trash (bounded retention, operator-tunable) + mde-files Undelete**
+  **Acceptance:** `[ ]` deleted files recoverable within the retention window (default 48h) via an mde-files "Undelete recent" affordance; gone after the window.
+- [ ] **MESHFS-9.1: v5.0.0 — Native quota; mackesd applies hard cap = 0.8 × min(free chunkserver), soft fires banner**
+  **Acceptance:**
+    - [ ] hourly tick sets `mfssetquota` hard cap on the export root; writing past it returns `EROFS`
+    - [ ] soft quota set lower; crossing it publishes `meshfs/quota-warning` on the Bus → "Mesh almost full" banner
+
+#### Bus surface (no D-Bus — Q13)
+
+- [ ] **MESHFS-10.1: v5.0.0 — Bus-native control + events (`action/meshfs/<verb>` + `meshfs/*`)**
+  **Acceptance:**
+    - [ ] commands `resolve-conflict`/`undelete`/`add-peer`/`remove-peer`/`bootstrap`/`status` on `action/meshfs/<verb>`, replies on `reply/<ulid>`
+    - [ ] events `peer-state-changed`/`conflict-detected`/`heal-completed`/`quota-warning`/`export-ready`/`master-failover` on `meshfs/*`
+    - [ ] no new `#[interface]` block (does not trip the §0.7 #8 D-Bus shape lint)
+
+#### UI surfaces
+
+- [ ] **MESHFS-11.1: v5.0.0 — mde-files: per-file sync badge + `.conflict-*` yellow chip + Resolve handler + Undelete** (reuses GF-13 Resolve UI).
+  **Acceptance:** `[ ]` live badge refresh from `meshfs/*` events; `[ ]` Resolve two-pane diff archives loser to `~/Local/conflict-archive/<ts>/`; `[ ]` Undelete lists trash entries.
+- [ ] **MESHFS-12.1: v5.0.0 — `mde-applet-mesh-status`: per-peer in-sync/heal/offline line + active-master indicator** (no new applet).
+- [ ] **MESHFS-13.1: v5.0.0 — Workbench "Mesh Storage" panel + export rename ripple (`mesh-home` → `mesh-storage`)**
+  **Acceptance:** `[ ]` panel shows peers/goal/quota/limiting-peer; `[ ]` every `mesh-home` reference (C4 wording, Portal hostname segment, help docs, mount units) updated to `mesh-storage`.
+
+#### Backup + phone bridge
+
+- [ ] **MESHFS-14.1: v5.0.0 — Extend `mackesd_state_backup` with `mfsmetadump` + LizardFS topology/goal/quota config**
+  **Acceptance:** `[ ]` single encrypted tarball carries Nebula CA + metadata dump + export config; `mackesd state restore <bundle>` rebuilds both on a bare peer.
+- [ ] **MESHFS-15.1: v5.0.0 — KDC2 phone share → `~/Documents/From-<phone-name>/` drop folder (carry GF-5/GF-15)** *(file-share UI removal already scoped under GF-5; this retargets the drop folder onto mesh-storage)*.
+
+#### Docs + lint + tests
+
+- [ ] **MESHFS-16.1: v5.0.0 — Rewrite `docs/help/mesh-storage.md` for LizardFS + CHANGELOG entry + voice-lint pass**
+  **Acceptance:** `[ ]` help doc reflects LizardFS model (no `.mesh-stub`, trash/undelete, VIP/master, offline staging); `[ ]` CHANGELOG 5.0.0 entry updated; `[ ]` `lint-voice.sh` clean.
+- [ ] **MESHFS-17.1: v5.0.0 — Unit tests for `meshfs_worker` (mocked CLI shim)** — genesis/enroll/revoke/goal/HA/quota/replay argv shapes + lifecycle.
+- [ ] **MESHFS-17.2: v5.0.0 — Multi-peer VM-CI + 3-peer HW bench [HW carve-out, §0.15 release-gated]** — enroll → cross-peer create → master failover → offline write+replay+conflict → quota EROFS → decommission rebalance. Release-gated per [[feedback_no_pre_release_reviews]]; does not block per-task progress.
+
+#### Cutover (final — Q25)
+
+- [ ] **MESHFS-18.1: v5.0.0 — Remove GlusterFS entirely (deps, code, units, config, source refs) in one commit**
+  **As** the maintainer, **I want** zero Gluster residue once LizardFS is live, **so that** main carries exactly one mesh FS.
+  **Acceptance** (each bench-observable):
+    - [ ] `glusterfs-server`/`glusterfs-fuse` `Requires:` removed from the spec; `%post` glusterd-enable removed
+    - [ ] `gluster_worker.rs`, `dev.mackes.MDE.Gluster.Status`, `gluster::headroom`, `mde-mesh-mount@.service`, and all `gluster*` source/config/unit references deleted
+    - [ ] `grep -ri gluster crates/ mackes/ data/ packaging/` returns only historical worklist/CHANGELOG mentions
+    - [ ] full mesh-storage acceptance suite (design doc §4) green; only MESHFS code reachable at runtime
+  **Sequencing:** this is the LAST MESHFS task; until it lands, Gluster stays operative so main is never FS-less.
 
 ### GF-16.1..GF-16.10: v5.1 — Gluster control surface + notification policy (audit 2026-05-25)
 

@@ -532,7 +532,8 @@ hierarchy for "which doc is canonical" on a given topic:
 5. **`docs/PROJECT_WORKLIST.md`** body — actionable task state.
 
 When in doubt: §0 master rule from `docs/AI_GOVERNANCE.md`
-("Secure, Simple, Centerless Workgroup"). When AI_GOVERNANCE.md
+("Secure, Simple, No-Fixed-Center Workgroup" — wording amended
+2026-05-29; was "Centerless"). When AI_GOVERNANCE.md
 and an older design doc contradict, AI_GOVERNANCE.md wins
 (newer). When memory and AI_GOVERNANCE.md contradict, memory
 wins (highest tier + likely newer). When CLAUDE.md is silent
@@ -786,6 +787,17 @@ we're at it, ..." scope creep.
   lock (→ Roboto UI + Intel One Mono). New worklist epic SWAY-* /
   ANIM-*. This is the legitimate §0.17 / Q91 amendment path
   (operator-directed). Lock re-engaged after the retune lands.
+- **2026-05-29 — MESHFS-1..MESHFS-18** (replace GlusterFS *entirely*
+  with LizardFS as the v5.0.0 `mesh-storage` filesystem). Operator-
+  issued lift for a 25-Q /plan survey. Locks at
+  `docs/design/v5.0.0-mesh-storage-lizardfs.md` + memory
+  [[project_v5_0_0_lizardfs_mesh_storage]]. SUPERSEDES the GF-1..GF-15
+  Gluster epic + `docs/design/v5.0.0-gluster-mesh-home.md`; renames the
+  export `mesh-home`→`mesh-storage`; **amends the §0 master rule
+  wording "Centerless"→"No-Fixed-Center"** (AI_GOVERNANCE.md §0) to
+  reconcile LizardFS's transient single active master with HA shadows
+  on every peer. Stays v5.0.0 (swap in place; nothing shipped). Lock
+  re-engaged after the MESHFS epic landed in the worklist 2026-05-29.
 
 **Why this rule:** the active worklist already represents 324
 items across 15+ epics. Continuing to add scope while draining is
@@ -849,7 +861,7 @@ eliminates the "scope cut" escape hatch from the release pipeline:
   question as execution-pace (more parallel sessions, more
   bundles per session, more HW bench passes) — NOT scope.
 - **On contradiction with the §0 master rule** ("Secure, Simple,
-  Centerless Workgroup"), this rule WINS. "Simple" means fewer
+  No-Fixed-Center Workgroup"), this rule WINS. "Simple" means fewer
   concepts in the design, not a smaller cut at release time.
 
 **Trigger phrases that should surface this rule before

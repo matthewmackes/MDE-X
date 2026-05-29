@@ -12,10 +12,23 @@ MackesDE for Workgroups. Read this first; consult others on demand.
 
 ## 0. Master rule
 
-> **"Secure, Simple, Centerless Workgroup."**
+> **"Secure, Simple, No-Fixed-Center Workgroup."**
 
 When two locks conflict and the survey didn't resolve it, pick the
 option that best embodies all four words. (Q1 + Q100)
+
+> **Wording amended 2026-05-29** ("Centerless" → "No-Fixed-Center") by
+> the LizardFS mesh-storage swap (`docs/design/v5.0.0-mesh-storage-
+> lizardfs.md`, Q24). **Nuance clause:** the fleet is centerless in
+> *identity and trust* — every peer is equal and fully replicated, any
+> peer can hold any role, failover is automatic, and **no node is
+> privileged by configuration**. A subsystem may hold a *transient*
+> single-writer position (e.g. LizardFS's active `mfsmaster`, elected via
+> the leader lock + auto-failover) without violating this rule, because
+> that position is a runtime role any peer can assume — not a fixed
+> architectural center. "No-Fixed-Center" forbids a *permanent* coordinator,
+> not a *floating* one. (Per §0.67 / CLAUDE.md §0.14, this newer wording
+> wins over the original Q1 "Centerless" string.)
 
 ---
 
@@ -26,7 +39,7 @@ option that best embodies all four words. (Q1 + Q100)
 | **Product name** | MackesDE for Workgroups | Q71 |
 | **Casual short form** | MackesDE | Q73 |
 | **Code/internal** | MDE (binaries `mded`, `mde-*`; D-Bus `dev.mackes.MDE.*`) | Q73 |
-| **Identity** | Secure, Simple, Centerless Workgroup | Q1 |
+| **Identity** | Secure, Simple, No-Fixed-Center Workgroup | Q1 (wording amended 2026-05-29, §0) |
 | **Workgroup unit** | 1 person, 3-8 of their own devices | Q2 |
 | **Fleet cap** | **8 peers** (tightened from 16) | Q3 |
 | **Geographic scope** | Mixed LAN+WAN, always-reachable | Q4 |
@@ -44,7 +57,7 @@ cross-peer state?" If no → not bundled. (Q7)
 
 | Component | Decision | Lock |
 |---|---|---|
-| Gluster mesh-home | Core | v5.0 |
+| LizardFS mesh-storage (was Gluster mesh-home) | Core | v5.0 (FS swapped 2026-05-29, MESHFS-*) |
 | ntfy + Bus | Core | BUS |
 | KDC2 phone bridge | Core | v2.1 |
 | Netdata aggregator | Core | v2.6 MON-* |
@@ -299,7 +312,7 @@ essential to a *usable, installable mesh desktop*:
 | C1 | **INST-*** installation manager — peer installs from media without operator hand-holding | Q98 |
 | C2 | **DM-*** display manager (greetd + regreet) — you can log in | Q98 |
 | C3 | **sway shell renders + is usable** — `mde-panel` + `mde-portal` + `mde-session` boot and drive a desktop | §11 item 19 (core subset) |
-| C4 | **Nebula mesh enrollment + Gluster `mesh-home` mount** — the core "workgroup" value: files replicate across peers | v5.0 + Q22 |
+| C4 | **Nebula mesh enrollment + LizardFS `mesh-storage` mount** — the core "workgroup" value: files replicate across peers (FS swapped Gluster→LizardFS 2026-05-29, MESHFS-*; renamed `mesh-home`→`mesh-storage`) | v5.0 + Q22 |
 | C5 | **Bus foundation (BUS-1 + BUS-2)** — notifications + high-priority surfaces work end-to-end | BUS |
 | C6 | **4 presets implemented** (ChromeOS Classic L/D + Ableton 12 L/D) | Q79 |
 | C7 | **Operator HW smoke on ≥2 peers** — per-bullet acceptance per 25-Q Q13; full 8-peer bench is a post-5.0 hardening pass, not a cut blocker | Q98 + Q13 (25-Q) |
