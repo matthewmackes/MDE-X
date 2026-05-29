@@ -5035,7 +5035,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 #### Post-install verification + docs
 
-- [ ] **v2.7: INST-14 Post-install smoke check (Tier 1)**
+- [✓] **v2.7: INST-14 Post-install smoke check (Tier 1)** *(shipped 2026-05-29 — session=opus-48-2026-05-29-ship-PV2. New `mde-installer::smoke`: pure classifiers `classify_service`/`classify_gluster`/`classify_peers`/`classify_session` (→ `Outcome::{Ok,Skip,Fail}`) + a `run(profile)` runner (systemctl is-active mackesd/nebula; headless+full: glusterd + `gluster volume info mesh-home` Type:Replicate; full: `$XDG_SESSION_DESKTOP`==sway else Skip log-out/in) + `report` (prints `(!) check failed: …`, exit 3 on any fail; else `>>> mde-install complete: profile=X, services=N/N up.`). Wired as `mde-install`'s final step; `--skip-smoke` bypasses (image builds). 6 unit tests on the classifiers/report. **Peer-reachability sub-check** implemented as registry-presence (`classify_peers` Skip-if-alone) — true overlay-ping needs per-peer overlay IPs not in PeerRecord; follow-up INST-PEERVER-REACH noted. Builds + 29 mde-installer tests green; no-stubs/reachability clean.)*
   **As** the installer (the last step before exit 0),
   **I want** to verify that the profile I claimed to install is actually running (services up, peers reachable, brick mounted where applicable),
   **so that** I never report success on a half-broken install that won't actually let the operator do anything productive when they next log in.

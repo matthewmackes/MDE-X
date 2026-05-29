@@ -40,12 +40,17 @@ struct Args {
     /// Tar existing MDE state to /var/lib/mde/backups/ before the wipe (recovery escape hatch).
     #[arg(long)]
     backup: bool,
+
+    /// Skip the post-install smoke check (INST-14) — for image builds where some services aren't started yet.
+    #[arg(long)]
+    skip_smoke: bool,
 }
 
 fn main() -> ExitCode {
     let args = Args::parse();
     match run(&args) {
-        Ok(()) => ExitCode::SUCCESS,
+        // Ok carries the smoke-check exit code (0 = clean, 3 = a check failed).
+        Ok(code) => ExitCode::from(code),
         Err(msg) => {
             eprintln!("mde-install: {msg}");
             ExitCode::from(2)
@@ -53,7 +58,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: &Args) -> Result<(), String> {
+fn run(args: &Args) -> Result<u8, String> {
     let profile = resolve_profile(args)?;
     println!("Install profile: {profile} — {}", profile.describe());
 
@@ -95,7 +100,10 @@ fn run(args: &Args) -> Result<(), String> {
         println!("\n[dry-run] would stop {:?}, wipe the paths above, write the \
                   profile marker, restart services, then run birthrights for {profile}.",
                  wipe::MANAGED_SERVICES);
-        return Ok(());
+        if !args.skip_smoke {
+            println!("[dry-run] would then run the post-install smoke check.");
+        }
+        return Ok(0);
     }
 
     // Confirm.
@@ -179,7 +187,16 @@ fn run(args: &Args) -> Result<(), String> {
         ));
     }
     println!("\nmde-install: {profile} node converged.");
-    Ok(())
+
+    // INST-14 — post-install smoke check: verify the claimed profile is
+    // actually running before reporting success. A failed check exits 3.
+    if args.skip_smoke {
+        println!("(smoke check skipped via --skip-smoke)");
+        return Ok(0);
+    }
+    println!("\nPost-install smoke check:");
+    let results = mde_installer::smoke::run(profile);
+    Ok(mde_installer::smoke::report(profile, &results))
 }
 
 /// `dnf install -y mde-desktop` — pull the Wayland desktop addon when

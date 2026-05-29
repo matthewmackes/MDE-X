@@ -27,4 +27,5 @@ pub mod confirm;
 pub mod intent_file;
 pub mod peers;
 pub mod profile;
+pub mod smoke;
 pub mod wipe;
