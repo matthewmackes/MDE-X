@@ -224,12 +224,22 @@ list. Closes AI_PLATFORM_REFERENCE.md §11.5.
 
 ### 9.2 Versioning
 
-- **Reset to 1.0 on rebrand** — "MackesDE for Workgroups 1.0" is
-  the first official release (Q72)
-- Everything pre-rebrand = "mackes-shell pre-history"
-- Design docs keep filenames (`v5.0-gluster.md`, `v6.x-bus.md`); release
-  SemVer ticks independently (Q80)
-- Post-1.0 cadence: **continuous main + annual major tags** (Q92)
+- **Next cut is `v5.0.0` — continue SemVer from the shipped `v4.0.0`
+  tag** (operator-authorized amendment 2026-05-28; supersedes Q72's
+  "reset to 1.0 on rebrand"). The repo already carries 46 published
+  tags through `v4.0.0`; a "1.0" rebrand release would present as a
+  *downgrade* to dnf/rpm and to any peer updating from v4.x. The
+  brand is "MackesDE for Workgroups"; the version line continues
+  unbroken at **v5.0.0**. Q72's clean-slate-to-1.0 framing is retired.
+- "1.0" / "the 1.0 roadmap" wording elsewhere in this doc and in
+  CLAUDE.md now reads as **"the v5.0.0 cut"**. Design-doc filenames
+  (`v5.0-gluster.md`, `v6.x-bus.md`) are unaffected — they are labels,
+  not release targets (Q80 stands).
+- Everything pre-rebrand stays in the `mackes-shell` lineage; the
+  rebrand to "MackesDE for Workgroups" lands with v5.0.0.
+- Post-v5.0 cadence: **continuous main + annual major tags** (Q92).
+  This cadence now also governs the bulk of the former §11 roadmap —
+  see §11.
 
 ### 9.3 Epic numbering
 
@@ -255,19 +265,60 @@ old prefix for grep/history. Migration designed under EPIC-PROC-3. (Q78)
 
 ---
 
-## 11. 1.0 Roadmap (MAXIMUM scope per Q91 — NO INCOMPLETE RELEASES per §0.17)
+## 11. Release roadmap — v5.0.0 shippable core + post-5.0 continuous main
 
-> **NO INCOMPLETE RELEASES** (operator directive 2026-05-26 +
-> CLAUDE.md §0.17 + memory [[feedback_no_incomplete_releases]]).
-> Every cut release ships EVERY locked item below. No minimal-1.0,
-> no scope-cut, no defer-to-1.1. The §11 roadmap below IS the cut
-> definition. When asked "what's the fastest path," reframe to
-> execution-pace (more parallel sessions, more bundles per session,
-> more HW bench passes) — never scope reductions. The only
-> legitimate path to revisit Q91 is an operator-typed "lift the
-> lock for X" / "amend Q91."
+> **AMENDED 2026-05-28 (operator-authorized).** The previous "NO
+> INCOMPLETE RELEASES / 1.0 = the whole backlog" rule (Q91 + the old
+> §0.17 + memory [[feedback_no_incomplete_releases]]) is **superseded**.
+> Under that rule the cut required ~1,190 open tasks to all be green
+> with no release valve — a definition of done that could not be
+> reached. Per the operator's 2026-05-28 directive ("make the
+> shippable-release + reconcile changes"), the release is now a
+> **minimal viable core** and everything else lands continuously on
+> main per the §9.2 / Q92 post-cut cadence (which this doc already
+> locked). This is the legitimate Q91-revisit path: an operator-typed
+> amendment, recorded here and in CLAUDE.md §0.17.
 
-MackesDE for Workgroups 1.0 ships when ALL of these are green:
+### 11.1 v5.0.0 core — must be green to cut
+
+The cut ships when these — and only these — are green. Each is
+essential to a *usable, installable mesh desktop*:
+
+| # | Core scope item | Source |
+|---|---|---|
+| C1 | **INST-*** installation manager — peer installs from media without operator hand-holding | Q98 |
+| C2 | **DM-*** display manager (greetd + regreet) — you can log in | Q98 |
+| C3 | **sway shell renders + is usable** — `mde-panel` + `mde-portal` + `mde-session` boot and drive a desktop | §11 item 19 (core subset) |
+| C4 | **Nebula mesh enrollment + Gluster `mesh-home` mount** — the core "workgroup" value: files replicate across peers | v5.0 + Q22 |
+| C5 | **Bus foundation (BUS-1 + BUS-2)** — notifications + high-priority surfaces work end-to-end | BUS |
+| C6 | **4 presets implemented** (ChromeOS Classic L/D + Ableton 12 L/D) | Q79 |
+| C7 | **Operator HW smoke on ≥2 peers** — per-bullet acceptance per 25-Q Q13; full 8-peer bench is a post-5.0 hardening pass, not a cut blocker | Q98 + Q13 (25-Q) |
+
+### 11.2 Post-5.0 — continuous main (NOT cut-blocking)
+
+These land on main as completed (Q92 continuous cadence). Several
+are **incomplete today** — recorded here at their real state per the
+2026-05-28 reconcile so no "done" is overstated:
+
+| Item | Real state as of 2026-05-28 |
+|---|---|
+| **EPIC-RETIRE-DBUS** (D-Bus → Bus) | **In progress** — 13 `#[interface]` blocks still live (mackesd `ipc/*.rs`, `mde-portal`, `mde-session`, `mde-workbench`); epic was first *planned* in commit 544497ce. FDO `org.freedesktop.*` interop stays regardless. |
+| **EPIC-RETIRE-PY-DAEMONS** (Q95) | **In progress** — `mackes/` still holds ~23.5k LOC of Python. |
+| **EPIC-RETIRE-QNM** (Q14 + Q77) | **In progress** — `qnm` refs remain in `mackesd` (`worker.rs`, `leader.rs`, `nebula_enroll.rs`), `mackes-mesh-types`, etc. |
+| **EPIC-RETIRE-CADDY** (Q10) | **In progress** — caddy refs remain in `mackes-mesh-types`, `mde-workbench`, the spec. |
+| **EPIC-UI-MATERIAL** (Q97 Carbon→Material) | **In progress** — ~112 active-code Carbon refs (TUNE-14.b). |
+| **CR-*** ChromeOS Classic retrofit, **SWAY-*/ANIM-*** animation | Continuous polish; release-gated visual sign-off deferred to post-5.0 per [[feedback_no_pre_release_reviews]]. |
+| **BUS-3..7** advanced routing / federation / clipboard / audit | Continuous. |
+| **VOIP-***, **AIR-*** music, **MON-*** monitoring, **CONTAINER-*** | Core-forever components, but not v5.0.0 cut blockers. |
+| **DEAD-*** retirement queue, **EPIC-MASTER/PROC/SEC/SCOPE** | Continuous hygiene. |
+| **PHONE-NEBULA-PEER** | Continuous. |
+| Full 8-peer HW bench | Post-5.0 hardening (C7 covers the cut smoke). |
+
+The master inventory below is retained as the **complete item list**;
+§11.1 names which subset gates the cut. Items not in §11.1 are §11.2
+continuous work.
+
+### 11.3 Master inventory (historical — full locked scope, not the cut gate)
 
 | # | Scope item | Source |
 |---|---|---|
@@ -291,8 +342,8 @@ MackesDE for Workgroups 1.0 ships when ALL of these are green:
 | 18 | **Security posture documented** (`docs/design/security-posture.md`) — Fedora targeted + user-UID stance | Q25 (25-Q) |
 | 19 | **Sway-native shell + maximum-animation system** (`docs/design/sway-native-shell.md`) — vanilla sway compositor; all motion in MDE iced layer-shell surfaces via the `mde-motion` crate; EtherApe network-activity mesh-wallpaper; flat-but-elevated visual identity. **Replaces the removed Hyprland migration.** | 150-Q survey (2026-05-28) |
 
-**Post-1.0:**
-- Continuous main; tag minor versions annually (1.1, 1.2, …)
+**Post-v5.0:**
+- Continuous main; tag minor versions annually (5.1, 5.2, …)
 - **VoIP stays in core forever** (Q21 of 25-Q retired Q92's `mde-voice` spinout plan)
 - AIR-* music continues in core
 - **Continuous retirement audit on every /ship cycle** (Q20 of 25-Q replaces quarterly cadence)
@@ -364,6 +415,8 @@ The following older locks are **superseded** by this doc:
 | `mackes-shell` naming | Q71 MackesDE for Workgroups | Rebrand |
 | v12.x / v8.x / v5.x design IDs as release versions | Q72 1.0 reset | Versioning clean slate |
 | Hardware Testing carve-out (memory `feedback_no_cut_until_worklist_empty`) | Q69 pre-release HW bench required | Tighter gate |
+| Q72 "reset to 1.0 on rebrand" | §9.2 amendment 2026-05-28 → next cut is **v5.0.0** (continue SemVer from shipped v4.0.0) | 46 published tags through v4.0.0; 1.0 would be a downgrade |
+| Q91 + old §0.17 "NO INCOMPLETE RELEASES / 1.0 = whole backlog" | §11 amendment 2026-05-28 → **v5.0.0 minimal core** (§11.1) + post-5.0 continuous main (§11.2) | ~1,190 open tasks made the cut unreachable; operator-authorized |
 | v2.0.0 Wayland-only (sway) compositor lock (memory `project_v2_0_0_mackes_de`) | **STANDS** — Hyprland migration removed 2026-05-28; vanilla sway is permanent (`docs/design/sway-native-shell.md`) | Reverted → sway-native |
 | Classic ChromeOS "universal flat" element (memory `project_chromeos_classic_visual_lock`) | "flat-but-elevated" — shadows on MDE iced surfaces only, windows stay flat (`sway-native-shell.md` §5) | Layered visual hierarchy |
 | R12 Q44 Mod+r → Portal-compact resize (memory `project_v6_0_mde_portal`) | **STANDS** — sway resize mode + live dimension OSD (`sway-native-shell.md` Q37); HYP-13 mouse-grab void | Reverted → sway-native |

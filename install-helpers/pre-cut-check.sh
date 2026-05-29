@@ -54,36 +54,25 @@ if [ ! -f "$WORKLIST" ]; then
     exit 1
 fi
 
-# Locked roadmap-epic prefixes per `docs/AI_GOVERNANCE.md` §11
-# (line 270 forward). Each prefix must show zero open tasks for
-# the cut to proceed. If §11 grows, add the new prefix here.
+# Locked v5.0.0-CORE epic prefixes per `docs/AI_GOVERNANCE.md`
+# §11.1. AMENDED 2026-05-28 (§0.17 shippable-core amendment):
+# this gate now checks ONLY the §11.1 core subset, NOT the whole
+# §11 roadmap. The old all-§11-green list (BUS-/GF-/CR-/Portal-/
+# all EPIC-RETIRE-*/MON-/TUNE-/…) is retired — those are §11.2
+# post-5.0 continuous-main epics and do NOT block the cut.
 #
-# The list is intentionally explicit (not auto-extracted from the
-# §11 table) so an unexpected design-doc edit doesn't silently
-# change what the gate checks. Each entry must be reviewed at
-# write-time.
+# Only two core items gate cleanly by task-prefix: the cut must be
+# INSTALLABLE (INST-) and LOGINABLE (DM-). The rest of the §11.1
+# core — sway shell is usable, Nebula mesh-home mounts, Bus
+# foundation delivers, the 4 presets render — cannot be proven
+# from task marks; it is verified by the §11.1 C7 operator
+# ≥2-peer HW smoke at cut time (per §0.15), not by this script.
+#
+# The list is intentionally explicit (not auto-extracted) so an
+# unexpected design-doc edit doesn't silently change the gate.
 ROADMAP_PREFIXES='
-BUS-
-GF-
-DEAD-
-CR-
 INST-
 DM-
-TUNE-
-Portal-
-EPIC-RETIRE-PY-WORKBENCH
-EPIC-RETIRE-PY-DAEMONS
-EPIC-RETIRE-DBUS
-EPIC-RETIRE-CARBON
-EPIC-RETIRE-QNM
-EPIC-RETIRE-CADDY
-EPIC-MASTER-
-EPIC-UI-MATERIAL
-EPIC-UI-PRESETS
-EPIC-PROC-
-EPIC-SEC-
-EPIC-SCOPE-
-MON-
 '
 
 # Active section bounds — §11 only gates tasks in the "Active"

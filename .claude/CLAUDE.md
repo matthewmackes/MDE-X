@@ -121,19 +121,18 @@ When the user types `cut release X.Y.Z` (or says "cut a release"), treat
 it as a single executable command with eight ordered steps — execute all
 eight without asking for confirmation between steps unless a step fails:
 
-0. **Pre-cut check** (TUNE-7, 2026-05-26 per Q11 + Q12 of 25-Q
-   tuning survey): `make pre-cut-check`. This script
-   (`install-helpers/pre-cut-check.sh`) refuses if any §11
-   roadmap-epic prefix from `docs/AI_GOVERNANCE.md` still has
-   open or in-progress tasks in the worklist's Active section.
-   **Hard block per Q12 — no operator override flag, no env-var
-   bypass, no `--force`.** The legitimate path past this gate
-   is the operator typing "amend Q91 to drop <epic>" (which
-   removes the line from §11 + the script's `ROADMAP_PREFIXES`
-   list). Per §0.15: also verify every HW-* acceptance bullet
-   for this release is `[✓]` with operator-confirmed bench
-   results — `make pre-cut-check` checks task-level marks; the
-   per-bullet check is operator-typed.
+0. **Pre-cut check** (TUNE-7; amended 2026-05-28 per the §0.17
+   shippable-core amendment): `make pre-cut-check`. This script
+   (`install-helpers/pre-cut-check.sh`) refuses if any
+   **AI_GOVERNANCE.md §11.1 v5.0.0-core** epic prefix still has
+   open or in-progress tasks in the worklist's Active section. It
+   gates only the core subset (installer / display manager / sway
+   shell / Nebula mesh-home / Bus foundation / presets) — NOT the
+   §11.2 post-5.0 continuous-main epics. The old "all §11 green"
+   hard-block is retired with §0.17. Per §0.15: also verify every
+   HW-* acceptance bullet for this release is `[✓]` with operator-
+   confirmed bench results — `make pre-cut-check` checks task-level
+   marks; the per-bullet check is operator-typed.
 
 1. **Bump version** in four files:
    - `mackes/__init__.py:__version__`
@@ -631,8 +630,16 @@ possible until the first full release. Therefore, pre-release:
 **Effective 2026-05-26 the platform is FEATURE LOCKED until the
 next named release cuts.** No new features, no new epics, no new
 survey-locked scope, no new design docs that grow the surface
-area. The 324 active items already in `docs/PROJECT_WORKLIST.md`
-are the complete release backlog.
+area. The active items already in `docs/PROJECT_WORKLIST.md` are
+the complete backlog.
+
+**Reinforced 2026-05-28 (anti-churn):** the next cut is **v5.0.0**
+(§0.17). Until it cuts, no new N-Q surveys and no new epics — the
+Hyprland epic (scoped + surveyed + built + reversed inside ~24h,
+2026-05-27→28) is the exact failure mode this clause prevents. The
+§11.2 post-5.0 continuous-main list (AI_GOVERNANCE.md §11) is now
+the documented home for deferred scope; route "what about X?"
+requests there, do not open a fresh epic/survey for them pre-cut.
 
 **What this means for Claude:**
 
@@ -791,7 +798,36 @@ CLAUDE.md tier 2 and is mirrored in memory tier 1
 ([[feedback_platform_feature_locked]]). Memory wins if they
 contradict. Operator-issued lock-lifts override both.
 
-### 0.17 NO INCOMPLETE RELEASES (operator directive 2026-05-26)
+### 0.17 SHIP A WORKING CORE, ITERATE ON MAIN (operator directive 2026-05-28 — SUPERSEDES "NO INCOMPLETE RELEASES")
+
+**AMENDED 2026-05-28 (operator-authorized).** The old rule below
+("every cut ships every locked §11 item; no minimal release; no
+defer") is **RETIRED**. It defined a cut requiring ~1,190 open
+tasks to all be green with no release valve — unreachable.
+
+**New rule:** The next cut is **v5.0.0** (continue SemVer from the
+shipped v4.0.0 tag — AI_GOVERNANCE.md §9.2). v5.0.0 ships only the
+**minimal viable core** in AI_GOVERNANCE.md **§11.1** (installer +
+display manager + sway shell + Nebula `mesh-home` + Bus foundation
++ 4 presets + ≥2-peer HW smoke). Everything else lands
+**continuously on main** per §11.2 / Q92 and is NOT cut-blocking.
+
+- "What's the fastest path to ship?" → "green the §11.1 core, cut
+  v5.0.0, iterate the rest on main." Scope-down to the core IS the
+  path now, not a forbidden move.
+- "Defer X to a later minor" is legitimate for any §11.2 item.
+- `make pre-cut-check` gates only §11.1 core epics (see §0.6 step 0).
+- §0 master rule's "Simple," read with shipping in mind: a small
+  working cut beats an unreachable complete one.
+- Mirrored in memory [[feedback_no_incomplete_releases]] (rewritten
+  2026-05-28) and [[feedback_1_0_is_the_whole_backlog]] (retired).
+
+**Everything from this line down is the RETIRED old rule, kept as
+historical record only — do NOT enforce it.**
+
+---
+
+_(historical — retired 2026-05-28)_ **NO INCOMPLETE RELEASES**
 
 **Every cut release ships every locked §11 roadmap item from
 `docs/AI_GOVERNANCE.md`. There are no minimal releases, no
