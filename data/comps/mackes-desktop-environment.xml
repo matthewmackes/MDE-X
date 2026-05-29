@@ -13,8 +13,13 @@
     <default>false</default>
     <uservisible>true</uservisible>
     <packagelist>
-      <!-- The package itself -->
-      <packagereq type="mandatory">mde</packagereq>
+      <!-- The packages themselves: headless core substrate + the
+           Wayland desktop addon (mde-desktop ships the mde-panel /
+           mde-portal / mde-applet-* GUI binaries + Requires the
+           sway stack below). This "mackes-desktop-environment" group
+           is the full-desktop group, so it pulls both. -->
+      <packagereq type="mandatory">mde-core</packagereq>
+      <packagereq type="mandatory">mde-desktop</packagereq>
       <!-- Wayland compositor + bindings -->
       <packagereq type="mandatory">sway</packagereq>
       <packagereq type="mandatory">swaylock</packagereq>

@@ -216,6 +216,16 @@ list. Closes AI_PLATFORM_REFERENCE.md §11.5.
 - **Product:** MackesDE for Workgroups (marketing, About, release pages)
 - **Casual user-visible:** MackesDE (in-app strings, About panel)
 - **Code/internal:** MDE (`mded`, `mde-*` crates, `dev.mackes.MDE.*` D-Bus)
+- **RPM packages (split 2026-05-29):** base **`mde-core`** = the
+  headless Fedora-Server substrate (mackesd, nebula, GlusterFS hooks,
+  installer binaries, CLI — GUI-free); addon **`mde-desktop`** = the
+  sway/Iced desktop (Requires `mde-core`); **`mde-xorg`** = the i3/X11
+  session addon. `mde-core` carries `Provides: mde` for back-compat
+  (`dnf install mde` and the comps group keep resolving). On-disk
+  paths stay `/usr/share/mde`, `/etc/mde`, `/var/lib/mde` via the
+  spec's `%{appname}` macro (decoupled from the package `Name`). The
+  canonical install builds up from a Fedora Server CLI: `dnf install
+  mde-core` → `dnf install mde-desktop` (operator directive).
 - **QNM-Shared → MDE-Workgroup** (term retires; `qnm_root` → `workgroup_root`)
 - **Crate prefixes:** `mackes-*` for shared/legacy (mackes-mesh-types,
   mackes-transport, mackes-config, mackes-theme,

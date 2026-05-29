@@ -4,10 +4,17 @@
 # from rpmbuild on Fedora 40+.
 %global debug_package %{nil}
 
-Name:           mde
+# INST-1 / operator directive 2026-05-29: the base package is named
+# `mde-core` (the headless Fedora-Server substrate you build up from);
+# `%{appname}` keeps the on-disk paths at /usr/share/mde, /etc/mde,
+# /var/lib/mde regardless of the package Name so runtime code that
+# reads those paths is unaffected by the rename.
+%global appname mde
+
+Name:           mde-core
 Version:        4.0.0
 Release:        1%{?dist}
-Summary:        Mackes Desktop Environment (MDE) — Wayland-only Fedora DE
+Summary:        Mackes Desktop Environment (MDE) — headless core substrate (Fedora Server build-up base)
 
 License:        GPL-3.0
 URL:            https://github.com/matthewmackes/MAP2-RELEASES
@@ -16,9 +23,14 @@ URL:            https://github.com/matthewmackes/MAP2-RELEASES
 Source0:        mackes-shell-%{version}.tar.gz
 
 # v2.0.0 cut commit — package renamed `mackes-xfce-workstation` →
-# `mde`. Back-compat Provides/Obsoletes:
+# `mde`. 2026-05-29 — base renamed `mde` → `mde-core`; `Provides: mde`
+# keeps `dnf install mde`, the comps group, and existing scripts
+# resolving to the base substrate (no flag day). Back-compat
+# Provides/Obsoletes:
+Provides:       mde = %{version}-%{release}
 Provides:       mackes-shell = %{version}-%{release}
 Provides:       mackes-xfce-workstation = %{version}-%{release}
+Obsoletes:      mde < 4.0.0-2
 Obsoletes:      mackes-shell < 2.0.0
 Obsoletes:      mackes-xfce-workstation < 2.0.0
 
@@ -201,7 +213,7 @@ Requires:       netdata
 
 # EPIC-MESH-PROBE (MESH-PROBE-3) — nmap is the sole probe engine
 # (design Q3). mackesd's probe worker + `mackesd probe scan` shell
-# out to it; the bundled NSE scripts at %{_datadir}/%{name}/nmap/
+# out to it; the bundled NSE scripts at %{_datadir}/%{appname}/nmap/
 # extend `-sV` with the mesh-media + Mackes-service fingerprinters.
 Requires:       nmap
 
@@ -326,9 +338,9 @@ minutes. PatternFly v6 styling (Red Hat Display / Text / Mono).
 # ---------------------------------------------------------------------------
 # mde-xorg sub-package — XOrg/i3 edition of the MDE session
 # ---------------------------------------------------------------------------
-%package xorg
+%package -n mde-xorg
 Summary:        Mackes Desktop Environment — XOrg/i3 session
-Requires:       mde = %{version}-%{release}
+Requires:       mde-core = %{version}-%{release}
 Requires:       mde-desktop = %{version}-%{release}
 Requires:       i3
 Requires:       i3lock
@@ -338,24 +350,24 @@ Requires:       scrot
 Requires:       dmenu
 Recommends:     brightnessctl
 
-%description xorg
+%description -n mde-xorg
 XOrg/i3 session add-on for Mackes Desktop Environment.  Installs
 the i3-backed mde-session binary (built --features x11), the
 mde-xorg.desktop XSession entry, an i3 config tuned for MDE, and
 a systemd user target that gates on DISPLAY instead of
-WAYLAND_DISPLAY.  Install alongside the main `mde` package to get
-both session choices in the display-manager greeter.
+WAYLAND_DISPLAY.  Install alongside the `mde-desktop` package to
+get both session choices in the display-manager greeter.
 
-# INST-1 (v2.7, 2026-05-25) — addon RPM that adds every GUI
-# binary + Wayland-stack runtime dep to a base `mde` install.
-# Lighthouse VPS boxes and headless mesh peers `dnf install mde`
-# without dragging in sway / wlroots / GTK / iced / KDC2 GUI
-# plugins / Roboto fonts. A full desktop install runs
-# `dnf install mde mde-desktop` (or pulls the
-# `mackes-desktop-environment` comps group, which lists both).
-%package desktop
+# INST-1 (v2.7, 2026-05-25; base renamed mde→mde-core 2026-05-29) —
+# addon RPM that adds every GUI binary + Wayland-stack runtime dep
+# to a base `mde-core` install. Lighthouse VPS boxes and headless
+# mesh peers `dnf install mde-core` without dragging in sway /
+# wlroots / GTK / iced / KDC2 GUI plugins / Roboto fonts. A full
+# desktop install runs `dnf install mde-core mde-desktop` (or pulls
+# the `mackes-desktop-environment` comps group, which lists both).
+%package -n mde-desktop
 Summary:        Mackes Desktop Environment — Wayland desktop add-on
-Requires:       mde = %{version}-%{release}
+Requires:       mde-core = %{version}-%{release}
 
 # Wayland compositor stack — the desktop add-on owns the sway
 # session host + every Wayland-native runtime dep.
@@ -400,7 +412,7 @@ Requires:       google-roboto-mono-fonts
 Requires:       intel-one-mono-fonts
 Requires:       symbols-nerd-font-mono-fonts
 
-%description desktop
+%description -n mde-desktop
 Wayland desktop add-on for Mackes Desktop Environment.  Pulls
 in the sway compositor, every mde-* / mde-applet-* GUI binary,
 the GTK 3 stack for the surviving v1.x panels, the Wayland-
@@ -483,24 +495,24 @@ rpm
 EOF
 
 # 3. Shipped read-only data
-install -d %{buildroot}%{_datadir}/%{name}/data
-cp -r data/presets        %{buildroot}%{_datadir}/%{name}/data/
-cp -r data/wallpapers     %{buildroot}%{_datadir}/%{name}/data/
-cp -r data/css            %{buildroot}%{_datadir}/%{name}/data/
-cp -r data/dnf            %{buildroot}%{_datadir}/%{name}/data/
+install -d %{buildroot}%{_datadir}/%{appname}/data
+cp -r data/presets        %{buildroot}%{_datadir}/%{appname}/data/
+cp -r data/wallpapers     %{buildroot}%{_datadir}/%{appname}/data/
+cp -r data/css            %{buildroot}%{_datadir}/%{appname}/data/
+cp -r data/dnf            %{buildroot}%{_datadir}/%{appname}/data/
 # Fleet management (v1.3.0) — 7 curated Ansible roles
-cp -r data/ansible        %{buildroot}%{_datadir}/%{name}/data/
+cp -r data/ansible        %{buildroot}%{_datadir}/%{appname}/data/
 # v2.2.0 — data/conky/ removed (Conky HUD replaced by Notification Drawer).
 # v1.6.2 — canonical xfce4-panel snapshot for apply_panel_layout.
 # data/panel/xfce4-panel.snapshot.json is the platform default panel
 # (regenerated via tools/snapshot-panel.py on the reference box).
 if [ -d data/panel ]; then
-    cp -r data/panel      %{buildroot}%{_datadir}/%{name}/data/
+    cp -r data/panel      %{buildroot}%{_datadir}/%{appname}/data/
 fi
 # Mackes Conky autostart .desktop
 # v2.2.0 — mackes-conky.desktop removed (Conky HUD replaced by the
 # Notification Drawer panel applet).
-cp -r data/systemd        %{buildroot}%{_datadir}/%{name}/data/
+cp -r data/systemd        %{buildroot}%{_datadir}/%{appname}/data/
 # Vendored GTK themes + icon theme — system-wide install
 install -d %{buildroot}%{_datadir}/themes
 cp -r data/themes/Orchis-Dark   %{buildroot}%{_datadir}/themes/
@@ -533,27 +545,27 @@ cp -r data/icons/Mackes-Carbon %{buildroot}%{_datadir}/icons/
 install -d %{buildroot}%{_datadir}/plymouth/themes
 cp -r data/plymouth/mde %{buildroot}%{_datadir}/plymouth/themes/
 # v2.0.0 cut: C panel-plugin install steps retired (see %build).
-cp -r data/grub           %{buildroot}%{_datadir}/%{name}/data/
-cp    data/media-services.yaml %{buildroot}%{_datadir}/%{name}/data/
+cp -r data/grub           %{buildroot}%{_datadir}/%{appname}/data/
+cp    data/media-services.yaml %{buildroot}%{_datadir}/%{appname}/data/
 # Per-preset captured xfconf baselines (§8 lock). Each preset directory
 # contains <channel>.txt dumps from `xfconf-query --channel X --list -v`
 # plus a manifest.json. Apply via install-helpers/apply-xfce-baseline.sh.
 if [ -d data/xfce-baseline ]; then
-    cp -r data/xfce-baseline %{buildroot}%{_datadir}/%{name}/data/
+    cp -r data/xfce-baseline %{buildroot}%{_datadir}/%{appname}/data/
 fi
 
 # 3a. Mackes Shell branding — hero logo (About / Wizard / Dashboard) +
 #     standard wallpaper (desktop + LightDM greeter)
-install -d %{buildroot}%{_datadir}/%{name}/branding
-cp -r branding/* %{buildroot}%{_datadir}/%{name}/branding/
+install -d %{buildroot}%{_datadir}/%{appname}/branding
+cp -r branding/* %{buildroot}%{_datadir}/%{appname}/branding/
 
 # 3b. In-Mackes help documentation (docs/help/*.md)
-install -d %{buildroot}%{_datadir}/%{name}/help
-cp docs/help/*.md %{buildroot}%{_datadir}/%{name}/help/
+install -d %{buildroot}%{_datadir}/%{appname}/help
+cp docs/help/*.md %{buildroot}%{_datadir}/%{appname}/help/
 
 # 3c. Apple-menu "About Mackes" credits + license file (1.0.7+).
 #     Consumed by mackes/about.py via /usr/share/mackes-shell/ABOUT.txt.
-install -D -m 0644 data/ABOUT.txt %{buildroot}%{_datadir}/%{name}/ABOUT.txt
+install -D -m 0644 data/ABOUT.txt %{buildroot}%{_datadir}/%{appname}/ABOUT.txt
 
 # 3d. Build-identity files (v2.0.3) — written here so both panel
 #     watermarks (legacy mackes-panel + Iced mde-panel) report the
@@ -584,7 +596,7 @@ chmod 0644 %{buildroot}%{_datadir}/mde/build-hash
 # 4. Install helper scripts (called from %%post / %%preun, plus the
 #    capture/apply pair admins use to manage XFCE baselines, plus the
 #    theme/icon bootstrap, lightdm config, and mackes-user creation)
-install -d %{buildroot}%{_datadir}/%{name}/install-helpers
+install -d %{buildroot}%{_datadir}/%{appname}/install-helpers
 for helper in \
     hide-xfce-settings.sh restore-xfce-settings.sh \
     add-mackes-repo.sh install-recovery.sh \
@@ -593,12 +605,12 @@ for helper in \
     mesh-ca-trust.sh register-gvfs-mesh.sh \
     sync-user-sway-exec-lines.sh ; do
     install -m 0755 install-helpers/$helper \
-        %{buildroot}%{_datadir}/%{name}/install-helpers/
+        %{buildroot}%{_datadir}/%{appname}/install-helpers/
 done
 
 # 4a. data/mesh-ssh-policy.example.yaml
 install -D -m 0644 data/mesh-ssh-policy.example.yaml \
-    %{buildroot}%{_datadir}/%{name}/data/mesh-ssh-policy.example.yaml
+    %{buildroot}%{_datadir}/%{appname}/data/mesh-ssh-policy.example.yaml
 
 # 4b. systemd units (system + user)
 install -d %{buildroot}%{_unitdir}
@@ -661,14 +673,14 @@ install -D -m 0755 bin/mackes-wm                              %{buildroot}%{_bin
 
 # 1.0.7 — default i3 config shipped to /usr/share/mackes-shell/i3/.
 # mackes-wm seeds ~/.config/i3/config from this file on first switch.
-install -D -m 0644 data/i3/config %{buildroot}%{_datadir}/%{name}/i3/config
+install -D -m 0644 data/i3/config %{buildroot}%{_datadir}/%{appname}/i3/config
 # 1.1.x — Phase 6.4 hotkeys + Phase 3.6 apple-menu shortcut land as a
 # config.d drop-in so user overrides at
 # ~/.config/i3/config.d/mackes-overrides.conf load alphabetically
 # after our defaults. The main config already `include`s the
 # directory (added 1.1.0 for the gaps profile picker).
 install -D -m 0644 data/i3/config.d/mackes-defaults.conf \
-    %{buildroot}%{_datadir}/%{name}/i3/config.d/mackes-defaults.conf
+    %{buildroot}%{_datadir}/%{appname}/i3/config.d/mackes-defaults.conf
 # v2.0.0 Phase D.5 — sway config shipped under /usr/share/mde/sway/.
 # mde-session seeds ~/.config/sway/ from this directory on first
 # launch via the mde-shell-migrate-v2 step.
@@ -784,7 +796,7 @@ install -D -m 0644 data/regreet/regreet.toml \
 # Note: tokens.css ALSO ships under /usr/share/mde/data/css/ via
 # the broad `cp -r data/css ...` line above for the panel's
 # legacy reader path; the duplication is harmless (same bytes,
-# `%{_datadir}/%{name}/` catch-all owns both).
+# `%{_datadir}/%{appname}/` catch-all owns both).
 install -D -m 0644 data/css/tokens.css \
     %{buildroot}%{_datadir}/mde/theme/tokens.css
 install -D -m 0644 data/css/greeter.css \
@@ -1143,8 +1155,8 @@ getent passwd _rtpengine_mde >/dev/null 2>&1 || \
 usermod -aG _rtpengine_mde _kamailio_mde 2>/dev/null || :
 
 %post
-/usr/share/%{name}/install-helpers/create-mackes-user.sh || :
-/usr/share/%{name}/install-helpers/hide-xfce-settings.sh || :
+/usr/share/%{appname}/install-helpers/create-mackes-user.sh || :
+/usr/share/%{appname}/install-helpers/hide-xfce-settings.sh || :
 # Enable SSH by default on every Mackes install (per design lock).
 systemctl enable --now sshd.service || :
 # Refresh systemd unit cache so the new mackes-* units are visible.
@@ -1215,7 +1227,7 @@ rm -f /usr/share/xsessions/xfce11-i3-plank.desktop \
 %preun
 # Only on uninstall, not upgrade ($1 == 0 → final removal)
 if [ "$1" = "0" ]; then
-    /usr/share/%{name}/install-helpers/restore-xfce-settings.sh || :
+    /usr/share/%{appname}/install-helpers/restore-xfce-settings.sh || :
 fi
 
 %files
@@ -1241,7 +1253,7 @@ fi
 %{_mandir}/man1/mde-shell-migrate-v2.1*
 %{_mandir}/man8/mded.8*
 # v2.0.3 build-identity files (%{_datadir}/mde/build-{hash,date})
-# are covered by the %{_datadir}/%{name}/ catch-all below.
+# are covered by the %{_datadir}/%{appname}/ catch-all below.
 # v2.0.0 Phase 0.4 — D-Bus service files. mackesd registers
 # these at run-time; keeping them in base means a lighthouse
 # install of `mde` alone still exposes the daemon's surfaces
@@ -1251,11 +1263,11 @@ fi
 %{_datadir}/dbus-1/services/dev.mackes.MDE.*.service
 %{_datadir}/dbus-1/services/org.mackes.*.service
 # v2.0.0 Phase D.5 — sway config now covered by the
-# %{_datadir}/%{name}/ catch-all below (Name: mde, so
-# %{_datadir}/%{name}/ == /usr/share/mde/).
+# %{_datadir}/%{appname}/ catch-all below (Name: mde, so
+# %{_datadir}/%{appname}/ == /usr/share/mde/).
 %{py3_sitelib}/mackes/
 %{py3_sitelib}/mackes_shell-%{version}.dist-info/
-%{_datadir}/%{name}/
+%{_datadir}/%{appname}/
 # Metainfo for the dev.mackes.MDE upstream identity. Stays in
 # base so `appstream-cli` / dnf metadata clients can list MDE
 # even on lighthouse installs.
@@ -1288,7 +1300,7 @@ fi
 # v12.16 Self-hosted DERP relay unit. Inactive on non-Host peers
 # (gated by ConditionPathExists=/var/lib/mde/derper.enabled). The
 # headscale DERP-map example shipped under
-# %{_datadir}/%{name}/headscale/ is covered by the data catch-all.
+# %{_datadir}/%{appname}/headscale/ is covered by the data catch-all.
 %{_unitdir}/mde-derper.service
 # BUS-3.1 — firewalld service definition. Installed inert; the
 # operator applies via `firewall-cmd --add-service=mackes-bus` if
@@ -1312,7 +1324,7 @@ fi
 %config(noreplace) %{_sysconfdir}/regreet/regreet.toml
 # DM-2 (v2.7) — greetd substrate config lives at
 # /usr/share/mde/greetd/config.toml (covered by the existing
-# %{_datadir}/%{name}/ catch-all below). Lives there rather
+# %{_datadir}/%{appname}/ catch-all below). Lives there rather
 # than directly in /etc/greetd/ because Fedora's greetd RPM
 # already owns /etc/greetd/config.toml. DM-5's birthright
 # step copies this over the live /etc/greetd/config.toml at
@@ -1339,7 +1351,7 @@ fi
 # birthright step which is gated on the full profile).
 %{_datadir}/plymouth/themes/mde/
 
-%files desktop
+%files -n mde-desktop
 # INST-1 (v2.7, 2026-05-25) — every Wayland-stack GUI binary
 # the platform ships. A `dnf install mde` lighthouse install
 # omits all of these; `dnf install mde mde-desktop` (or the
@@ -1436,7 +1448,7 @@ fi
 %{_unitdir}/rtpengine-mde.service
 %dir %attr(0755, root, root) /etc/rtpengine-mde
 
-%files xorg
+%files -n mde-xorg
 %{_bindir}/mde-session-xorg
 %{_bindir}/mde-xorg-session
 %{_datadir}/xsessions/mde-xorg.desktop

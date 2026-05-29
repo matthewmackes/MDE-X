@@ -113,14 +113,25 @@ If you'd rather use `dnf` directly:
 ```sh
 sudo dnf config-manager --add-repo \
     https://matthewmackes.github.io/MAP2-RELEASES/data/dnf/mackes-shell.repo
-sudo dnf install mde
+
+# Headless / lighthouse substrate only (build up from a Fedora Server CLI):
+sudo dnf install mde-core
+
+# Full Wayland desktop (sway + the MDE shell):
+sudo dnf install mde-core mde-desktop
 ```
+
+The recommended path is a **clean install from a minimal Fedora
+Server (CLI)**: `dnf install mde-core` lands the headless substrate,
+then `dnf install mde-desktop` (or `sudo mde-install --profile=full`)
+builds up to the full desktop.
 
 Or download the RPM file from the [Releases page](https://github.com/matthewmackes/MAP2-RELEASES/releases)
 and install it offline. (The package name flipped from
-`mackes-shell` to `mde` at the 2.0.0 cut — older 1.x boxes pick up
-the new name automatically via `dnf upgrade` thanks to the
-`Obsoletes` rule on the new spec.)
+`mackes-shell` → `mde` at the 2.0.0 cut, then the base split to
+`mde-core` (+ addon `mde-desktop`) in 2026-05; `mde-core` still
+`Provides: mde` so `dnf install mde` and older 1.x boxes keep
+resolving via the `Obsoletes`/`Provides` rules.)
 
 ## What's inside
 
