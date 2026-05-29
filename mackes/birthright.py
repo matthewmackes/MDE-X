@@ -1109,6 +1109,46 @@ def apply_clipboard_daemon(_preset: Preset) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# 13.5 Print sharing — enable CUPS (PRINT-1, v5.0.0)
+# ---------------------------------------------------------------------------
+
+
+def apply_print_sharing(_preset: Preset) -> List[str]:
+    """Enable `cups.service` so the `cups_sync` worker can converge +
+    share printers across the mesh (PRINT-1).
+
+    Headless + full only (lighthouse skips this step — it runs no
+    `cups_sync` worker per the Q8 profile lock). The `cups` +
+    `cups-filters` packages are pulled by the base `mde-core` RPM
+    (PRINT-1 spec). This step only flips the unit on; the worker owns
+    the dynamic config (overlay-only `Listen`, per-queue sharing,
+    queue convergence) because the overlay IP is known only after
+    Nebula enrollment. Idempotent — re-enabling an active unit is a
+    quiet no-op.
+    """
+    actions: List[str] = []
+    if shutil.which("systemctl") is None:
+        actions.append("print-sharing: systemctl not available — skipping")
+        log_action(actions[-1])
+        return actions
+
+    # cups ships both cups.socket (socket-activation) and cups.service.
+    # enable --now on the service pulls the socket in; this is the
+    # canonical "printing is on at boot" flip.
+    rc, _ = _run_root(["systemctl", "enable", "--now", "cups.service"], timeout=60)
+    if rc == 0:
+        actions.append("print-sharing: cups.service enabled + started")
+    else:
+        actions.append(
+            "print-sharing: `systemctl enable --now cups.service` failed "
+            "(rc={}); printing + mesh share will be inert until cups is up".format(rc)
+        )
+    for line in actions:
+        log_action(line)
+    return actions
+
+
+# ---------------------------------------------------------------------------
 # 14. Quick Network Mesh (QNM) — install + enable (v1.5.2 birthright)
 # ---------------------------------------------------------------------------
 
@@ -2662,6 +2702,7 @@ STEP_FUNCS: "dict[str, Callable[[Preset], List[str]]]" = {
     "fleet":             apply_fleet,
     "monitor":           apply_netdata_monitor,
     "clipboard":         apply_clipboard_daemon,
+    "print-sharing":     apply_print_sharing,
     # --- full desktop only ---
     "third-party-repos": apply_third_party_repos,
     "system-update":     apply_dnf_update,
@@ -2682,7 +2723,7 @@ STEP_FUNCS: "dict[str, Callable[[Preset], List[str]]]" = {
 }
 
 _MESH_STEPS: tuple[str, ...] = ("uid-normalize", "user-dirs", "mesh", "gluster")
-_HEADLESS_EXTRA: tuple[str, ...] = ("fleet", "monitor", "clipboard")
+_HEADLESS_EXTRA: tuple[str, ...] = ("fleet", "monitor", "clipboard", "print-sharing")
 _DESKTOP_EXTRA: tuple[str, ...] = (
     "third-party-repos", "system-update", "flathub", "themes", "fonts",
     "apps", "panel-layout", "sway-config", "display-manager", "boot-splash",

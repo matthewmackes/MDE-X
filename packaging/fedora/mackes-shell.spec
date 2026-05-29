@@ -217,6 +217,19 @@ Requires:       netdata
 # extend `-sV` with the mesh-media + Mackes-service fingerprinters.
 Requires:       nmap
 
+# PRINT-1 (v5.0.0) — auto CUPS print sharing + sync. The
+# `mackesd::cups_sync` worker shells `lpstat`/`lpadmin`/`cupsctl`
+# /`lpoptions` (all from `cups`) to converge printer queues across
+# the mesh; `cups-filters` supplies the driverless IPP-Everywhere
+# filter chain (Q4 lock) so a peer can print to a remote queue
+# without the host's vendor driver. In base `mde-core` (not
+# `mde-desktop`) so a headless NAS with a USB printer can host +
+# share it (Q8). The worker is profile-gated at spawn (lighthouse
+# skips it); cupsd's overlay-only Listen is managed by the worker
+# (the overlay IP is only known post-enrollment).
+Requires:       cups
+Requires:       cups-filters
+
 # VV-1 + VV-1.5 (v4.1.0) — voice stack. Kamailio is the SIP
 # proxy/registrar/router; rtpengine is the SRTP relay it drives
 # via the NG unix socket. Both from F44's official repo (no
@@ -635,6 +648,14 @@ install -d -m 0700 %{buildroot}/var/lib/mackesd/nebula-peers
 # read it; the file itself contains nothing private (just the
 # overlay IPv4).
 install -d -m 0755 %{buildroot}/var/lib/mackesd/nebula
+# MESHFS-1.2 (v5.0.0) — LizardFS data dirs. Created here so
+# the RPM owns them and systemd-tmpfiles doesn't need a separate
+# drop-in. 0750 (root:root) — lizardfs processes run as root;
+# no world-read needed (these hold chunk data + metadata).
+install -d -m 0750 %{buildroot}/var/lib/mde/meshfs
+install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/chunks
+install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/meta
+install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/stage
 # VV-1 (v4.1.0) — Kamailio daemon unit + config dir.
 install -m 0644 data/systemd/kamailio-mde.service            %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}/etc/kamailio-mde
@@ -1329,6 +1350,12 @@ echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to fini
 # downstream services like glusterd-nebula-bind can `cat` the
 # file without sudo.
 %dir %attr(0755, root, root) /var/lib/mackesd/nebula
+# MESHFS-1.2 (v5.0.0) — LizardFS data dirs. 0750 (root:root);
+# lizardfs-server processes run as root.
+%dir %attr(0750, root, root) /var/lib/mde/meshfs
+%dir %attr(0750, root, root) /var/lib/mde/meshfs/chunks
+%dir %attr(0750, root, root) /var/lib/mde/meshfs/meta
+%dir %attr(0750, root, root) /var/lib/mde/meshfs/stage
 # GF-4.1 (v5.0.0) — mesh-home FUSE mount template. Stays in
 # base so a lighthouse install can mount mesh-home even
 # without the desktop session host.

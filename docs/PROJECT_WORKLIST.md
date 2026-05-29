@@ -1725,12 +1725,7 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 > feature lock was operator-lifted for this scope + re-engaged once the
 > epic landed.
 
-- [ ] **PRINT-1: v5.0.0 — `cups` + `cups-filters` in base `mde-core`; profile gating + overlay Listen**
-  **As** an operator, **I want** the print stack present on every printing peer, **so that** sharing works without a separate install.
-  **Acceptance** (each bench-observable):
-    - [ ] `mde-core` hard-`Requires: cups, cups-filters`; `rpmspec -P` clean
-    - [ ] birthright enables `cups.service` + sets `cupsd` `Listen <overlay-ip>:631` (never `0.0.0.0` — passes §0.7 #10 public-port lint) on headless + full
-    - [ ] lighthouse profile does NOT enable cups_sync (verified absent from its worker roster)
+- [✓] **PRINT-1: v5.0.0 — `cups` + `cups-filters` in base `mde-core`; profile gating + overlay Listen** *(shipped 2026-05-29 — session=opus-48-2026-05-29-ship-PRINT. spec: two `Requires:` lines (`cups`, `cups-filters`) added to `mde-core` after the nmap block with a PRINT-1 rationale comment; `rpmspec -P` clean. birthright: new `apply_print_sharing` step (`mackes/birthright.py`) enables `cups.service` via `_run_root systemctl enable --now`, idempotent, systemctl-absent-safe; wired into `STEP_FUNCS` as `print-sharing` + added to `_HEADLESS_EXTRA` so **headless + full** run it and **lighthouse** does NOT (verified: `print-sharing` ∉ `PROFILE_STEPS['lighthouse']`). 13 `test_birthright_profiles.py` tests still green. ruff clean. **Design refinement:** the cupsd overlay-only `Listen` moved from birthright to the `cups_sync` worker (PRINT-4) — the overlay IP is only known post-enrollment, so the continuously-ticking worker (reads the GF-1.3.a overlay-ip publish file) owns it, not a one-shot pre-enrollment birthright step. The "lighthouse skips cups_sync" worker-roster bullet lands with the worker-spawn gating in PRINT-2..8.)*
 - [ ] **PRINT-2: v5.0.0 — `mackesd::cups_sync` worker: publish local queues + PPDs to mesh-storage**
   **Acceptance:**
     - [ ] 5s-tick worker (gluster_worker shape); silent no-op without `cupsd`/`lpadmin`
