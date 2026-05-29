@@ -1805,22 +1805,12 @@ fn hub_parse_hex(s: &str) -> Option<Color> {
     }
 }
 
-/// Library layer placeholder — Portal-19 covers the full
-/// implementation. Until then it renders the breadcrumb +
-/// one-line status.
 fn build_library_placeholder(_state: &PortalFull) -> Element<'_, Message> {
-    text("Library layer — wired in Portal-19")
-        .size(13.0)
-        .color(FG_DIM)
-        .into()
+    column![].into()
 }
 
-/// Control layer placeholder — Portal-20.
 fn build_control_placeholder(_state: &PortalFull) -> Element<'_, Message> {
-    text("Control layer — wired in Portal-20")
-        .size(13.0)
-        .color(FG_DIM)
-        .into()
+    column![].into()
 }
 
 // ── Subscription ──────────────────────────────────────────────────────────────
