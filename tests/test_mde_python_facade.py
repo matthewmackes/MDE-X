@@ -52,9 +52,9 @@ def test_mde_submodule_is_same_object_as_mackes_submodule():
 
 
 def test_from_mde_import_routes_to_mackes_module():
-    from mde import sway_ipc as mde_sway
-    import mackes.sway_ipc as mackes_sway
-    assert mde_sway is mackes_sway
+    from mde import presets as mde_presets
+    import mackes.presets as mackes_presets
+    assert mde_presets is mackes_presets
 
 
 def test_two_level_path_round_trips():
@@ -81,11 +81,11 @@ def test_two_level_path_round_trips():
 
 
 def test_callable_through_facade():
-    from mde import sway_ipc
-    assert callable(sway_ipc.get_outputs)
+    from mde import presets
+    assert callable(presets.list_presets)
     # Round-trip the function — same callable object.
-    from mackes import sway_ipc as mackes_sway
-    assert sway_ipc.get_outputs is mackes_sway.get_outputs
+    from mackes import presets as mackes_presets
+    assert presets.list_presets is mackes_presets.list_presets
 
 
 def test_mde_settings_bridge_accessible_via_facade():
@@ -111,7 +111,6 @@ def test_facade_includes_canonical_submodules():
     import mde
     canonical = (
         "presets",
-        "sway_ipc",
         "mde_settings_bridge",
         "snapshots",
         "state",
