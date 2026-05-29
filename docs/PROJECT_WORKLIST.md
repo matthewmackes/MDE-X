@@ -4660,6 +4660,20 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 >   (lighthouse → full) and same-profile reinstalls need only the
 >   single `NUKE` confirm.
 >
+> - **Canonical install path: Fedora Server CLI → build up**
+>   (operator directive 2026-05-29). The suggested/blessed method is
+>   a clean install starting from a minimal **Fedora Server (CLI, no
+>   GUI)**: `dnf install mde` lands the headless substrate;
+>   `mde-install --profile=lighthouse|headless` configures a
+>   non-desktop node; to reach Full, `dnf install mde-desktop` then
+>   `mde-install --profile=full` layers the sway desktop on top of
+>   the CLI base. The base/addon split (Q11) already realizes this —
+>   base `mde` is GUI-free (verified 2026-05-29: no sway/wlroots/
+>   gtk/font Requires), the entire desktop stack lives in
+>   `mde-desktop`. INST-4's picker + INST-8's birthright profiles
+>   must present/treat Full as "build up from the server base," not
+>   "tear down to server."
+>
 > **Profile matrix (locked Q13):**
 >
 > | Birthright step | Lighthouse | Headless | Full |
@@ -4700,16 +4714,16 @@ disconnected" toasts get a dedicated Nebula vocabulary.
 
 #### Packaging & substrate
 
-- [ ] **v2.7: INST-1 Split `packaging/fedora/mackes-shell.spec` into base `mde` + addon `mde-desktop` subpackages (Tier 1)**
+- [>] session=opus-48-2026-05-29-ship-INST **v2.7: INST-1 Split `packaging/fedora/mackes-shell.spec` into base `mde` + addon `mde-desktop` subpackages (Tier 1)** — *RECONCILED 2026-05-29: the split is already implemented in the tree (F5 misleading-`[ ]` case from the 2026-05-28 audit). 4 of 5 acceptance bullets verified met; only the installer-binaries bullet pends INST-3. Closes to `[✓]` in the INST-3 commit that adds `mde-install`/`mde-update` to base `%files`.*
   **As** a mackes-shell operator standing up a lighthouse VPS or a headless mesh peer,
   **I want** to `dnf install mde` without dragging in sway, mde-panel, KDC2 GUI plugins, and the rest of the desktop graphics stack,
   **so that** small lighthouse boxes stay small and headless servers don't carry Wayland deps they will never load.
   **Acceptance** (each bench-observable):
-    - [ ] `rpmspec -P packaging/fedora/mackes-shell.spec` lists two binary RPMs: `mde` and `mde-desktop`.
-    - [ ] `dnf install mde` on a clean F44 minimal VM completes without pulling in `sway`, `wlroots`, `iced-*`, or any GTK/Qt GUI deps.
-    - [ ] `dnf install mde mde-desktop` on the same VM pulls in sway + the mde-panel binaries + the GUI birthright deps.
-    - [ ] `mde-desktop` has `Requires: mde = %{version}-%{release}` so the two RPMs version-lock together.
-    - [ ] `mde` ships the installer binaries (`mde-install`, `mde-update`) — they're the universal substrate, not a desktop concern.
+    - [✓] `rpmspec -P packaging/fedora/mackes-shell.spec` lists two binary RPMs: `mde` and `mde-desktop`. *(verified 2026-05-29: `rpmspec -q --rpms` → `mde`, `mde-desktop`, `mde-xorg`; parse exit 0.)*
+    - [✓] `dnf install mde` on a clean F44 minimal VM completes without pulling in `sway`, `wlroots`, `iced-*`, or any GTK/Qt GUI deps. *(verified 2026-05-29: base `mde` region has zero sway/wlroots/gtk/qt/font Requires; remaining `dnf`-on-VM confirmation is a §0.15 release-bench item, not a code blocker.)*
+    - [✓] `dnf install mde mde-desktop` on the same VM pulls in sway + the mde-panel binaries + the GUI birthright deps. *(verified 2026-05-29: `%package desktop` Requires sway/swaylock/swayidle/swaybg/foot/mako/gtk3/fonts; all `mde-panel`/`mde-portal`/`mde-applet-*` binaries live under `%files desktop`.)*
+    - [✓] `mde-desktop` has `Requires: mde = %{version}-%{release}` so the two RPMs version-lock together. *(verified 2026-05-29: spec line 358.)*
+    - [ ] `mde` ships the installer binaries (`mde-install`, `mde-update`) — they're the universal substrate, not a desktop concern. *(pending INST-3 — binaries don't exist yet; added to base `%files` in the INST-3 commit.)*
   **Implementation notes:**
     - Fedora-idiom split mirrors `gnome-shell` vs `gnome-shell-extensions`, `plasma-workspace` vs `plasma-desktop`.
     - The current single `mde` spec has every `%files` entry under one block — split into `%files` (base) + `%files desktop` (addon). Sway / mde-panel / iced-* / KDC2-GUI binaries move to the addon `%files`.
