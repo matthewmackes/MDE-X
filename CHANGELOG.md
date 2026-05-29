@@ -5,6 +5,23 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**LizardFS mesh-storage (replaces GlusterFS) (2026-05-29)**
+- `mesh-storage` replaces `mesh-home` (GlusterFS) as the fleet's
+  shared filesystem. LizardFS provides goal=N replication (every
+  enrolled peer holds every chunk), a floating overlay VIP for the
+  active master (transparent failover via `mackesd`'s HA tick), and
+  per-user XDG mounts via `mfsmount` (templated `mde-mesh-mount@.service`).
+- `mackesd meshfs_worker` manages the fleet automatically: genesis
+  (first peer bootstraps), peer enrolment (goal raised, chunkserver
+  started), CA-revoke (chunkserver evicted, goal lowered, VIP failed
+  over if needed), and HA failover (lighthouse claims VIP + promotes
+  local shadow when the active master goes offline).
+- The five XDG dirs (`~/Documents`, `~/Pictures`, `~/Music`,
+  `~/Videos`, `~/Downloads`) mount the LizardFS export via the VIP.
+  `~/Local/` is never mesh-mounted.
+- GlusterFS is not yet removed (see MESHFS-18.1); both workers run
+  during the transition window until the cutover commit lands.
+
 **Installation manager + fleet updater (`mde-install` / `mde-update`) (2026-05-29)**
 - `mde-install` converges a machine to a known-clean state for one of
   three profiles — **lighthouse** (routing-only), **headless** (storage

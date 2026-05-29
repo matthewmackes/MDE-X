@@ -1908,8 +1908,8 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Docs + lint + tests
 
-- [ ] **MESHFS-16.1: v5.0.0 — Rewrite `docs/help/mesh-storage.md` for LizardFS + CHANGELOG entry + voice-lint pass**
-  **Acceptance:** `[ ]` help doc reflects LizardFS model (no `.mesh-stub`, trash/undelete, VIP/master, offline staging); `[ ]` CHANGELOG 5.0.0 entry updated; `[ ]` `lint-voice.sh` clean.
+- [✓] **MESHFS-16.1: v5.0.0 — Rewrite `docs/help/mesh-storage.md` for LizardFS + CHANGELOG entry + voice-lint pass**
+  **Acceptance:** `[✓]` help doc reflects LizardFS model (no `.mesh-stub`, trash/undelete, VIP/master, offline staging); `[✓]` CHANGELOG 5.0.0 entry updated; `[✓]` `lint-voice.sh` clean.
 - [ ] **MESHFS-17.1: v5.0.0 — Unit tests for `meshfs_worker` (mocked CLI shim)** — genesis/enroll/revoke/goal/HA/quota/replay argv shapes + lifecycle.
 - [ ] **MESHFS-17.2: v5.0.0 — Multi-peer VM-CI + 3-peer HW bench [HW carve-out, §0.15 release-gated]** — enroll → cross-peer create → master failover → offline write+replay+conflict → quota EROFS → decommission rebalance. Release-gated per [[feedback_no_pre_release_reviews]]; does not block per-task progress.
 
