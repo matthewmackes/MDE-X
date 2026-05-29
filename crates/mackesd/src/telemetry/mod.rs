@@ -129,6 +129,19 @@ pub fn spawn_heartbeat_worker(
     std::thread::spawn(move || {
         use std::sync::atomic::Ordering;
         let interval = std::time::Duration::from_secs(HEARTBEAT_INTERVAL_S);
+        // PEERVER-2 — publish this peer's convergence record to the GFS
+        // peers/ dir (read by mde-update / mde-install; mirrored into
+        // nodes by PEERVER-4). Detect the mde-core RPM version once;
+        // cap the write to ~once/min (§3.1 slow-state budget) rather
+        // than every heartbeat. See docs/design/v2.7-peer-data-convergence.md.
+        let peer_hostname = node_id
+            .strip_prefix("peer:")
+            .unwrap_or(&node_id)
+            .to_string();
+        let mde_version = detect_mde_core_version();
+        let peers_dir = mackes_mesh_types::peers::peers_dir(&qnm_root);
+        let peer_write_min = std::time::Duration::from_secs(60);
+        let mut last_peer_write: Option<std::time::Instant> = None;
         // Check the shutdown flag every 100 ms instead of sleeping the
         // full interval between checks — otherwise a shutdown request
         // mid-interval isn't honored until the next wake (up to the
@@ -142,6 +155,21 @@ pub fn spawn_heartbeat_worker(
             if let Err(e) = write_heartbeat(&qnm_root, &hb) {
                 eprintln!("heartbeat: write failed: {e}");
             }
+            // PEERVER-2 — refresh the peer-convergence record at most
+            // once/min (own-row authority: we are the sole writer of
+            // our own <hostname>.json).
+            let due = last_peer_write.map_or(true, |t| t.elapsed() >= peer_write_min);
+            if due {
+                let rec = mackes_mesh_types::peers::PeerRecord::now(
+                    peer_hostname.clone(),
+                    mde_version.clone(),
+                    "healthy",
+                );
+                match mackes_mesh_types::peers::write_peer_record(&peers_dir, &rec) {
+                    Ok(_) => last_peer_write = Some(std::time::Instant::now()),
+                    Err(e) => eprintln!("peer-record: write failed: {e}"),
+                }
+            }
             // Interruptible interval sleep.
             let mut slept = std::time::Duration::ZERO;
             while slept < interval && !shutdown.load(Ordering::Relaxed) {
@@ -150,6 +178,24 @@ pub fn spawn_heartbeat_worker(
             }
         }
     })
+}
+
+/// This node's installed `mde-core` RPM version (PEERVER-2), or
+/// `None` when the package isn't installed / `rpm` is unavailable
+/// (e.g. a dev checkout). Cheap: queried once per heartbeat-worker
+/// spawn, not per tick.
+#[must_use]
+pub fn detect_mde_core_version() -> Option<String> {
+    let out = std::process::Command::new("rpm")
+        .args(["-q", "--qf", "%{VERSION}", "mde-core"])
+        .output()
+        .ok()?;
+    if out.status.success() {
+        let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!v.is_empty()).then_some(v)
+    } else {
+        None
+    }
 }
 
 /// Atomic write of a heartbeat row to disk. Writes via a `.tmp`

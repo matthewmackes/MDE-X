@@ -4798,7 +4798,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - [ ] Unit tests: round-trip; union of N files; malformed file skipped not fatal; empty dir → empty vec.
   **Blockers:** none.
 
-- [ ] **v2.7: PEERVER-2 — write own peer-file on the mackesd heartbeat tick**
+- [✓] **v2.7: PEERVER-2 — write own peer-file on the mackesd heartbeat tick** *(shipped 2026-05-29 — session=opus-48-2026-05-29-ship-PV. `spawn_heartbeat_worker` (telemetry/mod.rs) now detects the local `mde-core` version once via `detect_mde_core_version()` (`rpm -q`; `None` on a dev checkout) and writes `PeerRecord::now(hostname, version, "healthy")` to `peers_dir(qnm_root)` via `mackes_mesh_types::peers::write_peer_record`, capped to ~once/min (§3.1 slow-state — NOT every 10s heartbeat; the once/min cap is the churn guard). hostname derived from `node_id` (strip `peer:` = enrollment hostname). Reachable from the existing heartbeat-worker spawn. Builds clean under `--features async-services` (mackesd's bin feature); 16 telemetry/heartbeat tests green; no-stubs/dbus-shape/reachability lints clean. The `cat ~/.mde-mesh/peers/<host>.json` bench-observable + real cross-peer replication are PEERVER-6 (GFS-mount-gated). **Note:** writer uses `peers_dir(qnm_root)`, reader uses `peers_dir(default_mesh_home())` — both are per-user mounts of the same GFS volume; exact mount wiring is GF-*/PEERVER-6 bench territory.)*
   **As** a mesh peer,
   **I want** mackesd to write my `~/.mde-mesh/peers/<hostname>.json` on each heartbeat tick with my live `mde-core` version + fresh `last_seen_ms` + health,
   **so that** every other peer's replicated view of me stays current.
