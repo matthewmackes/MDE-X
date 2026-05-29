@@ -1822,10 +1822,11 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [ ] the MDE RPM ships the binaries under `%{_bindir}`/`%{_sbindir}`; `rpmspec -P` clean
     - [ ] `Requires: glusterfs-server, glusterfs-fuse` is NOT added (removed entirely at MESHFS-18)
     - [ ] `%post` enables `mfschunkserver` + `mfsmaster` (shadow) units idempotently
-- [ ] **MESHFS-1.2: v5.0.0 — Storage paths `/var/lib/mde/meshfs/{chunks,meta,stage}/` + free-space guard**
+- [✓] **MESHFS-1.2: v5.0.0 — Storage paths `/var/lib/mde/meshfs/{chunks,meta,stage}/` + free-space guard**
   **Acceptance:**
-    - [ ] RPM ships the three dirs as `%dir 0750` owned appropriately
-    - [ ] `mackesd preflight-meshfs-headroom` warns when `< 1.5 × sizeof(XDG content)` free (port of GF-12.2)
+    - [✓] RPM ships the three dirs as `%dir 0750` owned appropriately
+    - [✓] `mackesd preflight-meshfs-headroom` warns when `< 1.5 × sizeof(XDG content)` free (port of GF-12.2)
+  **Shipped:** `crates/mackesd/src/meshfs/headroom.rs` + CLI `Cmd::PreflightMeshFsHeadroom` + spec `%dir 0750` for chunks/meta/stage; 7 tests green.
 
 #### Daemon (`mackesd::meshfs_worker`)
 

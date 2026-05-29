@@ -69,6 +69,26 @@ enum Cmd {
         home: Option<std::path::PathBuf>,
     },
 
+    /// MESHFS-1.2 (v5.0.0) — pre-flight check for the LizardFS
+    /// mesh-storage rollout. Walks the user's XDG dirs, sums
+    /// on-disk bytes, queries `/var/lib/mde/meshfs` free space,
+    /// prints a one-line OK / WARN / NoDataDir verdict + emits
+    /// the full structured report as a JSON line to stdout.
+    /// Exits 0 on OK, 1 on WARN / NoDataDir. Operators can run
+    /// this before an upgrade to v5.0.0; the Workbench Mesh
+    /// Storage panel (MESHFS-13.1) will surface the same report
+    /// as a banner once it lands.
+    PreflightMeshFsHeadroom {
+        /// Override the LizardFS data parent dir. Defaults to
+        /// `/var/lib/mde/meshfs` per the design lock.
+        #[clap(long, default_value = "/var/lib/mde/meshfs")]
+        data_dir: std::path::PathBuf,
+        /// Override `$HOME` (used to locate the five XDG
+        /// dirs). Defaults to the env-var `$HOME`.
+        #[clap(long)]
+        home: Option<std::path::PathBuf>,
+    },
+
     /// GF-9.3 (v5.0.0) — restore the Nebula CA + (when
     /// present) the Gluster topology snapshot from an
     /// armored `state-backup.enc` bundle. CA rows go straight
@@ -1129,6 +1149,24 @@ fn main() -> anyhow::Result<()> {
                 mackesd_core::gluster::headroom::Verdict::Ok => {}
                 mackesd_core::gluster::headroom::Verdict::Warn
                 | mackesd_core::gluster::headroom::Verdict::NoBrick => std::process::exit(1),
+            }
+        }
+        Cmd::PreflightMeshFsHeadroom { data_dir, home } => {
+            // MESHFS-1.2 — pre-flight headroom check for the
+            // LizardFS mesh-storage rollout. Mirrors the gluster
+            // headroom CLI; operator runs this before upgrading
+            // to v5.0.0 or before mesh-storage bootstrap.
+            let home_dir = home.clone().or_else(|| {
+                std::env::var_os("HOME").map(std::path::PathBuf::from)
+            }).context("no HOME env var; pass --home <dir>")?;
+            let xdg = mackesd_core::meshfs::headroom::default_xdg_dirs(&home_dir);
+            let report = mackesd_core::meshfs::headroom::check(&data_dir, &xdg);
+            eprintln!("{}", report.summary());
+            println!("{}", serde_json::to_string(&report).context("encode report")?);
+            match report.verdict {
+                mackesd_core::meshfs::headroom::Verdict::Ok => {}
+                mackesd_core::meshfs::headroom::Verdict::Warn
+                | mackesd_core::meshfs::headroom::Verdict::NoDataDir => std::process::exit(1),
             }
         }
         Cmd::GeneratePasscode { store, cred_path } => {
@@ -2970,6 +3008,30 @@ fn run_serve(
             .lock()
             .expect("worker_names mutex")
             .push("upgrade_intent_watcher".into());
+
+        // PRINT-2..PRINT-6 + PRINT-8 (v5.0.0) — auto CUPS print
+        // sharing + sync. Spawned on headless + full; SKIPPED on
+        // lighthouse (routing-only, no printers — Q8 lock). The
+        // profile is read from the installed-profile marker
+        // `mde-install` writes; missing marker → assume a printing
+        // profile (full/headless) and spawn. The worker itself is a
+        // silent no-op without cups/lpadmin, so an over-spawn on a
+        // box that happens to lack cups is harmless.
+        let print_profile = std::fs::read_to_string("/var/lib/mde/installed-profile")
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        if print_profile != "lighthouse" {
+            sup.spawn(Spawn::new(
+                mackesd_core::workers::cups_sync::CupsSyncWorker::new(),
+                RestartPolicy::Always,
+            ));
+            worker_names
+                .lock()
+                .expect("worker_names mutex")
+                .push("cups_sync".into());
+        } else {
+            tracing::info!("cups_sync: skipped (lighthouse profile)");
+        }
 
         // EPIC-MESH-PROBE (MESH-PROBE-4) — scheduled two-tier nmap
         // probe worker. Resolves mesh-peer overlay IPs, scans them

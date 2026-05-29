@@ -7,4 +7,5 @@
 //! Future commits add the `preflight` headroom check + the
 //! offline-staging replay engine (MESHFS-6.1).
 
+pub mod headroom;
 pub mod snapshot;
