@@ -39,6 +39,12 @@ const MIGRATIONS: &[Migration] = &[
         version: 11,
         sql: include_str!("../../migrations/0011_nebula_ca.sql"),
     },
+    // PEERVER-4 (v2.7) — nodes.mde_version column. Strictly additive;
+    // populated by the health-reconciler peer-file mirror.
+    Migration {
+        version: 12,
+        sql: include_str!("../../migrations/0012_peer_version.sql"),
+    },
 ];
 
 /// Open the store at `path`, creating its parent directory if needed
@@ -370,6 +376,26 @@ pub fn set_node_health(conn: &Connection, node_id: &str, health: &str) -> Result
             (health, node_id),
         )
         .with_context(|| format!("setting health={health} for {node_id}"))?;
+    Ok(n > 0)
+}
+
+/// Set a node's `mde_version` by display name (PEERVER-4 mirror).
+/// Matches on `nodes.name` (the peer hostname, the key in the
+/// peer-files) rather than `node_id`. Returns whether a row changed.
+///
+/// # Errors
+/// Returns an error if the UPDATE fails.
+pub fn set_node_mde_version_by_name(
+    conn: &Connection,
+    name: &str,
+    version: Option<&str>,
+) -> Result<bool> {
+    let n = conn
+        .execute(
+            "UPDATE nodes SET mde_version = ? WHERE name = ?",
+            (version, name),
+        )
+        .with_context(|| format!("setting mde_version for {name}"))?;
     Ok(n > 0)
 }
 

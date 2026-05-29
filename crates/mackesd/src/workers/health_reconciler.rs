@@ -221,6 +221,25 @@ pub fn reconcile_with_conn(
             }
         }
     }
+
+    // PEERVER-4 — mirror the converged peer versions (GFS peer-files)
+    // into nodes.mde_version so mackesd's own consumers (Workbench mesh
+    // view) see them. The installer tools read the files directly; this
+    // is the nodes-table cache. See docs/design/v2.7-peer-data-convergence.md.
+    mirror_peer_versions(conn, qnm_root);
+}
+
+/// PEERVER-4 mirror: union the GFS `<qnm_root>/peers/*.json` and write
+/// each peer's `mde_version` onto its `nodes` row (matched by name).
+fn mirror_peer_versions(conn: &rusqlite::Connection, qnm_root: &std::path::Path) {
+    let dir = mackes_mesh_types::peers::peers_dir(qnm_root);
+    for rec in mackes_mesh_types::peers::read_peers(&dir) {
+        if let Err(e) =
+            crate::store::set_node_mde_version_by_name(conn, &rec.hostname, rec.mde_version.as_deref())
+        {
+            tracing::warn!(error = %e, host = %rec.hostname, "health-reconciler: mde_version mirror failed");
+        }
+    }
 }
 
 /// Read one peer's heartbeat JSON and reduce it to a
@@ -311,6 +330,27 @@ mod tests {
             .find(|n| n.node_id == "peer:remote")
             .expect("row");
         assert_eq!(row.health, "healthy");
+    }
+
+    #[test]
+    fn peer_version_mirrors_into_nodes() {
+        // PEERVER-4 — a reconcile tick mirrors the GFS peer-file's
+        // mde_version onto the matching nodes row (by name).
+        let qnm = tempfile::tempdir().expect("tmp");
+        let conn = fresh_store();
+        seed_node(&conn, "anvil"); // name == "anvil"
+        let dir = mackes_mesh_types::peers::peers_dir(qnm.path());
+        let rec =
+            mackes_mesh_types::peers::PeerRecord::now("anvil", Some("5.0.1".into()), "healthy");
+        mackes_mesh_types::peers::write_peer_record(&dir, &rec).expect("write peer-file");
+        let slot = new_signal_sender_slot();
+        reconcile_with_conn(&conn, qnm.path(), "peer:local", Some(0), &slot);
+        let v: Option<String> = conn
+            .query_row("SELECT mde_version FROM nodes WHERE name = 'anvil'", [], |r| {
+                r.get(0)
+            })
+            .expect("query mde_version");
+        assert_eq!(v, Some("5.0.1".to_string()));
     }
 
     #[test]

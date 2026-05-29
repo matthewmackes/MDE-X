@@ -4820,7 +4820,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - [ ] INST-3b: the `mde-installer::peer_registry` module is the `read_peers` wrapper (closes INST-3b).
   **Blockers:** PEERVER-1, PEERVER-2.
 
-- [ ] **v2.7: PEERVER-4 — mackesd mirrors peer-files into the `nodes` table**
+- [✓] **v2.7: PEERVER-4 — mackesd mirrors peer-files into the `nodes` table** *(shipped 2026-05-29 — session=opus-48-2026-05-29-ship-PV2. Migration `0012_peer_version.sql` adds `nodes.mde_version TEXT` (registered as version 12 in `store::MIGRATIONS`; `migrate()` idempotent). `store::set_node_mde_version_by_name` UPDATEs by `name`. The `health_reconciler` tick (`reconcile_with_conn`, 5s, conn-injectable) now calls `mirror_peer_versions` — unions `peers_dir(qnm_root)` + writes each peer's version onto its nodes row. Test: a tick mirrors a peer-file's `5.0.1` onto the matching nodes row. 42 store+health tests green; no-stubs/dbus-shape/reachability clean. (Scope note: `NodeRow`/`list_nodes` not extended — the WRITE/cache is the point; a Workbench `NodeRow.mde_version` read is a separate consumer task when the mesh view wants it.)*
   **As** mackesd's own consumers (Workbench mesh view, health reconciler),
   **I want** the converged peer versions merged into the `nodes` table,
   **so that** they see versions/liveness without each re-reading the files.
