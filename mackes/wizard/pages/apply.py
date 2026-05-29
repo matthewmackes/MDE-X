@@ -374,14 +374,12 @@ class ApplyPage(Gtk.Box):
             _Step("Mesh clipboard",    lambda: apply_clipboard_daemon(merged)),
             _Step("Quick Network Mesh", lambda: apply_qnm(merged)),
             _Step("Thunar on login",   lambda: apply_thunar_autostart(merged)),
-            # GF-3.1 (v5.0.0) — pin the primary login account to
-            # uid:gid 1000:1000 so the future mesh-home FUSE
-            # mounts hand out consistent file ownership across
+            # GF-3.1 / MESHFS-5.1 (v5.0.0) — pin the primary login
+            # account to uid:gid 1000:1000 so LizardFS mesh-storage
+            # mounts hand out consistent file ownership across all
             # peers. Idempotent + collision-safe (refuses with a
             # log line when uid 1000 is held by a different user
-            # rather than silently chowning their data). The
-            # remaining GF-3.x steps (gluster bootstrap + XDG
-            # mesh mount) wire in as they ship.
+            # rather than silently chowning their data). FS-agnostic.
             _Step("Normalize UID",     lambda: apply_uid_normalize(merged)),
             # GF-3.2 (v5.0.0) — confirm the v5.0.0 gluster
             # substrate is in place; report what the

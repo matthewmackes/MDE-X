@@ -1853,13 +1853,15 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Birthright + mount
 
-- [ ] **MESHFS-5.1: v5.0.0 — Keep the uid/gid 1000:1000 birthright normalization for LizardFS** (reuses shipped `apply_uid_normalize`, GF-3.1).
-  **Acceptance:** `[ ]` primary account normalized to 1000:1000 pre-mount; cross-peer ownership shows correctly in `mesh-storage`.
-- [ ] **MESHFS-4.1: v5.0.0 — Per-user systemd mount unit `mde-meshfs-mount@.service` (retarget GF-4.1 to LizardFS)**
+- [✓] **MESHFS-5.1: v5.0.0 — Keep the uid/gid 1000:1000 birthright normalization for LizardFS** (reuses shipped `apply_uid_normalize`, GF-3.1).
+  **Acceptance:** `[✓]` primary account normalized to 1000:1000 pre-mount; cross-peer ownership shows correctly in `mesh-storage`.
+  **Shipped:** `apply_uid_normalize` docstring updated to FS-agnostic MESHFS-5.1 reference; apply.py comment updated; code unchanged (already FS-agnostic).
+- [✓] **MESHFS-4.1: v5.0.0 — Per-user systemd mount unit `mde-meshfs-mount@.service` (retarget GF-4.1 to LizardFS)**
   **Acceptance:**
-    - [ ] unit `mfsmount -o ...` of `mesh-storage` subdir `%i` at `%h/%i` against the VIP; `ExecStop` `fusermount -u`
-    - [ ] birthright enables instances for Documents/Pictures/Music/Videos/Downloads once uid=1000 + export ready
-    - [ ] `~/Local/` is never mesh-mounted
+    - [✓] unit `mfsmount -o ...` of `mesh-storage` subdir `%i` at `%h/%i` against the VIP; `ExecStop` `fusermount -u`
+    - [✓] birthright enables instances for Documents/Pictures/Music/Videos/Downloads once uid=1000 + export ready
+    - [✓] `~/Local/` is never mesh-mounted
+  **Shipped:** `data/systemd/mde-mesh-mount@.service` retargeted from GlusterFS to `mfsmount -o mfsmaster=10.42.0.1,mfssubfolder=/%i %h/%i`.
 - [ ] **MESHFS-7.1: v5.0.0 — Topology-aware local-first reads**
   **Acceptance:** `[ ]` per-peer LizardFS topology labels set by the worker so a client reads its own chunkserver first; verified by chunkserver I/O counters / absence of overlay read traffic for local files.
 

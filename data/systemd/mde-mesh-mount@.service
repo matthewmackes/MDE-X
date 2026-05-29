@@ -1,48 +1,42 @@
 [Unit]
-# GF-4.1 (v5.0.0) — per-user FUSE mount of mesh-home at the
-# operator's XDG directories. Instance `%i` is the XDG subdir
-# name (Documents / Pictures / Music / Videos / Downloads).
+# MESHFS-4.1 (v5.0.0) — per-user FUSE mount of mesh-storage at the
+# operator's XDG directories. Retargets GF-4.1 from GlusterFS to
+# LizardFS. Instance `%i` is the XDG subdir name
+# (Documents / Pictures / Music / Videos / Downloads).
 #
-# Mounts the local glusterd-served `mesh-home` volume at
-# `$HOME/%i`. The volume is shared across every Mackes peer;
-# files written here replicate over the Nebula overlay to
-# every other enrolled peer in the fleet (per the v5.0.0
-# 25-Q lock + docs/design/v5.0.0-gluster-mesh-home.md).
+# Mounts the LizardFS `mesh-storage` export's `%i` subfolder at
+# `$HOME/%i` via `mfsmount`. The active master is always reached
+# through the floating overlay VIP (10.42.0.1) — never a peer's
+# underlay address — so the mount survives master failover
+# transparently (mfsmount reconnects to the same VIP address).
 #
-# Not auto-enabled by RPM install — birthright's GF-3.3
-# `apply_xdg_mesh_mount` step is what flips `systemctl --user
-# enable mde-mesh-mount@Documents.service` (and the other
-# four XDG dirs) once the operator's primary account is on
-# uid:gid 1000:1000 (GF-3.1) and glusterd has bootstrapped the
-# volume (GF-2.x). Until GF-3.3 lands, operators can manually
-# enable individual instances after running
-# `gluster volume create mesh-home` on their lighthouse.
-Description=Mackes mesh-home FUSE mount at %h/%i
+# `~/Local/` is deliberately excluded from mesh-mounting per the
+# MESHFS design: Local is the offline scratch area + private state
+# that must never replicate. Only Documents/Pictures/Music/Videos/
+# Downloads are mesh-backed.
+#
+# Not auto-enabled by RPM install — birthright's MESHFS XDG-mount
+# step enables instances once uid:gid 1000:1000 (MESHFS-5.1) AND
+# the LizardFS export is ready. Until that step ships, operators can
+# manually enable individual instances after the fleet bootstraps:
+#   systemctl --user enable --now mde-mesh-mount@Documents.service
+Description=Mackes mesh-storage FUSE mount at %h/%i
 Documentation=file:///usr/share/doc/mackes-shell/help/mesh-storage.md
 After=network-online.target
 Wants=network-online.target
-# glusterd must be live for the FUSE mount to succeed. We
-# don't `Requires=` it because that's a system service and
-# this is a per-user unit — `mount.glusterfs` errors out
-# cleanly with a clear "transport endpoint not connected"
-# message when glusterd is down, so the user sees a useful
-# error in `systemctl --user status`.
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# `localhost:/mesh-home` resolves to the local glusterd's
-# volume; glusterfs's native client transparently fetches
-# bricks from every other peer over the Nebula overlay
-# (per GF-1.3.b's transport.socket.bind-address pin).
-#
-# `_netdev` so the mount survives network blips with a
-# reconnect rather than failing hard.
-# `acl` so cross-peer chown/chmod surface correctly.
+# mfsmount connects to the floating VIP (10.42.0.1, the active
+# master address). mfssubfolder=/%i restricts the mount to this
+# peer's Documents/Pictures/... slice of the shared export.
+# The master connection is TCP/9419; mfsmount retries automatically
+# so brief master-failover windows are transparent to the operator.
 ExecStartPre=/usr/bin/mkdir -p %h/%i
-ExecStart=/usr/bin/mount -t glusterfs \
-    -o _netdev,acl,direct-io-mode=disable \
-    localhost:/mesh-home %h/%i
+ExecStart=/usr/bin/mfsmount \
+    -o mfsmaster=10.42.0.1,mfssubfolder=/%i \
+    %h/%i
 ExecStop=/usr/bin/fusermount -u %h/%i
 
 [Install]

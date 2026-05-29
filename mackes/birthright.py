@@ -1203,7 +1203,13 @@ def apply_qnm(preset: Preset) -> List[str]:
 
 
 def apply_uid_normalize(_preset: Preset) -> List[str]:
-    """GF-3.1: Pin the primary login account to uid:gid 1000:1000.
+    """GF-3.1 / MESHFS-5.1: Pin the primary login account to uid:gid 1000:1000.
+
+    Required for cross-peer file ownership to surface correctly in
+    mesh-storage (LizardFS) — every peer must present the same
+    uid:gid so file metadata is consistent regardless of which peer
+    serves a given chunk. FS-agnostic: applies whether the mesh
+    filesystem is LizardFS or a future replacement.
 
     Skips when already normalized. Refuses (with a clear log
     line) when uid 1000 is held by a different user — that
