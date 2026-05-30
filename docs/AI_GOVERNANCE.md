@@ -318,17 +318,20 @@ essential to a *usable, installable mesh desktop*:
 | C7 | **Operator HW smoke on ≥2 peers** — per-bullet acceptance per 25-Q Q13; full 8-peer bench is a post-5.0 hardening pass, not a cut blocker | Q98 + Q13 (25-Q) |
 | C8 | **PRINT-*** auto CUPS print sharing + sync — a printer on any peer is usable from every peer (`cups_sync` worker) | operator-elevated 2026-05-29 (15-Q survey) |
 | C9 | **FWMON-*** firewall activity monitoring — denied-packet watch + cross-peer Activity view + threshold alerts (`firewall_monitor` worker) | operator-elevated 2026-05-29 (15-Q survey) |
-| C10 | **VIRT-*** KVM + Podman mesh-native compute — every peer is a compute node; VMs get Nebula certs (`10.42.128.0/17`); unified Bus inventory; cold migration; per-network port exposure; MeshFS via virtiofsd | operator-elevated 2026-05-30 (10-Q survey) |
+| C10 | **VIRT-*** KVM + Podman mesh-native compute + `mde-virtual` app — every peer is a compute node; VMs get Nebula certs (`10.42.128.0/17`); unified Bus inventory; cold migration; per-network port exposure; MeshFS via virtiofsd; purpose-built Iced/Rust `mde-virtual` management app | operator-elevated 2026-05-30 (10-Q + 20-Q surveys) |
 
 > **C10 added 2026-05-30 by operator directive.** A 10-Q `/plan` survey scoped
-> libvirt + Cockpit-machines + custom mackesd Bus workers for KVM + Podman
-> mesh-native virtualization. Every peer is always-on compute (socket-activated
-> libvirtd). VMs get their own Nebula cert + IP from the `10.42.128.0/17` VM
-> subnet. CA key stays on the CA peer; VM certs signed via Bus
-> `compute/cert-sign-request/<ulid>`. MeshFS accessible inside VMs via
+> libvirt + custom mackesd Bus workers for KVM + Podman mesh-native
+> virtualization. A subsequent 20-Q survey added `mde-virtual`, a purpose-built
+> native Iced/Rust app (`crates/mde-virtual/`) replacing the originally-planned
+> Workbench panel + Cockpit deep-link. Every peer is always-on compute
+> (socket-activated libvirtd). VMs get their own Nebula cert + IP from the
+> `10.42.128.0/17` VM subnet. CA key stays on the CA peer; VM certs signed via
+> Bus `compute/cert-sign-request/<ulid>`. MeshFS accessible inside VMs via
 > virtiofsd. Explicit per-network port exposure (mesh / LAN / WAN). Cold
-> migration only (stop → rsync qcow2 over Nebula → restart on target). Design
-> lock: `docs/design/v5.0.0-compute.md`. This widens the v5.0.0 cut gate —
+> migration only (stop → rsync qcow2 over Nebula → restart on target). VM
+> console via `virt-viewer` (not Cockpit; ~2 MB). Design lock:
+> `docs/design/v5.0.0-compute.md`. This widens the v5.0.0 cut gate —
 > `make pre-cut-check` must see VIRT-* green before the cut.
 
 > **C8 + C9 added 2026-05-29 by operator directive.** A 15-Q `/plan`

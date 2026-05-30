@@ -1930,7 +1930,7 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
   **Shipped:** commit 15bc3cb0 (2026-05-29). 36 files changed, 4303 deletions.
   **Sequencing:** this is the LAST MESHFS task; until it lands, Gluster stays operative so main is never FS-less.
 
-### VIRT-1..VIRT-12: v5.0.0 — KVM + Podman mesh-native compute (`compute_registry` + libvirt + Bus workers, locked 2026-05-30 via 10-Q survey)
+### VIRT-1..VIRT-21: v5.0.0 — KVM + Podman mesh-native compute + `mde-virtual` app (locked 2026-05-30 via 10-Q + 20-Q surveys)
 
 > **v5.0.0 core (§11.1 C10) — operator-elevated 2026-05-30.** Every MDE peer is a
 > compute node (always-on libvirtd socket-activation + qemu-kvm). KVM VMs get their
@@ -1957,17 +1957,18 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - libvirt-rs crate (or virsh subprocess) for VM polling; podman JSON API for containers
     - Socket-activate libvirtd if not already running on first poll
 
-- [ ] **VIRT-2: v5.0.0 — RPM packaging: libvirtd + cockpit-machines + qemu-kvm + virtiofsd install**
+- [ ] **VIRT-2: v5.0.0 — RPM packaging: libvirtd + virt-viewer + qemu-kvm + virtiofsd install**
   **As** an installer, **I want** compute stack packages installed at first boot,
   **so that** every peer is ready to host VMs without operator steps.
   **Acceptance** (each bench-observable):
-    - [ ] `packaging/fedora/mackes-shell.spec` `Requires:` adds `libvirt`, `qemu-kvm`, `cockpit`, `cockpit-machines`, `virtiofsd`
-    - [ ] `%post` enables `libvirtd.socket` (not `libvirtd.service` — socket-activation) + `cockpit.socket`
+    - [ ] `packaging/fedora/mackes-shell.spec` `Requires:` adds `libvirt`, `qemu-kvm`, `virt-viewer`, `virtiofsd` (cockpit + cockpit-machines removed — superseded by mde-virtual)
+    - [ ] `%post` enables `libvirtd.socket` (not `libvirtd.service` — socket-activation only)
     - [ ] `rpmspec -P packaging/fedora/mackes-shell.spec` exits 0 (verify via rpmspec, NOT `make rpm`)
-    - [ ] `%files` adds `/var/lib/mde-vms/` as `%dir 0750 root root`
+    - [ ] `%files` adds `/var/lib/mde-vms/` as `%dir 0750 root root` and `/var/lib/mde-vms/isos/` as `%dir 0750 root root`
   **Implementation notes:**
     - Socket-activation: `systemctl enable --now libvirtd.socket` in `%post`
     - Do NOT `make rpm` — verify via `rpmspec -P` per [[feedback_rpm_gate_skip_for_content_edits]]
+    - `virt-viewer` (~2 MB) replaces the full Cockpit web stack (~50 MB); console access only
 
 - [ ] **VIRT-3: v5.0.0 — libvirt storage pool `mde-vms` — auto-define on first VM creation**
   **As** `compute_provision`, **I want** the storage pool to exist before creating a disk,
@@ -2042,46 +2043,150 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - rsync destination: `<target-nebula-ip>::mde-vms` or `rsync://` over SSH via Nebula
     - Progress published via `compute/migrate-progress/<ulid>` for Workbench status display
 
-- [ ] **VIRT-9: v5.0.0 — Workbench Compute panel — unified fleet VM + container view**
-  **As** an operator, **I want** a panel showing all VMs and containers across the fleet,
-  **so that** I can manage compute from any peer without SSHing around.
+- [ ] **VIRT-9: v5.0.0 — Workbench `Virtual` launcher tile — shortcut to `mde-virtual`**
+  **As** an operator, **I want** a `Virtual` tile in the Workbench app grid,
+  **so that** I can launch `mde-virtual` from the standard Workbench surface.
   **Acceptance** (each bench-observable):
-    - [ ] New `crates/mde-workbench/src/panels/compute.rs` — Fleet tab (all peers' inventories from Bus) + Local tab (local-only, actions enabled)
-    - [ ] Per-resource row: name, type (kvm/podman), state badge, CPU %, RAM, host peer, Nebula IP, MeshFS badge
-    - [ ] Local actions: start, stop, snapshot (KVM only), expose port sheet (mesh/LAN/WAN checkboxes), migrate-to sheet (peer picker), `[Open in Cockpit]` deep-link
-    - [ ] Remote resources: `[Migrate to local]` button only
-    - [ ] `meshfs_available=false` → warning badge on VMs with `share_meshfs=true`
-    - [ ] Panel registered in `mde-workbench/src/app.rs` navigation alongside Mesh, Files, Settings
-    - [ ] 8 unit tests: empty fleet, mixed VMs+containers, remote-only actions, expose sheet validation
+    - [ ] `crates/mde-workbench/src/panels/panel_apps.rs` registers `mde-virtual` tile in the app launcher grid alongside Files, Workbench Settings, etc.
+    - [ ] Tile icon: Material Symbols `computer` (or `memory` if `computer` unavailable); label "Virtual"
+    - [ ] Clicking the tile spawns `mde-virtual` via `std::process::Command::new("mde-virtual").spawn()`
+    - [ ] Tile is present regardless of whether the local peer has any VMs/containers (it always makes sense to launch the manager)
+    - [ ] 1 unit test: tile entry resolves to the `mde-virtual` binary name
   **Implementation notes:**
-    - Subscribe to `compute/inventory/*` wildcard via Bus subscriber
-    - Cite: visual-identity.md §1; ref: Apple System Settings (visual citation for the panel surface)
+    - No full compute-inventory panel in Workbench — all fleet management lives in `mde-virtual`
+    - Cite: visual-identity.md §1; ref: Apple System Settings (visual citation for the tile surface)
 
-- [ ] **VIRT-10: v5.0.0 — Cockpit + cockpit-machines deep-link from Compute panel**
-  **As** an operator, **I want** `[Open in Cockpit]` on any local VM to open Cockpit-machines,
-  **so that** I have a detailed console/VNC viewer without the Workbench having to implement one.
+- [ ] **VIRT-10: v5.0.0 — `mde-virtual.desktop` + Dock default pin + Portal app registration**
+  **As** an operator, **I want** `mde-virtual` to appear in the Dock by default and be launchable from Portal search,
+  **so that** compute management is immediately accessible on a fresh install.
   **Acceptance** (each bench-observable):
-    - [ ] `[Open in Cockpit]` button in Local tab opens `https://localhost:9090/machines` in the system browser
-    - [ ] `cockpit.socket` is enabled and reachable (VIRT-2 RPM task ensures this)
-    - [ ] 1 test: button URL matches expected Cockpit-machines path
+    - [ ] `data/applications/mde-virtual.desktop` exists with `Name=Virtual`, `Icon=computer`, `Exec=mde-virtual`, `Categories=System;Utility;`, `StartupWMClass=mde-virtual`
+    - [ ] `mde-virtual` added to the RPM `%files` section (in VIRT-2)
+    - [ ] Default Dock config (`data/config/mde-dock-defaults.json` or equivalent) includes `mde-virtual` as a pinned item
+    - [ ] Portal app-card index picks up `mde-virtual.desktop` via the standard `.desktop` discovery path
+    - [ ] voice-lint clean on `mde-virtual.desktop` display strings
+    - [ ] 1 test: `.desktop` file parses without error via `gio info`
 
-- [ ] **VIRT-11: v5.0.0 — `docs/help/compute.md` + CHANGELOG entry**
-  **As** an operator, **I want** user-facing docs explaining VM creation, exposure, and migration,
+- [ ] **VIRT-11: v5.0.0 — `docs/help/virtual.md` + CHANGELOG entry**
+  **As** an operator, **I want** user-facing docs explaining how to use `mde-virtual`,
   **so that** the feature is usable without reading the design doc.
   **Acceptance** (each bench-observable):
-    - [ ] `docs/help/compute.md` covers: creating a KVM VM, virtiofsd MeshFS access, exposing a port (mesh/LAN/WAN), cold migration, viewing Podman containers, opening Cockpit
-    - [ ] `CHANGELOG.md` entry under the v5.0.0 section: "KVM + Podman mesh-native compute (VIRT-1..12)"
+    - [ ] `docs/help/virtual.md` covers: creating a KVM VM (4-step wizard), virtiofsd MeshFS access, exposing a port (mesh/LAN/WAN), cold migration, viewing + managing Podman containers/pods, opening a VM console via virt-viewer, saving a VM template
+    - [ ] `CHANGELOG.md` entry under the v5.0.0 section: "KVM + Podman mesh-native compute — `mde-virtual` app (VIRT-1..21)"
     - [ ] voice-lint clean
 
 - [ ] **VIRT-12: v5.0.0 — Tests + ≥2-peer HW bench [HW carve-out, §0.15 release-gated]**
   **As** the fleet, **I want** the compute stack validated end-to-end on real hardware,
-  **so that** we know VMs actually start, certificates work, and MeshFS mounts inside guests.
+  **so that** we know VMs actually start, certificates work, MeshFS mounts inside guests, and `mde-virtual` manages it all.
   **Acceptance** (each bench-observable, operator-typed per §0.15):
-    - [ ] Create a KVM VM on peer A → VM gets `10.42.128.x` Nebula IP → `ping` from peer B succeeds
+    - [ ] `mde-virtual` launches from the Dock; Fleet tab shows ≥2 peers' inventories
+    - [ ] Create a KVM VM on peer A via `mde-virtual` 4-step wizard → VM gets `10.42.128.x` Nebula IP → `ping` from peer B succeeds
     - [ ] VM mounts MeshFS via virtiofsd → `ls /mnt/mesh-storage` inside guest returns files
-    - [ ] Expose guest port 80 to `mesh` only → `curl http://10.42.128.x` from peer B succeeds; `curl` from external host fails
-    - [ ] Cold migrate VM from peer A → peer B → VM running on B, not on A
-    - [ ] Workbench Compute panel shows VM on both peers during + after migration
+    - [ ] Expose guest port 80 to `mesh` only via `mde-virtual` expose sheet → `curl http://10.42.128.x` from peer B succeeds; `curl` from external host fails
+    - [ ] Cold migrate VM from peer A → peer B via `mde-virtual` migrate action → VM running on B, Fleet tab updates
+    - [ ] virt-viewer console opens from VM detail panel `[Console]` button
+
+- [ ] **VIRT-13: v5.0.0 — `crates/mde-virtual/` crate skeleton — xdg-toplevel window, Fleet/Local tabs, peer-grouped list**
+  **As** an operator, **I want** a native Iced/Rust app `mde-virtual` with Fleet and Local tabs,
+  **so that** I have a purpose-built, mesh-aware compute manager that fits the MDE stack.
+  **Acceptance** (each bench-observable):
+    - [ ] `crates/mde-virtual/` exists with `Cargo.toml` (`name = "mde-virtual"`) and `src/main.rs` + `src/app.rs`
+    - [ ] App opens as a standard xdg-toplevel window (800×600 min); not a layer-shell surface
+    - [ ] Fleet tab: subscribes to `compute/inventory/*` Bus topic; renders one collapsible section per peer (hostname + Nebula IP); per-resource row: name, type badge (KVM/Podman), state badge (running/stopped/paused), CPU %, RAM MB, Nebula IP
+    - [ ] Local tab: same rows but filtered to local peer; action buttons enabled; Bus-independent fallback via direct libvirt socket + `podman ps` when Bus is unavailable
+    - [ ] Fleet tab shows "Mesh unavailable" banner when Bus connection fails; Local tab continues to function
+    - [ ] `StartupWMClass=mde-virtual` set in the app title metadata
+    - [ ] Passes `cargo build` + `cargo test` clean
+    - [ ] lint-runtime-reachability clean (all `pub mod` refs external)
+    - [ ] lint-no-stubs clean
+    - [ ] Cite: visual-identity.md §1; ref: Apple System Settings
+
+- [ ] **VIRT-14: v5.0.0 — `mde-virtual` VM detail panel — state, actions, console, snapshots, expose, migrate**
+  **As** an operator, **I want** a detail view for any VM with all management actions,
+  **so that** I never need SSH or a separate tool to operate VMs.
+  **Acceptance** (each bench-observable):
+    - [ ] Clicking a VM row in Fleet/Local tab opens a slide-in detail panel (or modal sheet on Fleet)
+    - [ ] Detail panel shows: state badge, CPU%/RAM bar, disk path, Nebula IP, MeshFS badge (`✓` / `⚠ MeshFS offline`)
+    - [ ] Local-only actions: `[Start]`, `[Stop]`, `[Force off]`, `[Suspend]`, `[Resume]`; buttons disabled on remote VMs
+    - [ ] `[Console]` button spawns `virt-viewer --connect qemu:///system <domain-name>` via `std::process::Command`
+    - [ ] Snapshots section lists existing libvirt snapshots via `virsh snapshot-list`; `[Take snapshot]` button calls `virsh snapshot-create-as`; `[Delete]` per snapshot
+    - [ ] Exposed ports section lists active `compute/exposed/<peer>` entries for this VM; `[Expose port…]` button opens a sheet: guest port, proto (TCP/UDP), network checkboxes (Mesh / LAN / WAN)
+    - [ ] `[Migrate to…]` button opens a peer-picker sheet listing online Fleet peers; submits `compute/migrate/<vm-id>` Bus message
+    - [ ] 6 unit tests: state badge variants, action button disabled states, snapshot list parsing, expose sheet field validation, migrate peer picker empty state, virt-viewer command construction
+
+- [ ] **VIRT-15: v5.0.0 — `mde-virtual` VM creation wizard — 4-step flow**
+  **As** an operator, **I want** a guided 4-step wizard to create a KVM VM,
+  **so that** I don't need to understand `virt-install` flags.
+  **Acceptance** (each bench-observable):
+    - [ ] `[+ New VM]` button in Local tab opens the wizard
+    - [ ] Step 1 — Name + template: text field for VM name (ULID suffix auto-appended); optional template picker (loads from VIRT-16 template store); validation: name non-empty, alphanumeric + hyphens only
+    - [ ] Step 2 — CPU + RAM: spinner for vCPUs (1–16), spinner for RAM MB (512–65536, 512 step); defaults 2 vCPU / 2048 MB
+    - [ ] Step 3 — Disk + ISO: disk size spinner (10–500 GB, 1 step); ISO picker shows files from `/var/lib/mde-vms/isos/` + `[Browse…]` file dialog filtered to `.iso`; `[✓] Share MeshFS` checkbox (default on)
+    - [ ] Step 4 — Review + Create: summary of all selected values; `[Create]` sends `compute/create/<local-nebula-addr>` Bus message; progress indicator subscribes to `compute/event/<local-addr>` for `provisioning_started` / `provisioning_done` / `provisioning_failed`
+    - [ ] Wizard can be cancelled from any step; no partial VMs left behind
+    - [ ] 5 unit tests: name validation, step 3 ISO list rendering, step 4 message construction, cancel from step 2, step 1 template pre-fill
+
+- [ ] **VIRT-16: v5.0.0 — VM templates — save config + load in wizard**
+  **As** an operator, **I want** to save a VM config as a template and reuse it,
+  **so that** I can spin up identical VMs without re-entering the same wizard answers.
+  **Acceptance** (each bench-observable):
+    - [ ] `[Save as template…]` button in VM detail panel (Local tab only) prompts for a template name, saves `~/.local/share/mde/vm-templates/<ulid>.json` containing: name, vcpus, ram_mb, disk_gb, share_meshfs
+    - [ ] Templates stored on MeshFS path (`~/.local/share/mde/vm-templates/`) so they're available on every peer that mounts mesh-storage
+    - [ ] Wizard step 1 shows template picker listing all `.json` files from the template dir; selecting one pre-fills steps 2–3
+    - [ ] `[Delete template]` button in picker removes the file
+    - [ ] 3 unit tests: template JSON round-trip, wizard pre-fill from template, delete removes file
+
+- [ ] **VIRT-17: v5.0.0 — `mde-virtual` real-time CPU/RAM sparklines in VM detail panel**
+  **As** an operator, **I want** live CPU% and RAM sparklines in the VM detail panel,
+  **so that** I can see resource trends without opening a separate monitoring tool.
+  **Acceptance** (each bench-observable):
+    - [ ] VM detail panel runs a 2-second Iced subscription calling `virDomainGetCPUStats` + `virDomainMemoryStats` (via `virt` crate or `virsh dommemstat` fallback)
+    - [ ] 60-point ring buffer per metric; sparkline renders as a thin line chart inside the detail panel (no axes, just shape)
+    - [ ] Sparkline pauses when detail panel is hidden; resumes on re-open (no background polling)
+    - [ ] Remote VMs in Fleet tab show last-known CPU%/RAM from `compute/inventory/*` Bus message (no live sparkline for remote VMs)
+    - [ ] 2 unit tests: ring buffer overflow wraps correctly, sparkline dataset maps to point positions
+
+- [ ] **VIRT-18: v5.0.0 — `mde-virtual` container + pod management**
+  **As** an operator, **I want** to view and manage Podman containers and pods in `mde-virtual`,
+  **so that** containers are first-class alongside KVM VMs in one app.
+  **Acceptance** (each bench-observable):
+    - [ ] Local tab containers section lists Podman containers from `compute/inventory/<local-addr>` (containers array) + refreshes from `podman ps --all --format json` fallback
+    - [ ] Pods are grouped: a pod row with expand/collapse, child container rows indented beneath
+    - [ ] Container row shows: name, image (truncated), state badge, CPU %, RAM MB
+    - [ ] Local container actions: `[Start]`, `[Stop]`, `[Delete]` (with confirmation sheet); pod-level actions apply to all containers in the pod
+    - [ ] Fleet tab containers section is read-only (inventory data, no actions)
+    - [ ] 4 unit tests: pod grouping with mixed containers, start action message, delete confirmation state, fleet read-only guard
+
+- [ ] **VIRT-19: v5.0.0 — `mde-virtual` images section + volume read-only list**
+  **As** an operator, **I want** to browse local Podman images and volumes in `mde-virtual`,
+  **so that** I can manage local storage without dropping to a terminal.
+  **Acceptance** (each bench-observable):
+    - [ ] Local tab `Images` sub-section: lists images from `podman images --format json`; columns: repository, tag, size, created
+    - [ ] `[Pull image…]` button opens a text field sheet; submits `podman pull <ref>` via `std::process::Command` and streams stdout to a progress area
+    - [ ] `[Delete]` per image (confirmation sheet); refuses with inline error if the image is in use by a running container
+    - [ ] Local tab `Volumes` sub-section: read-only list from `podman volume ls --format json`; name + mount point + driver
+    - [ ] 3 unit tests: image list parsing, in-use deletion guard, volume list rendering
+
+- [ ] **VIRT-20: v5.0.0 — `mde-virtual` bulk actions — checkboxes + contextual action bar**
+  **As** an operator, **I want** to select multiple VMs or containers and act on them at once,
+  **so that** I can stop or migrate a batch without clicking each one individually.
+  **Acceptance** (each bench-observable):
+    - [ ] Each row in Local tab has a checkbox; selecting ≥1 row reveals a contextual action bar at the bottom of the list
+    - [ ] Bulk actions available: `[Stop all]`, `[Start all]` (VMs only; containers: `[Stop all]`, `[Start all]`); mixed VM+container selection shows only the intersection of valid actions
+    - [ ] `[Stop all]` / `[Start all]` shows a confirmation sheet listing the resource names before executing
+    - [ ] Bulk actions are Local-tab-only; Fleet tab has no checkboxes (read-only)
+    - [ ] Selecting all via header checkbox selects all visible rows in the active section
+    - [ ] 4 unit tests: mixed selection action intersection, header select-all, confirmation sheet resource list, bulk stop sends one message per resource
+
+- [ ] **VIRT-21: v5.0.0 — `compute_registry` state-change events → `compute/event/<peer>` → FDO toasts**
+  **As** an operator, **I want** desktop notifications when VMs start, stop, or crash,
+  **so that** I don't have to keep `mde-virtual` open to know what's happening.
+  **Acceptance** (each bench-observable):
+    - [ ] `compute_registry` mackesd worker detects state transitions (running→stopped, stopped→running, running→crashed) by polling `virsh domstate` every 10 s and diffing against prior state
+    - [ ] State change publishes `compute/event/<peer-nebula-addr>` Bus message: `{ "vm_id": "…", "vm_name": "…", "event": "started"|"stopped"|"crashed", "peer": "…" }`
+    - [ ] `mded` FDO notification worker subscribes to `compute/event/*` and emits a desktop toast: `"VM <name> started/stopped/crashed on <hostname>"`; crash events use urgency `Critical`
+    - [ ] `mde-virtual` Fleet tab also subscribes to `compute/event/*` and refreshes the affected peer's inventory row immediately without waiting for the 10 s inventory broadcast
+    - [ ] 3 unit tests: state-diff detects crashed transition, event message schema, FDO urgency mapping
 
 ---
 

@@ -811,19 +811,21 @@ we're at it, ..." scope creep.
   (write-own-file / readers-union, PEERVER pattern). Lock re-engaged
   after both epics landed in the worklist 2026-05-29.
 
-- **2026-05-30 — VIRT-1..VIRT-12** (KVM + Podman mesh-native compute —
-  libvirt + Cockpit-machines + mackesd Bus workers). Operator-issued
-  lift for a 10-Q /plan survey. Locks at
-  `docs/design/v5.0.0-compute.md`. **Operator explicitly elevated to
-  v5.0.0 cut-blocking core (AI_GOVERNANCE §11.1 C10)** — widens the cut
-  gate (pre-cut-check must see VIRT-* green). Every peer is always-on
-  compute (socket-activated libvirtd + qemu-kvm). VMs get Nebula certs
-  from `10.42.128.0/17` VM subnet; CA key stays on CA peer via
-  `cert_authority` Bus worker. MeshFS via virtiofsd. Explicit per-network
-  port exposure (mesh/LAN/WAN via firewalld). Cold migration via rsync
-  over Nebula. Unified KVM + Podman inventory in one Bus topic +
-  Workbench Compute panel. Lock re-engaged after VIRT-1..12 landed in
-  the worklist 2026-05-30.
+- **2026-05-30 — VIRT-1..VIRT-21** (KVM + Podman mesh-native compute +
+  `mde-virtual` Iced/Rust app). Operator-issued lift for a 10-Q + 20-Q
+  /plan survey. Locks at `docs/design/v5.0.0-compute.md` (§1..12 from
+  10-Q; §13 `mde-virtual` design from 20-Q). **Operator explicitly
+  elevated to v5.0.0 cut-blocking core (AI_GOVERNANCE §11.1 C10)** —
+  widens the cut gate (pre-cut-check must see VIRT-* green). Every peer
+  is always-on compute (socket-activated libvirtd + qemu-kvm). VMs get
+  Nebula certs from `10.42.128.0/17` subnet; CA key stays on CA peer
+  via `cert_authority` Bus worker. MeshFS via virtiofsd. Explicit
+  per-network port exposure (mesh/LAN/WAN via firewalld). Cold migration
+  via rsync over Nebula. `mde-virtual` (Iced/Rust, Dock-pinned, Fleet +
+  Local tabs, 4-step VM wizard, sparklines, pod management, templates,
+  bulk actions) replaces the original Workbench Compute panel + Cockpit
+  deep-link. `virt-viewer` handles console (~2 MB vs Cockpit's ~50 MB).
+  Lock re-engaged after VIRT-1..21 landed in the worklist 2026-05-30.
 
 **Why this rule:** the active worklist already represents 324
 items across 15+ epics. Continuing to add scope while draining is
