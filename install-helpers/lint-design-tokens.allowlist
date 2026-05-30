@@ -25,8 +25,8 @@ crates/mde-applets/mesh-status/src/lib.rs:346
 crates/mde-applets/mesh-status/src/lib.rs:347
 crates/mde-applets/mesh-status/src/lib.rs:348
 crates/mde-applets/mesh-status/src/lib.rs:349
-crates/mde-files/src/theme.rs:210
-crates/mde-files/src/widgets.rs:575
+crates/mde-files/src/theme.rs:215
+crates/mde-files/src/widgets.rs:719
 crates/mde-iced-components/src/lib.rs:331
 crates/mde-logout-dialog/src/main.rs:82
 crates/mde-logout-dialog/src/main.rs:83

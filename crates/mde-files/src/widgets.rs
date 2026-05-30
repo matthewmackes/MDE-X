@@ -566,6 +566,150 @@ pub fn file_row_head(src_label: &str) -> Element<'static, Message> {
         .into()
 }
 
+// ─── List-view file row (`.fm-list-row`) — CR-4.d ─────────────────────────
+
+/// List-view file row — CR-4.d. Classic ChromeOS density: 28 px height,
+/// Roboto 13 px, 1 px `LIST_ROW_DIVIDER` bottom divider, indigo 15 %
+/// selection overlay. Column layout mirrors `file_row_head`: 22 px icon ·
+/// name (fill) · origin (shrink, when `show_src`) · size (120 px) · age (100 px).
+pub fn list_row(
+    row_data: FileRow,
+    show_src: bool,
+    selected: bool,
+    focused: bool,
+) -> Element<'static, Message> {
+    let has_conflict = row_data.has_conflict;
+    let syncing = row_data.syncing;
+    let origin_host: Option<String> = row_data.origin().map(str::to_owned);
+    let FileRow { name, conflict_sibling, mime, size, age, .. } = row_data;
+    let sibling = conflict_sibling.unwrap_or_default();
+
+    let bg = if selected {
+        t::LIST_SELECTION_BG
+    } else if focused {
+        t::ROW_HOVER
+    } else {
+        Color::TRANSPARENT
+    };
+
+    let resolved = mde_theme::mde_icon(mime_to_icon(mime), mde_theme::IconSize::Nav);
+    let icon_bytes = resolved.svg_bytes_for_state(mde_theme::IconState::Idle);
+    let icon_el = icon(icon_bytes, mde_theme::IconSize::Nav.px(), t::FG_DIM);
+
+    let roboto = iced::Font::with_name("Roboto");
+
+    let mut inner = row![
+        container(icon_el)
+            .width(Length::Fixed(22.0))
+            .align_x(iced::alignment::Horizontal::Center),
+        container(text(name.clone()).size(13).font(roboto).color(t::FG))
+            .width(Length::Fill),
+    ]
+    .spacing(12)
+    .align_y(iced::alignment::Vertical::Center);
+
+    if show_src {
+        let origin_str = origin_host.as_deref().unwrap_or("local").to_owned();
+        inner = inner.push(
+            container(text(origin_str).size(11).font(roboto).color(t::FG_DIM))
+                .width(Length::Shrink),
+        );
+    }
+
+    inner = inner
+        .push(
+            container(text(size).size(11).font(roboto).color(t::FG_DIM))
+                .width(Length::Fixed(120.0))
+                .align_x(iced::alignment::Horizontal::Right),
+        )
+        .push(
+            container(text(age).size(11).font(roboto).color(t::FG_DIM))
+                .width(Length::Fixed(100.0))
+                .align_x(iced::alignment::Horizontal::Right),
+        );
+
+    let row_el: Element<'static, Message> = container(inner)
+        .padding(Padding::from([0.0, 8.0]))
+        .height(Length::Fixed(28.0))
+        .style(move |_| container::Style {
+            background: Some(Background::Color(bg)),
+            ..container::Style::default()
+        })
+        .into();
+
+    let divider_el: Element<'static, Message> =
+        container(Space::new(Length::Fill, Length::Fixed(1.0)))
+            .style(|_| container::Style {
+                background: Some(Background::Color(t::LIST_ROW_DIVIDER)),
+                ..container::Style::default()
+            })
+            .into();
+
+    let row_with_divider: Element<'static, Message> =
+        column![row_el, divider_el].spacing(0).into();
+
+    let conflict_chip: Option<Element<'static, Message>> = if has_conflict {
+        let orig_name = name.clone();
+        Some(
+            button(
+                container(
+                    row![
+                        text("⚠").size(10).color(t::ACCENT_HI),
+                        text("conflict").size(10).color(t::ACCENT_HI),
+                    ]
+                    .spacing(3)
+                    .align_y(iced::alignment::Vertical::Center),
+                )
+                .padding(Padding::from([1.0, 6.0])),
+            )
+            .padding(0)
+            .style(|_, status| {
+                let bg_chip = match status {
+                    button::Status::Hovered => t::PRIMARY_AMBER_BG_HOVER,
+                    _ => t::PRIMARY_AMBER_BG,
+                };
+                button::Style {
+                    background: Some(Background::Color(bg_chip)),
+                    text_color: t::ACCENT_HI,
+                    border: Border {
+                        color: t::PRIMARY_AMBER_BORDER,
+                        width: 1.0,
+                        radius: 0.0.into(),
+                    },
+                    ..button::Style::default()
+                }
+            })
+            .on_press(Message::ConflictResolve(orig_name, sibling))
+            .into(),
+        )
+    } else {
+        None
+    };
+
+    let sync_badge: Option<Element<'static, Message>> = if syncing {
+        Some(
+            container(text("⟳").size(10).color(t::FG_FAINT))
+                .padding(Padding::from([1.0, 4.0]))
+                .into(),
+        )
+    } else {
+        None
+    };
+
+    if conflict_chip.is_none() && sync_badge.is_none() {
+        row_with_divider
+    } else {
+        let mut col = column![row_with_divider].spacing(2);
+        if let Some(chip) = conflict_chip {
+            col = col.push(chip);
+        }
+        if let Some(badge) = sync_badge {
+            col = col.push(badge);
+        }
+        col.into()
+    }
+}
+
 // ─── Transfer-log row (`.fm-tx`) ───────────────────────────────────────────
 
 pub fn tx_row(tx: Transfer) -> Element<'static, Message> {

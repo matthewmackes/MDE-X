@@ -15,7 +15,8 @@ use crate::selection::Selection;
 use crate::theme as t;
 use crate::widgets::{
     banner, breadcrumb_tag, disclosure_row, file_row, file_row_head, ghost_button_style, icon,
-    peer_card, section_h, side_row, side_section_header, tx_row, BannerStat, SideRowVariant,
+    list_row, peer_card, section_h, side_row, side_section_header, tx_row, BannerStat,
+    SideRowVariant,
 };
 
 // ─── Titlebar ──────────────────────────────────────────────────────────────
@@ -750,13 +751,20 @@ pub fn peer_folder<'a>(
 
     let _tile = grid::tile_layout(800, filtered_rows.len());
     let _tile_meta = grid::tile_metadata_for(&filtered_rows);
-    let _layout = layout;
 
-    let mut list = column![file_row_head("Origin")];
+    // CR-4.d: List → 28 px tabular rows; Grid → Object Cards (CR-4.b).
+    let mut list = match layout {
+        Layout::List => column![file_row_head("Origin")],
+        Layout::Grid => column![],
+    };
     for f in &filtered_rows {
         let sel = selection.is_selected(&f.name);
         let foc = selection.is_focused(&f.name);
-        list = list.push(file_row(f.clone(), true, sel, foc));
+        let row_el = match layout {
+            Layout::List => list_row(f.clone(), true, sel, foc),
+            Layout::Grid => file_row(f.clone(), true, sel, foc),
+        };
+        list = list.push(row_el);
     }
 
     let count_label = if search::is_active(search_query) {

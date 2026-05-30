@@ -121,6 +121,11 @@ pub const BANNER_TINT_A: Color = rgba_hex(0xf0, 0xab, 0x00, 0.10);
 
 pub const ROW_DIVIDER: Color = white_alpha(0.03);
 
+/// CR-4.d — Classic ChromeOS list-divider (charcoal 0x3c4043).
+pub const LIST_ROW_DIVIDER: Color = rgb_hex(0x3c, 0x40, 0x43);
+/// CR-4.d — Indigo selection overlay at 15 % alpha (0x5b6af5).
+pub const LIST_SELECTION_BG: Color = rgba_hex(0x5b, 0x6a, 0xf5, 0.15);
+
 // ─── Dimensions ────────────────────────────────────────────────────────────
 pub const WIN_W: f32 = 1480.0;
 pub const WIN_H: f32 = 940.0;
