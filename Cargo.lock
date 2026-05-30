@@ -4037,6 +4037,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "md5",
+ "mde-bus",
  "reqwest",
  "serde",
  "serde_json",

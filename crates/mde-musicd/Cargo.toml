@@ -29,6 +29,9 @@ md5        = "0.7"
 ulid       = "1"
 tokio      = { version = "1", features = ["rt-multi-thread", "macros"] }
 clap       = { version = "4.5", features = ["derive"] }
+# AIR-2 daemon control surface: Bus-native (action/music/* + reply/<ulid>)
+# per the Q96 Bus-canonical lock (no new D-Bus interface).
+mde-bus    = { path = "../mde-bus" }
 
 [dev-dependencies]
 tempfile = "3"

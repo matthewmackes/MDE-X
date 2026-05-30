@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use mde_musicd::airsonic::Client;
-use mde_musicd::{cache, creds, queue, reconnect, state};
+use mde_musicd::{bus_responder, cache, creds, queue, reconnect, state};
 
 #[derive(Parser)]
 #[command(name = "mde-musicd", about = "MDE native Airsonic music daemon.")]
@@ -45,6 +45,10 @@ enum Cmd {
         #[command(subcommand)]
         op: QueueOp,
     },
+    /// Run the daemon's Bus control responder (`action/music/<verb>` →
+    /// `reply/<ulid>`). Loops until interrupted (AIR-2 control surface;
+    /// the play flow + MPRIS are AIR-2.c, gated on the audio engine).
+    Serve,
 }
 
 #[derive(Subcommand)]
@@ -99,7 +103,28 @@ fn main() -> ExitCode {
         Cmd::Cache { op } => cache_cmd(&op),
         Cmd::State { op } => state_cmd(&op),
         Cmd::Queue { op } => queue_cmd(&op),
+        Cmd::Serve => serve(),
     }
+}
+
+fn serve() -> ExitCode {
+    let Some(bus_root) = mde_bus::default_data_dir() else {
+        eprintln!("mde-musicd: no Bus data dir (XDG) — cannot serve");
+        return ExitCode::FAILURE;
+    };
+    let persist = match mde_bus::persist::Persist::open(bus_root) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("mde-musicd: opening Bus store: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("mde-musicd: serving action/music/* on the Bus");
+    // Runs until SIGTERM (the AIR-1 systemd unit manages the lifecycle);
+    // `serve`'s stop predicate is exercised by the unit tests' one-shot
+    // poll path.
+    bus_responder::serve(&persist, &queue::queue_path(), || false);
+    ExitCode::SUCCESS
 }
 
 fn queue_cmd(op: &QueueOp) -> ExitCode {
