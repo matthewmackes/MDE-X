@@ -811,6 +811,20 @@ we're at it, ..." scope creep.
   (write-own-file / readers-union, PEERVER pattern). Lock re-engaged
   after both epics landed in the worklist 2026-05-29.
 
+- **2026-05-30 — VIRT-1..VIRT-12** (KVM + Podman mesh-native compute —
+  libvirt + Cockpit-machines + mackesd Bus workers). Operator-issued
+  lift for a 10-Q /plan survey. Locks at
+  `docs/design/v5.0.0-compute.md`. **Operator explicitly elevated to
+  v5.0.0 cut-blocking core (AI_GOVERNANCE §11.1 C10)** — widens the cut
+  gate (pre-cut-check must see VIRT-* green). Every peer is always-on
+  compute (socket-activated libvirtd + qemu-kvm). VMs get Nebula certs
+  from `10.42.128.0/17` VM subnet; CA key stays on CA peer via
+  `cert_authority` Bus worker. MeshFS via virtiofsd. Explicit per-network
+  port exposure (mesh/LAN/WAN via firewalld). Cold migration via rsync
+  over Nebula. Unified KVM + Podman inventory in one Bus topic +
+  Workbench Compute panel. Lock re-engaged after VIRT-1..12 landed in
+  the worklist 2026-05-30.
+
 **Why this rule:** the active worklist already represents 324
 items across 15+ epics. Continuing to add scope while draining is
 the failure mode that produced the v3.x dead-module audit. The

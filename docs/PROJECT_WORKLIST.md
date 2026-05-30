@@ -1930,6 +1930,161 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
   **Shipped:** commit 15bc3cb0 (2026-05-29). 36 files changed, 4303 deletions.
   **Sequencing:** this is the LAST MESHFS task; until it lands, Gluster stays operative so main is never FS-less.
 
+### VIRT-1..VIRT-12: v5.0.0 — KVM + Podman mesh-native compute (`compute_registry` + libvirt + Bus workers, locked 2026-05-30 via 10-Q survey)
+
+> **v5.0.0 core (§11.1 C10) — operator-elevated 2026-05-30.** Every MDE peer is a
+> compute node (always-on libvirtd socket-activation + qemu-kvm). KVM VMs get their
+> own Nebula cert + IP (`10.42.128.0/17` subnet). Podman containers share the same
+> unified Bus inventory. MeshFS access inside VMs via virtiofsd. Cold migration via
+> rsync over the Nebula overlay. Explicit per-network exposure (mesh / LAN / WAN) via
+> firewalld rich rules. CA key stays on the CA peer; VM certs signed via Bus topic
+> `compute/cert-sign-request/<ulid>`.
+>
+> **Design lock:** `docs/design/v5.0.0-compute.md`.
+> **Dependencies:** MESHFS-* (virtiofsd requires mesh-storage mounted), BUS-1 broker,
+> INST-* (libvirtd + cockpit-machines in RPM `%post`).
+
+- [ ] **VIRT-1: v5.0.0 — `compute_registry` mackesd worker — unified KVM + Podman Bus inventory**
+  **As** any mesh peer, **I want** to see all VMs and containers across the fleet in one place,
+  **so that** I can manage compute resources from any workstation.
+  **Acceptance** (each bench-observable):
+    - [ ] `crates/mackesd/src/workers/compute_registry.rs` polls `virsh list --all --uuid` + `podman ps --all --format json` every 10 s
+    - [ ] Publishes `compute/inventory/<peer-nebula-addr>` with schema from design doc §3
+    - [ ] `meshfs_available: bool` field reflects whether `/mnt/mesh-storage` is mounted
+    - [ ] 6 unit tests: empty inventory, 1 VM running, 1 VM stopped, 1 container, mixed, meshfs-unavailable
+  **Implementation notes:**
+    - Follow `firewall_monitor.rs` PEERVER-converge pattern
+    - libvirt-rs crate (or virsh subprocess) for VM polling; podman JSON API for containers
+    - Socket-activate libvirtd if not already running on first poll
+
+- [ ] **VIRT-2: v5.0.0 — RPM packaging: libvirtd + cockpit-machines + qemu-kvm + virtiofsd install**
+  **As** an installer, **I want** compute stack packages installed at first boot,
+  **so that** every peer is ready to host VMs without operator steps.
+  **Acceptance** (each bench-observable):
+    - [ ] `packaging/fedora/mackes-shell.spec` `Requires:` adds `libvirt`, `qemu-kvm`, `cockpit`, `cockpit-machines`, `virtiofsd`
+    - [ ] `%post` enables `libvirtd.socket` (not `libvirtd.service` — socket-activation) + `cockpit.socket`
+    - [ ] `rpmspec -P packaging/fedora/mackes-shell.spec` exits 0 (verify via rpmspec, NOT `make rpm`)
+    - [ ] `%files` adds `/var/lib/mde-vms/` as `%dir 0750 root root`
+  **Implementation notes:**
+    - Socket-activation: `systemctl enable --now libvirtd.socket` in `%post`
+    - Do NOT `make rpm` — verify via `rpmspec -P` per [[feedback_rpm_gate_skip_for_content_edits]]
+
+- [ ] **VIRT-3: v5.0.0 — libvirt storage pool `mde-vms` — auto-define on first VM creation**
+  **As** `compute_provision`, **I want** the storage pool to exist before creating a disk,
+  **so that** VM disk images are consistently placed and visible to libvirt.
+  **Acceptance** (each bench-observable):
+    - [ ] `compute_provision` calls `virsh pool-define-as mde-vms dir - - - - /var/lib/mde-vms` + `virsh pool-start mde-vms` + `virsh pool-autostart mde-vms` if pool absent
+    - [ ] Idempotent: calling again when pool exists is a no-op
+    - [ ] 3 unit tests: pool absent → creates, pool exists → no-op, pool start fails → error propagated
+  **Implementation notes:**
+    - Check via `virsh pool-list --all` before define
+
+- [ ] **VIRT-4: v5.0.0 — VM Nebula subnet `10.42.128.0/17` — lighthouse route + per-peer nebula.yaml**
+  **As** the mesh, **I want** VM IPs routable across all enrolled peers,
+  **so that** a VM on peer A can reach a VM on peer B directly.
+  **Acceptance** (each bench-observable):
+    - [ ] `data/nebula/config.yml` template adds `unsafe_routes` entry for `10.42.128.0/17` via the local peer's Nebula IP
+    - [ ] `mackesd::nebula_enroll` pushes the updated route config to mesh-storage on first VM creation; peers pick it up on next Nebula reload
+    - [ ] Lighthouse `data/nebula/lighthouse.yml` template includes `10.42.128.0/17` in its route table
+    - [ ] `ping 10.42.128.1` from a different peer succeeds once VM is running (HW-bench gated per §0.15)
+  **Implementation notes:**
+    - VM subnet `10.42.128.0/17` — `128` is the VM bit; peer subnet stays `10.42.0.0/17`
+    - Route push mirrors MESHFS-* config-propagation pattern via mesh-storage
+
+- [ ] **VIRT-5: v5.0.0 — `cert_authority` mackesd worker — CA-peer signs VM Nebula certs via Bus**
+  **As** `compute_provision`, **I want** to request a Nebula cert for a new VM without touching the CA key directly,
+  **so that** the CA key never leaves the CA peer.
+  **Acceptance** (each bench-observable):
+    - [ ] `crates/mackesd/src/workers/cert_authority.rs` subscribes to `compute/cert-sign-request/<ulid>` Bus topic
+    - [ ] On CA peer (detected by presence of `~/.config/mde/ca.key`): calls `nebula-cert sign -name <cn> -ip <vm-ip> -groups mde-vms` + replies on `reply/<ulid>` with `{cert_pem, ca_pem}`
+    - [ ] On non-CA peer: logs and ignores the request (does not reply)
+    - [ ] Request timeout: 30 s; `compute_provision` retries once before marking VM creation failed
+    - [ ] 4 unit tests: CA peer replies, non-CA peer ignores, timeout handled, malformed request rejected
+  **Implementation notes:**
+    - CA key path: `~/.config/mde/nebula/ca.key` (same dir as `ca.crt`)
+    - Use `nebula-cert` CLI subprocess (already available on all peers via INST-*)
+
+- [ ] **VIRT-6: v5.0.0 — `compute_provision` mackesd worker — create VM + cert + virtiofsd wiring**
+  **As** an operator, **I want** to create a KVM VM by publishing a Bus topic,
+  **so that** the Workbench Compute panel can provision VMs on any peer.
+  **Acceptance** (each bench-observable):
+    - [ ] `compute_provision` subscribes to `compute/create/<peer-nebula-addr>`; calls `virt-install` with the spec + wires virtiofsd XML if `share_meshfs: true`
+    - [ ] Requests VM Nebula cert via `compute/cert-sign-request/<ulid>` (VIRT-5); writes cert into guest via `virt-customize` cloud-init injection before first boot
+    - [ ] Replies on `compute/create-ack/<ulid>` with `{vm_id, nebula_ip}` or `{error: "..."}`
+    - [ ] Publishes updated `compute/inventory/<peer>` within 5 s of VM start
+    - [ ] 5 unit tests: happy path, cert-request timeout, virt-install failure, meshfs-unavailable-with-share, meshfs-unavailable-without-share
+  **Implementation notes:**
+    - virtiofsd XML stanza per design doc §6; start a `virtiofsd@<vm-id>.service` instance
+    - guest nebula config written as cloud-init `write_files` stanza; requires cloud-init in the guest
+
+- [ ] **VIRT-7: v5.0.0 — `compute_expose` mackesd worker — per-network firewalld port forwarding**
+  **As** an operator, **I want** to expose a VM port to mesh / LAN / WAN by selecting networks,
+  **so that** services are reachable exactly where I choose without manual firewall edits.
+  **Acceptance** (each bench-observable):
+    - [ ] `compute_expose` subscribes to `compute/expose/<peer-nebula-addr>`; for each selected network writes a `firewall-cmd --permanent` rich rule forwarding the host port to the VM's Nebula IP
+    - [ ] `mesh`: rich rule on `trusted` zone (Nebula interface); `lan`: rich rule on `public` zone; `wan`: rich rule on WAN zone (detected via `nmcli`)
+    - [ ] Publishes `compute/exposed/<peer>` listing all active forwarding rules (for Workbench display)
+    - [ ] Remove rule on `compute/unexpose/<peer>` with matching `{vm_nebula_ip, host_port, proto}`
+    - [ ] 5 unit tests: expose mesh-only, expose all three, remove one network, remove all, idempotent re-expose
+  **Implementation notes:**
+    - WAN zone detection: `nmcli -t -f DEVICE,TYPE,STATE device` to find default-gateway interface
+    - `firewall-cmd --reload` after batch rule changes; group multiple rules into one reload
+
+- [ ] **VIRT-8: v5.0.0 — `compute_migrate` mackesd worker — cold VM migration over Nebula overlay**
+  **As** an operator, **I want** to cold-migrate a VM from one peer to another,
+  **so that** I can rebalance compute load or decommission a peer.
+  **Acceptance** (each bench-observable):
+    - [ ] Source peer's `compute_migrate` subscribes to `compute/migrate/<vm-id>`; `virsh shutdown <vm>` → polls for SHUTOFF (120 s timeout) → `rsync --compress` disk to target's `/var/lib/mde-vms/` over Nebula → publishes `compute/migrate-ready/<ulid>`
+    - [ ] Target peer's `compute_provision` receives `migrate-ready`; defines VM with migrated disk + starts it
+    - [ ] Source peer removes VM definition + publishes updated inventory
+    - [ ] 4 unit tests: happy path, shutdown timeout, rsync failure, target-provision failure
+  **Implementation notes:**
+    - rsync destination: `<target-nebula-ip>::mde-vms` or `rsync://` over SSH via Nebula
+    - Progress published via `compute/migrate-progress/<ulid>` for Workbench status display
+
+- [ ] **VIRT-9: v5.0.0 — Workbench Compute panel — unified fleet VM + container view**
+  **As** an operator, **I want** a panel showing all VMs and containers across the fleet,
+  **so that** I can manage compute from any peer without SSHing around.
+  **Acceptance** (each bench-observable):
+    - [ ] New `crates/mde-workbench/src/panels/compute.rs` — Fleet tab (all peers' inventories from Bus) + Local tab (local-only, actions enabled)
+    - [ ] Per-resource row: name, type (kvm/podman), state badge, CPU %, RAM, host peer, Nebula IP, MeshFS badge
+    - [ ] Local actions: start, stop, snapshot (KVM only), expose port sheet (mesh/LAN/WAN checkboxes), migrate-to sheet (peer picker), `[Open in Cockpit]` deep-link
+    - [ ] Remote resources: `[Migrate to local]` button only
+    - [ ] `meshfs_available=false` → warning badge on VMs with `share_meshfs=true`
+    - [ ] Panel registered in `mde-workbench/src/app.rs` navigation alongside Mesh, Files, Settings
+    - [ ] 8 unit tests: empty fleet, mixed VMs+containers, remote-only actions, expose sheet validation
+  **Implementation notes:**
+    - Subscribe to `compute/inventory/*` wildcard via Bus subscriber
+    - Cite: visual-identity.md §1; ref: Apple System Settings (visual citation for the panel surface)
+
+- [ ] **VIRT-10: v5.0.0 — Cockpit + cockpit-machines deep-link from Compute panel**
+  **As** an operator, **I want** `[Open in Cockpit]` on any local VM to open Cockpit-machines,
+  **so that** I have a detailed console/VNC viewer without the Workbench having to implement one.
+  **Acceptance** (each bench-observable):
+    - [ ] `[Open in Cockpit]` button in Local tab opens `https://localhost:9090/machines` in the system browser
+    - [ ] `cockpit.socket` is enabled and reachable (VIRT-2 RPM task ensures this)
+    - [ ] 1 test: button URL matches expected Cockpit-machines path
+
+- [ ] **VIRT-11: v5.0.0 — `docs/help/compute.md` + CHANGELOG entry**
+  **As** an operator, **I want** user-facing docs explaining VM creation, exposure, and migration,
+  **so that** the feature is usable without reading the design doc.
+  **Acceptance** (each bench-observable):
+    - [ ] `docs/help/compute.md` covers: creating a KVM VM, virtiofsd MeshFS access, exposing a port (mesh/LAN/WAN), cold migration, viewing Podman containers, opening Cockpit
+    - [ ] `CHANGELOG.md` entry under the v5.0.0 section: "KVM + Podman mesh-native compute (VIRT-1..12)"
+    - [ ] voice-lint clean
+
+- [ ] **VIRT-12: v5.0.0 — Tests + ≥2-peer HW bench [HW carve-out, §0.15 release-gated]**
+  **As** the fleet, **I want** the compute stack validated end-to-end on real hardware,
+  **so that** we know VMs actually start, certificates work, and MeshFS mounts inside guests.
+  **Acceptance** (each bench-observable, operator-typed per §0.15):
+    - [ ] Create a KVM VM on peer A → VM gets `10.42.128.x` Nebula IP → `ping` from peer B succeeds
+    - [ ] VM mounts MeshFS via virtiofsd → `ls /mnt/mesh-storage` inside guest returns files
+    - [ ] Expose guest port 80 to `mesh` only → `curl http://10.42.128.x` from peer B succeeds; `curl` from external host fails
+    - [ ] Cold migrate VM from peer A → peer B → VM running on B, not on A
+    - [ ] Workbench Compute panel shows VM on both peers during + after migration
+
+---
+
 ### GF-16.1..GF-16.10: v5.1 — Gluster control surface + notification policy (audit 2026-05-25)
 
 > Audit findings from the 2026-05-25 review of the v5.0.0 GlusterFS
