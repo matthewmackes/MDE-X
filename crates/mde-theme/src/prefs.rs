@@ -55,6 +55,22 @@ impl Preferences {
         toml::to_string(self)
     }
 
+    /// Load from the standard XDG path, falling back to defaults when
+    /// the file is absent or malformed. `MDE_REDUCE_MOTION=1` in the
+    /// environment overrides the file value — useful in CI and headless
+    /// contexts. Available behind the `serde` feature.
+    #[cfg(feature = "serde")]
+    pub fn load() -> Self {
+        let mut prefs = Self::xdg_path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|raw| Self::from_toml_str(&raw).ok())
+            .unwrap_or_default();
+        if std::env::var_os("MDE_REDUCE_MOTION").map_or(false, |v| v != "0") {
+            prefs.a11y.reduce_motion = true;
+        }
+        prefs
+    }
+
     /// Standard XDG path for the preferences file —
     /// `${XDG_CONFIG_HOME:-$HOME/.config}/mde/preferences.toml`.
     /// Returns `None` if neither `XDG_CONFIG_HOME` nor `HOME`

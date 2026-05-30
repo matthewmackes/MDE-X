@@ -453,6 +453,10 @@ pub struct DockApp {
     /// active sway binding mode, when that mode matches a user tag name.
     /// `None` → cyan fallback (sway-internal modes like "resize" have no tag).
     current_mode_tag_color: Option<iced::Color>,
+    /// ANIM-13 (Q4): when true, snap non-essential animations to their
+    /// final frame — no scale-pop, no fade-in, no gradual dismissal.
+    /// Loaded at startup from `mde_theme::Preferences` / `MDE_REDUCE_MOTION`.
+    reduce_motion: bool,
 }
 
 /// BUS-2.2.a: one breadcrumb segment from the Bus
@@ -557,6 +561,7 @@ impl Default for DockApp {
             prev_ws_marquee_pause_debt_ms: 0,
             prev_ws_marquee_hover_entered_at: None,
             current_mode_tag_color: None,
+            reduce_motion: false,
         }
     }
 }
@@ -676,11 +681,17 @@ impl iced_layershell::Application for DockApp {
             .active_nav_index
             .and_then(|i| NavButton::ALL.get(i).copied());
 
+        // ANIM-13: load reduce_motion from the user preferences file +
+        // the MDE_REDUCE_MOTION env var at startup, then hold constant
+        // for the session so all animation sites read a single bool.
+        let reduce_motion = mde_theme::Preferences::load().a11y.reduce_motion;
+
         (
             Self {
                 hostname,
                 active_nav,
                 badge_counts: snap.badge_counts,
+                reduce_motion,
                 ..Self::default()
             },
             Task::none(),
@@ -1541,7 +1552,12 @@ fn build_mode_segment<'a>(app: &DockApp) -> Element<'a, Message> {
 /// typewriter tick drives the redraw, so no new subscription is needed.
 const DISMISS_FADE_TAIL_MS: i64 = 200;
 
-fn ttl_dismiss_fade(elapsed_ms: i64, ttl_ms: i64) -> f32 {
+fn ttl_dismiss_fade(elapsed_ms: i64, ttl_ms: i64, reduce_motion: bool) -> f32 {
+    // ANIM-13: under reduce_motion, skip the gradual ease-in fade and
+    // snap binary: visible until expired, then gone.
+    if reduce_motion {
+        return if ttl_ms - elapsed_ms > 0 { 1.0 } else { 0.0 };
+    }
     if elapsed_ms <= 0 {
         return 1.0;
     }
@@ -1605,7 +1621,7 @@ fn build_urgent_pulse_segments<'a>(app: &DockApp) -> Element<'a, Message> {
         let elapsed_ms = now
             .signed_duration_since(pulse.spawned_at)
             .num_milliseconds();
-        let fade = ttl_dismiss_fade(elapsed_ms, URGENT_PULSE_TTL_MS);
+        let fade = ttl_dismiss_fade(elapsed_ms, URGENT_PULSE_TTL_MS, app.reduce_motion);
         let pill_bg = Color { a: tier_red.a * fade, ..tier_red };
         let pill_fg = Color { a: fade, ..Color::WHITE };
         pills.push(
@@ -1775,7 +1791,7 @@ fn build_bus_announce_segments<'a>(app: &DockApp) -> Element<'a, Message> {
         let elapsed_ms = now
             .signed_duration_since(segment.spawned_at)
             .num_milliseconds();
-        let fade = ttl_dismiss_fade(elapsed_ms, BUS_ANNOUNCE_TTL_SECS * 1000);
+        let fade = ttl_dismiss_fade(elapsed_ms, BUS_ANNOUNCE_TTL_SECS * 1000, app.reduce_motion);
         let seg_bg = Color { a: tint.a * fade, ..tint };
         let seg_fg = Color { a: fade, ..Color::WHITE };
         pills.push(
@@ -1858,6 +1874,7 @@ fn build_layout_prompt_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     let fade = ttl_dismiss_fade(
         now.signed_duration_since(state.spawned_at).num_milliseconds(),
         LAYOUT_PROMPT_TTL_SECS * 1000,
+        app.reduce_motion,
     );
     let bg = Color { a: bg.a * fade, ..bg };
     let fg = Color { a: fade, ..Color::WHITE };
@@ -1944,6 +1961,7 @@ fn build_prev_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Mes
         Some(spawned_at) => ttl_dismiss_fade(
             now.signed_duration_since(spawned_at).num_milliseconds(),
             PREV_WS_SEGMENT_TTL_SECS * 1000,
+            app.reduce_motion,
         ),
         None => 1.0,
     };
@@ -2691,7 +2709,10 @@ fn build_running_zone<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
         // renders for Portal-48 auto-marks.
         // ANIM-5.b: the mark pill scale-pops in (size 0→8 px) when the
         // window's taxonomy mark first lands, via mde_theme::animation.
+        // ANIM-13: under reduce_motion snap the mark pill to full size
+        // immediately — no scale-pop-in animation.
         let mark_pop = match app.mark_first_seen.get(&target_window.con_id.to_string()) {
+            Some(_) if app.reduce_motion => 1.0,
             Some(t) => {
                 let e = chrono::Local::now()
                     .signed_duration_since(*t)
@@ -2715,7 +2736,9 @@ fn build_running_zone<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
         // ANIM: the cell fades in over RUNNING_APPEAR_FADE_MS from when
         // this group's key was first seen, so apps gently appear on
         // launch (mde_theme::animation; the existing 33 ms tick drives it).
+        // ANIM-13: under reduce_motion snap to full opacity immediately.
         let fade = match app.running_first_seen.get(label_key) {
+            Some(_) if app.reduce_motion => 1.0,
             Some(t) => {
                 let e = chrono::Local::now()
                     .signed_duration_since(*t)
@@ -4067,15 +4090,21 @@ mod tests {
     fn pulse_fade_full_then_dismisses() {
         let ttl = URGENT_PULSE_TTL_MS;
         // Full at spawn + mid-life + right up to the fade tail.
-        assert!((ttl_dismiss_fade(0, ttl) - 1.0).abs() < 1e-6);
-        assert!((ttl_dismiss_fade(500, ttl) - 1.0).abs() < 1e-6);
-        assert!((ttl_dismiss_fade(ttl - DISMISS_FADE_TAIL_MS, ttl) - 1.0).abs() < 1e-3);
+        assert!((ttl_dismiss_fade(0, ttl, false) - 1.0).abs() < 1e-6);
+        assert!((ttl_dismiss_fade(500, ttl, false) - 1.0).abs() < 1e-6);
+        assert!((ttl_dismiss_fade(ttl - DISMISS_FADE_TAIL_MS, ttl, false) - 1.0).abs() < 1e-3);
         // Inside the tail: partially faded (between 0 and 1).
-        let mid = ttl_dismiss_fade(ttl - DISMISS_FADE_TAIL_MS / 2, ttl);
+        let mid = ttl_dismiss_fade(ttl - DISMISS_FADE_TAIL_MS / 2, ttl, false);
         assert!(mid < 1.0 && mid > 0.0, "expected partial fade, got {mid}");
         // At / past the TTL: fully faded.
-        assert!(ttl_dismiss_fade(ttl, ttl) <= 0.01);
-        assert!((ttl_dismiss_fade(ttl + 100, ttl) - 0.0).abs() < 1e-6);
+        assert!(ttl_dismiss_fade(ttl, ttl, false) <= 0.01);
+        assert!((ttl_dismiss_fade(ttl + 100, ttl, false) - 0.0).abs() < 1e-6);
+        // ANIM-13: under reduce_motion the fade is binary — 1.0 while
+        // alive, 0.0 the instant the TTL expires. No gradual tail.
+        assert!((ttl_dismiss_fade(0, ttl, true) - 1.0).abs() < 1e-6);
+        assert!((ttl_dismiss_fade(ttl - 1, ttl, true) - 1.0).abs() < 1e-6);
+        assert!((ttl_dismiss_fade(ttl, ttl, true) - 0.0).abs() < 1e-6);
+        assert!((ttl_dismiss_fade(ttl + 100, ttl, true) - 0.0).abs() < 1e-6);
     }
 
     /// ANIM: running-zone first-seen map stamps new keys, preserves

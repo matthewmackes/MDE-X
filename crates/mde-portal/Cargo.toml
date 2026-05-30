@@ -80,7 +80,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Design-token consumer — derives charcoal/off-white palette from
 # mde_theme::Palette without hardcoding hex literals.
-mde-theme = { path = "../mde-theme", features = ["iced"] }
+mde-theme = { path = "../mde-theme", features = ["iced", "serde"] }
 
 # Portal-31 — universal cards subsystem. Startup hook scans the
 # on-disk store and logs a summary so the runtime confirms the
