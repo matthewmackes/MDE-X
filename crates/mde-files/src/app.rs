@@ -587,7 +587,7 @@ impl MdeFiles {
 
         let main_body: Element<'_, Message> = match &self.view {
             View::MeshOverview => views::mesh_overview(snap),
-            View::Inbox => views::inbox(snap),
+            View::Inbox => views::inbox(snap, &self.selection),
             View::Peer(id) => {
                 if let Some(p) = snap.peers.iter().find(|p| &p.id == id) {
                     views::peer_folder(
@@ -596,13 +596,14 @@ impl MdeFiles {
                         self.peer_files.clone(),
                         &self.search,
                         self.layout,
+                        &self.selection,
                     )
                 } else {
                     empty_state("no peer").into()
                 }
             }
-            View::Downloads => views::downloads(snap),
-            View::Local => views::local_veil(snap),
+            View::Downloads => views::downloads(snap, &self.selection),
+            View::Local => views::local_veil(snap, &self.selection),
             View::MeshHome => views::mesh_home(snap),
             View::MeshHomeChild(slug) => views::mesh_home_child(
                 slug,
@@ -610,6 +611,7 @@ impl MdeFiles {
                 &self.search,
                 self.layout,
                 &self.mesh_home_path,
+                &self.selection,
             ),
             View::MeshUndelete => views::mesh_undelete(
                 &self.trash_items,

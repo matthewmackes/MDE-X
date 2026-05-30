@@ -11,6 +11,7 @@ use crate::grid;
 use crate::icons;
 use crate::model::{fmt_count, FileRow, Layout, LocalPin, Peer, PeerStatus, SelfNode, View};
 use crate::search;
+use crate::selection::Selection;
 use crate::theme as t;
 use crate::widgets::{
     banner, breadcrumb_tag, disclosure_row, file_row, file_row_head, ghost_button_style, icon,
@@ -704,6 +705,7 @@ pub fn peer_folder<'a>(
     files: Vec<FileRow>,
     search_query: &'a str,
     layout: Layout,
+    selection: &'a Selection,
 ) -> Element<'a, Message> {
     let kind_icon = icons::svg_for_peer_kind(peer.kind);
     let lat_or_last = match peer.latency {
@@ -752,7 +754,9 @@ pub fn peer_folder<'a>(
 
     let mut list = column![file_row_head("Origin")];
     for f in &filtered_rows {
-        list = list.push(file_row(f.clone(), true));
+        let sel = selection.is_selected(&f.name);
+        let foc = selection.is_focused(&f.name);
+        list = list.push(file_row(f.clone(), true, sel, foc));
     }
 
     let count_label = if search::is_active(search_query) {
@@ -779,7 +783,7 @@ pub fn peer_folder<'a>(
 
 // ─── Inbox ─────────────────────────────────────────────────────────────────
 
-pub fn inbox<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
+pub fn inbox<'a>(snap: &'a BackendSnapshot, selection: &'a Selection) -> Element<'a, Message> {
     let self_node = &snap.self_node;
     let unique_senders = {
         let mut hosts: Vec<&str> = snap.inbox.iter().filter_map(|f| f.from.as_deref()).collect();
@@ -803,7 +807,9 @@ pub fn inbox<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
 
     let mut list = column![file_row_head("From")];
     for f in &snap.inbox {
-        list = list.push(file_row(f.clone(), true));
+        let sel = selection.is_selected(&f.name);
+        let foc = selection.is_focused(&f.name);
+        list = list.push(file_row(f.clone(), true, sel, foc));
     }
 
     column![banner_widget, Space::with_height(Length::Fixed(22.0)), list,]
@@ -813,7 +819,7 @@ pub fn inbox<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
 
 // ─── Downloads ─────────────────────────────────────────────────────────────
 
-pub fn downloads<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
+pub fn downloads<'a>(snap: &'a BackendSnapshot, selection: &'a Selection) -> Element<'a, Message> {
     let mesh_count = snap.downloads.iter().filter(|d| d.mesh.is_some()).count();
 
     let banner_widget = banner(
@@ -831,7 +837,9 @@ pub fn downloads<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
 
     let mut list = column![file_row_head("Origin")];
     for f in &snap.downloads {
-        list = list.push(file_row(f.clone(), true));
+        let sel = selection.is_selected(&f.name);
+        let foc = selection.is_focused(&f.name);
+        list = list.push(file_row(f.clone(), true, sel, foc));
     }
 
     column![banner_widget, Space::with_height(Length::Fixed(22.0)), list,]
@@ -841,7 +849,7 @@ pub fn downloads<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
 
 // ─── Local veil ────────────────────────────────────────────────────────────
 
-pub fn local_veil<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
+pub fn local_veil<'a>(snap: &'a BackendSnapshot, selection: &'a Selection) -> Element<'a, Message> {
     let self_node = &snap.self_node;
     let title_row = row![
         icon(icons::HDD, 18.0, t::FG),
@@ -908,7 +916,9 @@ pub fn local_veil<'a>(snap: &'a BackendSnapshot) -> Element<'a, Message> {
 
     let mut recent = column![file_row_head("Where")];
     for f in &snap.local_recent {
-        recent = recent.push(file_row(f.clone(), true));
+        let sel = selection.is_selected(&f.name);
+        let foc = selection.is_focused(&f.name);
+        recent = recent.push(file_row(f.clone(), true, sel, foc));
     }
 
     column![
@@ -984,6 +994,7 @@ pub fn mesh_home_child<'a>(
     search: &'a str,
     _layout: Layout,
     path: &'a [String],
+    selection: &'a Selection,
 ) -> Element<'a, Message> {
     let label = crate::app::mesh_home_label(slug);
     let filtered: Vec<FileRow> = if search::is_active(search) {
@@ -1029,7 +1040,9 @@ pub fn mesh_home_child<'a>(
             // names against the path stack.
             list = list.push(folder_row_button(f));
         } else {
-            list = list.push(file_row(f, false));
+            let sel = selection.is_selected(&f.name);
+            let foc = selection.is_focused(&f.name);
+            list = list.push(file_row(f, false, sel, foc));
         }
     }
 

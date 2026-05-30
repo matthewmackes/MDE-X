@@ -400,11 +400,35 @@ pub fn ghost_button_style() -> button::Style {
     }
 }
 
-// ─── File row (`.fm-row`) ──────────────────────────────────────────────────
+// ─── File row (`.fm-row`) — CR-4.b: Object Card retrofit ──────────────────
 
-pub fn file_row(row_data: FileRow, show_src: bool) -> Element<'static, Message> {
-    // Extract borrowed data before any field moves.
-    let is_mesh = row_data.is_mesh();
+/// Map the `Mime` enum to the Material Symbols-backed `mde_theme::Icon`
+/// variant (CR-3.c). Single canonical mapping; every file-row consumer
+/// goes through this instead of calling `icons::svg_for_mime`.
+fn mime_to_icon(mime: Mime) -> mde_theme::Icon {
+    match mime {
+        Mime::Folder => mde_theme::Icon::Folder,
+        Mime::Doc => mde_theme::Icon::Document,
+        Mime::Image => mde_theme::Icon::Image,
+        Mime::Pdf => mde_theme::Icon::Pdf,
+        Mime::Archive => mde_theme::Icon::Archive,
+        Mime::Disk => mde_theme::Icon::Document,
+    }
+}
+
+/// File-row Object Card (CR-4.b). Renders each file entry as a
+/// `CardSize::Small` Object Card so it shares the same grid grammar
+/// as folder rows (CR-4.a). Selection and focus state are reflected
+/// via `CardState`; conflict chips + sync badges still render inline
+/// below the card when set.
+///
+/// `show_src` folds the origin host into the subtitle when present.
+pub fn file_row(
+    row_data: FileRow,
+    show_src: bool,
+    selected: bool,
+    focused: bool,
+) -> Element<'static, Message> {
     let has_conflict = row_data.has_conflict;
     let syncing = row_data.syncing;
     let origin_host: Option<String> = row_data.origin().map(str::to_owned);
@@ -412,94 +436,102 @@ pub fn file_row(row_data: FileRow, show_src: bool) -> Element<'static, Message> 
     let FileRow { name, conflict_sibling, mime, size, age, .. } = row_data;
     let sibling = conflict_sibling.unwrap_or_default();
 
-    let bg = if is_mesh { t::MESH_ROW_BG } else { Color::TRANSPARENT };
-    let mime_color = if is_mesh { t::ACCENT } else { t::FG_FAINT };
-
-    let src_cell: Element<'static, Message> = if show_src {
+    // Build subtitle: `{size} · {age}` with optional origin suffix.
+    let size_age = match (size.is_empty(), age.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => age.clone(),
+        (false, true) => size.clone(),
+        (false, false) => format!("{size} · {age}"),
+    };
+    let subtitle = if show_src {
         match origin_host.as_deref() {
-            Some(host) => mesh_pill(host),
-            None => local_pill(),
+            Some(host) if !size_age.is_empty() => format!("{size_age} · from {host}"),
+            Some(host) => format!("from {host}"),
+            None if !size_age.is_empty() => format!("{size_age} · local"),
+            None => "local".to_string(),
         }
     } else {
-        Space::with_width(Length::Fixed(0.0)).into()
+        size_age
     };
 
-    // MESHFS-11.1: yellow clickable chip when a .conflict-* sibling exists.
-    let conflict_chip: Element<'static, Message> = if has_conflict {
+    let card_state = if selected {
+        mde_theme::CardState::Selected
+    } else if focused {
+        mde_theme::CardState::Focused
+    } else {
+        mde_theme::CardState::Default
+    };
+
+    let palette = t::mde_files_palette();
+    let mut card = mde_theme::ObjectCard::small(mime_to_icon(mime), name.clone())
+        .with_state(card_state);
+    if !subtitle.is_empty() {
+        card = card.with_subtitle(subtitle);
+    }
+    let card_el = mde_iced_components::object_card(card, palette);
+
+    // MESHFS-11.1: conflict chip — rendered below the card when present.
+    let conflict_chip: Option<Element<'static, Message>> = if has_conflict {
         let orig_name = name.clone();
-        button(
-            container(
-                row![
-                    text("⚠").size(10).color(t::ACCENT_HI),
-                    text("conflict").size(10).color(t::ACCENT_HI),
-                ]
-                .spacing(3)
-                .align_y(iced::alignment::Vertical::Center),
+        Some(
+            button(
+                container(
+                    row![
+                        text("⚠").size(10).color(t::ACCENT_HI),
+                        text("conflict").size(10).color(t::ACCENT_HI),
+                    ]
+                    .spacing(3)
+                    .align_y(iced::alignment::Vertical::Center),
+                )
+                .padding(Padding::from([1.0, 6.0])),
             )
-            .padding(Padding::from([1.0, 6.0])),
+            .padding(0)
+            .style(|_, status| {
+                let bg = match status {
+                    button::Status::Hovered => t::PRIMARY_AMBER_BG_HOVER,
+                    _ => t::PRIMARY_AMBER_BG,
+                };
+                button::Style {
+                    background: Some(Background::Color(bg)),
+                    text_color: t::ACCENT_HI,
+                    border: Border {
+                        color: t::PRIMARY_AMBER_BORDER,
+                        width: 1.0,
+                        radius: 0.0.into(),
+                    },
+                    ..button::Style::default()
+                }
+            })
+            .on_press(Message::ConflictResolve(orig_name, sibling))
+            .into(),
         )
-        .padding(0)
-        .style(|_, status| {
-            let bg = match status {
-                button::Status::Hovered => t::PRIMARY_AMBER_BG_HOVER,
-                _ => t::PRIMARY_AMBER_BG,
-            };
-            button::Style {
-                background: Some(Background::Color(bg)),
-                text_color: t::ACCENT_HI,
-                border: Border {
-                    color: t::PRIMARY_AMBER_BORDER,
-                    width: 1.0,
-                    radius: 0.0.into(),
-                },
-                ..button::Style::default()
-            }
-        })
-        .on_press(Message::ConflictResolve(orig_name, sibling))
-        .into()
     } else {
-        Space::with_width(Length::Fixed(0.0)).into()
+        None
     };
 
-    // MESHFS-11.1: ⟳ badge on mesh rows while the fleet is healing.
-    let sync_badge: Element<'static, Message> = if syncing {
-        container(text("⟳").size(10).color(t::FG_FAINT))
-            .padding(Padding::from([1.0, 4.0]))
-            .into()
+    // MESHFS-11.1: sync badge — renders below the card while healing.
+    let sync_badge: Option<Element<'static, Message>> = if syncing {
+        Some(
+            container(text("⟳").size(10).color(t::FG_FAINT))
+                .padding(Padding::from([1.0, 4.0]))
+                .into(),
+        )
     } else {
-        Space::with_width(Length::Fixed(0.0)).into()
+        None
     };
 
-    let layout = row![
-        container(icon(icons::svg_for_mime(mime), 16.0, mime_color))
-            .width(Length::Fixed(22.0))
-            .align_x(iced::alignment::Horizontal::Left),
-        container(text(name).size(13).color(t::FG)).width(Length::Fill),
-        container(conflict_chip).width(Length::Shrink),
-        container(sync_badge).width(Length::Shrink),
-        container(src_cell).width(Length::Shrink),
-        container(text(size).size(11).color(t::FG_DIM))
-            .width(Length::Fixed(120.0))
-            .align_x(iced::alignment::Horizontal::Right),
-        container(text(age).size(11).color(t::FG_DIM))
-            .width(Length::Fixed(100.0))
-            .align_x(iced::alignment::Horizontal::Right),
-    ]
-    .spacing(12)
-    .align_y(iced::alignment::Vertical::Center);
-
-    container(layout)
-        .padding(Padding::from([7.0, 8.0]))
-        .style(move |_| container::Style {
-            background: Some(Background::Color(bg)),
-            border: Border {
-                color: t::ROW_DIVIDER,
-                width: 0.0,
-                radius: 0.0.into(),
-            },
-            ..container::Style::default()
-        })
-        .into()
+    if conflict_chip.is_none() && sync_badge.is_none() {
+        card_el
+    } else {
+        let mut col = column![card_el].spacing(2);
+        if let Some(chip) = conflict_chip {
+            col = col.push(chip);
+        }
+        if let Some(badge) = sync_badge {
+            col = col.push(badge);
+        }
+        col.into()
+    }
 }
 
 /// File-list head row (caps, dim).

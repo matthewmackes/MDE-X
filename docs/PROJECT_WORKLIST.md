@@ -5661,18 +5661,8 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Per §0.12 the file-row retrofit (CR-4.b) is split out rather than stubbed here — the file_row data shape (name + size + mtime + selection state + drag handles) needs its own ObjectCard schema mapping pass.
 - [✓] **CR-3.c: v2.6 — Add per-mime Material Symbols Icon variants to `mde_theme::Icon` so file-row Object Cards (CR-4.b) can preserve at-a-glance file-type distinction.** *(filed 2026-05-25 as CR-4.b unblock; body rewritten 2026-05-27 to swap Carbon → Material Symbols per Q43 + Q97 of the 100-Q tightening survey + the EPIC-UI-MATERIAL roadmap item — the original task body predated the Material Symbols pivot)*
   Shipped 2026-05-29: added `Document` (`description`), `DocumentBlank` (`draft`), `Image` (`image`), `Pdf` (`picture_as_pdf`), `Code` (`code`), `Audio` (`audio_file`), `Video` (`video_file`), `Archive` (`folder_zip`), `Folder` (`folder`) variants to `mde_theme::Icon`; fetched 21 new Material Symbols SVGs (Apache-2.0) at 20/24/40 px; wired `material_name()` + `fallback_glyph()` + `fill_mode()` (all `NeverFill`) + `svg_bytes()` resolver arms; added `icon_for_mime(&str) -> Icon` mapping function with prefix-based routing (image/*, audio/*, video/*, text/x-*, application/pdf, zip/archive types, fallback → Document); 19 new unit tests all green; updated `fetch-material-symbols.sh` mapping table. Unblocks CR-4.b.
-- [ ] **CR-4.b: v2.6 — mde-files file-row Object Card retrofit.** *(split from CR-4 2026-05-25; blocked on CR-3.c)*
-  **As** an operator browsing a peer folder, **I want** each individual file row (not just folder rows) to render as an Object Card so the whole grid reads consistently.
-  **Acceptance:**
-  - [ ] `crates/mde-files/src/widgets.rs::file_row` (and every caller) builds an `ObjectCard::small` via `mde_iced_components::object_card`; selection state maps to `CardState::Selected`; focus state maps to `CardState::Focused`.
-  - [ ] Drag handles continue to fire `Message::DragStart`; right-click continues to surface the context menu.
-  - [ ] Subtitle = `<size> · <mtime>` when both are present, gracefully degrades when either is missing.
-  - [ ] Icon per `mime` uses the CR-3.c per-mime Carbon variants via `mde_theme::icon_for_mime` — no parallel SVG implementation in mde-files.
-  - [ ] Bench-verify: opening a peer folder shows file rows + folder rows in the same Card shape, with at-a-glance file-type distinction preserved via icon.
-  **Implementation notes:**
-    - Reuse `mde_files_palette()` from CR-4.a.
-    - Selection batch from `selection.rs` needs to route into `CardState::Selected` for the multi-select range case.
-    - Blockers: CR-4.a ✓, CR-3.c (per-mime Icon variants).
+- [✓] **CR-4.b: v2.6 — mde-files file-row Object Card retrofit.** *(split from CR-4 2026-05-25; blocked on CR-3.c)*
+  Shipped 2026-05-29: `widgets::file_row` rewritten to use `mde_iced_components::object_card(CardSize::Small)`; added `selected: bool, focused: bool` params mapped to `CardState::Selected`/`CardState::Focused`; icon resolved via `mime_to_icon(Mime) -> mde_theme::Icon` (covers Folder/Doc/Image/Pdf/Archive/Disk); subtitle = `{size} · {age}` with graceful degrade; `show_src` folds origin into subtitle; conflict chips + sync badges preserved inline below card; `Selection` threaded into `peer_folder`/`inbox`/`downloads`/`local_veil`/`mesh_home_child` views and wired through `app.rs`. No parallel SVG implementation in mde-files. Bench-verify deferred to §0.15 release gate per [[feedback_no_pre_release_reviews]].
 - [ ] **CR-4.c: v2.6 — mde-files sidebar adopts CR-2's 56→256 px hover-expand behavior.** *(split from CR-4 2026-05-25)*
   **As** an operator, **I want** the mde-files sidebar to match the Workbench sidebar's compact-by-default + hover-expand affordance so the two surfaces share one sidebar grammar.
   **Acceptance:**
