@@ -1864,8 +1864,9 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Trash + quota
 
-- [ ] **MESHFS-8.1: v5.0.0 — Enable LizardFS trash (bounded retention, operator-tunable) + mde-files Undelete**
-  **Acceptance:** `[ ]` deleted files recoverable within the retention window (default 48h) via an mde-files "Undelete recent" affordance; gone after the window.
+- [✓] **MESHFS-8.1: v5.0.0 — Enable LizardFS trash (bounded retention, operator-tunable) + mde-files Undelete**
+  **Acceptance:** `[✓]` deleted files recoverable within the retention window (default 48h) via an mde-files "Undelete recent" affordance; gone after the window.
+  **Shipped:** `settrashtime_argv` + `DEFAULT_SETTRASHTIME_BINARY` + `DEFAULT_TRASH_RETENTION_SECS` (48h) + step 10 in `tick_once()` (down→up trigger) in `meshfs_worker.rs` (44 tests); `mackesd meshfs-trash-list` + `mackesd meshfs-undelete --path` CLI subcommands in `mackesd.rs`; `View::MeshUndelete` + `TrashItem` + `UndeleteLoaded`/`RestoreTrashItem`/`TrashRestored` messages + `load_trash()`/`restore_trash_item()` in `mde-files/app.rs`; "Recycle Bin" sidebar entry + `mesh_undelete()` view in `views.rs`; 190 mde-files tests + 44 meshfs_worker tests green.
 - [✓] **MESHFS-9.1: v5.0.0 — Native quota; mackesd applies hard cap = 0.8 × min(free chunkserver), soft fires banner**
   **Acceptance:**
     - [✓] hourly tick sets `mfssetquota` hard cap on the export root; writing past it returns `EROFS`

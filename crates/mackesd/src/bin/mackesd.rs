@@ -102,6 +102,32 @@ enum Cmd {
         admin_binary: String,
     },
 
+    /// MESHFS-8.1 (v5.0.0) — list files recoverable from the LizardFS
+    /// `.trash` virtual directory. Emits a JSON array of `TrashEntry`
+    /// objects to stdout. Returns an empty array `[]` when the mount
+    /// path is absent or `.trash` is empty.
+    MeshFsTrashList {
+        /// Mount path of the LizardFS client (must be mounted).
+        #[clap(long, default_value = "/mnt/mesh-storage")]
+        mount_path: String,
+    },
+
+    /// MESHFS-8.1 (v5.0.0) — restore one file from the LizardFS trash
+    /// by invoking `mfsadmin <vip> TRASH-RECOVER <path>`. `--path` is
+    /// the full trash entry path (as emitted by `meshfs-trash-list`).
+    /// Exits 0 on success, 1 on failure.
+    MeshFsUndelete {
+        /// Full path of the `.trash` entry to recover.
+        #[clap(long)]
+        path: String,
+        /// Floating overlay VIP the active master listens on.
+        #[clap(long, default_value = "10.42.0.1")]
+        vip: String,
+        /// `mfsadmin` binary name (must be on PATH).
+        #[clap(long, default_value = "mfsadmin")]
+        admin_binary: String,
+    },
+
     /// GF-9.3 (v5.0.0) — restore the Nebula CA + (when
     /// present) the Gluster topology snapshot from an
     /// armored `state-backup.enc` bundle. CA rows go straight
@@ -1219,6 +1245,30 @@ fn main() -> anyhow::Result<()> {
             );
             if !reachable {
                 std::process::exit(1);
+            }
+        }
+        Cmd::MeshFsTrashList { mount_path } => {
+            let entries =
+                mackesd_core::workers::meshfs_worker::list_trash_entries(&mount_path);
+            println!(
+                "{}",
+                serde_json::to_string(&entries).context("encode trash list")?
+            );
+        }
+        Cmd::MeshFsUndelete { vip, path, admin_binary } => {
+            let argv = vec![
+                admin_binary.clone(),
+                vip.clone(),
+                "TRASH-RECOVER".to_owned(),
+                path.clone(),
+            ];
+            let ok = std::process::Command::new(&argv[0])
+                .args(&argv[1..])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !ok {
+                anyhow::bail!("TRASH-RECOVER failed for {path}");
             }
         }
         Cmd::GeneratePasscode { store, cred_path } => {

@@ -5,7 +5,7 @@ use iced::widget::{button, column, container, row, scrollable, text, text_input,
 use iced::{Background, Border, Color, Element, Length, Padding, Theme};
 
 use crate::a11y_labels::{self, A11yAction};
-use crate::app::{Crumb, Message};
+use crate::app::{Crumb, Message, TrashItem};
 use crate::backend::{BackendSnapshot, MeshVolumeBadge};
 use crate::grid;
 use crate::icons;
@@ -229,6 +229,20 @@ pub fn sidebar<'a>(
             SideRowVariant::Default
         },
         Message::SelectView(View::MeshHome),
+    ));
+
+    // MESHFS-8.1 — Recycle Bin entry (LizardFS `.trash` virtual directory).
+    mesh_col = mesh_col.push(side_row(
+        icons::TRASH2,
+        "Recycle Bin",
+        None,
+        None,
+        if matches!(view, View::MeshUndelete) {
+            SideRowVariant::Active
+        } else {
+            SideRowVariant::Default
+        },
+        Message::SelectView(View::MeshUndelete),
     ));
 
     // Self row (rust-coloured "you" label).
@@ -1256,5 +1270,94 @@ fn local_pin_tile(pin: LocalPin) -> Element<'static, Message> {
         },
         ..container::Style::default()
     })
+    .into()
+}
+
+// ── MESHFS-8.1: Recycle Bin view ────────────────────────────────────────────
+
+/// Render the LizardFS trash listing. Shows items recoverable within the
+/// configured retention window (default 48 h) with a "Restore" button per
+/// row. Displays a loading/error state when busy or on error.
+pub fn mesh_undelete<'a>(
+    items: &'a [TrashItem],
+    busy: bool,
+    error: Option<&'a str>,
+) -> Element<'a, Message> {
+    let header = row![
+        text("Recycle Bin").size(13).color(t::FG),
+        Space::with_width(Length::Fill),
+        text(if busy { "Loading…" } else { "" })
+            .size(11)
+            .color(t::FG_FAINT),
+    ]
+    .align_y(iced::alignment::Vertical::Center);
+
+    let body: Element<'a, Message> = if let Some(err) = error {
+        text(format!("Error: {err}"))
+            .size(12)
+            .color(Color {
+                r: 1.0,
+                g: 0.35,
+                b: 0.35,
+                a: 1.0,
+            })
+            .into()
+    } else if items.is_empty() && !busy {
+        text("Recycle Bin is empty — no files recoverable.")
+            .size(12)
+            .color(t::FG_FAINT)
+            .into()
+    } else {
+        let rows: Vec<Element<'a, Message>> = items
+            .iter()
+            .map(|item| trash_row(item))
+            .collect();
+        scrollable(column(rows).spacing(2)).into()
+    };
+
+    column![header, Space::with_height(12), body]
+        .spacing(4)
+        .into()
+}
+
+fn trash_row(item: &TrashItem) -> Element<'_, Message> {
+    let path = item.trash_path.clone();
+    let restore_btn = button(text("Restore").size(11).color(t::FG))
+        .padding(Padding::from([4.0, 10.0]))
+        .style(|_, status: iced::widget::button::Status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => Color {
+                    a: 0.12,
+                    ..Color::WHITE
+                },
+                _ => Color {
+                    a: 0.07,
+                    ..Color::WHITE
+                },
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: t::FG,
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: 4.0.into(),
+                },
+                shadow: iced::Shadow::default(),
+            }
+        })
+        .on_press(Message::RestoreTrashItem(path));
+
+    row![
+        icon(icons::TRASH2, 14.0, t::FG_FAINT),
+        text(item.name.clone())
+            .size(12)
+            .color(t::FG)
+            .width(Length::Fill),
+        restore_btn,
+    ]
+    .spacing(8)
+    .align_y(iced::alignment::Vertical::Center)
+    .padding(Padding::from([4.0, 0.0]))
     .into()
 }

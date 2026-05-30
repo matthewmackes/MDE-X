@@ -71,6 +71,13 @@ pub const DEFAULT_SETGOAL_BINARY: &str = "mfssetgoal";
 /// LizardFS quota-set CLI binary.
 pub const DEFAULT_SETQUOTA_BINARY: &str = "mfssetquota";
 
+/// LizardFS trash-time CLI binary (MESHFS-8.1).
+pub const DEFAULT_SETTRASHTIME_BINARY: &str = "mfssettrashtime";
+
+/// Default trash retention window in seconds: 48 h (MESHFS-8.1).
+/// Operator-tunable via `with_trash_retention_secs()`.
+pub const DEFAULT_TRASH_RETENTION_SECS: u64 = 172_800;
+
 /// Quota tick cadence — run once per hour (MESHFS-9.1).
 pub const DEFAULT_QUOTA_TICK: Duration = Duration::from_secs(3600);
 
@@ -160,6 +167,10 @@ pub struct MeshFsWorker {
     /// Tracks whether the master was reachable on the last tick so
     /// `meshfs/export-ready` fires exactly once on down→up (MESHFS-10.1).
     master_was_up: std::sync::atomic::AtomicBool,
+    /// MESHFS-8.1 — `mfssettrashtime` binary name.
+    settrashtime_binary: String,
+    /// MESHFS-8.1 — trash retention window in seconds (default 48 h).
+    trash_retention_secs: u64,
 }
 
 impl MeshFsWorker {
@@ -182,6 +193,8 @@ impl MeshFsWorker {
             overlay_iface: DEFAULT_OVERLAY_IFACE.to_owned(),
             evicted_ips: std::sync::Mutex::new(std::collections::BTreeSet::new()),
             master_was_up: std::sync::atomic::AtomicBool::new(false),
+            settrashtime_binary: DEFAULT_SETTRASHTIME_BINARY.to_owned(),
+            trash_retention_secs: DEFAULT_TRASH_RETENTION_SECS,
         }
     }
 
@@ -247,6 +260,21 @@ impl MeshFsWorker {
     #[must_use]
     pub fn with_overlay_iface(mut self, iface: impl Into<String>) -> Self {
         self.overlay_iface = iface.into();
+        self
+    }
+
+    /// Override the `mfssettrashtime` binary. Tests pass a nonexistent name
+    /// to skip the trash-retention subprocess without affecting other guards.
+    #[must_use]
+    pub fn with_settrashtime_binary(mut self, name: impl Into<String>) -> Self {
+        self.settrashtime_binary = name.into();
+        self
+    }
+
+    /// Override the trash retention window. Use `0` to disable trash.
+    #[must_use]
+    pub fn with_trash_retention_secs(mut self, secs: u64) -> Self {
+        self.trash_retention_secs = secs;
         self
     }
 
@@ -387,6 +415,21 @@ impl MeshFsWorker {
             for line in replay_all_staged(stage, mount, &overlay_ip) {
                 tracing::info!(target: "mackesd::meshfs_worker", "{line}");
             }
+        }
+
+        // 10. MESHFS-8.1 — Apply trash retention on down→up transition only.
+        //     Running `mfssettrashtime` every tick would be noisy and wasteful;
+        //     once on reconnect is sufficient because the setting is persistent
+        //     in the LizardFS metadata.
+        if master_up && !prev_up && binary_on_path(&self.settrashtime_binary) {
+            let argv =
+                settrashtime_argv(&self.settrashtime_binary, self.trash_retention_secs, DEFAULT_MOUNT_PATH);
+            tracing::info!(
+                target: "mackesd::meshfs_worker",
+                secs = self.trash_retention_secs,
+                "applying LizardFS trash retention window",
+            );
+            let _ = run_argv(&argv);
         }
     }
 
@@ -999,6 +1042,60 @@ pub fn meshfs_status_report(admin_binary: &str, vip: &str) -> MeshFsStatusReport
         quota_cap_bytes,
         limiting_peer_addr,
     }
+}
+
+// ── MESHFS-8.1: trash retention + trash listing ─────────────────────────────
+
+/// Build the `mfssettrashtime -r <secs> <mount_path>` argv vector.
+/// The `-r` flag applies the retention recursively from the export root.
+#[must_use]
+pub fn settrashtime_argv(binary: &str, secs: u64, mount_path: &str) -> Vec<String> {
+    vec![
+        binary.to_owned(),
+        "-r".to_owned(),
+        secs.to_string(),
+        mount_path.to_owned(),
+    ]
+}
+
+/// One entry in the LizardFS `.trash` virtual directory.
+///
+/// LizardFS names trash entries as `<8-hex-char-inode>BASENAME`. The
+/// `name` field is the best-effort stripped display name; `trash_path` is
+/// the full path for `TRASH-RECOVER` recovery.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct TrashEntry {
+    /// Display name (leading 8-hex-char inode prefix stripped when present).
+    pub name: String,
+    /// Full path of the entry inside the `.trash/` virtual directory.
+    pub trash_path: String,
+}
+
+/// List recoverable files from the LizardFS `.trash` virtual directory at
+/// `<mount_path>/.trash`. Returns an empty Vec when the directory is
+/// absent (filesystem not mounted) or empty.
+#[must_use]
+pub fn list_trash_entries(mount_path: &str) -> Vec<TrashEntry> {
+    let trash_dir = format!("{mount_path}/.trash");
+    let Ok(rd) = std::fs::read_dir(&trash_dir) else {
+        return Vec::new();
+    };
+    rd.flatten()
+        .map(|entry| {
+            let raw = entry.file_name().to_string_lossy().to_string();
+            // Strip leading 8-char hex inode prefix that LizardFS prepends.
+            let name = if raw.len() > 8 && raw[..8].chars().all(|c| c.is_ascii_hexdigit()) {
+                raw[8..].to_owned()
+            } else {
+                raw.clone()
+            };
+            let name = if name.is_empty() { raw.clone() } else { name };
+            TrashEntry {
+                name,
+                trash_path: format!("{trash_dir}/{raw}"),
+            }
+        })
+        .collect()
 }
 
 /// Bus root for the per-peer ntfy persist layer. Mirrors `marks_state`.
@@ -1635,5 +1732,44 @@ ip              port  used       avail\n\
         assert!(json.contains("\"master_reachable\""));
         assert!(json.contains("\"peers\""));
         assert!(json.contains("\"goal\""));
+    }
+
+    #[test]
+    fn settrashtime_argv_shape() {
+        assert_eq!(
+            settrashtime_argv("mfssettrashtime", 172_800, "/mnt/mesh-storage"),
+            vec!["mfssettrashtime", "-r", "172800", "/mnt/mesh-storage"]
+        );
+    }
+
+    #[test]
+    fn settrashtime_argv_zero_disables_trash() {
+        let argv = settrashtime_argv("mfssettrashtime", 0, "/mnt/mesh-storage");
+        assert_eq!(argv[2], "0");
+    }
+
+    #[test]
+    fn list_trash_entries_empty_when_mount_absent() {
+        // `/tmp/mde-test-no-mount-xyz/.trash` does not exist.
+        let entries = list_trash_entries("/tmp/mde-test-no-mount-xyz");
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn list_trash_entries_strips_hex_prefix() {
+        // Build a temp dir that mimics `.trash` contents.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let trash = dir.path().join(".trash");
+        std::fs::create_dir_all(&trash).unwrap();
+        std::fs::write(trash.join("0000001Areport.pdf"), b"").unwrap();
+        std::fs::write(trash.join("nodots"), b"").unwrap();
+        let mount = dir.path().to_str().unwrap().to_owned();
+        let mut entries = list_trash_entries(&mount);
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        // The `report.pdf` entry strips the 8-hex prefix.
+        let pdf = entries.iter().find(|e| e.name.contains("report.pdf"));
+        assert!(pdf.is_some(), "expected report.pdf in {entries:?}");
+        // The trash_path must include `.trash/0000001Areport.pdf`.
+        assert!(pdf.unwrap().trash_path.contains(".trash"));
     }
 }

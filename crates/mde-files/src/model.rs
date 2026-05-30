@@ -217,6 +217,10 @@ pub enum View {
     /// Browsing one of the shared XDG dirs. `slug` is one of
     /// `docs` / `pics` / `music` / `videos` / `downloads`.
     MeshHomeChild(String),
+    /// MESHFS-8.1 — "Recycle Bin" view: files recoverable from the
+    /// LizardFS `.trash` virtual directory within the configured
+    /// retention window (default 48 h).
+    MeshUndelete,
 }
 
 impl Default for View {
@@ -237,6 +241,7 @@ impl View {
                 | Self::Peer(_)
                 | Self::MeshHome
                 | Self::MeshHomeChild(_)
+                | Self::MeshUndelete
         )
     }
 }

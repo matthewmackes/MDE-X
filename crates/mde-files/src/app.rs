@@ -112,6 +112,21 @@ pub enum Message {
     /// AF-mesh.3 — pop back to a specific depth (used by
     /// breadcrumb mid-segment clicks). 0 = the slug root.
     MeshFolderPop(usize),
+    /// MESHFS-8.1 — trash listing loaded (or errored).
+    UndeleteLoaded(Result<Vec<TrashItem>, String>),
+    /// MESHFS-8.1 — user clicked "Restore" on a trash entry.
+    RestoreTrashItem(String),
+    /// MESHFS-8.1 — restore operation completed.
+    TrashRestored(String, Result<(), String>),
+}
+
+/// MESHFS-8.1 — one recoverable file from the LizardFS `.trash` directory.
+#[derive(Debug, Clone)]
+pub struct TrashItem {
+    /// Display name (leading 8-hex-char inode prefix stripped).
+    pub name: String,
+    /// Full path of the `.trash` entry (passed to `mackesd meshfs-undelete`).
+    pub trash_path: String,
 }
 
 /// Breadcrumb segment used by the toolbar.
@@ -172,6 +187,12 @@ pub struct MdeFiles {
     /// keyboard interaction. `FocusVisibility::Auto` consults this
     /// to decide whether to render focus rings.
     pub keyboard_active: bool,
+    /// MESHFS-8.1 — last loaded trash listing.
+    pub trash_items: Vec<TrashItem>,
+    /// MESHFS-8.1 — true while a trash load or restore is in flight.
+    pub trash_busy: bool,
+    /// MESHFS-8.1 — last error from trash load/restore.
+    pub trash_error: Option<String>,
 }
 
 /// v2.0.0 Phase 5.1 — pane currently receiving keyboard input.
@@ -229,6 +250,9 @@ impl Default for MdeFiles {
             a11y: Accessibility::default(),
             keyboard_pane: KeyboardPane::default(),
             keyboard_active: false,
+            trash_items: Vec::new(),
+            trash_busy: false,
+            trash_error: None,
         }
     }
 }
@@ -272,9 +296,14 @@ impl MdeFiles {
     /// function. No async work happens here yet (the demo backend is in-memory);
     /// once `mded` is wired, several variants will return real `Task`s.
     pub fn update(&mut self, msg: Message) -> Task<Message> {
+        // MESHFS-8.1: arms that need to return a real Task set this; all
+        // others leave it `None` and fall through to `Task::none()`.
+        let mut pending_task: Option<Task<Message>> = None;
+
         match msg {
             Message::SelectView(v) => {
                 let is_local = matches!(v, View::Local);
+                let is_undelete = matches!(v, View::MeshUndelete);
                 // AF-mesh.3 — clear the path stack whenever we
                 // leave a MeshHomeChild OR switch to a different
                 // slug. Entering MeshHomeChild from the parent
@@ -294,6 +323,12 @@ impl MdeFiles {
                 // navigation so stale row keys don't leak across
                 // peer folders.
                 self.selection.clear();
+                // MESHFS-8.1 — entering the Recycle Bin triggers a trash load.
+                if is_undelete {
+                    self.trash_busy = true;
+                    self.trash_error = None;
+                    pending_task = Some(load_trash());
+                }
             }
             Message::MeshFolderEnter(name) => {
                 if matches!(self.view, View::MeshHomeChild(_)) {
@@ -439,9 +474,34 @@ impl MdeFiles {
                 // pre-date the live backend; touching them only
                 // re-captures so the snapshot stays current.
             }
+            // MESHFS-8.1 — trash operations.
+            Message::UndeleteLoaded(result) => {
+                match result {
+                    Ok(items) => {
+                        self.trash_items = items;
+                        self.trash_error = None;
+                    }
+                    Err(e) => self.trash_error = Some(e),
+                }
+                self.trash_busy = false;
+            }
+            Message::RestoreTrashItem(path) => {
+                self.trash_busy = true;
+                pending_task = Some(restore_trash_item(path));
+            }
+            Message::TrashRestored(path, result) => {
+                self.trash_busy = false;
+                match result {
+                    Ok(()) => {
+                        self.trash_items.retain(|i| i.trash_path != path);
+                        self.trash_error = None;
+                    }
+                    Err(e) => self.trash_error = Some(e),
+                }
+            }
         }
         self.refresh_snapshot();
-        Task::none()
+        pending_task.unwrap_or_else(Task::none)
     }
 
     /// Re-capture the `BackendSnapshot` + (when on a peer view)
@@ -495,6 +555,11 @@ impl MdeFiles {
                 &self.search,
                 self.layout,
                 &self.mesh_home_path,
+            ),
+            View::MeshUndelete => views::mesh_undelete(
+                &self.trash_items,
+                self.trash_busy,
+                self.trash_error.as_deref(),
             ),
         };
 
@@ -680,6 +745,16 @@ fn breadcrumbs_for(view: &View) -> Vec<Crumb> {
                 mesh: false,
             },
         ],
+        View::MeshUndelete => vec![
+            Crumb {
+                label: "Mesh".into(),
+                mesh: true,
+            },
+            Crumb {
+                label: "Recycle Bin".into(),
+                mesh: false,
+            },
+        ],
     }
 }
 
@@ -693,6 +768,55 @@ pub fn mesh_home_label(slug: &str) -> &'static str {
         "downloads" => "Downloads",
         _ => "Files",
     }
+}
+
+// ── MESHFS-8.1: trash load + restore helpers ────────────────────────────────
+
+/// Shell `mackesd meshfs-trash-list` and return the parsed entry list.
+fn fetch_trash_items() -> Result<Vec<TrashItem>, String> {
+    let out = std::process::Command::new("mackesd")
+        .args(["meshfs-trash-list"])
+        .output()
+        .map_err(|e| format!("mackesd meshfs-trash-list: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    // Parse JSON array of objects with "name" + "trash_path" keys.
+    let vals: Vec<serde_json::Value> =
+        serde_json::from_str(stdout.trim()).map_err(|e| format!("JSON parse: {e}"))?;
+    Ok(vals
+        .into_iter()
+        .filter_map(|v| {
+            Some(TrashItem {
+                name: v["name"].as_str()?.to_owned(),
+                trash_path: v["trash_path"].as_str()?.to_owned(),
+            })
+        })
+        .collect())
+}
+
+/// Build a Task that shells `mackesd meshfs-trash-list` and emits
+/// `Message::UndeleteLoaded`.
+fn load_trash() -> Task<Message> {
+    Task::perform(async { fetch_trash_items() }, Message::UndeleteLoaded)
+}
+
+/// Build a Task that calls `mackesd meshfs-undelete --path <path>` and
+/// emits `Message::TrashRestored`.
+fn restore_trash_item(path: String) -> Task<Message> {
+    let path_msg = path.clone();
+    Task::perform(
+        async move {
+            let ok = std::process::Command::new("mackesd")
+                .args(["meshfs-undelete", "--path", &path])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if ok { Ok(()) } else { Err("TRASH-RECOVER failed".to_string()) }
+        },
+        move |result| Message::TrashRestored(path_msg.clone(), result),
+    )
 }
 
 fn empty_state(label: &str) -> Element<'static, Message> {
