@@ -292,6 +292,12 @@ pub mod window_rules;
 // Pairs with HYP-8.5's startup wire to give the operator runtime
 // reload of tag manifests without daemon restart.
 pub mod tag_manifest_watcher;
+// Portal-47 (v6.0 R12-Q7, 2026-05-29) — one-shot startup worker
+// that writes per-tag sway mode blocks into
+// `~/.config/sway/config.d/mde-tag-modes.conf` and calls
+// `swaymsg reload` if the content changed. Backing for Hub's
+// "Enter mode" action (HubMenuEnterMode).
+pub mod tag_mode_writer;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores

@@ -449,6 +449,10 @@ pub struct DockApp {
     /// workspace marquee segment. `None` when the cursor is not over it.
     /// On exit the hover duration is added to `prev_ws_marquee_pause_debt_ms`.
     prev_ws_marquee_hover_entered_at: Option<chrono::DateTime<chrono::Local>>,
+    /// Portal-47 (R12-Q7): resolved tag `group_color` for the currently
+    /// active sway binding mode, when that mode matches a user tag name.
+    /// `None` → cyan fallback (sway-internal modes like "resize" have no tag).
+    current_mode_tag_color: Option<iced::Color>,
 }
 
 /// BUS-2.2.a: one breadcrumb segment from the Bus
@@ -552,6 +556,7 @@ impl Default for DockApp {
             dock_started_at: chrono::Local::now(),
             prev_ws_marquee_pause_debt_ms: 0,
             prev_ws_marquee_hover_entered_at: None,
+            current_mode_tag_color: None,
         }
     }
 }
@@ -802,6 +807,14 @@ impl iced_layershell::Application for DockApp {
                 } else {
                     None
                 };
+                // Portal-47 (R12-Q7): resolve the owning tag's
+                // group_color so the mode segment tints in the tag
+                // color rather than the generic cyan. File I/O
+                // here is acceptable — mode changes are infrequent
+                // and non-interactive (user pressed a keybinding).
+                self.current_mode_tag_color = next
+                    .as_deref()
+                    .and_then(tag_color_for_mode);
                 self.current_sway_mode = next;
             }
             Message::BindingExecuted(command) => {
@@ -1426,6 +1439,47 @@ fn sweep_color_for_app(app: &DockApp) -> (f32, f32, f32) {
     (0.357, 0.416, 0.961) // indigo accent fallback
 }
 
+/// Portal-47 (R12-Q7): parse a CSS hex color string (`#rrggbb` or
+/// `#rgb`) into an `iced::Color`. Returns `None` on malformed input.
+fn parse_mode_tag_hex(s: &str) -> Option<iced::Color> {
+    let rest = s.strip_prefix('#')?;
+    if !rest.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    match rest.len() {
+        6 => {
+            let r = u8::from_str_radix(&rest[0..2], 16).ok()? as f32 / 255.0;
+            let g = u8::from_str_radix(&rest[2..4], 16).ok()? as f32 / 255.0;
+            let b = u8::from_str_radix(&rest[4..6], 16).ok()? as f32 / 255.0;
+            Some(iced::Color { r, g, b, a: 1.0 })
+        }
+        3 => {
+            let chars: Vec<char> = rest.chars().collect();
+            let expand = |c: char| -> Option<f32> {
+                let v = c.to_digit(16)? as u8;
+                Some(((v << 4) | v) as f32 / 255.0)
+            };
+            Some(iced::Color {
+                r: expand(chars[0])?,
+                g: expand(chars[1])?,
+                b: expand(chars[2])?,
+                a: 1.0,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Portal-47 (R12-Q7): resolve the `group_color` for a tag whose
+/// name matches `mode_name`. Returns `None` when no tag owns the
+/// mode or when the tag has no `group_color` set.
+fn tag_color_for_mode(mode_name: &str) -> Option<iced::Color> {
+    let store = mackes_mesh_types::TagStore::load_default().ok()?;
+    let tag = store.tags.iter().find(|t| t.name == mode_name)?;
+    let hex = tag.group_color.as_deref()?;
+    parse_mode_tag_hex(hex)
+}
+
 fn build_mode_segment<'a>(app: &DockApp) -> Element<'a, Message> {
     let Some(mode_name) = app.current_sway_mode.as_deref() else {
         return iced::widget::Space::new(0.0, Length::Fill).into();
@@ -1453,16 +1507,19 @@ fn build_mode_segment<'a>(app: &DockApp) -> Element<'a, Message> {
         .to_string(),
         None => full_label,
     };
-    // Cyan tinted backdrop with the platform's translucency. The
-    // exact cyan is the sway-internal default for binding modes.
+    // Portal-47: tag-mode tinting — use the owning tag's group_color
+    // (cached in current_mode_tag_color by the ModeChanged handler).
+    // Falls back to cyan for sway-internal modes ("resize", etc.).
     let cyan = Color { r: 0.0, g: 0.7, b: 0.85, a: 0.85 };
+    let base_color = app.current_mode_tag_color.unwrap_or(cyan);
+    let tint = Color { a: 0.85, ..base_color };
     container(
         text(label)
             .size(11.0)
             .color(Color::WHITE),
     )
     .style(move |_theme: &Theme| iced::widget::container::Style {
-        background: Some(iced::Background::Color(cyan)),
+        background: Some(iced::Background::Color(tint)),
         border: iced::Border {
             radius: iced::border::Radius::from(4.0),
             ..Default::default()
@@ -4787,6 +4844,65 @@ mod tests {
         assert!(
             app.mode_spawned_at.unwrap() > first.unwrap(),
             "re-entry must restamp to a later timestamp"
+        );
+    }
+
+    // ── Portal-47 (R12-Q7) — parse_mode_tag_hex + tag-color cache ───────────
+
+    #[test]
+    fn parse_mode_tag_hex_accepts_six_digit_form() {
+        let c = super::parse_mode_tag_hex("#42be65").unwrap();
+        assert!((c.r - 0x42 as f32 / 255.0).abs() < 1e-4);
+        assert!((c.g - 0xbe as f32 / 255.0).abs() < 1e-4);
+        assert!((c.b - 0x65 as f32 / 255.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn parse_mode_tag_hex_accepts_three_digit_shorthand() {
+        let c = super::parse_mode_tag_hex("#f00").unwrap();
+        assert!((c.r - 1.0).abs() < 1e-4);
+        assert!(c.g < 1e-4);
+        assert!(c.b < 1e-4);
+    }
+
+    #[test]
+    fn parse_mode_tag_hex_rejects_malformed() {
+        assert!(super::parse_mode_tag_hex("42be65").is_none()); // no #
+        assert!(super::parse_mode_tag_hex("#xyz").is_none());   // non-hex
+        assert!(super::parse_mode_tag_hex("#1234").is_none());  // 4-digit
+        assert!(super::parse_mode_tag_hex("").is_none());
+    }
+
+    /// ModeChanged(None) clears `current_mode_tag_color` regardless
+    /// of prior state.
+    #[test]
+    fn mode_default_clears_tag_color() {
+        let mut app = DockApp::default();
+        // Simulate a prior tag-mode entry that cached a color.
+        app.current_mode_tag_color = Some(iced::Color { r: 0.2, g: 0.8, b: 0.3, a: 1.0 });
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::ModeChanged(None),
+        );
+        assert!(
+            app.current_mode_tag_color.is_none(),
+            "exit to default must clear the cached tag color"
+        );
+    }
+
+    /// When ModeChanged fires for a mode name that has no matching tag,
+    /// current_mode_tag_color falls back to None (cyan path).
+    #[test]
+    fn mode_with_no_matching_tag_leaves_color_none() {
+        let mut app = DockApp::default();
+        let _ = iced_layershell::Application::update(
+            &mut app,
+            Message::ModeChanged(Some("resize".to_string())),
+        );
+        // "resize" is a sway-internal mode, no tag matches → None.
+        assert!(
+            app.current_mode_tag_color.is_none(),
+            "sway-internal modes must produce no tag color (cyan fallback)"
         );
     }
 

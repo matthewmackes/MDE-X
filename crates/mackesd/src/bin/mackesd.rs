@@ -3462,6 +3462,18 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("tag_autostart".into());
 
+        // Portal-47 (v6.0 R12-Q7) — one-shot: write per-tag sway
+        // mode blocks into ~/.config/sway/config.d/mde-tag-modes.conf
+        // so Hub's "Enter mode" action has sway config backing.
+        // Returns Ok(()) after a single write+reload (no-loops),
+        // RestartPolicy::OnFailure keeps it from restarting on a
+        // clean exit.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::tag_mode_writer::TagModeWriterWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("tag_mode_writer".into());
+
         // Portal-56 (v6.0 R12-Q21) — per-workspace focused-border
         // tinting. Subscribes to sway workspace::focus events;
         // fires `client.focused` with the owning tag's
