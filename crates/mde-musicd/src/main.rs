@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use mde_musicd::airsonic::Client;
-use mde_musicd::{cache, creds};
+use mde_musicd::{cache, creds, state};
 
 #[derive(Parser)]
 #[command(name = "mde-musicd", about = "MDE native Airsonic music daemon.")]
@@ -29,6 +29,24 @@ enum Cmd {
     Cache {
         #[command(subcommand)]
         op: CacheOp,
+    },
+    /// Inspect mesh playback state or request a take-over (AIR-8).
+    State {
+        #[command(subcommand)]
+        op: StateOp,
+    },
+}
+
+#[derive(Subcommand)]
+enum StateOp {
+    /// Print the authoritative "who is playing what" record.
+    Show,
+    /// List every peer's last-known playback snapshot.
+    ByPeer,
+    /// Request that the peer currently playing yields to this host.
+    Takeover {
+        /// The host to take over from (the current playing peer).
+        peer: String,
     },
 }
 
@@ -53,6 +71,79 @@ fn main() -> ExitCode {
     match args.cmd {
         Cmd::Ping => ping(),
         Cmd::Cache { op } => cache_cmd(&op),
+        Cmd::State { op } => state_cmd(&op),
+    }
+}
+
+fn local_hostname() -> String {
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "localhost".to_string())
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+fn state_cmd(op: &StateOp) -> ExitCode {
+    let dir = state::data_dir();
+    match op {
+        StateOp::Show => {
+            match state::read_state(&dir) {
+                Some(s) if s.playing => {
+                    println!("playing on {}: song {} @ {}ms", s.peer, s.song_id, s.position_ms);
+                }
+                Some(s) => println!("idle (last owner: {})", s.peer),
+                None => println!("no mesh playback state (nobody is playing)"),
+            }
+            ExitCode::SUCCESS
+        }
+        StateOp::ByPeer => {
+            let bp_dir = dir.join("music-state-by-peer");
+            match std::fs::read_dir(&bp_dir) {
+                Ok(rd) => {
+                    let mut any = false;
+                    for entry in rd.flatten() {
+                        if let Some(s) = std::fs::read_to_string(entry.path())
+                            .ok()
+                            .and_then(|t| serde_json::from_str::<state::MusicState>(&t).ok())
+                        {
+                            any = true;
+                            println!(
+                                "{}: {}",
+                                s.peer,
+                                if s.playing { "playing" } else { "idle" }
+                            );
+                        }
+                    }
+                    if !any {
+                        println!("no peer snapshots yet");
+                    }
+                }
+                Err(_) => println!("no peer snapshots yet"),
+            }
+            ExitCode::SUCCESS
+        }
+        StateOp::Takeover { peer } => {
+            let me = local_hostname();
+            match state::post_takeover(&dir, &me, Some(peer.clone()), now_ms()) {
+                Ok(i) => {
+                    println!("take-over requested: {} → {} (intent {})", me, peer, i.intent_id);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("mde-musicd: take-over failed: {e}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
     }
 }
 

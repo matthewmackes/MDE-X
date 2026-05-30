@@ -13,3 +13,4 @@
 pub mod airsonic;
 pub mod cache;
 pub mod creds;
+pub mod state;
