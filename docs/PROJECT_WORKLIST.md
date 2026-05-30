@@ -5680,7 +5680,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   **Implementation notes:**
     - Spec: `docs/design/chromeos-classic-spec.md` §Lists + tables.
     - Blockers: CR-1 ✓.
-- [ ] **CR-4.e: v2.6 — mde-files toolbar buttons match Classic ChromeOS button styles.** *(split from CR-4 2026-05-25)*
+- [>] **CR-4.e: v2.6 — mde-files toolbar buttons match Classic ChromeOS button styles.** *(split from CR-4 2026-05-25)* session=opus-47-2026-05-30-ship
   **As** an operator using the mde-files toolbar, **I want** Refresh / New folder / Upload / etc. buttons to use the same primary/secondary/text button styles CR-9 lands.
   **Acceptance:**
   - [ ] Primary action (e.g. "New folder") uses filled-indigo button per CR-9 spec.

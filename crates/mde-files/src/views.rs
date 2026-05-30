@@ -534,12 +534,12 @@ fn view_toggle_btn(
     let bg = if active {
         Color {
             a: 0.14,
-            ..t::ACCENT
+            ..t::BUTTON_ACCENT
         }
     } else {
         Color::TRANSPARENT
     };
-    let fg = if active { t::ACCENT_HI } else { t::FG_DIM };
+    let fg = if active { t::BUTTON_ACCENT } else { t::FG_DIM };
     button(
         container(icon(svg_bytes, 14.0, fg))
             .width(Length::Fixed(28.0))
@@ -554,7 +554,7 @@ fn view_toggle_btn(
         border: Border {
             color: Color::TRANSPARENT,
             width: 0.0,
-            radius: 0.0.into(),
+            radius: 4.0.into(),
         },
         ..button::Style::default()
     })
@@ -575,43 +575,33 @@ fn primary_action(view: &View) -> Element<'static, Message> {
         icon(
             icon_svg,
             13.0,
-            if ghost {
-                t::FG_DIM
-            } else {
-                Color {
-                    r: 0.10,
-                    g: 0.07,
-                    b: 0.02,
-                    a: 1.0,
-                }
-            }
+            if ghost { t::BUTTON_ACCENT } else { Color::WHITE },
         ),
-        text(label.to_string()).size(12).color(if ghost {
-            t::FG_DIM
-        } else {
-            Color {
-                r: 0.10,
-                g: 0.07,
-                b: 0.02,
-                a: 1.0,
-            }
-        }),
+        text(label.to_string())
+            .size(12)
+            .color(if ghost { t::BUTTON_ACCENT } else { Color::WHITE }),
     ]
     .spacing(6)
     .align_y(iced::alignment::Vertical::Center);
 
     let btn = button(inner)
-        .padding(Padding::from([5.0, 12.0]))
+        .padding(Padding {
+            top: 0.0,
+            right: 12.0,
+            bottom: 0.0,
+            left: 12.0,
+        })
+        .height(Length::Fixed(32.0))
         .on_press(Message::PrimaryAction);
 
     if ghost {
         btn.style(|_, _| button::Style {
             background: Some(Background::Color(Color::TRANSPARENT)),
-            text_color: t::FG_DIM,
+            text_color: t::BUTTON_ACCENT,
             border: Border {
-                color: t::DIVIDER,
+                color: t::BUTTON_ACCENT,
                 width: 1.0,
-                radius: 0.0.into(),
+                radius: 4.0.into(),
             },
             ..button::Style::default()
         })
@@ -619,22 +609,17 @@ fn primary_action(view: &View) -> Element<'static, Message> {
     } else {
         btn.style(|_, status| {
             let bg = if matches!(status, button::Status::Hovered) {
-                t::ACCENT_HI
+                t::BUTTON_ACCENT_HI
             } else {
-                t::ACCENT
+                t::BUTTON_ACCENT
             };
             button::Style {
                 background: Some(Background::Color(bg)),
-                text_color: Color {
-                    r: 0.10,
-                    g: 0.07,
-                    b: 0.02,
-                    a: 1.0,
-                },
+                text_color: Color::WHITE,
                 border: Border {
                     color: Color::TRANSPARENT,
                     width: 0.0,
-                    radius: 0.0.into(),
+                    radius: 4.0.into(),
                 },
                 ..button::Style::default()
             }

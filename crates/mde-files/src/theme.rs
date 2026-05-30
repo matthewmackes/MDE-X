@@ -55,6 +55,11 @@ pub const ACCENT: Color = rgb_hex(0xf0, 0xab, 0x00);
 pub const ACCENT_HI: Color = rgb_hex(0xff, 0xc1, 0x07);
 pub const RUST: Color = rgb_hex(0xe3, 0x6b, 0x3a);
 
+/// Classic ChromeOS primary button indigo (0x5b6af5). CR-4.e.
+pub const BUTTON_ACCENT: Color = rgb_hex(0x5b, 0x6a, 0xf5);
+/// Classic ChromeOS primary button indigo hover (+8% luminance). CR-4.e.
+pub const BUTTON_ACCENT_HI: Color = rgb_hex(0x62, 0x72, 0xff);
+
 // ─── PatternFly status colours ─────────────────────────────────────────────
 pub const PF_INFO: Color = rgb_hex(0x2b, 0x9a, 0xf3);
 pub const PF_SUCCESS: Color = rgb_hex(0x3e, 0x86, 0x35);
