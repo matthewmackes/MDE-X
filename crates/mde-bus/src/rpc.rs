@@ -44,6 +44,23 @@ pub const DEFAULT_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 /// 30 s timeout.
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
+/// Poll cadence for **interactive** command surfaces — the ones a
+/// human waits on for instant UI feedback (`action/shell/goto`,
+/// `action/shell/focus`, `action/shell/workbench-focus`). These were
+/// instant on D-Bus; on the poll-Bus a 200-400 ms cadence reads as
+/// lag. 40 ms keeps the round-trip imperceptible at negligible
+/// index-read cost (EPIC-RETIRE-DBUS finding #1 resolution; Q3 of the
+/// DBUS-latency survey). Both the interactive responder's read loop
+/// AND the caller's [`await_reply_with_interval`] use this.
+pub const INTERACTIVE_POLL_INTERVAL: Duration = Duration::from_millis(40);
+
+/// Poll cadence for **control** command surfaces — logout, shutdown,
+/// rebalance, and other commands where a few hundred ms of latency is
+/// invisible. Responders that aren't on a human's interactive path
+/// stay here to minimise index-read churn (EPIC-RETIRE-DBUS finding
+/// #1 resolution).
+pub const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(400);
+
 /// The `action/` namespace prefix every command topic must carry.
 pub const ACTION_PREFIX: &str = "action/";
 
@@ -134,6 +151,24 @@ pub async fn await_reply(
     request_ulid: &str,
     timeout: Duration,
 ) -> Result<StoredMessage, RpcError> {
+    await_reply_with_interval(persist, request_ulid, timeout, DEFAULT_POLL_INTERVAL).await
+}
+
+/// Like [`await_reply`] but with an explicit poll cadence. Interactive
+/// callers pass [`INTERACTIVE_POLL_INTERVAL`] (40 ms) so the round-trip
+/// is imperceptible; control callers can pass [`CONTROL_POLL_INTERVAL`]
+/// (or rely on [`await_reply`]'s default). Per EPIC-RETIRE-DBUS
+/// finding #1.
+///
+/// # Errors
+/// [`RpcError::Persist`] on a read failure; [`RpcError::Timeout`]
+/// when no reply lands in time.
+pub async fn await_reply_with_interval(
+    persist: &Persist,
+    request_ulid: &str,
+    timeout: Duration,
+    poll: Duration,
+) -> Result<StoredMessage, RpcError> {
     let rtopic = reply_topic(request_ulid);
     let started = Instant::now();
     let deadline = started + timeout;
@@ -156,7 +191,7 @@ pub async fn await_reply(
         }
         // Don't sleep past the deadline.
         let remaining = deadline.saturating_duration_since(now);
-        tokio::time::sleep(DEFAULT_POLL_INTERVAL.min(remaining)).await;
+        tokio::time::sleep(poll.min(remaining)).await;
     }
 }
 
@@ -176,6 +211,26 @@ pub async fn request(
 ) -> Result<StoredMessage, RpcError> {
     let ulid = publish_request(persist, action_topic, priority, title, body)?;
     await_reply(persist, &ulid, timeout).await
+}
+
+/// Like [`request`] but with an explicit reply poll cadence. The call
+/// an interactive D-Bus-replacement caller (`Portal.goto`,
+/// `Workbench.focus`) makes — pass [`INTERACTIVE_POLL_INTERVAL`] for a
+/// 40 ms round-trip. Per EPIC-RETIRE-DBUS finding #1.
+///
+/// # Errors
+/// Per [`publish_request`] / [`await_reply_with_interval`].
+pub async fn request_with_interval(
+    persist: &Persist,
+    action_topic: &str,
+    priority: Priority,
+    title: Option<&str>,
+    body: Option<&str>,
+    timeout: Duration,
+    poll: Duration,
+) -> Result<StoredMessage, RpcError> {
+    let ulid = publish_request(persist, action_topic, priority, title, body)?;
+    await_reply_with_interval(persist, &ulid, timeout, poll).await
 }
 
 #[cfg(test)]
@@ -287,5 +342,60 @@ mod tests {
         )
         .await;
         assert!(matches!(r, Err(RpcError::BadActionTopic(_))));
+    }
+
+    #[test]
+    fn interactive_cadence_is_tighter_than_control() {
+        // Finding #1 lock: interactive topics poll an order of
+        // magnitude faster than control topics so goto/focus feel
+        // instant. Guard the relationship so a future tweak can't
+        // silently invert it.
+        assert!(INTERACTIVE_POLL_INTERVAL < CONTROL_POLL_INTERVAL);
+        assert!(INTERACTIVE_POLL_INTERVAL <= Duration::from_millis(50));
+        assert_eq!(INTERACTIVE_POLL_INTERVAL, Duration::from_millis(40));
+    }
+
+    #[tokio::test]
+    async fn await_reply_with_interval_honours_fast_poll() {
+        // An interactive caller using the 40 ms cadence sees a reply
+        // that lands shortly after the request well inside its timeout.
+        let (_tmp, p) = persist();
+        let ulid = publish_request(&p, "action/shell/goto", Priority::Default, None, Some("control"))
+            .unwrap();
+        p.write(&reply_topic(&ulid), Priority::Default, None, Some("ok"))
+            .unwrap();
+        let reply = await_reply_with_interval(
+            &p,
+            &ulid,
+            Duration::from_secs(2),
+            INTERACTIVE_POLL_INTERVAL,
+        )
+        .await
+        .unwrap();
+        assert_eq!(reply.body.as_deref(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn request_with_interval_round_trips() {
+        let (_tmp, p) = persist();
+        let ulid = publish_request(
+            &p,
+            "action/shell/workbench-focus",
+            Priority::Default,
+            None,
+            Some("network"),
+        )
+        .unwrap();
+        p.write(&reply_topic(&ulid), Priority::Default, None, Some("focused"))
+            .unwrap();
+        let reply = await_reply_with_interval(
+            &p,
+            &ulid,
+            Duration::from_secs(2),
+            INTERACTIVE_POLL_INTERVAL,
+        )
+        .await
+        .unwrap();
+        assert_eq!(reply.body.as_deref(), Some("focused"));
     }
 }
