@@ -305,6 +305,12 @@ pub mod tag_mode_writer;
 // ~/.config/sway/config.d/00-hardware.conf at startup from
 // `swaymsg -t get_outputs` (Q53 per-peer EDID overlay).
 pub mod sway_config_watcher;
+// TUNE-16.d (2026-05-30) — Q22 8-peer cap counter. Counts enrolled
+// `role = 'peer'` nodes (phones count, federated external-mesh peers
+// are excluded by virtue of not appearing in the local store). Writes
+// ~/.cache/mde/peer-cap.json every 30 s; publishes to
+// mesh/peer-cap/updated Bus topic for real-time UI consumers.
+pub mod peer_cap;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores

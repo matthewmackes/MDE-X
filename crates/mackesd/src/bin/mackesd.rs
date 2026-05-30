@@ -3208,6 +3208,36 @@ fn run_serve(
             }
         }
 
+        // TUNE-16.d (2026-05-30) — Q22 8-peer cap counter. Reads the
+        // enrolled peer count every 30 s, writes ~/.cache/mde/peer-cap.json,
+        // and publishes to mesh/peer-cap/updated. Phones count (enrolled
+        // as role='peer'); federated external-mesh peers don't appear in
+        // the local store and are naturally excluded.
+        match mackesd_core::store::open(&db_path) {
+            Ok(conn) => {
+                let cap_store = Arc::new(tokio::sync::Mutex::new(conn));
+                let cap_cache = dirs::cache_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                    .join("mde")
+                    .join("peer-cap.json");
+                sup.spawn(Spawn::new(
+                    mackesd_core::workers::peer_cap::PeerCapWorker::new(cap_store, cap_cache),
+                    RestartPolicy::OnFailure,
+                ));
+                worker_names
+                    .lock()
+                    .expect("worker_names mutex")
+                    .push("peer-cap".into());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    db_path = %db_path.display(),
+                    "peer-cap: sqlite open failed; worker skipped"
+                );
+            }
+        }
+
         // v4.0.1 AF-* (2026-05-23) — register the
         // dev.mackes.MDE.Fleet.Files surface on the session bus
         // so mde-files's DBusBackend can read the live mesh
