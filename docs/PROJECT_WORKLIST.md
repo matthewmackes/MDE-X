@@ -2031,15 +2031,15 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - virtiofsd XML stanza per design doc §6; start a `virtiofsd@<vm-id>.service` instance
     - guest nebula config written as cloud-init `write_files` stanza; requires cloud-init in the guest
 
-- [ ] **VIRT-7: v5.0.0 — `compute_expose` mackesd worker — per-network firewalld port forwarding**
+- [✓] **VIRT-7: v5.0.0 — `compute_expose` mackesd worker — per-network firewalld port forwarding**
   **As** an operator, **I want** to expose a VM port to mesh / LAN / WAN by selecting networks,
   **so that** services are reachable exactly where I choose without manual firewall edits.
   **Acceptance** (each bench-observable):
-    - [ ] `compute_expose` subscribes to `compute/expose/<peer-nebula-addr>`; for each selected network writes a `firewall-cmd --permanent` rich rule forwarding the host port to the VM's Nebula IP
-    - [ ] `mesh`: rich rule on `trusted` zone (Nebula interface); `lan`: rich rule on `public` zone; `wan`: rich rule on WAN zone (detected via `nmcli`)
-    - [ ] Publishes `compute/exposed/<peer>` listing all active forwarding rules (for Workbench display)
-    - [ ] Remove rule on `compute/unexpose/<peer>` with matching `{vm_nebula_ip, host_port, proto}`
-    - [ ] 5 unit tests: expose mesh-only, expose all three, remove one network, remove all, idempotent re-expose
+    - [✓] `compute_expose` subscribes to `compute/expose/<peer-nebula-addr>`; for each selected network writes a `firewall-cmd --permanent` rich rule forwarding the host port to the VM's Nebula IP
+    - [✓] `mesh`: rich rule on `trusted` zone (Nebula interface); `lan`: rich rule on `public` zone; `wan`: rich rule on WAN zone (detected via `nmcli`)
+    - [✓] Publishes `compute/exposed/<peer>` listing all active forwarding rules (for Workbench display)
+    - [✓] Remove rule on `compute/unexpose/<peer>` with matching `{vm_nebula_ip, host_port, proto}`
+    - [✓] 5 unit tests: expose mesh-only, expose all three, remove one network, remove all, idempotent re-expose *(21 tests total — the 5 required scenarios are covered as `diff_expose_mesh_only_yields_one_rule`, `diff_expose_all_three_yields_three_rules`, `diff_unexpose_removes_all_networks_for_matching_vm_and_port`, `apply_unexpose_drops_shadow_rules_even_when_firewall_cmd_unavailable`, `diff_expose_idempotent_when_already_active`; the rest cover parsers + zone-mapping + rule-body shape)*
   **Implementation notes:**
     - WAN zone detection: `nmcli -t -f DEVICE,TYPE,STATE device` to find default-gateway interface
     - `firewall-cmd --reload` after batch rule changes; group multiple rules into one reload
@@ -14467,6 +14467,8 @@ under `LICENSES/`.
 ---
 
 ## Follow-ups from in-flight work
+
+- [ ] **VIRT-7.followup: rebuild compute_expose shadow set from `firewall-cmd --list-rich-rules` on startup (2026-05-30)** — VIRT-7's in-memory `active` shadow set starts empty on every mackesd boot, which means right after a restart the published `compute/exposed/<peer>` topic shows no rules until the next expose/unexpose request re-syncs. firewalld's `--permanent` flag persists the actual rules durably, so the Workbench display is stale-until-next-change but never wrong about firewalld state itself. Followup: at worker startup, shell `firewall-cmd --list-rich-rules --zone={trusted,public,<wan>}`, regex-match our managed `rule family="ipv4" ... forward-port ... to-addr="10.42.128.x" ...` pattern, parse `(network, vm_nebula_ip, host_port, proto)` back, and seed the shadow set so the very first `compute/exposed` publish reflects reality. Ships once VIRT-6 compute_provision lands so we have a realistic test fixture.
 
 - [ ] **VIRT-5.followup: amend `docs/design/v5.0.0-compute.md` §3 cert-sign-request topic notation to the locked `action/compute/cert-sign-request` shape (2026-05-30)** — the design doc currently shows `compute/cert-sign-request/<ulid> → reply/<ulid>`, which reads as a per-ULID topic. VIRT-5 implemented the established `action/<domain>/<verb>` Q96+`rpc.rs` convention (single fixed topic; correlation ULID is the message's own ULID, returned by `Persist::write` and reachable via `StoredMessage.ulid`). Amend §3 to say `action/compute/cert-sign-request → reply/<request-ulid>` so future readers don't try to implement the per-ULID-topic interpretation. Pure documentation edit — no code change. Mirrors the lock in `crates/mackesd/src/workers/cert_authority.rs` module docstring + `ACTION_TOPIC` const.
 

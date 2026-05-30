@@ -3109,6 +3109,23 @@ fn run_serve(
             .expect("worker_names mutex")
             .push("cert_authority".into());
 
+        // VIRT-7 (v5.0.0) — per-network firewalld port forwarding.
+        // Each peer subscribes to its own `compute/expose/<addr>` +
+        // `compute/unexpose/<addr>` topics and applies firewall-cmd
+        // rich rules per selected network. WAN zone is auto-detected
+        // at startup via nmcli + firewall-cmd. Publishes the active
+        // rule set to `compute/exposed/<addr>` for the Workbench.
+        // Silent no-op on lighthouse / container-stripped peers
+        // without firewall-cmd.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::compute_expose::ComputeExposeWorker::new(),
+            RestartPolicy::Always,
+        ));
+        worker_names
+            .lock()
+            .expect("worker_names mutex")
+            .push("compute_expose".into());
+
         // EPIC-MESH-PROBE (MESH-PROBE-4) — scheduled two-tier nmap
         // probe worker. Resolves mesh-peer overlay IPs, scans them
         // (fast 60s / deep 10min), writes this peer's

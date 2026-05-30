@@ -159,6 +159,14 @@ pub mod compute_registry;
 // per Q96 + rpc.rs convention (design doc §3's per-ULID notation
 // reinterpreted accordingly).
 pub mod cert_authority;
+// VIRT-7 (v5.0.0) — per-network firewalld port forwarding. Each
+// peer subscribes to `compute/{expose,unexpose}/<own-peer-addr>`
+// and writes firewalld rich rules per selected network
+// (mesh→trusted, lan→public, wan→detected). Publishes the
+// in-memory active-rule shadow set to
+// `compute/exposed/<own-peer-addr>` for the Workbench display.
+// Silent no-op when firewall-cmd is absent.
+pub mod compute_expose;
 // INST-11 + INST-12 + INST-13 (v2.7) — fleet upgrade-barrier
 // worker. Runs on every peer: watches `<mesh-home>/upgrade-
 // intent/*.json` (written by `mde-update --coordinate`), runs
