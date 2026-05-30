@@ -240,6 +240,13 @@ pub struct MeshFsPeer {
     /// Bytes still free on this chunkserver.
     #[serde(default)]
     pub avail_bytes: u64,
+    /// Chunks below their replication goal on this CS; absent from
+    /// compact CS-LIST output, defaults to 0.
+    #[serde(default)]
+    pub undergoal_chunks: u64,
+    /// Whether this CS is flagged for decommission; defaults to false.
+    #[serde(default)]
+    pub marked_for_removal: bool,
 }
 
 /// JSON shape of `mackesd meshfs-status --json`. Mirrors
@@ -262,6 +269,11 @@ pub struct MeshFsStatus {
     /// Overlay addr of the chunkserver with the least free space.
     #[serde(default)]
     pub limiting_peer_addr: Option<String>,
+    /// Enrolled peer IPs absent from the CS-LIST (offline / not yet
+    /// registered as a chunkserver). Empty when the report was produced
+    /// without an enrolled-IP set.
+    #[serde(default)]
+    pub offline_peers: Vec<String>,
 }
 
 /// Parse `mackesd meshfs-status --json`. Returns a default
@@ -287,13 +299,18 @@ pub enum MeshFsHealth {
 
 /// Classify the fleet meshfs health. `goal == 0` (no report /
 /// pre-enrollment) with a reachable master counts as in-sync
-/// (nothing to heal yet).
+/// (nothing to heal yet). Returns `Healing` when the replica count
+/// is short, any chunkserver has undergoal chunks, or enrolled peers
+/// are offline.
 #[must_use]
 pub fn classify_meshfs(status: &MeshFsStatus) -> MeshFsHealth {
     if !status.master_reachable {
         return MeshFsHealth::MasterDown;
     }
-    if status.goal > 0 && status.peers.len() < status.goal {
+    let under_replicated = status.goal > 0 && status.peers.len() < status.goal;
+    let has_undergoal = status.peers.iter().any(|p| p.undergoal_chunks > 0);
+    let has_offline = !status.offline_peers.is_empty();
+    if under_replicated || has_undergoal || has_offline {
         return MeshFsHealth::Healing;
     }
     MeshFsHealth::InSync
@@ -329,7 +346,9 @@ fn human_bytes(bytes: u64) -> String {
 
 /// Multi-line meshfs summary for the applet tooltip / `--meshfs`
 /// output: an active-master indicator + fleet health header,
-/// then one `online` line per chunkserver with its usage.
+/// then one line per chunkserver (online with usage + heal note
+/// when undergoal, decommissioning flag when marked for removal),
+/// followed by one `offline` line per enrolled-but-absent IP.
 #[must_use]
 pub fn format_meshfs_summary(status: &MeshFsStatus) -> String {
     let health = classify_meshfs(status);
@@ -347,12 +366,25 @@ pub fn format_meshfs_summary(status: &MeshFsStatus) -> String {
     };
     let mut out = header;
     for p in &status.peers {
+        let mut tags = vec!["online"];
+        let undergoal_str;
+        if p.undergoal_chunks > 0 {
+            undergoal_str = format!("healing ({} chunks)", p.undergoal_chunks);
+            tags.push(&undergoal_str);
+        }
+        if p.marked_for_removal {
+            tags.push("decommissioning");
+        }
         out.push_str(&format!(
-            "\n  {}  ·  {} used / {} free  ·  online",
+            "\n  {}  ·  {} used / {} free  ·  {}",
             p.addr,
             human_bytes(p.used_bytes),
             human_bytes(p.avail_bytes),
+            tags.join(", "),
         ));
+    }
+    for ip in &status.offline_peers {
+        out.push_str(&format!("\n  {ip}  ·  offline"));
     }
     out
 }
@@ -602,6 +634,7 @@ mod tests {
                 addr: "10.42.0.7".into(),
                 used_bytes: 1024,
                 avail_bytes: 2048,
+                ..Default::default()
             }],
             ..Default::default()
         };
@@ -619,5 +652,95 @@ mod tests {
         let out = format_meshfs_summary(&s);
         assert!(out.contains("master DOWN"));
         assert!(out.contains("read-only"));
+    }
+
+    // ── MESHFS-12.b: per-CS heal/offline granularity ──────────────────────
+
+    #[test]
+    fn classify_meshfs_healing_on_undergoal_chunks() {
+        let s = MeshFsStatus {
+            master_reachable: true,
+            goal: 1,
+            peers: vec![MeshFsPeer {
+                addr: "10.42.0.5".into(),
+                undergoal_chunks: 17,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(classify_meshfs(&s), MeshFsHealth::Healing);
+    }
+
+    #[test]
+    fn classify_meshfs_healing_on_offline_enrolled_peers() {
+        let s = MeshFsStatus {
+            master_reachable: true,
+            goal: 2,
+            peers: vec![MeshFsPeer { addr: "10.42.0.5".into(), ..Default::default() }],
+            offline_peers: vec!["10.42.0.7".into()],
+            ..Default::default()
+        };
+        assert_eq!(classify_meshfs(&s), MeshFsHealth::Healing);
+    }
+
+    #[test]
+    fn classify_meshfs_insync_when_no_undergoal_and_no_offline() {
+        let s = MeshFsStatus {
+            master_reachable: true,
+            goal: 1,
+            peers: vec![MeshFsPeer { addr: "10.42.0.5".into(), undergoal_chunks: 0, ..Default::default() }],
+            offline_peers: vec![],
+            ..Default::default()
+        };
+        assert_eq!(classify_meshfs(&s), MeshFsHealth::InSync);
+    }
+
+    #[test]
+    fn format_meshfs_summary_shows_heal_tag_on_undergoal() {
+        let s = MeshFsStatus {
+            master_reachable: true,
+            goal: 1,
+            peers: vec![MeshFsPeer {
+                addr: "10.42.0.5".into(),
+                used_bytes: 0,
+                avail_bytes: 0,
+                undergoal_chunks: 42,
+                marked_for_removal: false,
+            }],
+            ..Default::default()
+        };
+        let out = format_meshfs_summary(&s);
+        assert!(out.contains("healing (42 chunks)"), "got: {out}");
+        assert!(out.contains("online"), "got: {out}");
+    }
+
+    #[test]
+    fn format_meshfs_summary_shows_decommissioning_tag() {
+        let s = MeshFsStatus {
+            master_reachable: true,
+            goal: 1,
+            peers: vec![MeshFsPeer {
+                addr: "10.42.0.7".into(),
+                marked_for_removal: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let out = format_meshfs_summary(&s);
+        assert!(out.contains("decommissioning"), "got: {out}");
+    }
+
+    #[test]
+    fn format_meshfs_summary_shows_offline_peers() {
+        let s = MeshFsStatus {
+            master_reachable: true,
+            goal: 2,
+            peers: vec![MeshFsPeer { addr: "10.42.0.5".into(), ..Default::default() }],
+            offline_peers: vec!["10.42.0.9".into()],
+            ..Default::default()
+        };
+        let out = format_meshfs_summary(&s);
+        assert!(out.contains("10.42.0.9"), "got: {out}");
+        assert!(out.contains("offline"), "got: {out}");
     }
 }

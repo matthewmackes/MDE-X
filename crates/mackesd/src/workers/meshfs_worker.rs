@@ -978,14 +978,35 @@ pub struct ChunkserverStatus {
     pub addr: String,
     pub used_bytes: u64,
     pub avail_bytes: u64,
+    /// Chunks below their replication goal on this CS. Absent from the
+    /// compact 4-column CS-LIST format; defaults to 0.
+    #[serde(default)]
+    pub undergoal_chunks: u64,
+    /// Whether this CS is flagged for decommission. Absent from the
+    /// compact 4-column format; defaults to false.
+    #[serde(default)]
+    pub marked_for_removal: bool,
 }
 
 /// Parse `mfsadmin CS-LIST` output into per-chunkserver status rows.
-/// Extends `parse_cslist_output` with the used/avail byte columns.
+/// Handles both the compact 4-column format and the full LizardFS format
+/// that includes `undergoal_chunks` / `markedforremoval` columns.
+/// Column positions are detected from the header line — unknown columns
+/// default to 0 / false.
 #[must_use]
 pub fn parse_cslist_full(text: &str) -> Vec<ChunkserverStatus> {
-    text.lines()
-        .skip(1)
+    let mut lines = text.lines();
+    let Some(header) = lines.next() else {
+        return Vec::new();
+    };
+    let hdrs: Vec<&str> = header.split_whitespace().collect();
+    let undergoal_col = hdrs.iter().position(|h| {
+        h.eq_ignore_ascii_case("undergoal_chunks") || h.eq_ignore_ascii_case("undergoal")
+    });
+    let removal_col = hdrs.iter().position(|h| {
+        h.eq_ignore_ascii_case("markedforremoval") || h.eq_ignore_ascii_case("marked_for_removal")
+    });
+    lines
         .filter_map(|line| {
             let cols: Vec<&str> = line.split_whitespace().collect();
             if cols.len() < 4 {
@@ -997,7 +1018,25 @@ pub fn parse_cslist_full(text: &str) -> Vec<ChunkserverStatus> {
             }
             let used_bytes = cols[2].parse::<u64>().ok()?;
             let avail_bytes = cols[3].parse::<u64>().ok()?;
-            Some(ChunkserverStatus { addr, used_bytes, avail_bytes })
+            let undergoal_chunks = undergoal_col
+                .and_then(|i| cols.get(i))
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
+            let marked_for_removal = removal_col
+                .and_then(|i| cols.get(i))
+                .map(|v| {
+                    *v == "1"
+                        || v.eq_ignore_ascii_case("yes")
+                        || v.eq_ignore_ascii_case("true")
+                })
+                .unwrap_or(false);
+            Some(ChunkserverStatus {
+                addr,
+                used_bytes,
+                avail_bytes,
+                undergoal_chunks,
+                marked_for_removal,
+            })
         })
         .collect()
 }
@@ -1013,6 +1052,11 @@ pub struct MeshFsStatusReport {
     pub quota_cap_bytes: Option<u64>,
     /// Overlay IP of the chunkserver with the least available space.
     pub limiting_peer_addr: Option<String>,
+    /// Enrolled peer IPs that are absent from the CS-LIST (offline).
+    /// Empty when called without an enrolled-IP set (see
+    /// `meshfs_status_report_with_enrolled`).
+    #[serde(default)]
+    pub offline_peers: Vec<String>,
 }
 
 /// Query the active LizardFS master via `mfsadmin CS-LIST` and return a
@@ -1041,7 +1085,30 @@ pub fn meshfs_status_report(admin_binary: &str, vip: &str) -> MeshFsStatusReport
         goal,
         quota_cap_bytes,
         limiting_peer_addr,
+        offline_peers: Vec::new(),
     }
+}
+
+/// Like `meshfs_status_report`, but cross-references `enrolled_ips` against
+/// the CS-LIST to populate `offline_peers` — enrolled nodes whose overlay IP
+/// does not appear in the CS-LIST are listed as offline.
+#[must_use]
+pub fn meshfs_status_report_with_enrolled(
+    admin_binary: &str,
+    vip: &str,
+    enrolled_ips: &[String],
+) -> MeshFsStatusReport {
+    let mut report = meshfs_status_report(admin_binary, vip);
+    if !enrolled_ips.is_empty() {
+        let cs_ips: std::collections::HashSet<&str> =
+            report.peers.iter().map(|p| p.addr.as_str()).collect();
+        report.offline_peers = enrolled_ips
+            .iter()
+            .filter(|ip| !cs_ips.contains(ip.as_str()))
+            .cloned()
+            .collect();
+    }
+    report
 }
 
 // ── MESHFS-8.1: trash retention + trash listing ─────────────────────────────
@@ -1686,7 +1753,7 @@ ip              port  used       avail\n\
         assert!(log.iter().all(|l| l.contains("meshfs replay")));
     }
 
-    // ── MESHFS-13.1: parse_cslist_full + meshfs_status_report ──────────────
+    // ── MESHFS-13.1 + MESHFS-12.b: parse_cslist_full + meshfs_status_report ──
 
     #[test]
     fn parse_cslist_full_extracts_addr_used_avail() {
@@ -1702,6 +1769,39 @@ ip              port  used       avail\n\
         assert_eq!(rows[1].addr, "10.42.0.7");
         assert_eq!(rows[1].used_bytes, 987_654);
         assert_eq!(rows[1].avail_bytes, 9_012_345);
+    }
+
+    #[test]
+    fn parse_cslist_full_compact_defaults_undergoal_and_removal() {
+        let output = "\
+ip              port  used       avail\n\
+10.42.0.5       9422  1234567    8765432\n";
+        let rows = parse_cslist_full(output);
+        assert_eq!(rows[0].undergoal_chunks, 0);
+        assert!(!rows[0].marked_for_removal);
+    }
+
+    #[test]
+    fn parse_cslist_full_extended_reads_undergoal_and_removal() {
+        let output = "\
+ip              port  used       avail       chunks  undergoal_chunks  markedforremoval\n\
+10.42.0.5       9422  1234567    8765432     1000    42                0\n\
+10.42.0.7       9422  987654     9012345     800     0                 1\n";
+        let rows = parse_cslist_full(output);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].undergoal_chunks, 42);
+        assert!(!rows[0].marked_for_removal);
+        assert_eq!(rows[1].undergoal_chunks, 0);
+        assert!(rows[1].marked_for_removal);
+    }
+
+    #[test]
+    fn parse_cslist_full_undergoal_alias_detected() {
+        let output = "\
+ip              port  used       avail       undergoal\n\
+10.42.0.9       9422  111        222         17\n";
+        let rows = parse_cslist_full(output);
+        assert_eq!(rows[0].undergoal_chunks, 17);
     }
 
     #[test]
@@ -1723,6 +1823,7 @@ ip              port  used       avail\n\
         assert!(report.quota_cap_bytes.is_none());
         assert!(report.limiting_peer_addr.is_none());
         assert_eq!(report.goal, 0);
+        assert!(report.offline_peers.is_empty());
     }
 
     #[test]
@@ -1732,6 +1833,24 @@ ip              port  used       avail\n\
         assert!(json.contains("\"master_reachable\""));
         assert!(json.contains("\"peers\""));
         assert!(json.contains("\"goal\""));
+        assert!(json.contains("\"offline_peers\""));
+    }
+
+    #[test]
+    fn meshfs_status_report_with_enrolled_marks_missing_as_offline() {
+        // Master unreachable → CS-LIST empty → all enrolled IPs are offline.
+        let enrolled = vec!["10.42.0.5".to_owned(), "10.42.0.7".to_owned()];
+        let report = meshfs_status_report_with_enrolled("mfsadmin", "192.0.2.1", &enrolled);
+        // Both enrolled IPs absent from empty CS-LIST → both offline.
+        let mut got = report.offline_peers.clone();
+        got.sort();
+        assert_eq!(got, vec!["10.42.0.5".to_owned(), "10.42.0.7".to_owned()]);
+    }
+
+    #[test]
+    fn meshfs_status_report_with_enrolled_empty_slice_no_offline() {
+        let report = meshfs_status_report_with_enrolled("mfsadmin", "192.0.2.1", &[]);
+        assert!(report.offline_peers.is_empty());
     }
 
     #[test]

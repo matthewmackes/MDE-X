@@ -198,11 +198,11 @@ crates/mde-portal/src/portal_full_main.rs:2185
 crates/mde-portal/src/portal_full_main.rs:2193
 crates/mde-portal/src/portal_full_main.rs:2235
 crates/mde-portal/src/portal_full_main.rs:2236
-# MESHFS-12.1 mesh-status applet: 4 new token-drift entries (EPIC-UI-MATERIAL.token-sweep target)
-crates/mde-applets/mesh-status/src/lib.rs:485
-crates/mde-applets/mesh-status/src/lib.rs:486
-crates/mde-applets/mesh-status/src/lib.rs:487
-crates/mde-applets/mesh-status/src/lib.rs:488
+# MESHFS-12.1 mesh-status applet: 4 hex test-assertion literals; shifted to 517-520 by MESHFS-12.b struct additions
+crates/mde-applets/mesh-status/src/lib.rs:517
+crates/mde-applets/mesh-status/src/lib.rs:518
+crates/mde-applets/mesh-status/src/lib.rs:519
+crates/mde-applets/mesh-status/src/lib.rs:520
 # Portal portal_full_main.rs: new token-drift entries from prior commits (EPIC-UI-MATERIAL.token-sweep)
 crates/mde-portal/src/portal_full_main.rs:1984
 crates/mde-portal/src/portal_full_main.rs:1995
