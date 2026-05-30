@@ -137,8 +137,12 @@ impl PeerCard {
         let space = self.tokens.space;
 
         // Hero strip — full identity, ~280 px.
-        let hero_block =
-            hero::view::<Message>(&self.data.probe, &self.data.enrichment, &self.tokens);
+        let hero_block = hero::view::<Message>(
+            &self.data.probe,
+            &self.data.enrichment,
+            self.data.federation.as_ref(),
+            &self.tokens,
+        );
 
         // Sections — four collapsible, scrollable rows.
         let section_views = Section::ordered().into_iter().map(|s| {

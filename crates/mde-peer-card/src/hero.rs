@@ -27,6 +27,7 @@ use mde_theme::{Tokens, TypeRole};
 
 use crate::enrich::Enrichment;
 use crate::probe::PeerProbe;
+use crate::FederationInfo;
 
 /// Hero strip height in logical pixels. Locked at 280 — the
 /// upper third of an 840 px-tall modal surface.
@@ -38,9 +39,15 @@ pub const HERO_HEIGHT_PX: u16 = 280;
 pub const WORDMARK_MAX_CHARS: usize = 24;
 
 /// Build the hero strip view for a given probe + enrichment.
+///
+/// `federation` — when `Some`, the peer belongs to an external paired
+/// mesh: an "External mesh" badge appears above the hostname + a
+/// direction chip (↓ subscribe-only or ⇄ two-way) appears in the
+/// opposite corner (TUNE-15.d / `docs/design/v1.0-federation-pairing.md §6`).
 pub fn view<'a, Msg: 'a + Clone>(
     probe: &'a PeerProbe,
     enrichment: &'a Enrichment,
+    federation: Option<&'a FederationInfo>,
     tokens: &'a Tokens,
 ) -> Element<'a, Msg> {
     let palette = tokens.palette;
@@ -95,20 +102,72 @@ pub fn view<'a, Msg: 'a + Clone>(
         .padding(space.md2)
         .align_y(iced::alignment::Vertical::Bottom);
 
+    // Build the inner column. When federated, insert the federation
+    // badge row immediately above the hostname row.
+    let mut inner_children: Vec<Element<'a, Msg>> = vec![
+        upper.into(),
+        Space::with_height(Length::Fill).into(),
+    ];
+    if let Some(fed) = federation {
+        inner_children.push(federation_row(fed, palette, space, tokens).into());
+    }
+    inner_children.push(lower.into());
+    let inner = column(inner_children).width(Length::Fill).height(Length::Fill);
+
     // The hero block: background placeholder (raised tier) until
     // the Wikidata image streams in via enrichment.
-    container(
-        column![upper, Space::with_height(Length::Fill), lower,]
-            .width(Length::Fill)
-            .height(Length::Fill),
-    )
-    .width(Length::Fill)
-    .height(Length::Fixed(f32::from(HERO_HEIGHT_PX)))
-    .style(move |_theme| container::Style {
-        background: Some(Background::Color(rgba_to_color(palette.raised))),
+    container(inner)
+        .width(Length::Fill)
+        .height(Length::Fixed(f32::from(HERO_HEIGHT_PX)))
+        .style(move |_theme| container::Style {
+            background: Some(Background::Color(rgba_to_color(palette.raised))),
+            ..container::Style::default()
+        })
+        .into()
+}
+
+/// TUNE-15.d — row inserted between the fill space and the hostname
+/// row when the peer belongs to an external mesh.
+///
+/// Layout: `[mesh_label badge] | fill | [direction chip]`
+///
+/// Cite: v1.0-federation-pairing.md §6; ref: Linear (card badges)
+fn federation_row<'a, Msg: 'a>(
+    fed: &'a FederationInfo,
+    palette: mde_theme::Palette,
+    space: mde_theme::Space,
+    tokens: &'a Tokens,
+) -> Element<'a, Msg> {
+    let pill_style = move |_theme: &iced::Theme| container::Style {
+        background: Some(Background::Color(rgba_to_color(palette.overlay))),
+        border: Border {
+            radius: tokens.radii.full.into(),
+            ..Border::default()
+        },
         ..container::Style::default()
-    })
-    .into()
+    };
+
+    // External-mesh badge: peer's mesh label in subdued grey.
+    let mesh_badge = container(
+        text(fed.mesh_label.as_str())
+            .size(TypeRole::Caption.size_in(tokens.font_size))
+            .color(rgba_to_color(palette.text_muted)),
+    )
+    .padding([space.xs2, space.sm])
+    .style(pill_style);
+
+    // Direction chip: ↓ Subscribe only or ⇄ Two-way.
+    let direction_chip = container(
+        text(fed.direction.label())
+            .size(TypeRole::Caption.size_in(tokens.font_size))
+            .color(rgba_to_color(palette.text_muted)),
+    )
+    .padding([space.xs2, space.sm])
+    .style(pill_style);
+
+    row![mesh_badge, Space::with_width(Length::Fill), direction_chip,]
+        .padding(space.md2)
+        .into()
 }
 
 /// Truncate a string to `max` chars, appending `…` if shortened.

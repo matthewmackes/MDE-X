@@ -42,6 +42,49 @@ pub use mde_mesh_types::{
 };
 pub use probe::{NatClass, PeerProbe};
 
+/// TUNE-15.d — federation subscribe/publish direction between two
+/// paired meshes.
+///
+/// The default grant after pairing is [`SubscribeOnly`] in both
+/// directions. Operators explicitly upgrade to [`TwoWay`] by running
+/// `mde-bus federation grant-publish` symmetrically on both meshes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FederationDirection {
+    /// Both meshes subscribe to each other's topics; neither
+    /// publishes across the boundary. This is the default grant
+    /// created during the OOB passcode exchange.
+    SubscribeOnly,
+    /// Symmetric publish grants exist in addition to subscribe
+    /// rights — both meshes have run `federation grant-publish`
+    /// for at least one overlapping topic pattern.
+    TwoWay,
+}
+
+impl FederationDirection {
+    /// Short display label for the direction indicator chip in the
+    /// hero strip (e.g. "↓ Subscribe only" / "⇄ Two-way").
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            FederationDirection::SubscribeOnly => "\u{2193} Subscribe only",
+            FederationDirection::TwoWay => "\u{21c4} Two-way",
+        }
+    }
+}
+
+/// TUNE-15.d — federation membership for a peer from an external
+/// paired mesh. When `Some`, this peer does NOT count against the
+/// Q22 8-peer cap (`mackesd` peer_cap worker reads this field).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FederationInfo {
+    /// Human-readable label for the peer's home mesh, as set
+    /// during the accept-pair UI (TUNE-15.b). Shown in the
+    /// "External mesh" badge above the hostname in the hero strip.
+    pub mesh_label: String,
+    /// Current subscribe/publish direction for this federation pair.
+    pub direction: FederationDirection,
+}
+
 /// One peer's complete card data — the probe (always present) +
 /// any enrichment that's resolved at render time. Enrichment is
 /// optional and streams in as sources complete; the card paints
@@ -71,6 +114,10 @@ pub struct PeerCardData {
     /// Nebula section (collapsed by default unless the peer
     /// is unhealthy) reads it from here.
     pub nebula: Option<NebulaFacts>,
+    /// TUNE-15.d — federation info. `Some` when this peer belongs
+    /// to a paired external mesh; `None` for ordinary mesh members.
+    /// Federated peers do NOT count against the Q22 8-peer cap.
+    pub federation: Option<FederationInfo>,
 }
 
 impl PeerCardData {
@@ -84,6 +131,7 @@ impl PeerCardData {
             enrichment: Enrichment::hwdb_only(),
             connect: None,
             nebula: None,
+            federation: None,
         }
     }
 
@@ -139,6 +187,32 @@ impl PeerCardData {
         self.connect
             .as_ref()
             .is_some_and(|c| c.shows_phone_sections())
+    }
+
+    /// TUNE-15.d — attach federation info to the card. Builder so
+    /// consumers can chain construction:
+    ///
+    /// ```ignore
+    /// let card = PeerCardData::hwdb_only(probe)
+    ///     .with_nebula(Some(nebula))
+    ///     .with_federation(Some(FederationInfo {
+    ///         mesh_label: "Workplace".into(),
+    ///         direction: FederationDirection::SubscribeOnly,
+    ///     }));
+    /// ```
+    ///
+    /// Pass `None` to clear (useful in tests).
+    #[must_use]
+    pub fn with_federation(mut self, federation: Option<FederationInfo>) -> Self {
+        self.federation = federation;
+        self
+    }
+
+    /// True when the federation indicator (external-mesh badge +
+    /// direction chip) should render in the hero strip.
+    #[must_use]
+    pub fn shows_federation_indicator(&self) -> bool {
+        self.federation.is_some()
     }
 
     /// Cache path for this peer's enrichment blob.
@@ -325,5 +399,61 @@ mod tests {
                 PeerCardData::hwdb_only(sample_probe()).with_connect(Some(sample_connect(kind)));
             assert_eq!(card.shows_phone_sections(), kind.is_handheld());
         }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // TUNE-15.d — federation field on PeerCardData
+    // ─────────────────────────────────────────────────────────
+
+    fn sample_federation(dir: FederationDirection) -> FederationInfo {
+        FederationInfo {
+            mesh_label: "Workplace".into(),
+            direction: dir,
+        }
+    }
+
+    #[test]
+    fn hwdb_only_starts_with_no_federation() {
+        let card = PeerCardData::hwdb_only(sample_probe());
+        assert!(card.federation.is_none());
+        assert!(!card.shows_federation_indicator());
+    }
+
+    #[test]
+    fn with_federation_attaches_info() {
+        let fed = sample_federation(FederationDirection::SubscribeOnly);
+        let card = PeerCardData::hwdb_only(sample_probe()).with_federation(Some(fed.clone()));
+        assert_eq!(card.federation, Some(fed));
+        assert!(card.shows_federation_indicator());
+    }
+
+    #[test]
+    fn with_federation_none_clears_existing() {
+        let card = PeerCardData::hwdb_only(sample_probe())
+            .with_federation(Some(sample_federation(FederationDirection::TwoWay)))
+            .with_federation(None);
+        assert!(card.federation.is_none());
+        assert!(!card.shows_federation_indicator());
+    }
+
+    #[test]
+    fn federation_direction_labels_are_distinct() {
+        assert_ne!(
+            FederationDirection::SubscribeOnly.label(),
+            FederationDirection::TwoWay.label()
+        );
+    }
+
+    #[test]
+    fn federated_peer_does_not_count_in_same_mesh() {
+        // Acceptance criterion from TUNE-15.d / design §6: the
+        // shows_federation_indicator predicate is the flag that
+        // peer_cap.rs will read to exclude federated peers from the
+        // Q22 8-peer counter. Verify it's true iff federation is set.
+        let ordinary = PeerCardData::hwdb_only(sample_probe());
+        let federated = PeerCardData::hwdb_only(sample_probe())
+            .with_federation(Some(sample_federation(FederationDirection::TwoWay)));
+        assert!(!ordinary.shows_federation_indicator());
+        assert!(federated.shows_federation_indicator());
     }
 }
