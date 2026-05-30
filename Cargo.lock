@@ -4068,6 +4068,7 @@ dependencies = [
  "mde-applet-clock",
  "mde-applet-notifications",
  "mde-applet-start-menu",
+ "mde-theme",
  "serde",
  "serde_json",
  "tempfile",

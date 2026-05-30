@@ -5,11 +5,14 @@
 //! notification-bell applet polls) and renders the rows grouped by
 //! peer, with phone-origin rows badged via the locked glyph.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use iced::widget::{column, container, mouse_area, row, scrollable, text, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Task, Theme};
+use mde_theme::motion::list::{STAGGER_CAP, STAGGER_REVEAL_MS, STAGGER_STEP_MS};
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings};
 use iced_layershell::to_layer_message;
@@ -57,6 +60,37 @@ const SURFACE_BG: Color = Color {
     b: 0.063,
     a: 0.97,
 };
+
+// ──────────────────────────────────────────────────────────────
+// ANIM-3.b.2 — entrance stagger + dismiss-fade animation
+// ──────────────────────────────────────────────────────────────
+
+/// Bus-ack dismiss-fade duration (ms). Row fades to 0 then
+/// moves to the Acked section.
+const DISMISS_ANIM_MS: u64 = 200;
+
+/// Total entrance-animation window (ms): last stagger delay + reveal.
+/// After this many ms from open, the entrance animation is complete.
+const MAX_ENTRANCE_MS: u64 =
+    (STAGGER_CAP as u64 - 1) * STAGGER_STEP_MS as u64 + STAGGER_REVEAL_MS as u64;
+
+/// Per-row entrance alpha at `opened_ms` since the popover opened.
+/// Uses the same capped-8 stagger + ease-out-sqrt pattern as ANIM-4.
+fn stagger_alpha(row_index: usize, opened_ms: u64) -> f32 {
+    let delay =
+        row_index.min(STAGGER_CAP.saturating_sub(1)) as u64 * STAGGER_STEP_MS as u64;
+    let elapsed = opened_ms.saturating_sub(delay);
+    let t = (elapsed as f32 / STAGGER_REVEAL_MS as f32).clamp(0.0, 1.0);
+    t.sqrt()
+}
+
+/// Dismiss alpha for a Bus row whose ack fired at `start`.
+/// Linear fade from 1.0 → 0.0 over `DISMISS_ANIM_MS`.
+fn dismiss_alpha(start: Instant) -> f32 {
+    let elapsed = start.elapsed().as_millis() as u64;
+    let t = (elapsed as f32 / DISMISS_ANIM_MS as f32).clamp(0.0, 1.0);
+    1.0 - t
+}
 
 // ──────────────────────────────────────────────────────────────
 // BUS-2.3 — Bus message integration (pure data layer)
@@ -177,6 +211,8 @@ pub enum Message {
     Exit,
     /// BUG-8.a (2026-05-23) — clear the cache file then exit.
     ClearAll,
+    /// ANIM-3.b.2 — drives entrance stagger + dismiss-fade frames.
+    AnimTick,
     /// BUG-8.b (2026-05-23) — toggle the mute state for a peer
     /// group. Writes the new state to
     /// `~/.config/mde/notification-mutes.toml` and refreshes the
@@ -221,6 +257,12 @@ pub struct App {
     /// BUS-2.3 — ULIDs the operator has acked; filtered from the
     /// active buckets and shown in the acked-list section instead.
     bus_acked: std::collections::HashSet<String>,
+    /// ANIM-3.b.2 — when the popover was created; drives entrance stagger.
+    opened_at: Instant,
+    /// ANIM-3.b.2 — Bus ULIDs currently in dismiss-fade; maps ulid →
+    /// ack-start time. Row fades out, then moves to `bus_acked` once
+    /// `DISMISS_ANIM_MS` has elapsed.
+    dismissing: HashMap<String, Instant>,
 }
 
 impl iced_layershell::Application for App {
@@ -250,6 +292,8 @@ impl iced_layershell::Application for App {
                 collapsed: std::collections::HashSet::new(),
                 bus_messages,
                 bus_acked: std::collections::HashSet::new(),
+                opened_at: Instant::now(),
+                dismissing: HashMap::new(),
             },
             Task::none(),
         )
@@ -306,7 +350,23 @@ impl iced_layershell::Application for App {
                 Task::none()
             }
             Message::AckBusMessage(ulid) => {
-                self.bus_acked.insert(ulid);
+                // ANIM-3.b.2 — start dismiss fade instead of instant ack.
+                // The row fades out; AnimTick moves it to bus_acked once done.
+                self.dismissing.insert(ulid, Instant::now());
+                Task::none()
+            }
+            Message::AnimTick => {
+                // Advance dismiss animations: completed ones move to bus_acked.
+                let done: Vec<String> = self
+                    .dismissing
+                    .iter()
+                    .filter(|(_, start)| start.elapsed().as_millis() as u64 >= DISMISS_ANIM_MS)
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                for ulid in done {
+                    self.dismissing.remove(&ulid);
+                    self.bus_acked.insert(ulid);
+                }
                 Task::none()
             }
             _ => Task::none(),
@@ -319,6 +379,10 @@ impl iced_layershell::Application for App {
         let subhead = text(format!("{total_rows} total"))
             .size(11)
             .color(FG_MUTED);
+
+        // ANIM-3.b.2 — shared animation state for this frame.
+        let opened_ms = self.opened_at.elapsed().as_millis() as u64;
+        let mut row_idx: usize = 0;
 
         let mut list = column![].spacing(10);
         if self.groups.is_empty() {
@@ -430,7 +494,9 @@ impl iced_layershell::Application for App {
             let mut group_column = column![group_header].spacing(4);
             if !is_collapsed {
                 for row_data in rows.iter().take(40) {
-                    group_column = group_column.push(render_row(row_data));
+                    let alpha = stagger_alpha(row_idx, opened_ms);
+                    row_idx += 1;
+                    group_column = group_column.push(render_row(row_data, alpha));
                 }
             }
             list = list.push(group_column);
@@ -471,7 +537,13 @@ impl iced_layershell::Application for App {
                             .color(BUS_URGENT_COLOR),
                     );
                     for msg in urgent.iter().take(20) {
-                        list = list.push(render_bus_row(msg));
+                        let alpha = if let Some(&start) = self.dismissing.get(&msg.ulid) {
+                            dismiss_alpha(start)
+                        } else {
+                            stagger_alpha(row_idx, opened_ms)
+                        };
+                        row_idx += 1;
+                        list = list.push(render_bus_row(msg, alpha));
                     }
                 }
                 // High bucket
@@ -482,7 +554,13 @@ impl iced_layershell::Application for App {
                             .color(BUS_HIGH_COLOR),
                     );
                     for msg in high.iter().take(20) {
-                        list = list.push(render_bus_row(msg));
+                        let alpha = if let Some(&start) = self.dismissing.get(&msg.ulid) {
+                            dismiss_alpha(start)
+                        } else {
+                            stagger_alpha(row_idx, opened_ms)
+                        };
+                        row_idx += 1;
+                        list = list.push(render_bus_row(msg, alpha));
                     }
                 }
                 // Default bucket
@@ -493,7 +571,13 @@ impl iced_layershell::Application for App {
                             .color(BUS_DEFAULT_COLOR),
                     );
                     for msg in default.iter().take(20) {
-                        list = list.push(render_bus_row(msg));
+                        let alpha = if let Some(&start) = self.dismissing.get(&msg.ulid) {
+                            dismiss_alpha(start)
+                        } else {
+                            stagger_alpha(row_idx, opened_ms)
+                        };
+                        row_idx += 1;
+                        list = list.push(render_bus_row(msg, alpha));
                     }
                 }
                 // Empty state
@@ -704,14 +788,26 @@ impl iced_layershell::Application for App {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        iced::keyboard::on_key_press(|key, _| {
+        let keyboard = iced::keyboard::on_key_press(|key, _| {
             use iced::keyboard::{key::Named, Key};
             if matches!(key, Key::Named(Named::Escape)) {
                 Some(Message::Exit)
             } else {
                 None
             }
-        })
+        });
+        // ANIM-3.b.2 — tick while entrance stagger or dismiss fades are active.
+        let entrance_ms = self.opened_at.elapsed().as_millis() as u64;
+        let animating = entrance_ms <= MAX_ENTRANCE_MS || !self.dismissing.is_empty();
+        if animating {
+            iced::Subscription::batch([
+                keyboard,
+                iced::time::every(std::time::Duration::from_millis(16))
+                    .map(|_| Message::AnimTick),
+            ])
+        } else {
+            keyboard
+        }
     }
 }
 
@@ -733,8 +829,10 @@ pub fn run() -> iced_layershell::Result {
     })
 }
 
-/// BUS-2.3 — render one Bus message row with an "Ack" button on the right.
-fn render_bus_row(msg: &BusPopoverMessage) -> Element<'_, Message> {
+/// BUS-2.3 / ANIM-3.b.2 — render one Bus message row with an "Ack"
+/// button on the right. `alpha` = entrance stagger or dismiss-fade
+/// value (0.0–1.0); all colors are scaled so the row fades in/out.
+fn render_bus_row(msg: &BusPopoverMessage, alpha: f32) -> Element<'_, Message> {
     let priority_color = match msg.priority.as_str() {
         "urgent" => BUS_URGENT_COLOR,
         "high"   => BUS_HIGH_COLOR,
@@ -742,40 +840,45 @@ fn render_bus_row(msg: &BusPopoverMessage) -> Element<'_, Message> {
     };
     let topic_label = text(format!("[{}]", msg.topic))
         .size(10)
-        .color(priority_color);
+        .color(Color { a: priority_color.a * alpha, ..priority_color });
     let title_label = text(if msg.title.is_empty() { msg.topic.as_str() } else { msg.title.as_str() })
         .size(12)
-        .color(FG_TEXT);
+        .color(Color { a: FG_TEXT.a * alpha, ..FG_TEXT });
     let body_label = if msg.body.is_empty() {
-        text("").size(11).color(FG_MUTED)
+        text("").size(11).color(Color { a: FG_MUTED.a * alpha, ..FG_MUTED })
     } else {
         text(msg.body.chars().take(100).collect::<String>())
             .size(11)
-            .color(FG_MUTED)
+            .color(Color { a: FG_MUTED.a * alpha, ..FG_MUTED })
     };
     let ack_ulid = msg.ulid.clone();
-    let ack_btn: Element<'_, Message> = iced::widget::Button::new(
-        text("Ack").size(10).color(FG_MUTED),
-    )
-    .padding(Padding { top: 2.0, right: 6.0, bottom: 2.0, left: 6.0 })
-    .style(|_t: &Theme, status: iced::widget::button::Status| {
-        let bg = match status {
-            iced::widget::button::Status::Hovered => Color { r: 0.18, g: 0.18, b: 0.20, a: 1.0 },
-            _ => Color::TRANSPARENT,
-        };
-        iced::widget::button::Style {
-            background: Some(Background::Color(bg)),
-            text_color: FG_MUTED,
-            border: Border {
-                color: Color { a: 0.12, ..Color::WHITE },
-                width: 1.0,
-                radius: 3.0.into(),
-            },
-            shadow: Shadow::default(),
-        }
-    })
-    .on_press(Message::AckBusMessage(ack_ulid))
-    .into();
+    // Hide the Ack button while the row is fading out (alpha < full).
+    let ack_btn: Element<'_, Message> = if alpha >= 0.99 {
+        iced::widget::Button::new(
+            text("Ack").size(10).color(FG_MUTED),
+        )
+        .padding(Padding { top: 2.0, right: 6.0, bottom: 2.0, left: 6.0 })
+        .style(|_t: &Theme, status: iced::widget::button::Status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => Color { r: 0.18, g: 0.18, b: 0.20, a: 1.0 },
+                _ => Color::TRANSPARENT,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: FG_MUTED,
+                border: Border {
+                    color: Color { a: 0.12, ..Color::WHITE },
+                    width: 1.0,
+                    radius: 3.0.into(),
+                },
+                shadow: Shadow::default(),
+            }
+        })
+        .on_press(Message::AckBusMessage(ack_ulid))
+        .into()
+    } else {
+        Space::with_width(Length::Fixed(0.0)).into()
+    };
 
     let text_col = column![topic_label, title_label, body_label].spacing(1);
     let content_row = row![
@@ -788,12 +891,32 @@ fn render_bus_row(msg: &BusPopoverMessage) -> Element<'_, Message> {
 
     container(content_row)
         .padding(Padding { top: 5.0, right: 8.0, bottom: 5.0, left: 8.0 })
-        .style(row_surface)
+        .style(move |_: &Theme| container::Style {
+            background: Some(Background::Color(Color {
+                r: 0.106,
+                g: 0.106,
+                b: 0.114,
+                a: alpha,
+            })),
+            border: Border {
+                color: Color {
+                    r: ACCENT.r,
+                    g: ACCENT.g,
+                    b: ACCENT.b,
+                    a: 0.05 * alpha,
+                },
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            text_color: Some(Color { a: FG_TEXT.a * alpha, ..FG_TEXT }),
+            shadow: Shadow::default(),
+        })
         .width(Length::Fill)
         .into()
 }
 
-fn render_row(row_data: &NotificationRow) -> Element<'_, Message> {
+/// ANIM-3.b.2 — `alpha` is the entrance stagger value (0.0→1.0).
+fn render_row(row_data: &NotificationRow, alpha: f32) -> Element<'_, Message> {
     let title_prefix = if is_phone_origin(row_data) {
         "📱 ".to_string()
     } else if !row_data.read {
@@ -801,15 +924,16 @@ fn render_row(row_data: &NotificationRow) -> Element<'_, Message> {
     } else {
         "  ".to_string()
     };
+    let text_base = if row_data.read { FG_MUTED } else { FG_TEXT };
     let title = text(format!("{title_prefix}{}", row_data.title))
         .size(13)
-        .color(if row_data.read { FG_MUTED } else { FG_TEXT });
+        .color(Color { a: text_base.a * alpha, ..text_base });
     let body = if row_data.body.is_empty() {
-        text("").size(11).color(FG_MUTED)
+        text("").size(11).color(Color { a: FG_MUTED.a * alpha, ..FG_MUTED })
     } else {
         text(row_data.body.chars().take(120).collect::<String>())
             .size(11)
-            .color(FG_MUTED)
+            .color(Color { a: FG_MUTED.a * alpha, ..FG_MUTED })
     };
     container(column![title, body].spacing(2))
         .padding(Padding {
@@ -818,7 +942,26 @@ fn render_row(row_data: &NotificationRow) -> Element<'_, Message> {
             bottom: 6.0,
             left: 10.0,
         })
-        .style(row_surface)
+        .style(move |_: &Theme| container::Style {
+            background: Some(Background::Color(Color {
+                r: 0.106,
+                g: 0.106,
+                b: 0.114,
+                a: alpha,
+            })),
+            border: Border {
+                color: Color {
+                    r: ACCENT.r,
+                    g: ACCENT.g,
+                    b: ACCENT.b,
+                    a: 0.05 * alpha,
+                },
+                width: 1.0,
+                radius: 6.0.into(),
+            },
+            text_color: Some(Color { a: FG_TEXT.a * alpha, ..FG_TEXT }),
+            shadow: Shadow::default(),
+        })
         .width(Length::Fill)
         .into()
 }
@@ -931,28 +1074,6 @@ fn popover_surface(_theme: &Theme) -> container::Style {
     }
 }
 
-fn row_surface(_theme: &Theme) -> container::Style {
-    container::Style {
-        background: Some(Background::Color(Color {
-            r: 0.106,
-            g: 0.106,
-            b: 0.114,
-            a: 1.0,
-        })),
-        border: Border {
-            color: Color {
-                r: ACCENT.r,
-                g: ACCENT.g,
-                b: ACCENT.b,
-                a: 0.05,
-            },
-            width: 1.0,
-            radius: 6.0.into(),
-        },
-        text_color: Some(FG_TEXT),
-        shadow: Shadow::default(),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -962,6 +1083,72 @@ mod tests {
     fn dimensions_pinned_for_visual_consistency() {
         assert_eq!(WIDTH, 480);
         assert_eq!(HEIGHT, 600);
+    }
+
+    // ── ANIM-3.b.2 animation helper tests ─────────────────────────
+
+    #[test]
+    fn stagger_alpha_at_zero_ms_is_transparent() {
+        // Row 0 has no delay; at t=0 the fade hasn't started yet.
+        let a = stagger_alpha(0, 0);
+        assert!(a < f32::EPSILON, "row 0 at t=0 should be fully transparent, got {a}");
+    }
+
+    #[test]
+    fn stagger_alpha_after_full_reveal_is_opaque() {
+        // Row 0 needs 0 ms delay + STAGGER_REVEAL_MS to become fully opaque.
+        let a = stagger_alpha(0, STAGGER_REVEAL_MS as u64 + 1);
+        assert!((a - 1.0).abs() < 0.01, "row 0 fully revealed should be ~1.0, got {a}");
+    }
+
+    #[test]
+    fn stagger_alpha_row_1_has_delay() {
+        // Row 1 has a delay of 1 * STAGGER_STEP_MS.
+        let delay = STAGGER_STEP_MS as u64;
+        // At exactly the delay point, elapsed = 0 → still transparent.
+        let a = stagger_alpha(1, delay);
+        assert!(a < f32::EPSILON, "row 1 at its delay onset should be transparent, got {a}");
+        // After delay + full reveal, row 1 is opaque.
+        let a2 = stagger_alpha(1, delay + STAGGER_REVEAL_MS as u64 + 1);
+        assert!((a2 - 1.0).abs() < 0.01, "row 1 fully revealed, got {a2}");
+    }
+
+    #[test]
+    fn stagger_alpha_caps_at_stagger_cap() {
+        // Row STAGGER_CAP and row STAGGER_CAP*2 must give identical alpha
+        // (cap clamps the delay).
+        let opened_ms = 500;
+        let a_cap = stagger_alpha(STAGGER_CAP, opened_ms);
+        let a_double = stagger_alpha(STAGGER_CAP * 2, opened_ms);
+        assert!(
+            (a_cap - a_double).abs() < f32::EPSILON,
+            "rows beyond cap should have identical alpha"
+        );
+    }
+
+    #[test]
+    fn max_entrance_ms_matches_token_math() {
+        // Verify the constant matches the hand-computed value.
+        let expected =
+            (STAGGER_CAP as u64 - 1) * STAGGER_STEP_MS as u64 + STAGGER_REVEAL_MS as u64;
+        assert_eq!(MAX_ENTRANCE_MS, expected);
+    }
+
+    #[test]
+    fn dismiss_alpha_starts_near_one() {
+        // A freshly-started dismiss should be close to 1.0.
+        let start = Instant::now();
+        let a = dismiss_alpha(start);
+        assert!(a > 0.90, "fresh dismiss should be nearly opaque, got {a}");
+    }
+
+    #[test]
+    fn dismiss_alpha_clamps_to_zero_after_duration() {
+        use std::time::Duration;
+        // Simulate a start time well in the past (> DISMISS_ANIM_MS ago).
+        let past = Instant::now() - Duration::from_millis(DISMISS_ANIM_MS + 50);
+        let a = dismiss_alpha(past);
+        assert!(a < f32::EPSILON, "completed dismiss should be 0.0, got {a}");
     }
 
 

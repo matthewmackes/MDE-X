@@ -51,6 +51,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # XDG home + cache paths (matches mde-panel + mackesd).
 dirs = "5"
 
+# ANIM-3.b.2 — motion token constants (stagger + dismiss timing).
+mde-theme = { path = "../mde-theme" }
+
 [dev-dependencies]
 # Watermark + admin-menu tests use tempdir for filesystem
 # round-trips (cached count file, build-meta probe).
