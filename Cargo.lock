@@ -4205,6 +4205,7 @@ dependencies = [
  "mde-config",
  "mde-iced-components",
  "mde-mesh-types",
+ "mde-musicd",
  "mde-theme",
  "serde",
  "serde_json",

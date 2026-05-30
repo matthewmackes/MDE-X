@@ -72,6 +72,10 @@ mde-theme = { path = "../mde-theme", features = ["iced"] }
 # mde-popover, mde-music) can render the canonical Material Object
 # Card without taking a dep on the entire workbench crate.
 mde-iced-components = { path = "../mde-iced-components" }
+# AIR-20 (2026-05-30) — the Devices → Music settings panel reuses the
+# music daemon's creds + cache + airsonic-client modules so the panel
+# and `mde-musicd` agree byte-for-byte on storage paths + auth.
+mde-musicd = { path = "../mde-musicd" }
 
 [features]
 # `wayland` (default): Iced renders via Wayland/wgpu.

@@ -21,6 +21,7 @@ pub mod health_check;
 pub mod help_index;
 pub mod keyboard;
 pub mod mouse;
+pub mod music;
 pub mod home;
 pub mod hub;
 pub mod inventory;

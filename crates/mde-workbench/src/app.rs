@@ -29,7 +29,7 @@ use crate::panels::{
     inventory as inventory_panel, keyboard as keyboard_panel,
     logs as logs_panel, mesh_bus as mesh_bus_panel, mesh_control as mesh_control_panel,
     mesh_federation as mesh_federation_panel,
-    mouse as mouse_panel,
+    mouse as mouse_panel, music as music_panel,
     mesh_history as mesh_history_panel, mesh_join as mesh_join_panel,
     mesh_pending as mesh_pending_panel,
     mesh_services as mesh_services_panel,
@@ -134,6 +134,8 @@ pub enum Message {
     SoundRefresh,
     /// CB-1.4.c — Devices printers panel sub-message.
     Printers(printers_panel::Message),
+    /// AIR-20 — Devices → Music settings panel sub-message.
+    Music(music_panel::Message),
     /// CB-1.4.c — Devices printers panel Refresh button.
     /// Re-runs the panel's Load so a newly-added CUPS queue
     /// shows up in the picker.
@@ -229,6 +231,7 @@ pub struct App {
     mouse: mouse_panel::MousePanel,
     sound: sound_panel::SoundPanel,
     printers: printers_panel::PrintersPanel,
+    music: music_panel::MusicPanel,
     /// v4.0.1 WB-1 — Connected Devices panel state. Hosts the
     /// paired-peer list + per-row action handlers.
     connect: connect_panel::ConnectPanel,
@@ -333,6 +336,7 @@ impl App {
             mouse: mouse_panel::MousePanel::new(),
             sound: sound_panel::SoundPanel::new(),
             printers: printers_panel::PrintersPanel::new(),
+            music: music_panel::MusicPanel::new(),
             connect: connect_panel::ConnectPanel::new(),
             home: home_panel::HomePanel::new(),
             hub: hub_panel::HubPanel::new(),
@@ -699,6 +703,7 @@ impl App {
                 Task::none()
             }
             Message::Printers(msg) => self.printers.update(msg),
+            Message::Music(msg) => self.music.update(msg),
             Message::PrintersRefresh => printers_panel::PrintersPanel::load(),
             Message::Inventory(msg) => self.inventory.update(msg),
             Message::Playbooks(msg) => self.playbooks.update(msg),
@@ -774,6 +779,7 @@ impl App {
             (Group::Devices, "mouse") => mouse_panel::MousePanel::load(self.backend()),
             (Group::Devices, "sound") => sound_panel::SoundPanel::load(),
             (Group::Devices, "printers") => printers_panel::PrintersPanel::load(),
+            (Group::Devices, "music") => music_panel::MusicPanel::load(),
             // v4.0.1 WB-1 (Phase 0.7 rescue): Connected Devices
             // panel. Real D-Bus subscription wiring chains on
             // KDC2-3.9 signals; the panel.load() returns
@@ -989,6 +995,10 @@ impl App {
                 group: Group::Devices,
                 panel: "printers",
             } => self.printers.view(),
+            View::Panel {
+                group: Group::Devices,
+                panel: "music",
+            } => self.music.view(),
             View::Panel {
                 group: Group::Devices,
                 panel: "connect",

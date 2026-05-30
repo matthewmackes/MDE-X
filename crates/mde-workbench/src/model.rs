@@ -187,6 +187,7 @@ pub fn nav_model() -> Vec<NavEntry> {
                 Panel::new("power", "Power"),
                 Panel::new("sound", "Sound"),
                 Panel::new("printers", "Printers"),
+                Panel::new("music", "Music"),
                 Panel::new("removable", "Removable Media"),
                 // v4.0.1 WB-1 (Phase 0.7 rescue 2026-05-23):
                 // wire the Connected Devices surface that
