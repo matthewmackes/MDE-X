@@ -5671,12 +5671,13 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   - [ ] No behaviour change to the click-to-navigate flow.
   **Implementation notes:**
     - Blockers: CR-2 (Workbench shell retrofit owns the sidebar primitive; reuses the same widget once it lands in `mde_iced_components` or `panel_chrome`).
-- [ ] **CR-4.d: v2.6 — mde-files list-view rows use Classic ChromeOS density.** *(split from CR-4 2026-05-25)*
+- [✓] **CR-4.d: v2.6 — mde-files list-view rows use Classic ChromeOS density.** *(split from CR-4 2026-05-25)*
   **As** an operator switching to list view, **I want** rows to use the Classic ChromeOS density spec (28 px row height, Roboto 13 px, 1 px sharp dividers, indigo selection) so the list reads like the Workbench data tables.
   **Acceptance:**
-  - [ ] List-view rows render at 28 px height with Roboto 13 px text + 1 px `#3c4043` dividers.
-  - [ ] Selection state uses indigo `#5b6af5` overlay at 15 %.
+  - [✓] List-view rows render at 28 px height with Roboto 13 px text + 1 px `#3c4043` dividers.
+  - [✓] Selection state uses indigo `#5b6af5` overlay at 15 %.
   - [ ] Bench-verify: list view side-by-side with Workbench table — same density rhythm.
+  Shipped da35c3bc: `list_row()` + `LIST_ROW_DIVIDER`/`LIST_SELECTION_BG` tokens; `peer_folder` branches on `Layout::List`↔`Grid`. Bench-verify bullet is release-gate item per §0.15.
   **Implementation notes:**
     - Spec: `docs/design/chromeos-classic-spec.md` §Lists + tables.
     - Blockers: CR-1 ✓.
