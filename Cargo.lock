@@ -3969,6 +3969,8 @@ name = "mde-kdc"
 version = "0.0.0"
 dependencies = [
  "async-trait",
+ "base64",
+ "chrono",
  "flume",
  "mackes-transport",
  "mde-kdc-proto",
@@ -3985,6 +3987,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "toml",
+ "ulid",
  "zbus 5.15.0",
 ]
 

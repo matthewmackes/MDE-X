@@ -30,6 +30,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+// BUS-5.9 — KDC2 clipboard bridge: phone→bus + bus→phone.
+pub mod clip_bridge;
 pub mod dbus;
 pub mod discovery;
 pub mod dispatch;

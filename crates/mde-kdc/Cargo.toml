@@ -81,6 +81,11 @@ serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml       = "0.8"
 
+# BUS-5.9 — clip_bridge: phone↔mesh clipboard bus message format.
+ulid   = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+base64 = "0.22"
+
 [dev-dependencies]
 tempfile = "3"
 

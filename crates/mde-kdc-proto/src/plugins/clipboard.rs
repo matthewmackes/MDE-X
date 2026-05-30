@@ -172,21 +172,91 @@ mod tests {
         plugin.process(&bad, &ctx);
         assert_eq!(plugin.pending_count(), 0);
     }
+
+    // BUS-5.9 — mesh→phone outbound direction.
+
+    #[test]
+    fn push_clipboard_queues_kdeconnect_packet() {
+        let mut plugin = ClipboardPlugin::new();
+        plugin.push_clipboard("from mesh".to_string());
+        assert_eq!(plugin.outbound_count(), 1);
+        let pkts = plugin.take_outbound();
+        assert_eq!(pkts.len(), 1);
+        assert_eq!(pkts[0].kind, "kdeconnect.clipboard");
+        let body: ClipboardBody = from_packet_body(&pkts[0]).unwrap();
+        assert_eq!(body.content, "from mesh");
+    }
+
+    #[test]
+    fn take_outbound_drains_queue() {
+        let mut plugin = ClipboardPlugin::new();
+        plugin.push_clipboard("a".to_string());
+        plugin.push_clipboard("b".to_string());
+        assert_eq!(plugin.outbound_count(), 2);
+        let first = plugin.take_outbound();
+        assert_eq!(first.len(), 2);
+        assert_eq!(plugin.outbound_count(), 0);
+    }
+
+    #[test]
+    fn outbound_and_received_are_independent_queues() {
+        let mut plugin = ClipboardPlugin::new();
+        let ctx = PluginContext::new("phone", true);
+        // Simulate a phone-to-mesh inbound.
+        plugin.process(&clipboard_packet(1, "from phone".into()), &ctx);
+        // Queue a mesh-to-phone outbound.
+        plugin.push_clipboard("from mesh".to_string());
+
+        assert_eq!(plugin.pending_count(), 1);
+        assert_eq!(plugin.outbound_count(), 1);
+
+        let received = plugin.take_received();
+        assert_eq!(received[0].content, "from phone");
+        let outbound = plugin.take_outbound();
+        let out_body: ClipboardBody = from_packet_body(&outbound[0]).unwrap();
+        assert_eq!(out_body.content, "from mesh");
+    }
+
+    #[test]
+    fn push_clipboard_id_is_recent_unix_ms() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let before = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let mut plugin = ClipboardPlugin::new();
+        plugin.push_clipboard("ts-check".to_string());
+        let pkts = plugin.take_outbound();
+        let after = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        assert!(pkts[0].id >= before, "id must be at or after call time");
+        assert!(pkts[0].id <= after, "id must be at or before now");
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
 // KDC2-2.14 — ClipboardPlugin (Plugin trait impl, adapter pattern)
 // ────────────────────────────────────────────────────────────────
 
-/// `Plugin` impl that mirrors inbound clipboard content.
+/// `Plugin` impl that mirrors inbound clipboard content and queues
+/// outbound clipboard packets for the mesh→phone direction.
 ///
 /// Adapter pattern (same as `NotificationPlugin`): the protocol
-/// crate stays pure. Host (`mde-kdc`) drains via
-/// `take_received()` and writes to the local clipboard (via
-/// `wl-copy` on Wayland or equivalent).
+/// crate stays pure. Host (`mde-kdc`) drains via:
+/// - `take_received()` — phone→mesh direction; host writes each body
+///   to the `clipboard/sync` Bus topic (`clip_bridge::phone_to_bus`).
+/// - `take_outbound()` — mesh→phone direction; host sends each
+///   queued packet to the paired phone over TLS. Packets are added
+///   via `push_clipboard()` when the host's `clip_bridge` detects a
+///   new Bus entry from another mesh peer.
 #[derive(Debug, Default)]
 pub struct ClipboardPlugin {
     received: Vec<ClipboardBody>,
+    /// Proactive outbound packets queued for the paired phone
+    /// (mesh clipboard → phone). Drained by the host on each tick.
+    outbound: Vec<crate::wire::Packet>,
     handles: [&'static str; 1],
 }
 
@@ -196,20 +266,47 @@ impl ClipboardPlugin {
     pub fn new() -> Self {
         Self {
             received: Vec::new(),
+            outbound: Vec::new(),
             handles: ["kdeconnect.clipboard"],
         }
     }
 
-    /// Drain every received clipboard body.
+    /// Drain every received clipboard body (phone → mesh).
     #[must_use]
     pub fn take_received(&mut self) -> Vec<ClipboardBody> {
         std::mem::take(&mut self.received)
     }
 
-    /// Items currently queued.
+    /// Items currently queued (phone → mesh).
     #[must_use]
     pub fn pending_count(&self) -> usize {
         self.received.len()
+    }
+
+    /// Queue `content` as a `kdeconnect.clipboard` packet to send to
+    /// the paired phone (mesh → phone). Caller passes new mesh
+    /// clipboard text detected by `mde_kdc::clip_bridge`. The host
+    /// drains via `take_outbound()` and writes to the phone's TLS
+    /// socket.
+    pub fn push_clipboard(&mut self, content: String) {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let id_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        self.outbound.push(clipboard_packet(id_ms, content));
+    }
+
+    /// Drain every outbound clipboard packet (mesh → phone).
+    #[must_use]
+    pub fn take_outbound(&mut self) -> Vec<crate::wire::Packet> {
+        std::mem::take(&mut self.outbound)
+    }
+
+    /// Outbound items currently queued.
+    #[must_use]
+    pub fn outbound_count(&self) -> usize {
+        self.outbound.len()
     }
 }
 
@@ -230,6 +327,8 @@ impl crate::plugins::Plugin for ClipboardPlugin {
         if let Ok(body) = from_packet_body::<ClipboardBody>(packet) {
             self.received.push(body);
         }
+        // Proactive outbound packets are drained by the host via
+        // take_outbound(), not as responses to inbound packets.
         Vec::new()
     }
 }
