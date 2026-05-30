@@ -117,7 +117,7 @@ pub mod dialog {
     pub const BUTTON_GAP: f32 = 8.0;
 }
 
-/// CR-10 — toast / notification chip constants.
+/// CR-10 / ANIM-3.b.1 — toast / notification chip constants.
 /// Classic ChromeOS spec 2026-05-24.
 pub mod toast {
     /// Fixed chip width (px).
@@ -128,6 +128,17 @@ pub mod toast {
     pub const PROGRESS_HEIGHT: f32 = 2.0;
     /// Gap above the Shelf (px).
     pub const POSITION_GAP: f32 = 8.0;
+    // ANIM-3.b.1 — Q97 action-button inline-expand tokens.
+    /// Action button text size (sp). Small so buttons don't crowd the chip.
+    pub const ACTION_SIZE: f32 = 12.0;
+    /// Horizontal padding inside each action button (px).
+    pub const ACTION_H_PAD: f32 = 8.0;
+    /// Vertical padding inside each action button (px).
+    pub const ACTION_V_PAD: f32 = 4.0;
+    /// Alpha for action button text in resting (non-hover) state.
+    pub const ACTION_RESTING_ALPHA: f32 = 0.65;
+    /// Alpha for the accent-tinted hover background on action buttons.
+    pub const ACTION_HOVER_BG_ALPHA: f32 = 0.12;
 }
 
 /// ANIM-4 — list/stagger + skeleton + selection timing tokens.
@@ -162,7 +173,7 @@ pub mod list {
     pub const SKELETON_CROSSFADE_MS: u32 = 150;
 }
 
-/// CR-10 — right-click context menu constants.
+/// CR-10 / ANIM-3.b.1 — right-click context menu constants.
 /// Classic ChromeOS spec 2026-05-24.
 pub mod context_menu {
     /// Minimum menu width (px).
@@ -179,6 +190,19 @@ pub mod context_menu {
     pub const LABEL_L_PAD: f32 = 8.0;
     /// Right padding for the kbd shortcut column (px).
     pub const KBD_R_PAD: f32 = 12.0;
+    // ANIM-3.b.1 — Q44 open stagger tokens.
+    /// Overall menu fade-in + item stagger window (ms). Approximates
+    /// "grow from cursor" in iced 0.13 (no scale transforms available).
+    /// Cite: motion-language.md §2.3.
+    pub const OPEN_FADE_MS: u32 = 120;
+    /// Maximum items that stagger individually. Items at or beyond this
+    /// index all appear at the cap delay. Mirrors list::STAGGER_CAP.
+    pub const ITEM_STAGGER_CAP: usize = 8;
+    /// Per-item stagger step (ms). Mirrors list::STAGGER_STEP_MS.
+    pub const ITEM_STAGGER_STEP_MS: u32 = 20;
+    /// Each item's individual fade-in duration (ms). Shorter than
+    /// OPEN_FADE_MS so late items settle quickly.
+    pub const ITEM_REVEAL_MS: u32 = 80;
 }
 
 #[cfg(test)]
@@ -267,5 +291,22 @@ mod tests {
     fn list_shimmer_period_is_1200ms() {
         // Q19: shimmer sweeps once per 1200ms.
         assert_eq!(list::SHIMMER_PERIOD_MS, 1200);
+    }
+
+    #[test]
+    fn context_menu_stagger_tokens_match_design_lock() {
+        // ANIM-3.b.1 Q44: cap mirrors list, step 20ms, reveal 80ms.
+        assert_eq!(context_menu::ITEM_STAGGER_CAP, 8);
+        assert_eq!(context_menu::ITEM_STAGGER_STEP_MS, 20);
+        assert_eq!(context_menu::ITEM_REVEAL_MS, 80);
+        assert_eq!(context_menu::OPEN_FADE_MS, 120);
+    }
+
+    #[test]
+    fn toast_action_tokens_match_design_lock() {
+        // ANIM-3.b.1 Q97: action button resting at 65%, hover bg 12% alpha.
+        assert!((toast::ACTION_SIZE - 12.0).abs() < f32::EPSILON);
+        assert!((toast::ACTION_RESTING_ALPHA - 0.65).abs() < f32::EPSILON);
+        assert!((toast::ACTION_HOVER_BG_ALPHA - 0.12).abs() < f32::EPSILON);
     }
 }

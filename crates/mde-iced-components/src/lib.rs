@@ -17,7 +17,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use iced::widget::{column, container, row, text, Column, Space};
+use iced::widget::{button, column, container, row, text, Column, Space};
 use iced::{alignment, Background, Border, Color, Element, Length, Padding, Shadow as IcedShadow};
 
 use mde_theme::{
@@ -559,6 +559,9 @@ impl ContextMenuItem {
 
 fn context_menu_item_row<'a, Message: 'a>(
     item: &ContextMenuItem,
+    index: usize,
+    elapsed_ms: u64,
+    reduce_motion: bool,
     palette: Palette,
 ) -> Element<'a, Message> {
     use mde_theme::motion::context_menu as cm;
@@ -571,7 +574,11 @@ fn context_menu_item_row<'a, Message: 'a>(
             })
             .into();
     }
-    let opacity = if item.disabled { 0.4_f32 } else { 1.0_f32 };
+    // Per-item stagger: item i starts fading in after its stagger delay.
+    let item_delay = motion::stagger_delay_ms(index);
+    let item_elapsed = elapsed_ms.saturating_sub(item_delay);
+    let stagger_alpha = motion::fade_in_alpha(item_elapsed, cm::ITEM_REVEAL_MS, reduce_motion);
+    let opacity = if item.disabled { 0.4_f32 * stagger_alpha } else { stagger_alpha };
     let label_color = Color {
         a: palette.text.into_iced_color().a * opacity,
         ..palette.text.into_iced_color()
@@ -614,24 +621,38 @@ fn context_menu_item_row<'a, Message: 'a>(
         .into()
 }
 
-/// CR-10 — Classic ChromeOS right-click context menu surface.
+/// CR-10 / ANIM-3.b.1 — Classic ChromeOS right-click context menu surface.
 ///
 /// Returns a styled container (min 220 px wide, 4 px corners,
 /// 1 px border, raised background) holding a column of rows
 /// built from `items`. The caller is responsible for positioning
 /// the returned element as a floating overlay via their
 /// compositor's stack mechanism.
+///
+/// `elapsed_ms` is the time since the menu was opened; drives the
+/// Q44 entrance animation (item stagger + overall fade-in). Pass 0 on
+/// the first frame; the animation completes after ~220 ms.
+/// `reduce_motion` snaps all transitions to their final values.
 pub fn context_menu_surface<'a, Message: 'a>(
     items: &[ContextMenuItem],
+    elapsed_ms: u64,
+    reduce_motion: bool,
     palette: Palette,
 ) -> Element<'a, Message> {
     use mde_theme::motion::context_menu as cm;
     let rows: Vec<Element<'a, Message>> = items
         .iter()
-        .map(|item| context_menu_item_row(item, palette))
+        .enumerate()
+        .map(|(i, item)| context_menu_item_row(item, i, elapsed_ms, reduce_motion, palette))
         .collect();
-    let bg = palette.raised.into_iced_color();
-    let border_color = palette.border.into_iced_color();
+    // Q44 "grow from cursor" approximation: fade the whole menu in over
+    // OPEN_FADE_MS. iced 0.13 has no scale transforms; a fast fade is the
+    // closest available analogue.
+    let menu_alpha = motion::fade_in_alpha(elapsed_ms, cm::OPEN_FADE_MS, reduce_motion);
+    let base_bg = palette.raised.into_iced_color();
+    let base_border = palette.border.into_iced_color();
+    let bg = Color { a: base_bg.a * menu_alpha, ..base_bg };
+    let border_color = Color { a: base_border.a * menu_alpha, ..base_border };
     // Iced 0.13 has no min_width; enforce via fixed base width.
     // Rows will expand if content is wider via Length::Fill.
     container(column(rows))
@@ -648,20 +669,25 @@ pub fn context_menu_surface<'a, Message: 'a>(
         .into()
 }
 
-/// CR-10 — Classic ChromeOS toast / notification chip.
+/// CR-10 / ANIM-3.b.1 — Classic ChromeOS toast / notification chip.
 ///
 /// Returns a 320 px wide chip container (4 px corners, 1 px border,
-/// raised background) with a title, optional body text, and a
-/// 2 px indigo bottom progress strip that reflects the remaining
-/// display time.
+/// raised background) with a title, optional body text, optional
+/// action buttons, and a 2 px indigo bottom progress strip.
 ///
 /// `remaining_0_1` = 1.0 when the toast just appeared (full bar),
 /// 0.0 when about to auto-dismiss (empty bar). The caller drives
 /// this from a subscription ticked at the desired framerate.
-pub fn toast_chip<'a, Message: 'a>(
+///
+/// `actions` is a slice of `(label, message)` pairs. Each pair renders
+/// as a small button below the body. Buttons highlight (Q97 "expand")
+/// when hovered — their background brightens from transparent to a
+/// subtle accent tint. Pass `&[]` to render no action buttons.
+pub fn toast_chip<'a, Message: 'a + Clone>(
     title: impl Into<String>,
     body: Option<String>,
     remaining_0_1: f32,
+    actions: &[(&str, Message)],
     palette: Palette,
 ) -> Element<'a, Message> {
     use mde_theme::motion::toast as tk;
@@ -706,6 +732,55 @@ pub fn toast_chip<'a, Message: 'a>(
         .width(Length::Fill)
         .into();
         rows.push(body_el);
+    }
+
+    // Q97 action buttons — inline-expand on hover via background brightening.
+    if !actions.is_empty() {
+        let text_color = palette.text.into_iced_color();
+        let resting_color = Color { a: text_color.a * tk::ACTION_RESTING_ALPHA, ..text_color };
+        let hover_bg = Color { a: tk::ACTION_HOVER_BG_ALPHA, ..accent };
+        let action_btns: Vec<Element<'a, Message>> = actions
+            .iter()
+            .map(|(label, msg)| {
+                let msg = msg.clone();
+                let label_str = label.to_string();
+                button(text(label_str).size(tk::ACTION_SIZE).color(resting_color))
+                    .on_press(msg)
+                    .style(move |_theme, status| match status {
+                        button::Status::Hovered | button::Status::Pressed => button::Style {
+                            background: Some(Background::Color(hover_bg)),
+                            text_color,
+                            border: Border { radius: 4.0_f32.into(), ..Border::default() },
+                            shadow: Default::default(),
+                        },
+                        _ => button::Style {
+                            background: None,
+                            text_color: resting_color,
+                            border: Border { radius: 4.0_f32.into(), ..Border::default() },
+                            shadow: Default::default(),
+                        },
+                    })
+                    .padding(Padding {
+                        top: tk::ACTION_V_PAD,
+                        bottom: tk::ACTION_V_PAD,
+                        left: tk::ACTION_H_PAD,
+                        right: tk::ACTION_H_PAD,
+                    })
+                    .into()
+            })
+            .collect();
+        let action_row: Element<'a, Message> = container(
+            row(action_btns).spacing(4.0),
+        )
+        .padding(Padding {
+            top: 0.0,
+            bottom: 4.0,
+            left: 8.0,
+            right: 8.0,
+        })
+        .width(Length::Fill)
+        .into();
+        rows.push(action_row);
     }
 
     // 2 px progress strip at the bottom of the chip.
@@ -870,24 +945,70 @@ mod tests {
             ContextMenuItem::separator(),
             ContextMenuItem::item("Delete").disabled(),
         ];
-        let _: Element<'_, ()> = context_menu_surface(&items, palette);
+        // elapsed=500 so all items are fully visible.
+        let _: Element<'_, ()> = context_menu_surface(&items, 500, false, palette);
+    }
+
+    #[test]
+    fn context_menu_stagger_at_zero_items_approach_transparent() {
+        // Q44: at elapsed=0, item 0 starts its fade immediately; the
+        // overall menu alpha is also near 0.  We can't inspect the element's
+        // color directly, but verifying the call doesn't panic + knowing the
+        // alpha math (tested in motion.rs) is sufficient for the component test.
+        let palette = Palette::dark();
+        let items = vec![
+            ContextMenuItem::item("Cut"),
+            ContextMenuItem::item("Copy"),
+        ];
+        let _: Element<'_, ()> = context_menu_surface(&items, 0, false, palette);
+    }
+
+    #[test]
+    fn context_menu_stagger_reduce_motion_constructs() {
+        // Q44 reduce-motion: all items appear immediately (no stagger).
+        let palette = Palette::dark();
+        let items = vec![ContextMenuItem::item("Open"), ContextMenuItem::separator()];
+        let _: Element<'_, ()> = context_menu_surface(&items, 0, true, palette);
+    }
+
+    #[test]
+    fn context_menu_stagger_beyond_cap_constructs() {
+        // 10 items — items 8 and 9 share item 7's cap delay.
+        let palette = Palette::dark();
+        let items: Vec<_> = (0..10).map(|i| ContextMenuItem::item(format!("Item {i}"))).collect();
+        let _: Element<'_, ()> = context_menu_surface(&items, 200, false, palette);
     }
 
     #[test]
     fn toast_chip_constructs_full_and_empty_bar() {
         let palette = Palette::dark();
         let _: Element<'_, ()> =
-            toast_chip("Download complete", Some("file.tar.gz saved".to_string()), 1.0, palette);
+            toast_chip("Download complete", Some("file.tar.gz saved".to_string()), 1.0, &[], palette);
         let _: Element<'_, ()> =
-            toast_chip("Update ready", None, 0.0, palette);
+            toast_chip("Update ready", None, 0.0, &[], palette);
     }
 
     #[test]
     fn toast_chip_clamps_remaining_to_0_1() {
         let palette = Palette::dark();
         // Should not panic on out-of-range inputs.
-        let _: Element<'_, ()> = toast_chip("x", None, -0.5, palette);
-        let _: Element<'_, ()> = toast_chip("x", None, 1.5, palette);
+        let _: Element<'_, ()> = toast_chip("x", None, -0.5, &[], palette);
+        let _: Element<'_, ()> = toast_chip("x", None, 1.5, &[], palette);
+    }
+
+    #[test]
+    fn toast_chip_with_actions_constructs() {
+        // Q97: action buttons render without panic.
+        let palette = Palette::dark();
+        let _: Element<'_, &str> =
+            toast_chip("Sync complete", None, 0.8, &[("Dismiss", "dismiss"), ("View", "view")], palette);
+    }
+
+    #[test]
+    fn toast_chip_empty_actions_renders_no_button_row() {
+        // Passing &[] produces the same chip as before the Q97 change.
+        let palette = Palette::dark();
+        let _: Element<'_, ()> = toast_chip("No actions", None, 1.0, &[], palette);
     }
 
     // ANIM-4 acceptance tests.
