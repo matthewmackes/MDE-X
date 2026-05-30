@@ -4142,6 +4142,8 @@ dependencies = [
  "async-trait",
  "dirs 5.0.1",
  "mackesd",
+ "mde-bus",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",

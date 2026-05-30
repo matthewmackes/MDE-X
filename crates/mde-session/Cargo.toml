@@ -29,6 +29,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 mackesd-core = { package = "mackesd", path = "../mackesd", features = ["async-services"] }
 # XDG path resolution (same crate mackesd uses).
 dirs = "5"
+# DBUS-1 — the session lifecycle surface migrated from the
+# `dev.mackes.MDE.Session` D-Bus interface to Bus `action/session/<verb>`
+# per the Q96 Bus-canonical lock (EPIC-RETIRE-DBUS).
+mde-bus = { path = "../mde-bus" }
+# DBUS-1 — JSON Bus reply bodies (`{ok,error}`).
+serde_json = "1"
 
 [features]
 # `wayland` (default): sway compositor + swaylock screen locker.

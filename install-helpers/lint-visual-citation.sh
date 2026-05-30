@@ -68,7 +68,10 @@ VISUAL_SURFACES_REGEX='^(crates/mde-[^/]+/src/.*\.rs$|data/css/.*\.css$|data/pre
 #                      has no rendered Iced view() itself.
 #   mde-bus          — Bus CLI + broker daemon (ntfy, SQLite, subs watcher,
 #                      webhook listener); pure headless, no Iced UI.
-NON_VISUAL_CRATES_REGEX='^crates/(mde-installer|mde-alert-emit|mde-kdc|mde-kdc-proto|mde-mesh-types|mde-clipd|mde-musicd|mde-theme|mde-bus)/'
+#   mde-session      — session lifecycle manager (spawns the compositor,
+#                      handles signals, serves action/session/* on the Bus);
+#                      no Iced view() of its own.
+NON_VISUAL_CRATES_REGEX='^crates/(mde-installer|mde-alert-emit|mde-kdc|mde-kdc-proto|mde-mesh-types|mde-clipd|mde-musicd|mde-session|mde-theme|mde-bus)/'
 
 # Get the staged files (commit-msg hook) OR HEAD's modified
 # files (stand-alone mode).

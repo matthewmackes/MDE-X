@@ -116,12 +116,27 @@ async fn main() -> anyhow::Result<()> {
     //    suppress system-wide entries.
     autostart::launch_user_autostart().await;
 
-    // 2. Register the dev.mackes.MDE.Session zbus interface so the
-    //    panel + Workbench can drive Logout / Restart / Lock.
+    // 2. DBUS-1 — serve the session lifecycle verbs on the Bus
+    //    (action/session/{logout,restart,shutdown,lock,save-layout}),
+    //    replacing the retired dev.mackes.MDE.Session D-Bus interface
+    //    (Q96). Runs on a detached thread with its own current-thread
+    //    runtime — `Persist` (rusqlite) isn't `Send`, so it can't live
+    //    on this multi-thread async executor. The thread exits with the
+    //    process on SIGTERM tear-down below.
     let session = session::SessionState::new();
-    let _conn = session::register_zbus(session.clone())
-        .await
-        .context("registering dev.mackes.MDE.Session")?;
+    std::thread::Builder::new()
+        .name("session-bus".into())
+        .spawn(move || {
+            let Some(bus_root) = mde_bus::default_data_dir() else {
+                tracing::warn!("session responder: no Bus data dir; lifecycle verbs unavailable");
+                return;
+            };
+            match mde_bus::persist::Persist::open(bus_root) {
+                Ok(persist) => session::serve_bus(&persist, &session, || false),
+                Err(e) => tracing::warn!("session responder: opening Bus store: {e}"),
+            }
+        })
+        .context("spawning the session Bus responder thread")?;
 
     // 3. Exec the compositor.
     let cmp = compositor_cmd();

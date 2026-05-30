@@ -39,19 +39,17 @@ pub mod notifications;
 // mackesd callers (idle-lock, alert relay, DND sync) import
 // PortalClient::new + call .lock() / .goto() / .toggle_dnd().
 pub mod portal;
-pub mod session;
+// DBUS-1 (2026-05-30): the `session` D-Bus interface module was retired
+// — the session lifecycle surface migrated to Bus `action/session/<verb>`
+// in `crates/mde-session/src/session.rs` (Q96 / EPIC-RETIRE-DBUS). The
+// `mackesd` placeholder (never served) + its dead `org.mackes.session`
+// name + `/org/mackes/Session` path were removed with it.
 pub mod settings;
 pub mod shell;
 
 /// Convenience: the well-known bus name mackesd registers on the
 /// session bus.
 pub const MACKESD_BUS_NAME: &str = "org.mackes.mackesd";
-
-/// Convenience: the well-known bus name mackes-session registers on
-/// the session bus. Lives here (not in the mackes-session crate) so
-/// every consumer (panel applets, Workbench panels) imports it from
-/// one place.
-pub const MACKES_SESSION_BUS_NAME: &str = "org.mackes.session";
 
 /// Convenience: the canonical object path for each service.
 pub mod paths {
@@ -62,8 +60,6 @@ pub mod paths {
     /// `/org/freedesktop/Notifications` — matches the freedesktop
     /// spec so libnotify clients work unchanged.
     pub const NOTIFICATIONS: &str = "/org/freedesktop/Notifications";
-    /// `/org/mackes/Session`
-    pub const SESSION: &str = "/org/mackes/Session";
     /// `/org/mackes/Fleet`
     pub const FLEET: &str = "/org/mackes/Fleet";
     /// `/dev/mackes/MDE/Portal` — v6.0 Portal-1.

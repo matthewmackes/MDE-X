@@ -1,17 +1,33 @@
-//! `dev.mackes.MDE.Session` zbus surface (Phase D.1).
+//! Session lifecycle control surface (DBUS-1 — migrated to Bus).
 //!
-//! Server-side impl of the interface shape declared in
-//! `mackesd_core::ipc::session`. The Workbench Python panels +
-//! mde-panel applets call these methods to drive lifecycle events.
+//! Per the Q96 Bus-canonical lock (EPIC-RETIRE-DBUS), the session
+//! lifecycle verbs (logout / restart / shutdown / lock / save-layout)
+//! are served on the Bus at `action/session/<verb>` instead of the
+//! retired `dev.mackes.MDE.Session` D-Bus interface. The
+//! `mde-logout-dialog` + panel publish a request on the action topic;
+//! this responder applies the effect and replies on `reply/<ulid>`.
+//!
+//! The verb → action mapping ([`action_for_verb`]) is a pure function
+//! (unit-tested); [`apply`] performs the side effects (kill / systemctl
+//! / lock / wm get_tree), which are exercised at the §0.15 HW bench.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use mde_bus::hooks::config::Priority;
+use mde_bus::persist::Persist;
+use mde_bus::rpc::reply_topic;
+use serde_json::json;
 use tokio::sync::Mutex;
-use zbus::interface;
 
-/// Per-session state owned by the server. Tracks the saved layout
-/// path + the lock command preference. Wrapped in Arc<Mutex<>> so
-/// the zbus interface (which holds `&self`) can mutate it.
+/// Poll cadence for the action topics.
+pub const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// The lifecycle verbs served on `action/session/<verb>`.
+pub const ACTION_VERBS: [&str; 5] = ["logout", "restart", "shutdown", "lock", "save-layout"];
+
+/// Per-session state owned by the responder. Tracks whether the layout
+/// was saved this session.
 #[derive(Clone, Debug, Default)]
 pub struct SessionState {
     inner: Arc<Mutex<Inner>>,
@@ -30,89 +46,136 @@ impl SessionState {
     }
 }
 
-#[interface(name = "dev.mackes.MDE.Session")]
-impl SessionState {
-    /// Request a clean logout (sway exits, graphical-session.target
-    /// stops, user returned to the greeter).
-    async fn logout(&self) -> zbus::fdo::Result<()> {
-        tracing::info!("Session.Logout invoked");
-        // The Iced logout dialog (Phase D.2) takes the user's
-        // confirmation first; this method is what it calls after
-        // the user clicks "Log out". Effect: signal mde-session
-        // (parent process) via SIGTERM. systemd's
-        // graphical-session.target tear-down handles the rest.
-        let pid = std::process::id();
-        // Sending SIGTERM to our own PID without unsafe (which the
-        // workspace forbids) means shelling out to `kill`.
-        let _ = std::process::Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .status();
-        Ok(())
-    }
+/// A session lifecycle action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionAction {
+    Logout,
+    Restart,
+    Shutdown,
+    Lock,
+    SaveLayout,
+}
 
-    /// Reboot the machine via `systemctl reboot`.
-    async fn restart(&self) -> zbus::fdo::Result<()> {
-        tracing::info!("Session.Restart invoked");
-        let _ = std::process::Command::new("systemctl")
-            .arg("reboot")
-            .status();
-        Ok(())
-    }
-
-    /// Power-off via `systemctl poweroff`.
-    async fn shutdown(&self) -> zbus::fdo::Result<()> {
-        tracing::info!("Session.Shutdown invoked");
-        let _ = std::process::Command::new("systemctl")
-            .arg("poweroff")
-            .status();
-        Ok(())
-    }
-
-    /// Lock the session — runs the configured lock command (Phase
-    /// D.4: `swaylock` or whatever the user picks).
-    async fn lock(&self) -> zbus::fdo::Result<()> {
-        tracing::info!("Session.Lock invoked");
-        crate::lock::run_lock_command()
-            .await
-            .map_err(|e| zbus::fdo::Error::Failed(format!("lock command failed: {e}")))?;
-        Ok(())
-    }
-
-    /// Snapshot the current WM layout JSON to
-    /// `$XDG_CACHE_HOME/mde/session-layout.json` so the next login
-    /// can restore window placement.
-    async fn save_layout(&self) -> zbus::fdo::Result<()> {
-        tracing::info!("Session.SaveLayout invoked");
-        let layout = run_wm_get_tree()
-            .await
-            .map_err(|e| zbus::fdo::Error::Failed(format!("wm get_tree failed: {e}")))?;
-        let path = layout_save_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                zbus::fdo::Error::IOError(format!("mkdir {} failed: {e}", parent.display()))
-            })?;
-        }
-        std::fs::write(&path, layout).map_err(|e| {
-            zbus::fdo::Error::IOError(format!("write {} failed: {e}", path.display()))
-        })?;
-        let mut inner = self.inner.lock().await;
-        inner.layout_saved = true;
-        Ok(())
+/// Map an `action/session/<verb>` verb to its action. Pure + testable.
+#[must_use]
+pub fn action_for_verb(verb: &str) -> Option<SessionAction> {
+    match verb {
+        "logout" => Some(SessionAction::Logout),
+        "restart" => Some(SessionAction::Restart),
+        "shutdown" => Some(SessionAction::Shutdown),
+        "lock" => Some(SessionAction::Lock),
+        "save-layout" => Some(SessionAction::SaveLayout),
+        _ => None,
     }
 }
 
-/// Register the SessionState at the canonical object path on the
-/// session bus.
+/// Apply a lifecycle action (the side-effecting half).
 ///
 /// # Errors
-/// Returns whatever zbus reports.
-pub async fn register_zbus(state: SessionState) -> zbus::Result<zbus::Connection> {
-    let conn = zbus::connection::Builder::session()?
-        .name(mackesd_core::ipc::session::SERVICE_NAME)?
-        .serve_at(mackesd_core::ipc::session::OBJECT_PATH, state)?
-        .build()
-        .await?;
-    Ok(conn)
+/// Returns a message when the effect's shell-out / IO fails.
+pub async fn apply(action: SessionAction, state: &SessionState) -> Result<(), String> {
+    match action {
+        SessionAction::Logout => {
+            tracing::info!("session: logout");
+            // SIGTERM our own PID; systemd's graphical-session.target
+            // tear-down handles the rest. (No `unsafe`: shell out to kill.)
+            let pid = std::process::id();
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+            Ok(())
+        }
+        SessionAction::Restart => {
+            tracing::info!("session: restart");
+            run("systemctl", &["reboot"]).await
+        }
+        SessionAction::Shutdown => {
+            tracing::info!("session: shutdown");
+            run("systemctl", &["poweroff"]).await
+        }
+        SessionAction::Lock => {
+            tracing::info!("session: lock");
+            crate::lock::run_lock_command()
+                .await
+                .map_err(|e| format!("lock command failed: {e}"))
+        }
+        SessionAction::SaveLayout => {
+            tracing::info!("session: save-layout");
+            let layout = run_wm_get_tree()
+                .await
+                .map_err(|e| format!("wm get_tree failed: {e}"))?;
+            let path = layout_save_path();
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("mkdir {} failed: {e}", parent.display()))?;
+            }
+            std::fs::write(&path, layout)
+                .map_err(|e| format!("write {} failed: {e}", path.display()))?;
+            state.inner.lock().await.layout_saved = true;
+            Ok(())
+        }
+    }
+}
+
+async fn run(bin: &str, args: &[&str]) -> Result<(), String> {
+    let status = tokio::process::Command::new(bin)
+        .args(args)
+        .status()
+        .await
+        .map_err(|e| format!("spawn {bin}: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{bin} exited {}", status.code().unwrap_or(-1)))
+    }
+}
+
+/// Run the Bus responder loop on the current thread, building a local
+/// tokio runtime for the async effects (`Persist`/rusqlite isn't `Send`,
+/// so this runs off the main async executor — see `mde-session` main).
+/// Loops until `should_stop()` returns true.
+pub fn serve_bus<F: Fn() -> bool>(persist: &Persist, state: &SessionState, should_stop: F) {
+    let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            tracing::error!("session responder: runtime build failed: {e}");
+            return;
+        }
+    };
+    let mut cursors: HashMap<String, String> = HashMap::new();
+    while !should_stop() {
+        poll_once(persist, state, &rt, &mut cursors);
+        std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
+/// One poll sweep across the action verbs (split out so a test can drive
+/// it without the sleep loop).
+pub fn poll_once(
+    persist: &Persist,
+    state: &SessionState,
+    rt: &tokio::runtime::Runtime,
+    cursors: &mut HashMap<String, String>,
+) {
+    for verb in ACTION_VERBS {
+        let topic = format!("action/session/{verb}");
+        let since = cursors.get(&topic).map(String::as_str);
+        let msgs = match persist.list_since(&topic, since) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        for msg in msgs {
+            cursors.insert(topic.clone(), msg.ulid.clone());
+            let reply = match action_for_verb(verb) {
+                Some(action) => match rt.block_on(apply(action, state)) {
+                    Ok(()) => json!({ "ok": true }).to_string(),
+                    Err(e) => json!({ "ok": false, "error": e }).to_string(),
+                },
+                None => json!({ "ok": false, "error": "unknown verb" }).to_string(),
+            };
+            let _ = persist.write(&reply_topic(&msg.ulid), Priority::Default, None, Some(&reply));
+        }
+    }
 }
 
 /// Path of the saved-layout sidecar.
@@ -150,20 +213,28 @@ async fn run_wm_get_tree() -> anyhow::Result<String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn verb_mapping_covers_all_and_rejects_unknown() {
+        assert_eq!(action_for_verb("logout"), Some(SessionAction::Logout));
+        assert_eq!(action_for_verb("restart"), Some(SessionAction::Restart));
+        assert_eq!(action_for_verb("shutdown"), Some(SessionAction::Shutdown));
+        assert_eq!(action_for_verb("lock"), Some(SessionAction::Lock));
+        assert_eq!(action_for_verb("save-layout"), Some(SessionAction::SaveLayout));
+        assert_eq!(action_for_verb("frobnicate"), None);
+    }
+
     #[tokio::test]
     async fn session_state_starts_with_layout_not_saved() {
         let s = SessionState::new();
-        let inner = s.inner.lock().await;
-        assert!(!inner.layout_saved);
+        assert!(!s.inner.lock().await.layout_saved);
     }
 
     #[test]
     fn layout_save_path_honors_xdg_cache_home() {
         let prev = std::env::var_os("XDG_CACHE_HOME");
         std::env::set_var("XDG_CACHE_HOME", "/tmp/test-cache-mde-session");
-        let p = layout_save_path();
         assert_eq!(
-            p,
+            layout_save_path(),
             std::path::PathBuf::from("/tmp/test-cache-mde-session/mde/session-layout.json")
         );
         match prev {

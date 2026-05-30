@@ -56,11 +56,9 @@ crates/mackesd/src/ipc/portal
 crates/mackesd/src/ipc/notifications
 crates/mackesd/src/ipc/shell
 crates/mackesd/src/ipc/healthz
-crates/mackesd/src/ipc/session
 crates/mackesd/src/ipc/fleet
 crates/mackesd/src/ipc/settings
 crates/mackesd/src/ipc/files
-crates/mde-session/src/session.rs
 crates/mde-workbench/src/dbus.rs
 crates/mde-portal/src/portal_full_main.rs
 crates/mde-portal/src/dbus.rs
