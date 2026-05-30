@@ -80,6 +80,14 @@ pub const LAYOUT_PROMPT_TTL_SECS: i64 = 8;
 /// cell in tier-red for this many milliseconds before the cell
 /// returns to its normal render.
 pub const URGENT_PULSE_TTL_MS: i64 = 1200;
+/// ANIM-5.c: how long the entrance oscillation phase lasts (ms).
+/// 2 cycles × 400 ms/cycle = 800 ms entrance, then steady tier-red.
+const PULSE_ENTRANCE_WINDOW_MS: i64 = 800;
+/// ANIM-5.c: number of full oscillation cycles in the entrance window.
+const PULSE_ENTRANCE_CYCLES: f32 = 2.0;
+/// ANIM-5.d: duration of the mark-pill alpha pulse when a window
+/// returns from the show-desktop scratchpad (Q68 lock).
+const SCRATCHPAD_SUMMON_PULSE_MS: i64 = 600;
 
 /// BUS-2.2.a: TTL for `fleet/announce` breadcrumb segments. Set
 /// well past the 200 ms exit-condition so operators have time to
@@ -381,6 +389,10 @@ pub struct DockApp {
     /// so the mark pill scale-pops in when auto-classification lands.
     /// Keyed by con_id string; same stamp/keep/drop lifecycle.
     mark_first_seen: HashMap<String, chrono::DateTime<chrono::Local>>,
+    /// ANIM-5.d: timestamps when windows were returned from the
+    /// show-desktop scratchpad. Key = con_id (i64); drives the
+    /// mark-pill alpha pulse on summon (Q68).
+    scratchpad_summon_seen: HashMap<i64, chrono::DateTime<chrono::Local>>,
     /// App-id key of the currently hovered running-zone group; `None` = no hover.
     hovered_running_group: Option<String>,
     /// Horizontal scroll offsets (px) per workspace name for marquee (Portal-5.b).
@@ -546,6 +558,7 @@ impl Default for DockApp {
             running_windows: Vec::new(),
             running_first_seen: HashMap::new(),
             mark_first_seen: HashMap::new(),
+            scratchpad_summon_seen: HashMap::new(),
             hovered_running_group: None,
             ws_marquee_offsets: HashMap::new(),
             visited_workspaces_lru: Vec::new(),
@@ -987,6 +1000,11 @@ impl iced_layershell::Application for DockApp {
                     // then fire the async restore.
                     let ids = std::mem::take(&mut self.desktop_window_ids);
                     self.wallpaper_strip_on = false;
+                    // ANIM-5.d (Q68): stamp summon timestamps so mark pills pulse.
+                    let now_summon = chrono::Local::now();
+                    for &con_id in &ids {
+                        self.scratchpad_summon_seen.insert(con_id, now_summon);
+                    }
                     return Task::perform(
                         crate::workspace::show_desktop_restore(ids),
                         |_| Message::Noop,
@@ -1014,6 +1032,11 @@ impl iced_layershell::Application for DockApp {
                 // taxonomy mark so the mark pill scale-pops in.
                 let mark_keys = marked_con_id_keys(&self.running_windows);
                 update_running_first_seen(&mut self.mark_first_seen, &mark_keys, now);
+                // ANIM-5.d: sweep expired scratchpad summon timestamps.
+                self.scratchpad_summon_seen.retain(|_, ts| {
+                    now.signed_duration_since(*ts).num_milliseconds()
+                        < SCRATCHPAD_SUMMON_PULSE_MS + 200
+                });
             }
             Message::FocusWindowById(con_id) => {
                 return Task::perform(
@@ -1573,6 +1596,36 @@ fn ttl_dismiss_fade(elapsed_ms: i64, ttl_ms: i64, reduce_motion: bool) -> f32 {
     mde_theme::lerp_f32(1.0, 0.0, mde_theme::ease(t, mde_theme::Easing::EaseIn))
 }
 
+/// ANIM-5.c: pure helper — workspace-cell background alpha during
+/// the bounded entrance oscillation. Oscillates between 0.30 and 1.0
+/// for `PULSE_ENTRANCE_WINDOW_MS` then settles to 1.0 (steady tier-red).
+/// Under reduce-motion: returns 1.0 immediately (solid, no oscillation).
+///
+/// Formula: cosine envelope — starts at 1.0, dims at each half-cycle.
+///   `alpha = 0.30 + 0.70 × (1 + cos(t × cycles × 2π)) / 2`
+fn pulse_entrance_alpha(elapsed_ms: i64, reduce_motion: bool) -> f32 {
+    if reduce_motion || elapsed_ms < 0 || elapsed_ms >= PULSE_ENTRANCE_WINDOW_MS {
+        return 1.0;
+    }
+    let t = elapsed_ms as f32 / PULSE_ENTRANCE_WINDOW_MS as f32;
+    let phase = t * PULSE_ENTRANCE_CYCLES * std::f32::consts::TAU;
+    0.30 + 0.70 * (1.0 + phase.cos()) * 0.5
+}
+
+/// ANIM-5.d: pure helper — mark-pill alpha multiplier for a window
+/// recently returned from the show-desktop scratchpad. Single-cycle
+/// alpha dip over `SCRATCHPAD_SUMMON_PULSE_MS`: starts at 1.0, dims
+/// to 0.30 at mid-cycle, returns to 1.0.
+/// Under reduce-motion: returns 1.0 immediately (no pulse).
+fn scratchpad_summon_pulse_alpha(elapsed_ms: i64, reduce_motion: bool) -> f32 {
+    if reduce_motion || elapsed_ms < 0 || elapsed_ms >= SCRATCHPAD_SUMMON_PULSE_MS {
+        return 1.0;
+    }
+    let t = elapsed_ms as f32 / SCRATCHPAD_SUMMON_PULSE_MS as f32;
+    let phase = t * std::f32::consts::TAU; // one full cycle
+    0.30 + 0.70 * (1.0 + phase.cos()) * 0.5
+}
+
 /// Portal-57.c.basic — Dock breadcrumb segment for active urgent
 /// pulses. Renders one tier-red pill per alive
 /// `bus/mbadge/pulse` event in `DockApp::recent_pulses`. Plain-
@@ -2072,12 +2125,15 @@ fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message>
         // bus/mbadge/pulse event? If yes, the cell renders in
         // tier-red regardless of focus/visible state — the urgency
         // signal trumps the normal hierarchy.
-        let pulse_con_id = active_pulse_con_id_for_workspace(
+        // ANIM-5.c: retain the full pulse ref so the entrance-oscillation
+        // alpha can read spawned_at.
+        let active_pulse_opt = active_pulse_for_workspace(
             ws.num,
             &app.recent_pulses,
             &app.running_windows,
             now,
         );
+        let pulse_con_id = active_pulse_opt.map(|p| p.con_id);
         let has_pulse = pulse_con_id.is_some();
 
         let text_color = if is_focused || has_pulse {
@@ -2089,11 +2145,13 @@ fn build_workspace_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message>
         };
 
         let cell_bg: Option<Color> = if has_pulse {
-            // Portal-57.b: tier-red (R3-Q4 crit color). Slightly
-            // brighter than the sway-internal `is_urgent` red so
-            // operator can tell the Bus-driven pulse from sway's
-            // own urgent hint when both fire.
-            Some(Color::from_rgb(0.95, 0.2, 0.2))
+            // Portal-57.b: tier-red. ANIM-5.c: alpha oscillates for
+            // PULSE_ENTRANCE_WINDOW_MS then settles to 1.0 (steady red).
+            let elapsed_ms = active_pulse_opt
+                .map(|p| now.signed_duration_since(p.spawned_at).num_milliseconds())
+                .unwrap_or(0);
+            let ea = pulse_entrance_alpha(elapsed_ms, app.reduce_motion);
+            Some(Color { r: 0.95, g: 0.2, b: 0.2, a: ea })
         } else if is_urgent {
             Some(Color::from_rgb(0.8, 0.1, 0.1))
         } else if is_focused {
@@ -2560,6 +2618,21 @@ pub fn bus_segment_color(topic: BusSegmentTopic, priority: &str) -> Color {
     }
 }
 
+/// ANIM-5.c: private helper — return the most-recent active pulse for
+/// workspace `ws_num`, or `None`. Basis for `active_pulse_con_id_for_workspace`
+/// + the entrance-oscillation lookup in `build_workspace_segment`.
+fn active_pulse_for_workspace<'a>(
+    ws_num: i32,
+    pulses: &'a [UrgentPulse],
+    running_windows: &[WindowInfo],
+    now: chrono::DateTime<chrono::Local>,
+) -> Option<&'a UrgentPulse> {
+    pulses.iter().rev().find(|p| {
+        is_pulse_alive(p, now)
+            && pulse_workspace_num(p, running_windows) == Some(ws_num)
+    })
+}
+
 /// Portal-57.b.click (R12-Q22): pure helper — return the con_id of
 /// the most-recent active pulse on workspace `ws_num`, if any.
 /// Click on a pulsing cell focuses this con_id directly via
@@ -2573,14 +2646,7 @@ pub fn active_pulse_con_id_for_workspace(
     running_windows: &[WindowInfo],
     now: chrono::DateTime<chrono::Local>,
 ) -> Option<i64> {
-    pulses
-        .iter()
-        .rev() // newest-first → click targets the latest urgent
-        .find(|p| {
-            is_pulse_alive(p, now)
-                && pulse_workspace_num(p, running_windows) == Some(ws_num)
-        })
-        .map(|p| p.con_id)
+    active_pulse_for_workspace(ws_num, pulses, running_windows, now).map(|p| p.con_id)
 }
 
 /// Portal-49 (R12-Q9): pure helper — return the first taxonomy mark
@@ -2725,9 +2791,21 @@ fn build_running_zone<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
             }
             None => 1.0,
         };
+        // ANIM-5.d (Q68): alpha pulse when this window was recently
+        // summoned from the show-desktop scratchpad.
+        let summon_alpha = match app.scratchpad_summon_seen.get(&target_window.con_id) {
+            Some(_) if app.reduce_motion => 1.0,
+            Some(&ts) => {
+                let elapsed = chrono::Local::now()
+                    .signed_duration_since(ts)
+                    .num_milliseconds();
+                scratchpad_summon_pulse_alpha(elapsed, app.reduce_motion)
+            }
+            None => 1.0,
+        };
         let mark_pill: Option<Element<'a, Message>> = first_taxonomy_mark(&target_window.marks)
             .and_then(mark_pill_color)
-            .map(|c| mark_pill_element(c, 8.0 * mark_pop));
+            .map(|c| mark_pill_element(Color { a: c.a * summon_alpha, ..c }, 8.0 * mark_pop));
 
         // Workspace numbers in this group (for multi-WS badge).
         let mut ws_nums: Vec<i32> = group.iter().map(|w| w.workspace_num).collect();
@@ -4177,6 +4255,71 @@ mod tests {
         // No matching con_id in windows → no.
         let empty_windows: Vec<WindowInfo> = Vec::new();
         assert!(!workspace_has_active_pulse(3, &pulses, &empty_windows, now));
+    }
+
+    // ── ANIM-5.c: pulse_entrance_alpha tests ───────────────────────────────
+
+    #[test]
+    fn pulse_entrance_alpha_starts_at_max() {
+        // At elapsed=0 the cell should be fully opaque (fresh pulse).
+        assert!((pulse_entrance_alpha(0, false) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn pulse_entrance_alpha_settles_after_window() {
+        // Once past the entrance window the alpha is steady 1.0.
+        assert!((pulse_entrance_alpha(PULSE_ENTRANCE_WINDOW_MS, false) - 1.0).abs() < 1e-5);
+        assert!((pulse_entrance_alpha(PULSE_ENTRANCE_WINDOW_MS + 500, false) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn pulse_entrance_alpha_oscillates_at_half_cycle() {
+        // At the first half-cycle midpoint (t = 1/(2*cycles)) the cosine
+        // envelope hits its minimum: 0.30.
+        let half_cycle_ms = PULSE_ENTRANCE_WINDOW_MS / (2 * PULSE_ENTRANCE_CYCLES as i64);
+        let a = pulse_entrance_alpha(half_cycle_ms, false);
+        // Should be near 0.30 (exact: cos(π)=−1 → 0.30 + 0.70*0 = 0.30).
+        assert!(a < 0.40, "alpha at first half-cycle should be near 0.30, got {a}");
+    }
+
+    #[test]
+    fn pulse_entrance_alpha_reduce_motion_returns_one() {
+        assert!((pulse_entrance_alpha(0, true) - 1.0).abs() < 1e-5);
+        assert!((pulse_entrance_alpha(200, true) - 1.0).abs() < 1e-5);
+    }
+
+    // ── ANIM-5.d: scratchpad_summon_pulse_alpha tests ──────────────────────
+
+    #[test]
+    fn scratchpad_summon_pulse_starts_at_max() {
+        assert!((scratchpad_summon_pulse_alpha(0, false) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn scratchpad_summon_pulse_settles_after_window() {
+        assert!((scratchpad_summon_pulse_alpha(SCRATCHPAD_SUMMON_PULSE_MS, false) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn scratchpad_summon_pulse_reduce_motion_returns_one() {
+        assert!((scratchpad_summon_pulse_alpha(100, true) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn show_desktop_restore_stamps_summon_seen() {
+        // When wallpaper strip is ON and ShowDesktopToggle fires,
+        // the restored con_ids should be stamped in scratchpad_summon_seen.
+        let mut app = DockApp::default();
+        app.wallpaper_strip_on = true;
+        app.desktop_window_ids = vec![101, 202];
+        let before = chrono::Local::now();
+        let _ = iced_layershell::Application::update(&mut app, Message::ShowDesktopToggle);
+        // After the toggle the summon map should have both con_ids.
+        assert!(app.scratchpad_summon_seen.contains_key(&101));
+        assert!(app.scratchpad_summon_seen.contains_key(&202));
+        // Timestamps are at or after `before`.
+        assert!(app.scratchpad_summon_seen[&101] >= before);
+        assert!(app.scratchpad_summon_seen[&202] >= before);
     }
 
     // ── BUS-2.2.a Dock breadcrumb tests ─────────────────────────────────────
