@@ -5732,7 +5732,7 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards (12 px corners, M3 shadow).
     - Canvas drawing path doesn't get to use `panel_chrome::object_card` (that returns an Iced `Element`; the canvas needs primitive `Path` calls). Re-implements the visual using the same tokens (`CARD_CORNER_RADIUS`, `CARD_SHADOW_DEFAULT_*`).
     - Blockers: CR-3 ✓.
-- [>] **CR-6.c: v2.6 — Mesh Topology peer-card click → Peer Connection Card modal.** *(split 2026-05-25)* session=opus-47-2026-05-30-ship
+- [✓] **CR-6.c: v2.6 — Mesh Topology peer-card click → Peer Connection Card modal.** *(split 2026-05-25)* *(shipped 2026-05-30 — cb62bfe3; transparent-button wrapper on peer_object_card + OpenPeerModal/CloseModal messages + stack! overlay + modal body with addr/kind/status detail rows; 11 tests green; allowlist re-anchored.)*
   **As** an operator clicking a peer card in the Mesh Topology Table layout, **I want** the per-peer modal (Peer Connection Card) to open showing addr / kind / transport / latency / actions, **so that** the visible Card affordance fulfills its tangible-object promise. **Acceptance:**
   - [ ] `peer_object_card` wraps the rendered card in a clickable `button(…)` whose `on_press` opens a `Message::OpenPeerModal(node_id)`.
   - [ ] Modal renders the addr + kind currently demoted from the card front + any future per-peer detail surfaces.
