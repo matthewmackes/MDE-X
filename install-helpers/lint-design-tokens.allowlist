@@ -75,8 +75,8 @@ crates/mde-popover/src/toasts.rs:393
 # ANIM-5.c/5.d additions shifted all line numbers (+8 constants,
 # +4 struct field, +1 Default, +5 handler, +5 sweep, +32 fns,
 # +9 fn, +1 lookup, +2 cell_bg, +9 summon, +58 tests).
-# Re-anchored 2026-05-30 (ANIM-6.c): +16 lines from ModeChanged
-# which-key spawn added after line ~821; entries >839 shifted +16.
+# Re-anchored 2026-05-30 (ANIM-1.c): ANIM-1.c struct fields + StatusUpdate
+# expansion + helpers + build_status_segment replacement shifted many entries.
 crates/mde-portal/src/app.rs:101
 crates/mde-portal/src/app.rs:109
 crates/mde-portal/src/app.rs:117
@@ -85,26 +85,26 @@ crates/mde-portal/src/app.rs:133
 crates/mde-portal/src/app.rs:141
 crates/mde-portal/src/app.rs:149
 crates/mde-portal/src/app.rs:157
-crates/mde-portal/src/app.rs:539
-crates/mde-portal/src/app.rs:2172
-crates/mde-portal/src/app.rs:2360
-crates/mde-portal/src/app.rs:2685
-crates/mde-portal/src/app.rs:2687
-crates/mde-portal/src/app.rs:2689
-crates/mde-portal/src/app.rs:2691
-crates/mde-portal/src/app.rs:2693
-crates/mde-portal/src/app.rs:3001
-crates/mde-portal/src/app.rs:3003
-crates/mde-portal/src/app.rs:3005
-crates/mde-portal/src/app.rs:3020
-crates/mde-portal/src/app.rs:3154
-crates/mde-portal/src/app.rs:3162
-crates/mde-portal/src/app.rs:3167
-crates/mde-portal/src/app.rs:3171
-crates/mde-portal/src/app.rs:4111
-crates/mde-portal/src/app.rs:5042
-crates/mde-portal/src/app.rs:5050
-crates/mde-portal/src/app.rs:5060
+crates/mde-portal/src/app.rs:555
+crates/mde-portal/src/app.rs:2228
+crates/mde-portal/src/app.rs:2416
+crates/mde-portal/src/app.rs:2741
+crates/mde-portal/src/app.rs:2743
+crates/mde-portal/src/app.rs:2745
+crates/mde-portal/src/app.rs:2747
+crates/mde-portal/src/app.rs:2749
+crates/mde-portal/src/app.rs:3125
+crates/mde-portal/src/app.rs:3127
+crates/mde-portal/src/app.rs:3129
+crates/mde-portal/src/app.rs:3145
+crates/mde-portal/src/app.rs:3315
+crates/mde-portal/src/app.rs:3323
+crates/mde-portal/src/app.rs:3328
+crates/mde-portal/src/app.rs:3332
+crates/mde-portal/src/app.rs:4360
+crates/mde-portal/src/app.rs:5291
+crates/mde-portal/src/app.rs:5299
+crates/mde-portal/src/app.rs:5309
 crates/mde-wizard/src/pages/preset.rs:12
 crates/mde-wizard/src/pages/preset.rs:18
 crates/mde-wizard/src/pages/preset.rs:24

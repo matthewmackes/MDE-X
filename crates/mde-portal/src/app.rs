@@ -469,6 +469,22 @@ pub struct DockApp {
     /// final frame — no scale-pop, no fade-in, no gradual dismissal.
     /// Loaded at startup from `mde_theme::Preferences` / `MDE_REDUCE_MOTION`.
     reduce_motion: bool,
+    /// ANIM-1.c (Q38): when battery/brightness first became visible this
+    /// session. Key: "battery" | "brightness". Drives 200ms ease-out
+    /// fade-in (motion-language.md §2.3 tray reveal). Cleared on disappear.
+    status_appear_stamps: HashMap<&'static str, chrono::DateTime<chrono::Local>>,
+    /// ANIM-1.c (Q38): fade-out state for battery/brightness disappearance.
+    /// Key: "battery" | "brightness"; value: (fade-start, last-known-pct).
+    /// Renders at declining alpha for STATUS_FADE_OUT_MS then is implicitly
+    /// dropped (alpha reaches 0 and the item is not re-added to items).
+    status_fade_out: HashMap<&'static str, (chrono::DateTime<chrono::Local>, u8)>,
+    /// ANIM-1.c (Q38): previous network_up state + timestamp of last flip.
+    /// Net dot color morphs from old-state-color → new over STATUS_MORPH_MS.
+    status_net_prev: bool,
+    status_net_morph_at: Option<chrono::DateTime<chrono::Local>>,
+    /// ANIM-1.c (Q38): previous mesh_up state + timestamp of last flip.
+    status_mesh_prev: bool,
+    status_mesh_morph_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 /// BUS-2.2.a: one breadcrumb segment from the Bus
@@ -575,6 +591,12 @@ impl Default for DockApp {
             prev_ws_marquee_hover_entered_at: None,
             current_mode_tag_color: None,
             reduce_motion: false,
+            status_appear_stamps: HashMap::new(),
+            status_fade_out: HashMap::new(),
+            status_net_prev: false,
+            status_net_morph_at: None,
+            status_mesh_prev: false,
+            status_mesh_morph_at: None,
         }
     }
 }
@@ -1097,6 +1119,40 @@ impl iced_layershell::Application for DockApp {
                 );
             }
             Message::StatusUpdate(info) => {
+                let now = chrono::Local::now();
+                // ANIM-1.c: detect state changes to drive color morph
+                if info.network_up != self.status_info.network_up {
+                    self.status_net_prev = self.status_info.network_up;
+                    self.status_net_morph_at = Some(now);
+                }
+                if info.mesh_up != self.status_info.mesh_up {
+                    self.status_mesh_prev = self.status_info.mesh_up;
+                    self.status_mesh_morph_at = Some(now);
+                }
+                // ANIM-1.c: battery appear/disappear
+                match (self.status_info.battery_pct, info.battery_pct) {
+                    (None, Some(_)) => {
+                        self.status_fade_out.remove("battery");
+                        self.status_appear_stamps.insert("battery", now);
+                    }
+                    (Some(pct), None) => {
+                        self.status_appear_stamps.remove("battery");
+                        self.status_fade_out.insert("battery", (now, pct));
+                    }
+                    _ => {}
+                }
+                // ANIM-1.c: brightness appear/disappear
+                match (self.status_info.brightness_pct, info.brightness_pct) {
+                    (None, Some(_)) => {
+                        self.status_fade_out.remove("brightness");
+                        self.status_appear_stamps.insert("brightness", now);
+                    }
+                    (Some(pct), None) => {
+                        self.status_appear_stamps.remove("brightness");
+                        self.status_fade_out.insert("brightness", (now, pct));
+                    }
+                    _ => {}
+                }
                 self.status_info = info;
             }
             Message::LockClicked => {
@@ -2719,6 +2775,16 @@ fn mark_pill_element<'a>(color: Color, size_px: f32) -> Element<'a, Message> {
 /// ANIM: ms over which a newly-appeared running-zone cell fades in.
 const RUNNING_APPEAR_FADE_MS: f32 = 150.0;
 
+/// ANIM-1.c: status cluster item reveal — 200ms ease-out fade-in
+/// (motion-language.md §2.3; slide deferred until iced 0.14 transforms).
+const STATUS_APPEAR_MS: f32 = 200.0;
+/// ANIM-1.c: status cluster item dismiss — 120ms ease-in fade-out
+/// (motion-language.md §2.3 dismiss timing).
+const STATUS_FADE_OUT_MS: f32 = 120.0;
+/// ANIM-1.c: status dot state-change color morph — 150ms ease-out
+/// (motion-language.md §2.4 background-color transition).
+const STATUS_MORPH_MS: f32 = 150.0;
+
 /// ANIM: running-zone group keys (app_id, else `#con_id`) for the
 /// currently-visible windows — the same keys `build_running_zone`
 /// groups by. Used to stamp first-seen times for the cell appear-fade.
@@ -2981,6 +3047,46 @@ fn wm_micro_btn<'a>(glyph: &'static str, color: Color, msg: Message) -> Element<
     .into()
 }
 
+/// ANIM-1.c: fade-in alpha for a status cluster item that just appeared.
+/// 200ms ease-out (motion-language.md §2.3 tray reveal; slide is iced-0.14).
+fn status_appear_alpha(elapsed_ms: i64, reduce_motion: bool) -> f32 {
+    if reduce_motion {
+        return 1.0;
+    }
+    let t = (elapsed_ms as f32 / STATUS_APPEAR_MS).clamp(0.0, 1.0);
+    mde_theme::ease(t, mde_theme::Easing::EaseOut)
+}
+
+/// ANIM-1.c: fade-out alpha for a status cluster item that just disappeared.
+/// 120ms ease-in (motion-language.md §2.3 dismiss timing).
+fn status_fade_out_alpha(elapsed_ms: i64, reduce_motion: bool) -> f32 {
+    if reduce_motion {
+        return 0.0;
+    }
+    let t = (elapsed_ms as f32 / STATUS_FADE_OUT_MS).clamp(0.0, 1.0);
+    1.0 - mde_theme::ease(t, mde_theme::Easing::EaseIn)
+}
+
+/// ANIM-1.c: eased progress [0..1] for a status dot color morph since its
+/// state changed. t=0 = prev color, t=1 = new color. 150ms ease-out.
+fn status_morph_t(elapsed_ms: i64, reduce_motion: bool) -> f32 {
+    if reduce_motion {
+        return 1.0;
+    }
+    let t = (elapsed_ms as f32 / STATUS_MORPH_MS).clamp(0.0, 1.0);
+    mde_theme::ease(t, mde_theme::Easing::EaseOut)
+}
+
+/// ANIM-1.c: per-channel RGBA linear interpolation between two Colors.
+fn lerp_color(from: Color, to: Color, t: f32) -> Color {
+    Color {
+        r: mde_theme::lerp_f32(from.r, to.r, t),
+        g: mde_theme::lerp_f32(from.g, to.g, t),
+        b: mde_theme::lerp_f32(from.b, to.b, t),
+        a: mde_theme::lerp_f32(from.a, to.a, t),
+    }
+}
+
 /// Build the status-zone glyph segment (Portal-9.a, R4-Q56, R3-Q32–R3-Q35).
 ///
 /// Layout: `[bat%] [net●][mesh●] [♫] [▭bri%] [lock] [pwr]`
@@ -2993,17 +3099,36 @@ fn wm_micro_btn<'a>(glyph: &'static str, color: Color, msg: Message) -> Element<
 /// - Power: click → `systemctl suspend`.
 fn build_status_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
     let si = &app.status_info;
+    let now = chrono::Local::now();
     let mut items: Vec<Element<'a, Message>> = Vec::new();
 
     // ── Battery ───────────────────────────────────────────────────────────────
-    if let Some(pct) = si.battery_pct {
-        let bat_color = if pct > 50 {
-            Color::from_rgb(0.22, 0.78, 0.35) // green
-        } else if pct > 20 {
-            Color::from_rgb(0.95, 0.75, 0.10) // amber
-        } else {
-            Color::from_rgb(0.90, 0.22, 0.12) // red
+    // ANIM-1.c: render during fade-in (appeared), steady (Some), or fade-out.
+    let battery_display: Option<(u8, f32)> = if let Some(pct) = si.battery_pct {
+        let alpha = match app.status_appear_stamps.get("battery") {
+            Some(t) => {
+                let e = (now - *t).num_milliseconds();
+                status_appear_alpha(e, app.reduce_motion)
+            }
+            None => 1.0,
         };
+        Some((pct, alpha))
+    } else if let Some(&(fade_start, last_pct)) = app.status_fade_out.get("battery") {
+        let e = (now - fade_start).num_milliseconds();
+        let alpha = status_fade_out_alpha(e, app.reduce_motion);
+        if alpha > 0.0 { Some((last_pct, alpha)) } else { None }
+    } else {
+        None
+    };
+    if let Some((pct, alpha)) = battery_display {
+        let base_color = if pct > 50 {
+            Color::from_rgb(0.22, 0.78, 0.35)
+        } else if pct > 20 {
+            Color::from_rgb(0.95, 0.75, 0.10)
+        } else {
+            Color::from_rgb(0.90, 0.22, 0.12)
+        };
+        let bat_color = Color { a: base_color.a * alpha, ..base_color };
         let charging_prefix = if si.battery_charging { "⚡" } else { "" };
         let label = format!("{charging_prefix}{pct}%");
         items.push(
@@ -3016,10 +3141,18 @@ fn build_status_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
     }
 
     // ── Network + Mesh dots ───────────────────────────────────────────────────
-    let net_color = if si.network_up {
-        Color::from_rgb(0.22, 0.78, 0.35)
-    } else {
-        Color { a: 0.25, ..fg }
+    // ANIM-1.c: color morphs from prev-state to new-state over STATUS_MORPH_MS.
+    let net_up_color = Color::from_rgb(0.22, 0.78, 0.35);
+    let net_down_color = Color { a: 0.25, ..fg };
+    let net_color = match app.status_net_morph_at {
+        Some(t) => {
+            let e = (now - t).num_milliseconds();
+            let morph = status_morph_t(e, app.reduce_motion);
+            let from = if app.status_net_prev { net_up_color } else { net_down_color };
+            let to = if si.network_up { net_up_color } else { net_down_color };
+            lerp_color(from, to, morph)
+        }
+        None => if si.network_up { net_up_color } else { net_down_color },
     };
     items.push(
         container(text("●").size(8.0).color(net_color))
@@ -3028,7 +3161,18 @@ fn build_status_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
             .padding(Padding::from([0, 2]))
             .into(),
     );
-    let mesh_color = if si.mesh_up { COLOR_INDIGO } else { Color { a: 0.25, ..fg } };
+    let mesh_up_color = COLOR_INDIGO;
+    let mesh_down_color = Color { a: 0.25, ..fg };
+    let mesh_color = match app.status_mesh_morph_at {
+        Some(t) => {
+            let e = (now - t).num_milliseconds();
+            let morph = status_morph_t(e, app.reduce_motion);
+            let from = if app.status_mesh_prev { mesh_up_color } else { mesh_down_color };
+            let to = if si.mesh_up { mesh_up_color } else { mesh_down_color };
+            lerp_color(from, to, morph)
+        }
+        None => if si.mesh_up { mesh_up_color } else { mesh_down_color },
+    };
     items.push(
         container(text("●").size(8.0).color(mesh_color))
             .height(Length::Fill)
@@ -3051,12 +3195,29 @@ fn build_status_segment<'a>(app: &DockApp, fg: Color) -> Element<'a, Message> {
     );
 
     // ── Brightness (clickable → mde-popover status, Portal-9.b) ─────────────
-    if let Some(bri) = si.brightness_pct {
+    // ANIM-1.c: same appear/fade-out pattern as battery.
+    let brightness_display: Option<(u8, f32)> = if let Some(bri) = si.brightness_pct {
+        let alpha = match app.status_appear_stamps.get("brightness") {
+            Some(t) => {
+                let e = (now - *t).num_milliseconds();
+                status_appear_alpha(e, app.reduce_motion)
+            }
+            None => 1.0,
+        };
+        Some((bri, alpha))
+    } else if let Some(&(fade_start, last_bri)) = app.status_fade_out.get("brightness") {
+        let e = (now - fade_start).num_milliseconds();
+        let alpha = status_fade_out_alpha(e, app.reduce_motion);
+        if alpha > 0.0 { Some((last_bri, alpha)) } else { None }
+    } else {
+        None
+    };
+    if let Some((bri, alpha)) = brightness_display {
         let bri_glyph = resolve_icon(Icon::Display, IconSize::Inline).fallback_glyph;
         let label = format!("{bri_glyph}{bri}%");
         items.push(
             mouse_area(
-                container(text(label).size(10.0).color(Color { a: 0.6, ..fg }))
+                container(text(label).size(10.0).color(Color { a: 0.6 * alpha, ..fg }))
                     .height(Length::Fill)
                     .align_y(iced::alignment::Vertical::Center)
                     .padding(Padding::from([0, 4])),
@@ -3599,6 +3760,94 @@ mod tests {
     fn power_clicked_returns_task_without_panic() {
         let mut app = DockApp::default();
         let _task = iced_layershell::Application::update(&mut app, Message::PowerClicked);
+    }
+
+    // ── ANIM-1.c status icon animation tests ─────────────────────────────────
+
+    #[test]
+    fn status_appear_alpha_eases_from_zero_to_one() {
+        assert!((super::status_appear_alpha(0, false) - 0.0).abs() < 0.01);
+        assert!((super::status_appear_alpha(200, false) - 1.0).abs() < 0.01);
+        // Ease-out: past midpoint faster than linear
+        assert!(super::status_appear_alpha(100, false) > 0.5);
+        // reduce_motion snaps to 1.0 immediately
+        assert!((super::status_appear_alpha(0, true) - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn status_fade_out_alpha_eases_from_one_to_zero() {
+        assert!((super::status_fade_out_alpha(0, false) - 1.0).abs() < 0.01);
+        assert!((super::status_fade_out_alpha(120, false) - 0.0).abs() < 0.01);
+        // Ease-in: below midpoint slower than linear
+        assert!(super::status_fade_out_alpha(60, false) > 0.5);
+        // reduce_motion snaps to 0.0
+        assert!((super::status_fade_out_alpha(0, true) - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn status_morph_t_eases_zero_to_one() {
+        assert!((super::status_morph_t(0, false) - 0.0).abs() < 0.01);
+        assert!((super::status_morph_t(150, false) - 1.0).abs() < 0.01);
+        // reduce_motion snaps to 1.0 immediately
+        assert!((super::status_morph_t(0, true) - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn status_update_stamps_net_morph_on_state_change() {
+        let mut app = DockApp::default();
+        // Flip network_up from false → true
+        let info = StatusInfo {
+            network_up: true,
+            mesh_up: false,
+            battery_pct: None,
+            battery_charging: false,
+            brightness_pct: None,
+        };
+        let _ = iced_layershell::Application::update(&mut app, Message::StatusUpdate(info));
+        assert!(!app.status_net_prev, "prev_up was false before flip");
+        assert!(app.status_net_morph_at.is_some(), "morph timestamp stamped");
+        assert!(app.status_info.network_up, "new state stored");
+    }
+
+    #[test]
+    fn status_update_stamps_battery_appear() {
+        let mut app = DockApp::default();
+        let info = StatusInfo {
+            battery_pct: Some(75),
+            battery_charging: false,
+            network_up: false,
+            mesh_up: false,
+            brightness_pct: None,
+        };
+        let _ = iced_layershell::Application::update(&mut app, Message::StatusUpdate(info));
+        assert!(app.status_appear_stamps.contains_key("battery"));
+        assert!(!app.status_fade_out.contains_key("battery"));
+    }
+
+    #[test]
+    fn status_update_stamps_battery_fade_out() {
+        let mut app = DockApp::default();
+        // First give it a battery
+        let with_bat = StatusInfo {
+            battery_pct: Some(50),
+            battery_charging: false,
+            network_up: false,
+            mesh_up: false,
+            brightness_pct: None,
+        };
+        let _ = iced_layershell::Application::update(&mut app, Message::StatusUpdate(with_bat));
+        // Now take it away
+        let no_bat = StatusInfo {
+            battery_pct: None,
+            battery_charging: false,
+            network_up: false,
+            mesh_up: false,
+            brightness_pct: None,
+        };
+        let _ = iced_layershell::Application::update(&mut app, Message::StatusUpdate(no_bat));
+        assert!(!app.status_appear_stamps.contains_key("battery"));
+        let fo = app.status_fade_out.get("battery").expect("fade-out stamped");
+        assert_eq!(fo.1, 50, "last-known pct preserved");
     }
 
     // ── Portal-12 show-wallpaper strip tests ─────────────────────────────────
