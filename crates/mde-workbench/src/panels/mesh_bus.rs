@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 
 use iced::widget::button::Status as ButtonStatus;
-use iced::widget::{button, column, row, text, text_input, Space};
+use iced::widget::{button, column, row, text, text_editor, text_input, Space};
 use iced::{alignment, Background, Border, Color, Element, Length, Task};
 use mde_theme::{Density, EmptyState, FontSize, Icon, Palette, Radii, TypeRole};
 
@@ -54,6 +54,104 @@ struct SubsYaml {
 struct QuietHoursYaml {
     start: String,
     end: String,
+}
+
+// ─── Hook samples ────────────────────────────────────────────────────────────
+
+struct HookSample {
+    label: &'static str,
+    yaml: &'static str,
+}
+
+const HOOK_SAMPLES: &[HookSample] = &[
+    HookSample {
+        label: "GitHub push",
+        yaml: "adapters:\n  github:\n    rules:\n      - name: github-push\n        match:\n          event: push\n        publish:\n          topic: gh/push\n          priority: default\n          title: \"{{ repo }} push to {{ branch }}\"\n          body: \"{{ pusher }} pushed {{ commit_count }} commits\"\n",
+    },
+    HookSample {
+        label: "Gitea push",
+        yaml: "adapters:\n  gitea:\n    rules:\n      - name: gitea-push\n        match:\n          event: push\n        publish:\n          topic: git/push\n          priority: default\n          title: \"{{ repo }} push by {{ pusher }}\"\n          body: \"{{ commit_count }} new commits on {{ branch }}\"\n",
+    },
+    HookSample {
+        label: "Home Assistant state",
+        yaml: "adapters:\n  home_assistant:\n    rules:\n      - name: ha-state-change\n        match:\n          event: state_changed\n        publish:\n          topic: home/state\n          priority: default\n          title: \"{{ entity_id }} changed\"\n          body: \"New state: {{ new_state }}\"\n",
+    },
+    HookSample {
+        label: "Generic webhook",
+        yaml: "adapters:\n  generic:\n    rules:\n      - name: generic-event\n        publish:\n          topic: webhook/events\n          priority: default\n          title: \"Incoming webhook\"\n          body: \"Event received\"\n",
+    },
+];
+
+// ─── Hooks tab state ──────────────────────────────────────────────────────────
+
+pub struct HooksTabState {
+    pub content: text_editor::Content,
+    pub validation_error: Option<String>,
+    pub loading: bool,
+    pub saving: bool,
+    pub loaded: bool,
+}
+
+impl HooksTabState {
+    fn yaml_text(&self) -> String {
+        self.content.text()
+    }
+
+    fn validate(&mut self) {
+        let txt = self.yaml_text();
+        self.validation_error = if txt.trim().is_empty() {
+            None
+        } else {
+            match serde_yaml::from_str::<serde_yaml::Value>(&txt) {
+                Ok(v) => {
+                    if v.as_mapping()
+                        .map(|m| m.contains_key("adapters"))
+                        .unwrap_or(false)
+                    {
+                        None
+                    } else {
+                        Some("Top-level key `adapters` missing.".to_string())
+                    }
+                }
+                Err(e) => Some(e.to_string()),
+            }
+        };
+    }
+}
+
+impl Default for HooksTabState {
+    fn default() -> Self {
+        Self {
+            content: text_editor::Content::new(),
+            validation_error: None,
+            loading: false,
+            saving: false,
+            loaded: false,
+        }
+    }
+}
+
+impl Clone for HooksTabState {
+    fn clone(&self) -> Self {
+        Self {
+            content: text_editor::Content::with_text(&self.yaml_text()),
+            validation_error: self.validation_error.clone(),
+            loading: self.loading,
+            saving: self.saving,
+            loaded: self.loaded,
+        }
+    }
+}
+
+impl std::fmt::Debug for HooksTabState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HooksTabState")
+            .field("validation_error", &self.validation_error)
+            .field("loading", &self.loading)
+            .field("saving", &self.saving)
+            .field("loaded", &self.loaded)
+            .finish()
+    }
 }
 
 // ─── Subscriptions tab state ─────────────────────────────────────────────────
@@ -123,6 +221,7 @@ impl Tab {
 pub struct MeshBusPanel {
     pub active_tab: Tab,
     pub subs: SubsTabState,
+    pub hooks: HooksTabState,
     pub dnd: DndTabState,
 }
 
@@ -131,6 +230,12 @@ pub struct MeshBusPanel {
 #[derive(Debug, Clone)]
 pub enum Message {
     SelectTab(Tab),
+    // Hooks tab
+    HooksLoaded(Result<String, String>),
+    HooksEdited(text_editor::Action),
+    HooksSaveClicked,
+    HooksSaveDone(Result<(), String>),
+    HooksSampleInserted(usize),
     // Subscriptions tab
     SubsLoaded(Result<(Vec<String>, Vec<String>), String>),
     SubsNewTopicChanged(String),
@@ -199,6 +304,37 @@ async fn sub_remove(topic: String) -> Result<(), String> {
     } else {
         Err(String::from_utf8_lossy(&out.stderr).to_string())
     }
+}
+
+fn hooks_config_path() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| PathBuf::from(h).join(".config"))
+        })
+        .map(|d| d.join("mde").join("bus-hooks.yaml"))
+}
+
+async fn load_hooks() -> Result<String, String> {
+    let path =
+        hooks_config_path().ok_or_else(|| "no config dir".to_string())?;
+    tokio::fs::read_to_string(&path)
+        .await
+        .or_else(|_| Ok(String::new()))
+}
+
+async fn save_hooks(text: String) -> Result<(), String> {
+    let path =
+        hooks_config_path().ok_or_else(|| "no config dir".to_string())?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    tokio::fs::write(&path, text.as_bytes())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Copy a peer's subscriptions from the mesh-storage mount.
@@ -342,6 +478,61 @@ impl MeshBusPanel {
                     return Task::perform(load_dnd(), |r| {
                         crate::Message::MeshBus(Message::DndLoaded(r))
                     });
+                }
+                if tab == Tab::Hooks && !self.hooks.loaded && !self.hooks.loading {
+                    self.hooks.loading = true;
+                    return Task::perform(load_hooks(), |r| {
+                        crate::Message::MeshBus(Message::HooksLoaded(r))
+                    });
+                }
+                Task::none()
+            }
+
+            Message::HooksLoaded(result) => {
+                self.hooks.loading = false;
+                self.hooks.loaded = true;
+                match result {
+                    Ok(txt) => {
+                        self.hooks.content = text_editor::Content::with_text(&txt);
+                        self.hooks.validate();
+                    }
+                    Err(e) => {
+                        self.hooks.validation_error = Some(e);
+                    }
+                }
+                Task::none()
+            }
+
+            Message::HooksEdited(action) => {
+                self.hooks.content.perform(action);
+                self.hooks.validate();
+                Task::none()
+            }
+
+            Message::HooksSaveClicked => {
+                if self.hooks.validation_error.is_some() {
+                    return Task::none();
+                }
+                self.hooks.saving = true;
+                let text = self.hooks.yaml_text();
+                Task::perform(save_hooks(text), |r| {
+                    crate::Message::MeshBus(Message::HooksSaveDone(r))
+                })
+            }
+
+            Message::HooksSaveDone(result) => {
+                self.hooks.saving = false;
+                if let Err(e) = result {
+                    self.hooks.validation_error = Some(e);
+                }
+                Task::none()
+            }
+
+            Message::HooksSampleInserted(idx) => {
+                if let Some(sample) = HOOK_SAMPLES.get(idx) {
+                    self.hooks.content =
+                        text_editor::Content::with_text(sample.yaml);
+                    self.hooks.validate();
                 }
                 Task::none()
             }
@@ -620,15 +811,7 @@ impl MeshBusPanel {
                 || crate::Message::Noop,
             ),
             Tab::Subscriptions => self.view_subscriptions_tab(palette, sizes),
-            Tab::Hooks => empty_state(
-                EmptyState::info(
-                    "No webhook rules configured",
-                    "Add a rule to bus-hooks.yaml to route incoming webhook events to topics.",
-                )
-                .with_icon(Icon::Settings),
-                palette,
-                || crate::Message::Noop,
-            ),
+            Tab::Hooks => self.view_hooks_tab(palette, sizes),
             Tab::Audit => empty_state(
                 EmptyState::info(
                     "No audit events recorded",
@@ -1078,6 +1261,125 @@ impl MeshBusPanel {
 
         col.into()
     }
+
+    fn view_hooks_tab(
+        &self,
+        palette: Palette,
+        sizes: FontSize,
+    ) -> Element<'_, crate::Message> {
+        if self.hooks.loading {
+            return text("Loading…")
+                .size(TypeRole::Body.size_in(sizes))
+                .color(palette.text_muted.into_iced_color())
+                .into();
+        }
+
+        let accent = palette.accent.into_iced_color();
+        let radii = Radii::defaults();
+        let r = f32::from(radii.sm);
+
+        // — Editor —
+        let editor: Element<'_, crate::Message> = text_editor(&self.hooks.content)
+            .height(Length::Fixed(280.0))
+            .on_action(|a| crate::Message::MeshBus(Message::HooksEdited(a)))
+            .into();
+
+        // — Sample insert buttons —
+        let mut sample_row_items: Vec<Element<'_, crate::Message>> = vec![
+            text("Insert sample:")
+                .size(TypeRole::Caption.size_in(sizes))
+                .color(palette.text_muted.into_iced_color())
+                .into(),
+            Space::with_width(8).into(),
+        ];
+        for (i, s) in HOOK_SAMPLES.iter().enumerate() {
+            sample_row_items.push(
+                button(
+                    text(s.label)
+                        .size(TypeRole::Caption.size_in(sizes))
+                        .color(palette.text.into_iced_color()),
+                )
+                .padding([4u16, 10u16])
+                .style(move |_t, _s: ButtonStatus| button::Style {
+                    background: Some(Background::Color(palette.raised.into_iced_color())),
+                    text_color: palette.text.into_iced_color(),
+                    border: Border {
+                        color: Color::TRANSPARENT,
+                        width: 0.0,
+                        radius: r.into(),
+                    },
+                    shadow: iced::Shadow::default(),
+                })
+                .on_press(crate::Message::MeshBus(Message::HooksSampleInserted(i)))
+                .into(),
+            );
+        }
+        let sample_row: Element<'_, crate::Message> =
+            row(sample_row_items).spacing(6).align_y(iced::Alignment::Center).into();
+
+        // — Apply button —
+        let has_error = self.hooks.validation_error.is_some();
+        let apply_bg = if has_error { palette.raised.into_iced_color() } else { accent };
+        let apply_fg = if has_error { palette.text_muted.into_iced_color() } else { Color::WHITE };
+        let apply_label = if self.hooks.saving { "Applying…" } else { "Apply" };
+
+        let apply_btn: Element<'_, crate::Message> = if has_error || self.hooks.saving {
+            button(
+                text(apply_label)
+                    .size(TypeRole::Body.size_in(sizes))
+                    .color(apply_fg),
+            )
+            .padding([6u16, 16u16])
+            .style(move |_t, _s: ButtonStatus| button::Style {
+                background: Some(Background::Color(apply_bg)),
+                text_color: apply_fg,
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: r.into(),
+                },
+                shadow: iced::Shadow::default(),
+            })
+            .into()
+        } else {
+            button(
+                text(apply_label)
+                    .size(TypeRole::Body.size_in(sizes))
+                    .color(apply_fg),
+            )
+            .padding([6u16, 16u16])
+            .style(move |_t, _s: ButtonStatus| button::Style {
+                background: Some(Background::Color(apply_bg)),
+                text_color: apply_fg,
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: r.into(),
+                },
+                shadow: iced::Shadow::default(),
+            })
+            .on_press(crate::Message::MeshBus(Message::HooksSaveClicked))
+            .into()
+        };
+
+        // Build column — validation error (if any) appears between editor and samples.
+        let mut items: Vec<Element<'_, crate::Message>> = vec![editor];
+        if let Some(e) = &self.hooks.validation_error {
+            items.push(Space::with_height(6).into());
+            items.push(
+                text(format!("⚠ {e}"))
+                    .size(TypeRole::Caption.size_in(sizes))
+                    .color(Color { r: 0.9, g: 0.2, b: 0.2, a: 1.0 })
+                    .into(),
+            );
+        }
+        items.push(Space::with_height(8).into());
+        items.push(sample_row);
+        items.push(Space::with_height(12).into());
+        items.push(apply_btn);
+
+        column(items).spacing(0).into()
+    }
 }
 
 #[cfg(test)]
@@ -1273,5 +1575,125 @@ mod tests {
         let _ = panel.update(Message::SubsMatchPeerDone(Ok(vec![])));
         assert!(panel.subs.error.is_some());
         assert!(panel.subs.loaded);
+    }
+
+    // ─── Hooks tab tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn hooks_loading_set_on_hooks_tab_switch() {
+        let mut panel = MeshBusPanel::new();
+        let _ = panel.update(Message::SelectTab(Tab::Hooks));
+        assert!(panel.hooks.loading);
+        assert!(!panel.hooks.loaded);
+    }
+
+    #[test]
+    fn hooks_not_loaded_on_topics_tab() {
+        let mut panel = MeshBusPanel::new();
+        let _ = panel.update(Message::SelectTab(Tab::Topics));
+        assert!(!panel.hooks.loaded);
+        assert!(!panel.hooks.loading);
+    }
+
+    #[test]
+    fn hooks_loaded_ok_populates_content() {
+        let mut panel = MeshBusPanel::new();
+        let yaml = "adapters:\n  github:\n    rules: []\n".to_string();
+        let _ = panel.update(Message::HooksLoaded(Ok(yaml.clone())));
+        assert!(panel.hooks.loaded);
+        assert!(!panel.hooks.loading);
+        assert_eq!(panel.hooks.yaml_text(), yaml);
+        assert!(panel.hooks.validation_error.is_none());
+    }
+
+    #[test]
+    fn hooks_loaded_valid_yaml_no_adapters_key_sets_error() {
+        let mut panel = MeshBusPanel::new();
+        let _ = panel.update(Message::HooksLoaded(Ok("other: value\n".to_string())));
+        assert!(panel.hooks.validation_error.is_some());
+    }
+
+    #[test]
+    fn hooks_loaded_invalid_yaml_sets_error() {
+        let mut panel = MeshBusPanel::new();
+        let _ = panel.update(Message::HooksLoaded(Ok(": bad yaml :::".to_string())));
+        assert!(panel.hooks.validation_error.is_some());
+    }
+
+    #[test]
+    fn hooks_loaded_err_sets_error() {
+        let mut panel = MeshBusPanel::new();
+        let _ = panel.update(Message::HooksLoaded(Err("no config dir".to_string())));
+        assert!(panel.hooks.validation_error.is_some());
+        assert!(panel.hooks.loaded);
+    }
+
+    #[test]
+    fn hooks_save_blocked_when_validation_error_present() {
+        let mut panel = MeshBusPanel::new();
+        panel.hooks.loaded = true;
+        panel.hooks.validation_error = Some("bad yaml".to_string());
+        let _ = panel.update(Message::HooksSaveClicked);
+        // saving must NOT be set — the handler bails early on validation error.
+        assert!(!panel.hooks.saving);
+    }
+
+    #[test]
+    fn hooks_save_clicked_sets_saving() {
+        let mut panel = MeshBusPanel::new();
+        panel.hooks.loaded = true;
+        panel.hooks.content = text_editor::Content::with_text("adapters:\n  x:\n    rules: []\n");
+        let _ = panel.update(Message::HooksLoaded(Ok(
+            "adapters:\n  x:\n    rules: []\n".to_string(),
+        )));
+        let _ = panel.update(Message::HooksSaveClicked);
+        assert!(panel.hooks.saving);
+    }
+
+    #[test]
+    fn hooks_save_done_ok_clears_saving() {
+        let mut panel = MeshBusPanel::new();
+        panel.hooks.saving = true;
+        let _ = panel.update(Message::HooksSaveDone(Ok(())));
+        assert!(!panel.hooks.saving);
+        assert!(panel.hooks.validation_error.is_none());
+    }
+
+    #[test]
+    fn hooks_save_done_err_sets_error() {
+        let mut panel = MeshBusPanel::new();
+        panel.hooks.saving = true;
+        let _ = panel.update(Message::HooksSaveDone(Err("write failed".to_string())));
+        assert!(!panel.hooks.saving);
+        assert!(panel.hooks.validation_error.is_some());
+    }
+
+    #[test]
+    fn hooks_sample_inserted_updates_content() {
+        let mut panel = MeshBusPanel::new();
+        let _ = panel.update(Message::HooksSampleInserted(0));
+        let txt = panel.hooks.yaml_text();
+        assert!(txt.contains("adapters:"));
+        // GitHub sample should reference the github adapter.
+        assert!(txt.contains("github"));
+        assert!(panel.hooks.validation_error.is_none());
+    }
+
+    #[test]
+    fn hooks_sample_inserted_oob_is_noop() {
+        let mut panel = MeshBusPanel::new();
+        let _ = panel.update(Message::HooksSampleInserted(99));
+        // No panic, content stays empty.
+        assert!(panel.hooks.yaml_text().trim().is_empty());
+    }
+
+    #[test]
+    fn hooks_tab_state_clone_preserves_fields() {
+        let mut state = HooksTabState::default();
+        state.validation_error = Some("err".to_string());
+        state.loading = true;
+        let cloned = state.clone();
+        assert_eq!(cloned.validation_error, state.validation_error);
+        assert_eq!(cloned.loading, state.loading);
     }
 }

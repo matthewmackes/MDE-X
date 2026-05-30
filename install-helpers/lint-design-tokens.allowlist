@@ -237,11 +237,11 @@ crates/mde-portal/src/app.rs:2851
 crates/mde-portal/src/app.rs:2856
 crates/mde-portal/src/app.rs:2860
 crates/mde-portal/src/app.rs:3740
-crates/mde-workbench/src/app.rs:1521
-crates/mde-workbench/src/app.rs:1522
-crates/mde-workbench/src/app.rs:1556
-crates/mde-workbench/src/app.rs:59
+crates/mde-workbench/src/app.rs:1532
+crates/mde-workbench/src/app.rs:1533
+crates/mde-workbench/src/app.rs:1567
+crates/mde-workbench/src/app.rs:60
 crates/mde-workbench/src/panels/home.rs:101
 crates/mde-workbench/src/panels/home.rs:1160
-crates/mde-workbench/src/app.rs:70
-crates/mde-workbench/src/app.rs:75
+crates/mde-workbench/src/app.rs:71
+crates/mde-workbench/src/app.rs:76
