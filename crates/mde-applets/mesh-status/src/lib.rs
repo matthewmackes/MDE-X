@@ -218,6 +218,145 @@ pub fn handle_host(msg: &HostMessage) -> bool {
     !matches!(msg, HostMessage::Shutdown)
 }
 
+// ─────────────────────────────────────────────────────────
+// MESHFS-12.1 — LizardFS `mesh-storage` status surface.
+//
+// Sourced from `mackesd meshfs-status --json` (the report
+// `meshfs_worker::meshfs_status_report` emits, shipped in
+// MESHFS-13.1). The applet renders the at-a-glance master +
+// fleet-health indicator; the detailed per-peer table lives
+// in the Workbench "Mesh Storage" panel (MESHFS-13.1).
+// ─────────────────────────────────────────────────────────
+
+/// One chunkserver row from the meshfs status report.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+pub struct MeshFsPeer {
+    /// Overlay address of the chunkserver.
+    #[serde(default)]
+    pub addr: String,
+    /// Bytes stored on this chunkserver.
+    #[serde(default)]
+    pub used_bytes: u64,
+    /// Bytes still free on this chunkserver.
+    #[serde(default)]
+    pub avail_bytes: u64,
+}
+
+/// JSON shape of `mackesd meshfs-status --json`. Mirrors
+/// `meshfs_worker::MeshFsStatusReport`; defined inline so the
+/// applet keeps its zero-dep-on-mackesd-core stance.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+pub struct MeshFsStatus {
+    /// Whether the active LizardFS master answered on the VIP.
+    #[serde(default)]
+    pub master_reachable: bool,
+    /// Online chunkservers the master currently lists.
+    #[serde(default)]
+    pub peers: Vec<MeshFsPeer>,
+    /// Replication goal (= converged peer count).
+    #[serde(default)]
+    pub goal: usize,
+    /// Hard quota cap in bytes (absent when no CS data).
+    #[serde(default)]
+    pub quota_cap_bytes: Option<u64>,
+    /// Overlay addr of the chunkserver with the least free space.
+    #[serde(default)]
+    pub limiting_peer_addr: Option<String>,
+}
+
+/// Parse `mackesd meshfs-status --json`. Returns a default
+/// (master-down, no peers) status on any failure so the chip
+/// shows the offline indicator rather than crashing.
+#[must_use]
+pub fn parse_meshfs_status(raw: &str) -> MeshFsStatus {
+    serde_json::from_str(raw).unwrap_or_default()
+}
+
+/// Fleet-level meshfs health, derived from the status report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshFsHealth {
+    /// Master reachable + every replica present (`peers >= goal`).
+    InSync,
+    /// Master reachable but under-replicated (`peers < goal`) —
+    /// chunks are re-replicating to restore the goal.
+    Healing,
+    /// The active master is unreachable on the VIP — the mesh
+    /// FS is read-only (offline writes stage locally).
+    MasterDown,
+}
+
+/// Classify the fleet meshfs health. `goal == 0` (no report /
+/// pre-enrollment) with a reachable master counts as in-sync
+/// (nothing to heal yet).
+#[must_use]
+pub fn classify_meshfs(status: &MeshFsStatus) -> MeshFsHealth {
+    if !status.master_reachable {
+        return MeshFsHealth::MasterDown;
+    }
+    if status.goal > 0 && status.peers.len() < status.goal {
+        return MeshFsHealth::Healing;
+    }
+    MeshFsHealth::InSync
+}
+
+/// Colour for the meshfs health indicator, reusing the locked
+/// status palette: green = in-sync, amber = healing, red =
+/// master-down.
+#[must_use]
+pub const fn meshfs_color(health: MeshFsHealth) -> NebulaTransportColor {
+    match health {
+        MeshFsHealth::InSync => NebulaTransportColor::Green,
+        MeshFsHealth::Healing => NebulaTransportColor::Amber,
+        MeshFsHealth::MasterDown => NebulaTransportColor::Red,
+    }
+}
+
+/// Human bytes (powers of 1024, one decimal past KiB).
+#[must_use]
+fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    format!("{size:.1} {}", UNITS[unit])
+}
+
+/// Multi-line meshfs summary for the applet tooltip / `--meshfs`
+/// output: an active-master indicator + fleet health header,
+/// then one `online` line per chunkserver with its usage.
+#[must_use]
+pub fn format_meshfs_summary(status: &MeshFsStatus) -> String {
+    let health = classify_meshfs(status);
+    let header = match health {
+        MeshFsHealth::MasterDown => "mesh-storage: master DOWN (read-only)".to_string(),
+        MeshFsHealth::Healing => format!(
+            "mesh-storage: master up · healing ({}/{} replicas)",
+            status.peers.len(),
+            status.goal,
+        ),
+        MeshFsHealth::InSync => format!(
+            "mesh-storage: master up · in-sync ({} peers)",
+            status.peers.len(),
+        ),
+    };
+    let mut out = header;
+    for p in &status.peers {
+        out.push_str(&format!(
+            "\n  {}  ·  {} used / {} free  ·  online",
+            p.addr,
+            human_bytes(p.used_bytes),
+            human_bytes(p.avail_bytes),
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,5 +534,90 @@ mod tests {
         assert!(show_lighthouse_badge(&host));
         let peer = NebulaStatusSnapshot::default();
         assert!(!show_lighthouse_badge(&peer));
+    }
+
+    // ─────────────────────────────────────────────────────
+    // MESHFS-12.1 — mesh-storage status surface
+    // ─────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_meshfs_status_extracts_report() {
+        let raw = r#"{"master_reachable": true,
+            "peers": [{"addr": "10.42.0.7", "used_bytes": 1024, "avail_bytes": 2048}],
+            "goal": 1, "quota_cap_bytes": 4096, "limiting_peer_addr": "10.42.0.7"}"#;
+        let s = parse_meshfs_status(raw);
+        assert!(s.master_reachable);
+        assert_eq!(s.peers.len(), 1);
+        assert_eq!(s.peers[0].addr, "10.42.0.7");
+        assert_eq!(s.goal, 1);
+        assert_eq!(s.quota_cap_bytes, Some(4096));
+    }
+
+    #[test]
+    fn parse_meshfs_status_defaults_to_master_down_on_garbage() {
+        let s = parse_meshfs_status("not json");
+        assert!(!s.master_reachable);
+        assert!(s.peers.is_empty());
+    }
+
+    #[test]
+    fn classify_meshfs_covers_three_states() {
+        // Master down → MasterDown regardless of peers.
+        let down = MeshFsStatus { master_reachable: false, goal: 3, ..Default::default() };
+        assert_eq!(classify_meshfs(&down), MeshFsHealth::MasterDown);
+        // Up + under-goal → Healing.
+        let healing = MeshFsStatus {
+            master_reachable: true,
+            goal: 3,
+            peers: vec![MeshFsPeer::default(), MeshFsPeer::default()],
+            ..Default::default()
+        };
+        assert_eq!(classify_meshfs(&healing), MeshFsHealth::Healing);
+        // Up + at-goal → InSync.
+        let synced = MeshFsStatus {
+            master_reachable: true,
+            goal: 2,
+            peers: vec![MeshFsPeer::default(), MeshFsPeer::default()],
+            ..Default::default()
+        };
+        assert_eq!(classify_meshfs(&synced), MeshFsHealth::InSync);
+        // goal=0 (pre-enrollment) + master up → InSync (nothing to heal).
+        let fresh = MeshFsStatus { master_reachable: true, ..Default::default() };
+        assert_eq!(classify_meshfs(&fresh), MeshFsHealth::InSync);
+    }
+
+    #[test]
+    fn meshfs_color_maps_health_to_status_palette() {
+        assert_eq!(meshfs_color(MeshFsHealth::InSync), NebulaTransportColor::Green);
+        assert_eq!(meshfs_color(MeshFsHealth::Healing), NebulaTransportColor::Amber);
+        assert_eq!(meshfs_color(MeshFsHealth::MasterDown), NebulaTransportColor::Red);
+    }
+
+    #[test]
+    fn format_meshfs_summary_shows_master_indicator_and_peers() {
+        let s = MeshFsStatus {
+            master_reachable: true,
+            goal: 1,
+            peers: vec![MeshFsPeer {
+                addr: "10.42.0.7".into(),
+                used_bytes: 1024,
+                avail_bytes: 2048,
+            }],
+            ..Default::default()
+        };
+        let out = format_meshfs_summary(&s);
+        assert!(out.contains("master up"));
+        assert!(out.contains("in-sync"));
+        assert!(out.contains("10.42.0.7"));
+        assert!(out.contains("online"));
+        assert!(out.contains("1.0 KiB used"));
+    }
+
+    #[test]
+    fn format_meshfs_summary_master_down_is_read_only() {
+        let s = MeshFsStatus::default();
+        let out = format_meshfs_summary(&s);
+        assert!(out.contains("master DOWN"));
+        assert!(out.contains("read-only"));
     }
 }
