@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use mde_musicd::airsonic::Client;
-use mde_musicd::{cache, creds, reconnect, state};
+use mde_musicd::{cache, creds, queue, reconnect, state};
 
 #[derive(Parser)]
 #[command(name = "mde-musicd", about = "MDE native Airsonic music daemon.")]
@@ -40,6 +40,27 @@ enum Cmd {
         #[command(subcommand)]
         op: StateOp,
     },
+    /// Inspect or mutate the playback queue (AIR-2).
+    Queue {
+        #[command(subcommand)]
+        op: QueueOp,
+    },
+}
+
+#[derive(Subcommand)]
+enum QueueOp {
+    /// Append a song-id to the end of the queue.
+    Add { song_id: String },
+    /// Insert a song-id right after the current track (Play Next).
+    AddNext { song_id: String },
+    /// Print the queue, marking the current track.
+    List,
+    /// Advance to the next track + print it.
+    Next,
+    /// Step back to the previous track + print it.
+    Prev,
+    /// Empty the queue.
+    Clear,
 }
 
 #[derive(Subcommand)]
@@ -77,7 +98,46 @@ fn main() -> ExitCode {
         Cmd::Ping { retry } => ping(retry),
         Cmd::Cache { op } => cache_cmd(&op),
         Cmd::State { op } => state_cmd(&op),
+        Cmd::Queue { op } => queue_cmd(&op),
     }
+}
+
+fn queue_cmd(op: &QueueOp) -> ExitCode {
+    let path = queue::queue_path();
+    let mut q = queue::read_from(&path);
+    let mut mutated = true;
+    match op {
+        QueueOp::Add { song_id } => q.enqueue(song_id.clone()),
+        QueueOp::AddNext { song_id } => q.enqueue_after_current(song_id.clone()),
+        QueueOp::Clear => q.clear(),
+        QueueOp::Next => match q.next() {
+            Some(s) => println!("now playing: {s}"),
+            None => println!("end of queue"),
+        },
+        QueueOp::Prev => match q.prev() {
+            Some(s) => println!("now playing: {s}"),
+            None => println!("start of queue"),
+        },
+        QueueOp::List => {
+            mutated = false;
+            if q.is_empty() {
+                println!("queue empty");
+            } else {
+                let cur = q.current().map(ToString::to_string);
+                for (i, s) in q.songs.iter().enumerate() {
+                    let marker = if Some(s) == cur.as_ref() { "▶" } else { " " };
+                    println!("{marker} {i}: {s}");
+                }
+            }
+        }
+    }
+    if mutated {
+        if let Err(e) = queue::write_to(&path, &q) {
+            eprintln!("mde-musicd: writing queue: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
+    ExitCode::SUCCESS
 }
 
 fn local_hostname() -> String {
