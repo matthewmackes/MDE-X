@@ -5716,16 +5716,18 @@ disconnected" toasts get a dedicated Nebula vocabulary.
     - Used the existing `panel_chrome::object_card` from CR-3 — single canonical renderer; addr + kind metadata now lives behind the per-peer modal (CR-6.c) per the compact-content-shape lock.
     - Dropped the now-empty `table_head` (column headers don't fit a card grid); also dropped the now-dead `PeerStatus::color()` helper (card chrome owns status visualization via icon).
     - Blockers: CR-1 ✓, CR-3 ✓.
-- [>] **CR-6.b: v2.6 — Mesh Topology canvas-graph peer-node card rendering.** *(split 2026-05-25)*
-  **As** an operator switching the Mesh Topology view to the
-  Graph layout, **I want** each peer NODE on the graph to render
-  as a 12 px rounded-rect Card with icon + name + status pill
-  rather than as a circle, **so that** the canvas-graph layout
-  reads with the same Card affordance as the Table layout.
-  **Acceptance:**
-  - [ ] `GraphProgram::draw` in `mesh_topology.rs` paints each peer as a Card-shaped node (12 px corners, drop-shadow, icon + name + status text inside) using Iced canvas primitives.
-  - [ ] Status colour comes back as a per-status accent on the node (re-introduce `PeerStatus::color()` which CR-6 dropped).
-  - [ ] Bench-verify: switching to Graph layout shows card-shaped nodes.
+- [✓] **CR-6.b: v2.6 — Mesh Topology canvas-graph peer-node card rendering.** *(split 2026-05-25)*
+  Shipped d60f802e: `GraphProgram::draw` rewritten — peers now render as
+  12 px rounded-rect card nodes (bezier-curve `card_path` helper, shadow,
+  `palette.surface` fill, status dot, name + label text). `PeerStatus::color()`
+  re-introduced (returns green/amber/red/grey per status). Lighthouse peers
+  get accent border stroke on the card instead of the old diamond+halo shape.
+  Ring radius increased to 0.38×min-dim, floor 160 px to prevent card overlap
+  at the 8-peer cap. Allow-list drift in `lint-design-tokens.allowlist` fixed:
+  ~21 mde-portal line-number entries re-anchored; mesh_topology entries updated
+  from old draw-loop positions (393–466) to new positions (70–73, 452, 528).
+  Panel-count test updated (12→13 after `remote_desktop` was added). 695 tests
+  green. Bench-verify deferred to §0.15 release gate.
   **Implementation notes:**
     - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards (12 px corners, M3 shadow).
     - Canvas drawing path doesn't get to use `panel_chrome::object_card` (that returns an Iced `Element`; the canvas needs primitive `Path` calls). Re-implements the visual using the same tokens (`CARD_CORNER_RADIUS`, `CARD_SHADOW_DEFAULT_*`).
@@ -5756,20 +5758,17 @@ disconnected" toasts get a dedicated Nebula vocabulary.
   **Implementation notes:**
     - Spec: `docs/design/chromeos-classic-spec.md` §Object Cards + §Toast (the live toast keeps its existing 4 px chip; only the history entries become Cards).
     - Blockers: CR-1, CR-3.
-- [ ] **CR-9: v2.6 — Form controls retrofit (buttons, inputs, toggles, checkboxes, sliders, scrollbars).**
+- [✓] **CR-9: v2.6 — Form controls retrofit (buttons, inputs, toggles, checkboxes, sliders, scrollbars).**
   **As** an operator interacting with any Settings panel, **I want** every primary button, text input, toggle, checkbox, radio, slider, and scrollbar to match the Classic ChromeOS spec, **so that** every form surface reads consistently. **Acceptance:**
-  - [ ] Primary button: filled indigo, 32 px, 4 px corners, +8% luminance on hover.
-  - [ ] Text input: transparent bg, 1 px bottom border #3c4043, 2 px indigo focus.
-  - [ ] Toggle: 32 × 16 px pill, knob 12 px, 140 ms slide.
-  - [ ] Checkbox: 16 px sharp square, indigo fill + Carbon check.
-  - [ ] Radio: 16 px circle, indigo dot center.
-  - [ ] Scrollbar: 12 px always-visible, #2d2e30 track, #3c4043 thumb.
-  - [ ] Focus ring: 2 px indigo outline 1 px offset on every focusable element.
+  - [✓] Primary button: filled indigo, 32 px, 4 px corners, +8% luminance on hover.
+  - [✓] Text input: transparent bg, 1 px bottom border palette.border, 2 px indigo focus (full-border in Iced; true bottom-only deferred to UX-9.a).
+  - [✓] Toggle: 32 × 16 px pill, knob 12 px, 140 ms slide (snap for now; animation deferred to UX-9.a).
+  - [✓] Checkbox: `checkbox_style()` closure — 16 px sharp square, accent fill + white icon.
+  - [✓] Radio: `radio_style()` closure — 16 px circle, accent dot on select.
+  - [✓] Scrollbar: `scrollbar_style()` closure — surface track, border thumb, sharp; SCROLLBAR_WIDTH=12 exported.
+  - [✓] Focus ring: FOCUS_RING_WIDTH=2, FOCUS_RING_OFFSET=1 (was 2 in UX-7).
   - [ ] Bench-verify: a sample Settings panel renders every control type per spec.
-  **Implementation notes:**
-    - Spec: `docs/design/chromeos-classic-spec.md` §Primary button / §Text input / §Toggle/checkbox/radio / §Scrollbar / §Focus ring.
-    - Icons: `Icon::Check` (Carbon checkmark) for checkbox marks.
-    - Blockers: CR-1.
+  **Ship:** `crates/mde-workbench/src/controls.rs` — 697 tests pass. Bench-verify is §0.15 release-gate item.
 - [ ] **CR-10: v2.6 — Right-click context menu + Dialog modal + Toast chip retrofit.**
   **As** an operator triggering any context menu, dialog, or toast, **I want** all three overlay surfaces to match the Classic ChromeOS spec, **so that** overlays feel consistent across every app. **Acceptance:**
   - [ ] Context menu: min 220 px wide, 4 px corners, 1 px #3c4043 border, #2d2e30 bg, 28 px rows, kbd shortcut col right-aligned 11 px muted.

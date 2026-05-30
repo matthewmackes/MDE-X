@@ -1,69 +1,74 @@
-//! UX-7 — control-state primitives.
+//! CR-9 (supersedes UX-7) — Classic ChromeOS form-control tokens.
 //!
 //! Centralizes the three button variants, styled text input,
-//! toggle pill, skeleton placeholder, and spinner so every Iced
-//! panel renders consistent hover / focus / active / disabled
-//! states. Before UX-7, every panel hand-rolled `button(text("…"))`
-//! with the toolkit's default chrome — coherent only by accident.
+//! toggle pill, skeleton placeholder, spinner, checkbox style,
+//! radio style, and scrollbar style so every Iced panel renders
+//! consistent hover / focus / active / disabled states.
 //!
-//! Token rules (UX-7 spec):
-//!   * buttons: 36 px height, `Radii::md` (8 px), SPACE_12 horiz
-//!     padding, 3 variants (Primary fill, Secondary outline,
-//!     Ghost text-only)
-//!   * text inputs: 36 px height, `Radii::md`, 1 px muted border,
-//!     accent border + glow on focus
-//!   * toggles: 40×22 px pill, 150 ms transition
-//!   * skeletons + spinner: accent-tinted, animation timing
-//!     deferred to UX-9.a's subscription wiring
+//! Token rules (CR-9 spec, docs/design/chromeos-classic-spec.md
+//! §Primary button / §Text input / §Toggle/checkbox/radio /
+//! §Scrollbar / §Focus ring):
+//!   * buttons: 32 px height, 4 px corners, 16 px H pad, 3 variants
+//!   * text inputs: 32 px height, sharp corners, transparent bg,
+//!     palette.border bottom line (Iced renders full border; bottom-
+//!     only requires canvas — deferred to UX-9.a)
+//!   * toggles: 32×16 px pill, 12 px knob, palette.border off bg
+//!   * checkbox: 16 px sharp square, accent fill + white check
+//!   * radio: 16 px circle, transparent bg, accent dot on select
+//!   * scrollbar: 12 px always-visible, surface track, border thumb
+//!   * focus ring: 2 px indigo, 1 px offset
 
 use iced::widget::button::Status as ButtonStatus;
+use iced::widget::checkbox::{Status as CheckboxStatus, Style as CheckboxStyle};
+use iced::widget::radio::{Status as RadioStatus, Style as RadioStyle};
+use iced::widget::scrollable::{Rail, Scroller, Status as ScrollStatus, Style as ScrollStyle};
 use iced::widget::{button, container, row, text, text_input, Space};
 use iced::{alignment, Background, Border, Color, Element, Length, Padding, Shadow};
 
 use mde_theme::{FontSize, Palette, Radii, TypeRole};
 
-/// UX-7 (a) — button height. Component dimension, not
-/// density-scaled.
-pub const BUTTON_HEIGHT: f32 = 36.0;
+/// CR-9 — button height. 32 px per Classic ChromeOS spec.
+pub const BUTTON_HEIGHT: f32 = 32.0;
 
-/// UX-7 (a) — button horizontal padding (SPACE_12 lock; nearest
-/// modular-scale value is `Space::md` 14, but the spec calls
-/// out 12 px so we lock the component dimension directly).
-pub const BUTTON_HORIZONTAL_PADDING: f32 = 12.0;
+/// CR-9 — button horizontal padding. 16 px per Classic ChromeOS spec.
+pub const BUTTON_HORIZONTAL_PADDING: f32 = 16.0;
 
-/// UX-7 (a) — focus ring width on focused buttons / inputs.
+/// CR-9 — focus ring width on focused buttons / inputs. 2 px.
 pub const FOCUS_RING_WIDTH: f32 = 2.0;
 
-/// UX-7 (a) — focus ring offset from the control edge.
-pub const FOCUS_RING_OFFSET: f32 = 2.0;
+/// CR-9 — focus ring offset. 1 px per Classic ChromeOS spec.
+pub const FOCUS_RING_OFFSET: f32 = 1.0;
 
-/// UX-7 (b) — text input height. Component dimension, locked.
-pub const INPUT_HEIGHT: f32 = 36.0;
+/// CR-9 — text input height. 32 px per Classic ChromeOS spec.
+pub const INPUT_HEIGHT: f32 = 32.0;
 
-/// UX-7 (c) — toggle pill dimensions. Component dimensions,
-/// locked.
-pub const TOGGLE_WIDTH: f32 = 40.0;
-pub const TOGGLE_HEIGHT: f32 = 22.0;
+/// CR-9 — toggle pill dimensions. 32×16 px per Classic ChromeOS spec.
+pub const TOGGLE_WIDTH: f32 = 32.0;
+pub const TOGGLE_HEIGHT: f32 = 16.0;
 
-/// UX-7 (a) — disabled opacity multiplier.
+/// CR-9 — toggle knob diameter. 12 px circle per Classic ChromeOS spec.
+pub const TOGGLE_KNOB_DIAMETER: f32 = 12.0;
+
+/// CR-9 — scrollbar rail width. 12 px always-visible per spec.
+/// Set on the widget via `scrollable::Scrollbar::new().width(SCROLLBAR_WIDTH)`;
+/// `scrollbar_style()` controls the colors only.
+pub const SCROLLBAR_WIDTH: f32 = 12.0;
+
+/// Disabled opacity multiplier.
 pub const DISABLED_OPACITY: f32 = 0.40;
 
-/// UX-7 (a) button variants.
+/// Button variants (unchanged from UX-7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ButtonVariant {
-    /// Accent-fill — primary action. Use for the dominant CTA
-    /// on a panel / dialog. White text, indigo background.
+    /// Accent-fill — primary action. White text, indigo background.
     Primary,
-    /// 1 px outline — secondary action. Use beside Primary for
-    /// the cancel/dismiss / alternative path. Accent border +
-    /// accent text, transparent fill.
+    /// 1 px outline — secondary action. Accent border + accent text.
     Secondary,
-    /// Text-only — tertiary / inline. Use for affordances that
-    /// shouldn't compete for visual weight (e.g. "Show more").
+    /// Text-only — tertiary / inline.
     Ghost,
 }
 
-/// UX-7 (a) — render a styled button with the locked chrome.
+/// CR-9 — render a styled button with the locked Classic ChromeOS chrome.
 /// Pass `None` to `on_press` for the disabled state.
 pub fn variant_button<'a, Message: Clone + 'a>(
     label: impl Into<String>,
@@ -84,8 +89,8 @@ pub fn variant_button<'a, Message: Clone + 'a>(
         let mut fg = text_color_for_variant(variant, palette);
         let mut border = border_for_variant(variant, accent, palette);
         match status {
-            ButtonStatus::Hovered => bg = brighten(bg, 1.10),
-            ButtonStatus::Pressed => bg = brighten(bg, 0.90),
+            ButtonStatus::Hovered => bg = brighten(bg, 1.08),  // +8% luminance
+            ButtonStatus::Pressed => bg = brighten(bg, 0.92),  // -8% luminance
             ButtonStatus::Disabled => {
                 fg = with_alpha(fg, DISABLED_OPACITY);
                 bg = with_alpha(bg, DISABLED_OPACITY * bg.a.max(0.1));
@@ -133,39 +138,40 @@ fn text_color_for_variant(variant: ButtonVariant, palette: Palette) -> Color {
 
 fn border_for_variant(variant: ButtonVariant, accent: Color, _palette: Palette) -> Border {
     let radii = Radii::defaults();
+    // CR-9: 4 px corners = radii.sm
+    let r = f32::from(radii.sm).into();
     match variant {
         ButtonVariant::Primary => Border {
             color: Color::TRANSPARENT,
             width: 0.0,
-            radius: f32::from(radii.md).into(),
+            radius: r,
         },
         ButtonVariant::Secondary => Border {
             color: accent,
             width: 1.0,
-            radius: f32::from(radii.md).into(),
+            radius: r,
         },
         ButtonVariant::Ghost => Border {
             color: Color::TRANSPARENT,
             width: 0.0,
-            radius: f32::from(radii.md).into(),
+            radius: r,
         },
     }
 }
 
-/// UX-7 (b) — styled text input. Wraps `iced::widget::text_input`
-/// with the locked chrome (36 px height, RADIUS_MD, muted border,
-/// accent-on-focus). Returns the bare widget; caller composes it
-/// inside any container.
+/// CR-9 — styled text input. Transparent bg, palette.border divider line
+/// at 1 px (spec says bottom-only; Iced renders all sides — true bottom-
+/// only requires canvas, deferred to UX-9.a), 2 px accent on focus.
+/// 32 px height, sharp corners.
 pub fn styled_text_input<'a, Message: Clone + 'a>(
     placeholder: &'a str,
     value: &'a str,
     on_input: impl Fn(String) -> Message + 'a,
     palette: Palette,
 ) -> Element<'a, Message> {
-    let radii = Radii::defaults();
-    let muted = palette.text_muted.into_iced_color();
+    let divider = palette.border.into_iced_color();
     let accent = palette.accent.into_iced_color();
-    let bg = palette.surface.into_iced_color();
+    let muted = palette.text_muted.into_iced_color();
     let text_color = palette.text.into_iced_color();
 
     text_input(placeholder, value)
@@ -176,18 +182,18 @@ pub fn styled_text_input<'a, Message: Clone + 'a>(
             bottom: 0.0,
             left: 10.0,
         })
-        .size(14)
+        .size(13)
         .style(move |_theme, status| {
-            let border_color = match status {
-                text_input::Status::Focused { .. } | text_input::Status::Hovered => accent,
-                _ => muted,
+            let (border_color, border_width) = match status {
+                text_input::Status::Focused { .. } => (accent, 2.0),
+                _ => (divider, 1.0),
             };
             text_input::Style {
-                background: Background::Color(bg),
+                background: Background::Color(Color::TRANSPARENT),
                 border: Border {
                     color: border_color,
-                    width: 1.0,
-                    radius: f32::from(radii.input).into(),
+                    width: border_width,
+                    radius: 0.0.into(),
                 },
                 icon: muted,
                 placeholder: muted,
@@ -198,10 +204,9 @@ pub fn styled_text_input<'a, Message: Clone + 'a>(
         .into()
 }
 
-/// UX-7 (c) — toggle pill widget. Stateless; the caller passes
-/// `value: bool` and an `on_toggle(bool)` message constructor.
-/// Implementation uses a styled button so click handling works
-/// without extra event plumbing.
+/// CR-9 — toggle pill. 32×16 px, 12 px knob, palette.border off bg,
+/// accent on bg. Slide animation (140 ms ease-out per spec) deferred
+/// to UX-9.a subscription wiring — stateless snap for now.
 pub fn toggle<'a, Message: Clone + 'a>(
     value: bool,
     on_toggle: impl Fn(bool) -> Message + 'a,
@@ -209,7 +214,7 @@ pub fn toggle<'a, Message: Clone + 'a>(
 ) -> Element<'a, Message> {
     let radii = Radii::defaults();
     let accent = palette.accent.into_iced_color();
-    let bg_off = palette.raised.into_iced_color();
+    let bg_off = palette.border.into_iced_color();
     let bg_on = accent;
     let knob_color = Color::WHITE;
 
@@ -221,13 +226,12 @@ pub fn toggle<'a, Message: Clone + 'a>(
         0.0
     };
 
-    let knob_diameter = TOGGLE_HEIGHT - 4.0;
     let knob = container(Space::new(
-        Length::Fixed(knob_diameter),
-        Length::Fixed(knob_diameter),
+        Length::Fixed(TOGGLE_KNOB_DIAMETER),
+        Length::Fixed(TOGGLE_KNOB_DIAMETER),
     ))
-    .width(Length::Fixed(knob_diameter))
-    .height(Length::Fixed(knob_diameter))
+    .width(Length::Fixed(TOGGLE_KNOB_DIAMETER))
+    .height(Length::Fixed(TOGGLE_KNOB_DIAMETER))
     .style(move |_| container::Style {
         background: Some(Background::Color(knob_color)),
         border: Border {
@@ -266,10 +270,133 @@ pub fn toggle<'a, Message: Clone + 'a>(
         .into()
 }
 
-/// UX-7 (d) — skeleton placeholder. Used to reserve layout
-/// space while data loads. Renders as a `palette.raised`-tinted
-/// rectangle with `Radii::sm` corners; the shimmer animation
-/// (CSS-style) wires in UX-9.a.
+/// CR-9 — checkbox style closure for `iced::widget::checkbox::style()`.
+/// 16 px sharp square (set via `.size(16)` on the widget), accent fill
+/// when checked, white checkmark icon.
+pub fn checkbox_style(
+    palette: Palette,
+) -> impl Fn(&iced::Theme, CheckboxStatus) -> CheckboxStyle {
+    let accent = palette.accent.into_iced_color();
+    let divider = palette.border.into_iced_color();
+    move |_theme, status| {
+        let is_checked = match status {
+            CheckboxStatus::Active { is_checked }
+            | CheckboxStatus::Hovered { is_checked }
+            | CheckboxStatus::Disabled { is_checked } => is_checked,
+        };
+        let (bg, icon_color, border_color) = if is_checked {
+            let fill = match status {
+                CheckboxStatus::Hovered { .. } => brighten(accent, 1.08),
+                CheckboxStatus::Disabled { .. } => with_alpha(accent, DISABLED_OPACITY),
+                _ => accent,
+            };
+            (Background::Color(fill), Color::WHITE, fill)
+        } else {
+            let border = match status {
+                CheckboxStatus::Hovered { .. } => accent,
+                CheckboxStatus::Disabled { .. } => with_alpha(divider, DISABLED_OPACITY),
+                _ => divider,
+            };
+            (Background::Color(Color::TRANSPARENT), Color::TRANSPARENT, border)
+        };
+        CheckboxStyle {
+            background: bg,
+            icon_color,
+            border: Border {
+                color: border_color,
+                width: 1.0,
+                radius: 0.0.into(),
+            },
+            text_color: None,
+        }
+    }
+}
+
+/// CR-9 — radio style closure for `iced::widget::radio::style()`.
+/// 16 px circle (set via `.size(16)` on the widget), transparent bg,
+/// accent dot when selected, palette.border ring when idle.
+pub fn radio_style(
+    palette: Palette,
+) -> impl Fn(&iced::Theme, RadioStatus) -> RadioStyle {
+    let accent = palette.accent.into_iced_color();
+    let divider = palette.border.into_iced_color();
+    move |_theme, status| {
+        let is_selected = match status {
+            RadioStatus::Active { is_selected } | RadioStatus::Hovered { is_selected } => {
+                is_selected
+            }
+        };
+        let (dot_color, border_color) = if is_selected {
+            let c = match status {
+                RadioStatus::Hovered { .. } => brighten(accent, 1.08),
+                _ => accent,
+            };
+            (c, c)
+        } else {
+            let border = match status {
+                RadioStatus::Hovered { .. } => accent,
+                _ => divider,
+            };
+            (Color::TRANSPARENT, border)
+        };
+        RadioStyle {
+            background: Background::Color(Color::TRANSPARENT),
+            dot_color,
+            border_width: 1.0,
+            border_color,
+            text_color: None,
+        }
+    }
+}
+
+/// CR-9 — scrollbar appearance closure for `scrollable::style()`.
+/// Colors: palette.surface track, palette.border thumb, slight brightening
+/// on hover/drag. Rail width is caller-controlled via
+/// `scrollable::Scrollbar::new().width(SCROLLBAR_WIDTH)`.
+pub fn scrollbar_style(
+    palette: Palette,
+) -> impl Fn(&iced::Theme, ScrollStatus) -> ScrollStyle {
+    let track_bg = palette.surface.into_iced_color();
+    let thumb_default = palette.border.into_iced_color();
+    move |_theme, status| {
+        let thumb_color = match status {
+            ScrollStatus::Hovered {
+                is_vertical_scrollbar_hovered: true,
+                ..
+            } => brighten(thumb_default, 1.15),
+            ScrollStatus::Dragged {
+                is_vertical_scrollbar_dragged: true,
+                ..
+            } => brighten(thumb_default, 1.25),
+            _ => thumb_default,
+        };
+        let rail = Rail {
+            background: Some(Background::Color(track_bg)),
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: 0.0.into(),
+            },
+            scroller: Scroller {
+                color: thumb_color,
+                border: Border {
+                    color: Color::TRANSPARENT,
+                    width: 0.0,
+                    radius: 0.0.into(),
+                },
+            },
+        };
+        ScrollStyle {
+            container: container::Style::default(),
+            vertical_rail: rail,
+            horizontal_rail: rail,
+            gap: None,
+        }
+    }
+}
+
+/// UX-7 (d) — skeleton placeholder. Accent-tinted rectangle;
+/// shimmer animation wires in UX-9.a.
 pub fn skeleton<'a, Message: 'a>(
     width: f32,
     height: f32,
@@ -292,9 +419,8 @@ pub fn skeleton<'a, Message: 'a>(
         .into()
 }
 
-/// UX-7 (d) — spinner. Single accent dot pattern; animation
-/// wiring deferred to UX-9.a. v1 renders a static accent-tinted
-/// circle so the layout slot is reserved correctly.
+/// UX-7 (d) — spinner placeholder. Static accent circle; animation
+/// wiring deferred to UX-9.a.
 pub fn spinner<'a, Message: 'a>(palette: Palette) -> Element<'a, Message> {
     let radii = Radii::defaults();
     let accent = palette.accent.into_iced_color();
@@ -331,21 +457,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn button_height_locked_to_36() {
-        assert!((BUTTON_HEIGHT - 36.0).abs() < f32::EPSILON);
+    fn button_height_locked_to_32() {
+        assert!((BUTTON_HEIGHT - 32.0).abs() < f32::EPSILON);
     }
 
     #[test]
     fn input_height_matches_button_height() {
-        // UX-7 spec — inputs share button height for visual
-        // alignment in row layouts.
+        // CR-9: inputs share button height (32 px) for visual row alignment.
         assert!((INPUT_HEIGHT - BUTTON_HEIGHT).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn toggle_pill_locked_to_40_by_22() {
-        assert!((TOGGLE_WIDTH - 40.0).abs() < f32::EPSILON);
-        assert!((TOGGLE_HEIGHT - 22.0).abs() < f32::EPSILON);
+    fn toggle_pill_locked_to_32_by_16() {
+        assert!((TOGGLE_WIDTH - 32.0).abs() < f32::EPSILON);
+        assert!((TOGGLE_HEIGHT - 16.0).abs() < f32::EPSILON);
+        assert!((TOGGLE_KNOB_DIAMETER - 12.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -354,9 +480,14 @@ mod tests {
     }
 
     #[test]
-    fn focus_ring_locked_to_two_px_offset_two_px() {
+    fn focus_ring_locked_to_two_px_offset_one_px() {
         assert!((FOCUS_RING_WIDTH - 2.0).abs() < f32::EPSILON);
-        assert!((FOCUS_RING_OFFSET - 2.0).abs() < f32::EPSILON);
+        assert!((FOCUS_RING_OFFSET - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn scrollbar_width_locked_to_12() {
+        assert!((SCROLLBAR_WIDTH - 12.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -374,5 +505,13 @@ mod tests {
         let _ = spinner::<()>(palette);
         let _ = toggle::<bool>(true, |v| v, palette);
         let _ = styled_text_input::<String>("p", "v", |s| s, palette);
+    }
+
+    #[test]
+    fn checkbox_radio_scrollbar_style_construct() {
+        let palette = Palette::dark();
+        let _ = checkbox_style(palette);
+        let _ = radio_style(palette);
+        let _ = scrollbar_style(palette);
     }
 }
