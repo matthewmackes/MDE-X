@@ -4024,6 +4024,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mde-music"
+version = "0.0.0"
+dependencies = [
+ "iced",
+ "mde-musicd",
+]
+
+[[package]]
 name = "mde-musicd"
 version = "0.0.0"
 dependencies = [
