@@ -1,0 +1,124 @@
+# MESHFS-1.1 (v5.0.0) — Build LizardFS from a pinned upstream tag and
+# cache / upload the resulting binaries as a workflow artifact.
+#
+# The artifact (lizardfs-binaries.tar.gz) is consumed by the release
+# workflow: it downloads the artifact into rpmbuild/SOURCES/ so that
+# `rpmbuild -ba` can satisfy the `Source1:` declaration in the spec.
+#
+# Pinning strategy: we pin to LIZARDFS_TAG (a git tag) rather than a raw
+# commit SHA so the reference is human-readable. Tags in the upstream
+# lizardfs/lizardfs repo are not forcibly moved. If the operator wants
+# to change the pin, update LIZARDFS_TAG below and re-run the workflow;
+# the cache key changes automatically.
+#
+# Build deps on Fedora 44:
+#   cmake, gcc, g++, fuse3-devel, fuse3-libs, zlib-devel,
+#   openssl-devel, boost-devel, python3-devel, pkg-config
+
+name: lizardfs-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: "Force rebuild even if cached artifact exists"
+        required: false
+        default: "false"
+  push:
+    paths:
+      - ".github/workflows/lizardfs-build.yml"
+      - "install-helpers/build-lizardfs.sh"
+
+env:
+  LIZARDFS_TAG: "3.13.0-rc2"
+  LIZARDFS_REPO: "https://github.com/lizardfs/lizardfs.git"
+
+jobs:
+  build:
+    name: Build LizardFS ${{ env.LIZARDFS_TAG }}
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:44
+
+    steps:
+      - name: Install build deps
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            git \
+            cmake \
+            gcc \
+            gcc-c++ \
+            fuse3-devel \
+            fuse3-libs \
+            zlib-devel \
+            openssl-devel \
+            boost-devel \
+            python3-devel \
+            python3 \
+            pkg-config \
+            make
+
+      - name: Checkout mde repo
+        uses: actions/checkout@v4
+
+      - name: Cache LizardFS build artifact
+        id: cache-lfs
+        uses: actions/cache@v4
+        with:
+          path: lizardfs-binaries.tar.gz
+          key: lizardfs-${{ env.LIZARDFS_TAG }}-fedora44-v1
+
+      - name: Clone LizardFS at pinned tag
+        if: steps.cache-lfs.outputs.cache-hit != 'true' || inputs.force_rebuild == 'true'
+        run: |
+          git clone --depth 1 --branch "$LIZARDFS_TAG" \
+              "$LIZARDFS_REPO" /tmp/lizardfs-src
+          cd /tmp/lizardfs-src
+          git log -1 --format="LizardFS build: tag=%H" > /tmp/lizardfs-commit.txt
+          cat /tmp/lizardfs-commit.txt
+
+      - name: Build LizardFS
+        if: steps.cache-lfs.outputs.cache-hit != 'true' || inputs.force_rebuild == 'true'
+        run: |
+          mkdir -p /tmp/lizardfs-build
+          cd /tmp/lizardfs-build
+          cmake /tmp/lizardfs-src \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX=/usr \
+              -DENABLE_TESTS=OFF \
+              -DENABLE_WERROR=OFF \
+              -DFUSE_INCLUDE_PATH=/usr/include/fuse3 \
+              -DFUSE_LIBRARY=/usr/lib64/libfuse3.so
+          make -j"$(nproc)" \
+              mfsmaster \
+              mfschunkserver \
+              mfsmount \
+              mfsmetarestore \
+              mfscli \
+              mfssetgoal \
+              mfssetquota \
+              || make -j"$(nproc)"
+
+      - name: Bundle binaries
+        if: steps.cache-lfs.outputs.cache-hit != 'true' || inputs.force_rebuild == 'true'
+        run: |
+          bindir=$(mktemp -d)
+          # Copy the built binaries; filenames vary by LizardFS version.
+          for b in mfsmaster mfschunkserver mfsmount mfsmetarestore mfscli \
+                   mfssetgoal mfssetquota; do
+            src=$(find /tmp/lizardfs-build -name "$b" -type f | head -1)
+            if [ -n "$src" ]; then
+              cp "$src" "$bindir/$b"
+              strip "$bindir/$b" 2>/dev/null || true
+            fi
+          done
+          ls -lh "$bindir/"
+          tar -czf lizardfs-binaries.tar.gz -C "$bindir" .
+          echo "Artifact size: $(du -sh lizardfs-binaries.tar.gz)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lizardfs-binaries-${{ env.LIZARDFS_TAG }}
+          path: lizardfs-binaries.tar.gz
+          retention-days: 90

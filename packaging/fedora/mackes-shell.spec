@@ -21,6 +21,11 @@ URL:            https://github.com/matthewmackes/MAP2-RELEASES
 # Source tarball still ships under the legacy name so dist/mackes-shell-...
 # keeps working; the package itself is renamed via Provides/Obsoletes.
 Source0:        mackes-shell-%{version}.tar.gz
+# MESHFS-1.1 (v5.0.0) — LizardFS binaries built from pinned tag 3.13.0-rc2
+# by the .github/workflows/lizardfs-build.yml CI job.  Place the artifact at
+# rpmbuild/SOURCES/lizardfs-binaries.tar.gz before running `make rpm`.
+# To build locally: install-helpers/build-lizardfs.sh 3.13.0-rc2
+Source1:        lizardfs-binaries.tar.gz
 
 # v2.0.0 cut commit — package renamed `mackes-xfce-workstation` →
 # `mde`. 2026-05-29 — base renamed `mde` → `mde-core`; `Provides: mde`
@@ -186,14 +191,11 @@ Requires:       conky
 # workspace builds.
 Requires:       nebula >= 1.9.0
 
-# Mesh storage (MESHFS-1, v5.0.0): LizardFS over the Nebula
-# overlay. `lizardfs-chunkserver` is the per-peer storage daemon;
-# `lizardfs-client` provides the FUSE client that mounts
-# /mnt/mesh-storage (shared file plane for all peers).
-# See docs/design/v5.0.0-mesh-storage-lizardfs.md for the
-# bootstrap + mount wiring.
-Requires:       lizardfs-chunkserver
-Requires:       lizardfs-client
+# Mesh storage (MESHFS-1.1, v5.0.0): LizardFS binaries are bundled
+# directly in this package (built from pinned tag 3.13.0-rc2; see
+# Source1 above).  No external lizardfs-* repo or package needed.
+# FUSE kernel module + libfuse3 are still required at runtime for mfsmount.
+Requires:       fuse3-libs
 
 # Monitoring (MON-1, v2.6): Netdata for per-peer metrics +
 # alerting. The 25-Q monitoring design lock (2026-05-24) reuses
@@ -653,6 +655,21 @@ install -d -m 0750 %{buildroot}/var/lib/mde/meshfs
 install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/chunks
 install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/meta
 install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/stage
+# MESHFS-1.1 (v5.0.0) — Unpack the CI-built LizardFS binaries from
+# Source1 (lizardfs-binaries.tar.gz, produced by lizardfs-build.yml).
+# sbin: mfsmaster (master), mfschunkserver (CS), mfsmetarestore (recovery).
+# bin:  mfsmount (FUSE client), mfscli, mfssetgoal, mfssetquota.
+_lfs_tmp=$(mktemp -d)
+tar -xzf %{SOURCE1} -C "${_lfs_tmp}"
+for _b in mfsmaster mfschunkserver mfsmetarestore; do
+    [ -f "${_lfs_tmp}/${_b}" ] && \
+        install -m 0755 "${_lfs_tmp}/${_b}" %{buildroot}%{_sbindir}/ || :
+done
+for _b in mfsmount mfscli mfssetgoal mfssetquota; do
+    [ -f "${_lfs_tmp}/${_b}" ] && \
+        install -m 0755 "${_lfs_tmp}/${_b}" %{buildroot}%{_bindir}/ || :
+done
+rm -rf "${_lfs_tmp}"
 # VV-1 (v4.1.0) — Kamailio daemon unit + config dir.
 install -m 0644 data/systemd/kamailio-mde.service            %{buildroot}%{_unitdir}/
 install -d -m 0755 %{buildroot}/etc/kamailio-mde
@@ -1188,8 +1205,13 @@ systemctl daemon-reload || :
 # mde-install's start_services step runs, whichever is first.
 # Phase 12.1 — mackesd store init is idempotent (migrate on start).
 systemctl enable mackesd.service 2>/dev/null || :
-# MESHFS-1 (v5.0.0) — LizardFS chunkserver for the mesh-storage volume.
+# MESHFS-1.1 (v5.0.0) — LizardFS daemons for the mesh-storage volume.
+# mfschunkserver: per-peer chunk storage.
+# mfsmaster (shadow mode): metadata shadow on every non-genesis peer;
+#   the meshfs_worker determines whether this peer is genesis-active-master
+#   or shadow, so enabling here is idempotent and safe on all peers.
 systemctl enable mfschunkserver.service 2>/dev/null || :
+systemctl enable mfsmaster.service 2>/dev/null || :
 # MON-1 (v2.6) — netdata for the apply_netdata_monitor birthright
 # step (bound to 127.0.0.1 until birthright writes the overlay bind).
 systemctl enable netdata.service 2>/dev/null || :
@@ -1352,6 +1374,15 @@ echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to fini
 %dir %attr(0750, root, root) /var/lib/mde/meshfs/chunks
 %dir %attr(0750, root, root) /var/lib/mde/meshfs/meta
 %dir %attr(0750, root, root) /var/lib/mde/meshfs/stage
+# MESHFS-1.1 (v5.0.0) — LizardFS binaries bundled from pinned tag
+# 3.13.0-rc2 (build: .github/workflows/lizardfs-build.yml).
+%{_sbindir}/mfsmaster
+%{_sbindir}/mfschunkserver
+%{_sbindir}/mfsmetarestore
+%{_bindir}/mfsmount
+%{_bindir}/mfscli
+%{_bindir}/mfssetgoal
+%{_bindir}/mfssetquota
 # GF-4.1 (v5.0.0) — mesh-home FUSE mount template. Stays in
 # base so a lighthouse install can mount mesh-home even
 # without the desktop session host.
