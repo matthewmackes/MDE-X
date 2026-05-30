@@ -144,6 +144,13 @@ pub mod meshfs_worker;
 // trims 7-day window, and fires Bus alert on threshold.
 // Separate from `firewall_preset` (port-open convergence).
 pub mod firewall_monitor;
+// VIRT-1 (v5.0.0) — unified KVM + Podman compute inventory.
+// Polls `virsh list --all --uuid` + `virsh dominfo`/`domblklist`/
+// `domstats` for KVM guests and `podman ps`/`podman stats` for
+// containers on a 10 s tick; publishes per-peer inventory to
+// `compute/inventory/<peer-nebula-addr>` per docs/design/v5.0.0-
+// compute.md §3. Silent no-op when virsh/podman are absent.
+pub mod compute_registry;
 // INST-11 + INST-12 + INST-13 (v2.7) — fleet upgrade-barrier
 // worker. Runs on every peer: watches `<mesh-home>/upgrade-
 // intent/*.json` (written by `mde-update --coordinate`), runs

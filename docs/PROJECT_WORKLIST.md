@@ -1944,14 +1944,14 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 > **Dependencies:** MESHFS-* (virtiofsd requires mesh-storage mounted), BUS-1 broker,
 > INST-* (libvirtd + cockpit-machines in RPM `%post`).
 
-- [ ] **VIRT-1: v5.0.0 — `compute_registry` mackesd worker — unified KVM + Podman Bus inventory**
+- [✓] **VIRT-1: v5.0.0 — `compute_registry` mackesd worker — unified KVM + Podman Bus inventory**
   **As** any mesh peer, **I want** to see all VMs and containers across the fleet in one place,
   **so that** I can manage compute resources from any workstation.
   **Acceptance** (each bench-observable):
-    - [ ] `crates/mackesd/src/workers/compute_registry.rs` polls `virsh list --all --uuid` + `podman ps --all --format json` every 10 s
-    - [ ] Publishes `compute/inventory/<peer-nebula-addr>` with schema from design doc §3
-    - [ ] `meshfs_available: bool` field reflects whether `/mnt/mesh-storage` is mounted
-    - [ ] 6 unit tests: empty inventory, 1 VM running, 1 VM stopped, 1 container, mixed, meshfs-unavailable
+    - [✓] `crates/mackesd/src/workers/compute_registry.rs` polls `virsh list --all --uuid` + `podman ps --all --format json` every 10 s
+    - [✓] Publishes `compute/inventory/<peer-nebula-addr>` with schema from design doc §3
+    - [✓] `meshfs_available: bool` field reflects whether `/mnt/mesh-storage` is mounted
+    - [✓] 6 unit tests: empty inventory, 1 VM running, 1 VM stopped, 1 container, mixed, meshfs-unavailable
   **Implementation notes:**
     - Follow `firewall_monitor.rs` PEERVER-converge pattern
     - libvirt-rs crate (or virsh subprocess) for VM polling; podman JSON API for containers

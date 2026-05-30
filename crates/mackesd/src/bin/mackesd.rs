@@ -3065,13 +3065,32 @@ fn run_serve(
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| node_id.clone());
         sup.spawn(Spawn::new(
-            mackesd_core::workers::firewall_monitor::FirewallMonitorWorker::new(fw_host),
+            mackesd_core::workers::firewall_monitor::FirewallMonitorWorker::new(fw_host.clone()),
             RestartPolicy::Always,
         ));
         worker_names
             .lock()
             .expect("worker_names mutex")
             .push("firewall_monitor".into());
+
+        // VIRT-1 (v5.0.0) — unified KVM + Podman compute inventory.
+        // Polls virsh + podman every 10 s and publishes the per-peer
+        // inventory to `compute/inventory/<peer-nebula-addr>` per
+        // docs/design/v5.0.0-compute.md §3. Silent no-op on peers
+        // without virsh/podman (lighthouse, container-stripped). The
+        // nebula address is auto-detected from the local nebula1
+        // interface at tick time (empty hint = runtime detect).
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::compute_registry::ComputeRegistryWorker::new(
+                fw_host,
+                String::new(),
+            ),
+            RestartPolicy::Always,
+        ));
+        worker_names
+            .lock()
+            .expect("worker_names mutex")
+            .push("compute_registry".into());
 
         // EPIC-MESH-PROBE (MESH-PROBE-4) — scheduled two-tier nmap
         // probe worker. Resolves mesh-peer overlay IPs, scans them
