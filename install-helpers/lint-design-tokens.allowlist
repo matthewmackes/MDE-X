@@ -236,3 +236,13 @@ crates/mde-workbench/src/app.rs:76
 crates/mde-iced-components/src/lib.rs:902
 crates/mde-iced-components/src/lib.rs:903
 crates/mde-iced-components/src/lib.rs:987
+# TUNE-15.b — mde-workbench/src/app.rs pre-existing entries re-anchored
+# 2026-05-30 (+1 import line, +2 Message enum, +1 struct field, +1 with_backend,
+# +1 update dispatch, +4 on_panel_navigated, +6 panel_body = 16 lines total shift
+# above these entries; prior allowlist entries at 60/71/76/1532/1533/1567 now stale).
+crates/mde-workbench/src/app.rs:61
+crates/mde-workbench/src/app.rs:72
+crates/mde-workbench/src/app.rs:77
+crates/mde-workbench/src/app.rs:1547
+crates/mde-workbench/src/app.rs:1548
+crates/mde-workbench/src/app.rs:1582

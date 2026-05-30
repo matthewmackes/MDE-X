@@ -28,6 +28,7 @@ use crate::panels::{
     help_index as help_index_panel, home as home_panel, hub as hub_panel,
     inventory as inventory_panel, keyboard as keyboard_panel,
     logs as logs_panel, mesh_bus as mesh_bus_panel, mesh_control as mesh_control_panel,
+    mesh_federation as mesh_federation_panel,
     mouse as mouse_panel,
     mesh_history as mesh_history_panel, mesh_join as mesh_join_panel,
     mesh_pending as mesh_pending_panel,
@@ -171,6 +172,8 @@ pub enum Message {
     Drift(drift_panel::Message),
     /// BUS-7.2 — Network → Mackes Bus panel sub-message.
     MeshBus(mesh_bus_panel::Message),
+    /// TUNE-15.b — Network → Mesh Federation panel sub-message.
+    MeshFederation(mesh_federation_panel::Message),
     MeshControl(mesh_control_panel::Message),
     MeshPending(mesh_pending_panel::Message),
     MeshServices(mesh_services_panel::Message),
@@ -253,6 +256,7 @@ pub struct App {
     health_check: health_check_panel::HealthCheckPanel,
     drift: drift_panel::DriftPanel,
     mesh_bus: mesh_bus_panel::MeshBusPanel,
+    mesh_federation: mesh_federation_panel::MeshFederationPanel,
     mesh_control: mesh_control_panel::MeshControlPanel,
     mesh_pending: mesh_pending_panel::MeshPendingPanel,
     mesh_services: mesh_services_panel::MeshServicesPanel,
@@ -351,6 +355,7 @@ impl App {
             health_check: health_check_panel::HealthCheckPanel::new(),
             drift: drift_panel::DriftPanel::new(),
             mesh_bus: mesh_bus_panel::MeshBusPanel::new(),
+            mesh_federation: mesh_federation_panel::MeshFederationPanel::new(),
             mesh_control: mesh_control_panel::MeshControlPanel::new(),
             mesh_pending: mesh_pending_panel::MeshPendingPanel::new(),
             mesh_services: mesh_services_panel::MeshServicesPanel::new(),
@@ -713,6 +718,7 @@ impl App {
             Message::HealthCheck(msg) => self.health_check.update(msg),
             Message::Drift(msg) => self.drift.update(msg),
             Message::MeshBus(msg) => self.mesh_bus.update(msg),
+            Message::MeshFederation(msg) => self.mesh_federation.update(msg),
             Message::MeshControl(msg) => self.mesh_control.update(msg),
             Message::MeshPending(msg) => self.mesh_pending.update(msg),
             Message::MeshServices(msg) => self.mesh_services.update(msg),
@@ -822,6 +828,10 @@ impl App {
             // Fleet settings has no Load — it's a push-only
             // surface, so navigation doesn't fan a refresh.
             (Group::Fleet, "settings") => Task::none(),
+            // TUNE-15.b — Federation pairing panel: load active pairs on nav.
+            (Group::Network, "mesh_federation") => {
+                mesh_federation_panel::MeshFederationPanel::load()
+            }
             _ => Task::none(),
         }
     }
@@ -1088,6 +1098,11 @@ impl App {
                 group: Group::Network,
                 panel: "mesh_bus",
             } => self.mesh_bus.view(),
+            // TUNE-15.b — Mesh Federation 4-tab pairing surface.
+            View::Panel {
+                group: Group::Network,
+                panel: "mesh_federation",
+            } => self.mesh_federation.view(),
             // v4.0.1 WB-2.h (2026-05-23) — Network → Mesh
             // Control renders the leader-lease state + healthz.
             View::Panel {

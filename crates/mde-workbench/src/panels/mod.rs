@@ -27,6 +27,7 @@ pub mod inventory;
 pub mod json_helpers;
 pub mod logs;
 pub mod mesh_bus;
+pub mod mesh_federation;
 pub mod mesh_control;
 pub mod mesh_history;
 pub mod mesh_join;
