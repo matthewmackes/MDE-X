@@ -40,6 +40,7 @@ mod notifications;
 mod snap_assist;
 mod start_menu;
 mod toasts;
+mod overview;
 mod urgent;
 mod watermark;
 mod weather;
@@ -142,6 +143,11 @@ enum Kind {
     /// name read from MDE_SWAY_MODE env var. Spawned by mde-portal
     /// Dock on ModeChanged entry; Esc or click-outside dismisses.
     WhichKey,
+    /// ANIM-6.b — workspace overview surface (Q46). Fullscreen grid
+    /// of workspace cards (name + app pills). Click to switch
+    /// workspace; Esc to dismiss. No wlr-screencopy thumbnails.
+    /// Bind with `bindsym $mod+Tab exec mde-popover overview`.
+    Overview,
 }
 
 fn main() -> iced_layershell::Result {
@@ -177,5 +183,6 @@ fn main() -> iced_layershell::Result {
         Kind::Lock => lock::run(),
         Kind::Urgent => urgent::run(),
         Kind::WhichKey => which_key::run(),
+        Kind::Overview => overview::run(),
     }
 }

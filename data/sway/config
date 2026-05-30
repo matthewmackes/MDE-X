@@ -136,6 +136,10 @@ bindsym $mod+d exec bemenu-run -fn "Red Hat Text 11" -nb "#262626" -nf "#f4f4f4"
 # v3.0.3 — F3 opens the exposé grid (fullscreen overlay rendering
 # one card per top-level window; click focuses + dismisses).
 bindsym F3 exec mde-popover expose
+# ANIM-6.b — $mod+Tab opens the workspace overview (Q46): fullscreen
+# grid of workspace cards showing name + app pills. Click switches;
+# Esc dismisses.
+bindsym $mod+Tab exec mde-popover overview
 # v3.0.3 — Super+V opens the clipboard history popover (mesh-
 # synced entries from ~/.cache/mde/clipboard.json; click an
 # entry to copy it back via wl-copy).
