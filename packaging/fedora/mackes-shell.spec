@@ -852,6 +852,8 @@ install -D -m 0755 bin/mde-output-autoscale \
 install -D -m 0755 bin/mde                  %{buildroot}%{_bindir}/mde
 install -D -m 0755 bin/mde-wm               %{buildroot}%{_bindir}/mde-wm
 install -D -m 0755 bin/mde-enforce-session  %{buildroot}%{_bindir}/mde-enforce-session
+# ANIM-7.a — idle dim/restore helper (Q63).
+install -D -m 0755 bin/mde-idle-dim         %{buildroot}%{_bindir}/mde-idle-dim
 # v2.0.0 Phase 0.3 — man pages for every mde-* entry point.
 install -d %{buildroot}%{_mandir}/man1 %{buildroot}%{_mandir}/man8
 install -m 0644 data/man/mde.1                  %{buildroot}%{_mandir}/man1/mde.1
@@ -1495,6 +1497,8 @@ echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to fini
 %{_bindir}/mde-enforce-session
 # v2.0.3 — per-output default scale picker (sway-only).
 %{_bindir}/mde-output-autoscale
+# ANIM-7.a — idle dim/restore helper (Q63).
+%{_bindir}/mde-idle-dim
 # v4.0.1 visual-identity.md Q11 — Geologica font family (OFL 1.1).
 # Grandfathered alongside the CR-1 Roboto swap; both shipped
 # under the desktop addon (lighthouse installs skip all UI fonts).

@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# mde-idle-dim — gradual brightness dim / restore for swayidle (ANIM-7.a, Q63).
+#
+# Usage:
+#   mde-idle-dim dim     — save current brightness, fade to DIM_PCT over DIM_SECS
+#   mde-idle-dim restore — restore saved brightness (or 100% if no save file)
+#
+# Invoked by swayidle:
+#   timeout 90  'mde-idle-dim dim'
+#   resume      'mde-idle-dim restore'
+#
+# Silently no-ops on hosts without brightnessctl (e.g. desktop with no
+# backlight), so swayidle's lock sequence still fires on those systems.
+#
+# Save file: $XDG_RUNTIME_DIR/mde-brightness-save (per-session, ephemeral).
+
+set -euo pipefail
+
+DIM_PCT=15        # target brightness as a percentage of max
+DIM_SECS=3        # total fade duration in seconds
+STEPS=30          # number of incremental steps (STEPS × 100 ms = DIM_SECS)
+STEP_SLEEP=0.1    # seconds between steps
+
+SAVE_FILE="${XDG_RUNTIME_DIR:-/run/user/$UID}/mde-brightness-save"
+
+if ! command -v brightnessctl >/dev/null 2>&1; then
+    exit 0
+fi
+
+case "${1:-}" in
+    dim)
+        CURRENT=$(brightnessctl g 2>/dev/null) || exit 0
+        MAX=$(brightnessctl m 2>/dev/null)     || exit 0
+        if [ "$MAX" -le 0 ]; then exit 0; fi
+
+        # Persist current value so restore can recover it.
+        echo "$CURRENT" > "$SAVE_FILE"
+
+        TARGET=$(( MAX * DIM_PCT / 100 ))
+        [ "$TARGET" -lt 1 ] && TARGET=1
+
+        # Already at or below target — nothing to animate.
+        if [ "$CURRENT" -le "$TARGET" ]; then exit 0; fi
+
+        DELTA=$(( (CURRENT - TARGET) / STEPS ))
+        [ "$DELTA" -lt 1 ] && DELTA=1
+
+        for i in $(seq 1 $STEPS); do
+            LEVEL=$(( CURRENT - DELTA * i ))
+            [ "$LEVEL" -lt "$TARGET" ] && LEVEL="$TARGET"
+            brightnessctl s "$LEVEL" >/dev/null 2>&1 || break
+            sleep "$STEP_SLEEP"
+        done
+        # Ensure we land exactly on target.
+        brightnessctl s "$TARGET" >/dev/null 2>&1 || true
+        ;;
+
+    restore)
+        SAVED=0
+        if [ -f "$SAVE_FILE" ]; then
+            SAVED=$(cat "$SAVE_FILE" 2>/dev/null || echo 0)
+            rm -f "$SAVE_FILE"
+        fi
+        if [ "${SAVED:-0}" -gt 0 ]; then
+            brightnessctl s "$SAVED" >/dev/null 2>&1 || true
+        else
+            # Fallback: restore to 100 %.
+            brightnessctl s 100% >/dev/null 2>&1 || true
+        fi
+        ;;
+
+    *)
+        echo "Usage: mde-idle-dim dim | restore" >&2
+        exit 1
+        ;;
+esac
