@@ -1,0 +1,507 @@
+//! AIR-4 (v6.1) — Subsonic/Airsonic REST client.
+//!
+//! The Subsonic API (which Airsonic / Navidrome / Gonic all speak)
+//! authenticates every request with a salted token:
+//!
+//!   `token = md5(password + salt)`, sent as `t=<token>&s=<salt>`
+//!
+//! plus `u=<user>`, `v=<api-version>`, `c=<client-name>`, `f=json`.
+//! Every endpoint is `<base>/rest/<view>?<params>` and replies with a
+//! `{"subsonic-response": {status, version, error?, <data>}}` envelope.
+//!
+//! This module ships the **core** endpoints the album / artist / search
+//! / play flow needs (ping, getArtists, getAlbumList2, search3, plus the
+//! `stream` + `getCoverArt` URL builders the playback engine + cache
+//! fetch against). The niche endpoints (podcasts / radio / lyrics /
+//! genres) land with their consuming UI as AIR-4.b.
+//!
+//! Everything except the actual HTTP round-trip is a pure function
+//! (`auth_token`, `query_params`, `endpoint_url`, `stream_url`,
+//! `cover_art_url`, and the `parse_*` helpers over `serde_json::Value`)
+//! so the client is fully unit-testable without a live server.
+
+use std::fmt;
+
+use serde::Deserialize;
+use serde_json::Value;
+
+/// Subsonic API version this client advertises (`v=`). 1.16.1 is the
+/// floor every endpoint we call is available at.
+pub const API_VERSION: &str = "1.16.1";
+
+/// Client identifier sent as `c=` (shows up in the server's session
+/// list).
+pub const CLIENT_NAME: &str = "mde-music";
+
+/// `token = md5(password + salt)`, lower-hex. The Subsonic auth scheme
+/// (avoids sending the password in clear on every request).
+#[must_use]
+pub fn auth_token(password: &str, salt: &str) -> String {
+    let digest = md5::compute(format!("{password}{salt}").as_bytes());
+    format!("{digest:x}")
+}
+
+/// A failure reaching or parsing the Airsonic server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AirsonicError {
+    /// Transport failure (DNS, connect, timeout, non-2xx).
+    Http(String),
+    /// The server returned `status: "failed"` with a Subsonic error.
+    Api { code: i64, message: String },
+    /// The envelope didn't parse / was missing expected fields.
+    Parse(String),
+}
+
+impl fmt::Display for AirsonicError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Http(e) => write!(f, "airsonic transport error: {e}"),
+            Self::Api { code, message } => {
+                write!(f, "airsonic API error {code}: {message}")
+            }
+            Self::Parse(e) => write!(f, "airsonic response parse error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for AirsonicError {}
+
+/// An artist row from `getArtists`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Artist {
+    pub id: String,
+    pub name: String,
+    #[serde(default, rename = "albumCount")]
+    pub album_count: u32,
+}
+
+/// An album row from `getAlbumList2` / `search3`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Album {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub artist: String,
+    #[serde(default, rename = "artistId")]
+    pub artist_id: String,
+    #[serde(default, rename = "songCount")]
+    pub song_count: u32,
+    #[serde(default, rename = "coverArt")]
+    pub cover_art: String,
+    #[serde(default)]
+    pub year: Option<u32>,
+}
+
+/// A song row from `search3` (and, later, `getAlbum`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Song {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub album: String,
+    #[serde(default)]
+    pub artist: String,
+    #[serde(default)]
+    pub duration: u32,
+    #[serde(default)]
+    pub track: Option<u32>,
+    #[serde(default)]
+    pub suffix: String,
+}
+
+/// Result of `search3` — three independently-scrollable sections.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchResult3 {
+    pub artists: Vec<Artist>,
+    pub albums: Vec<Album>,
+    pub songs: Vec<Song>,
+}
+
+/// An authenticated Airsonic client.
+pub struct Client {
+    base_url: String,
+    user: String,
+    token: String,
+    salt: String,
+    http: reqwest::Client,
+}
+
+impl Client {
+    /// Build a client, generating a random per-session salt + token.
+    #[must_use]
+    pub fn new(base_url: impl Into<String>, user: impl Into<String>, password: &str) -> Self {
+        Self::with_salt(base_url, user, password, &ulid::Ulid::new().to_string())
+    }
+
+    /// Build a client with an explicit salt (deterministic — used by
+    /// tests + by callers that want a stable session salt).
+    #[must_use]
+    pub fn with_salt(
+        base_url: impl Into<String>,
+        user: impl Into<String>,
+        password: &str,
+        salt: &str,
+    ) -> Self {
+        let base = base_url.into();
+        Self {
+            base_url: base.trim_end_matches('/').to_string(),
+            user: user.into(),
+            token: auth_token(password, salt),
+            salt: salt.to_string(),
+            http: reqwest::Client::new(),
+        }
+    }
+
+    /// The common auth + format query params attached to every call.
+    #[must_use]
+    pub fn query_params(&self) -> Vec<(String, String)> {
+        vec![
+            ("u".into(), self.user.clone()),
+            ("t".into(), self.token.clone()),
+            ("s".into(), self.salt.clone()),
+            ("v".into(), API_VERSION.into()),
+            ("c".into(), CLIENT_NAME.into()),
+            ("f".into(), "json".into()),
+        ]
+    }
+
+    /// Build the full URL for `view` with `extra` query params appended.
+    #[must_use]
+    pub fn endpoint_url(&self, view: &str, extra: &[(&str, &str)]) -> String {
+        let mut params = self.query_params();
+        for (k, v) in extra {
+            params.push(((*k).to_string(), (*v).to_string()));
+        }
+        let query = params
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, urlencode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        format!("{}/rest/{view}?{query}", self.base_url)
+    }
+
+    /// Direct stream URL for a song id (the playback engine + cache
+    /// fetch GET this).
+    #[must_use]
+    pub fn stream_url(&self, song_id: &str) -> String {
+        self.endpoint_url("stream", &[("id", song_id)])
+    }
+
+    /// Cover-art URL for an id (album/song coverArt token).
+    #[must_use]
+    pub fn cover_art_url(&self, cover_id: &str) -> String {
+        self.endpoint_url("getCoverArt", &[("id", cover_id)])
+    }
+
+    /// GET a `view`, returning the inner `subsonic-response` object on
+    /// `status: "ok"` or the appropriate [`AirsonicError`].
+    ///
+    /// # Errors
+    /// Transport, API-error, or parse failures.
+    pub async fn get(&self, view: &str, extra: &[(&str, &str)]) -> Result<Value, AirsonicError> {
+        let url = self.endpoint_url(view, extra);
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| AirsonicError::Http(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(AirsonicError::Http(format!("HTTP {}", resp.status())));
+        }
+        let body: Value = resp
+            .json()
+            .await
+            .map_err(|e| AirsonicError::Parse(e.to_string()))?;
+        unwrap_envelope(&body)
+    }
+
+    /// `ping` — returns the server's reported API version on success.
+    ///
+    /// # Errors
+    /// Transport / API / parse failures.
+    pub async fn ping(&self) -> Result<String, AirsonicError> {
+        // The inner object carries `version`; `get` already verified
+        // status == ok, so any success here means reachable.
+        let inner = self.get("ping", &[]).await?;
+        Ok(inner
+            .get("version")
+            .and_then(Value::as_str)
+            .unwrap_or(API_VERSION)
+            .to_string())
+    }
+
+    /// `getArtists` — the full artist index, flattened.
+    ///
+    /// # Errors
+    /// Transport / API / parse failures.
+    pub async fn get_artists(&self) -> Result<Vec<Artist>, AirsonicError> {
+        let inner = self.get("getArtists", &[]).await?;
+        Ok(parse_artists(&inner))
+    }
+
+    /// `getAlbumList2` — `type` is one of `newest` / `recent` /
+    /// `frequent` / `alphabeticalByName` / etc.
+    ///
+    /// # Errors
+    /// Transport / API / parse failures.
+    pub async fn get_album_list2(
+        &self,
+        list_type: &str,
+        size: u32,
+    ) -> Result<Vec<Album>, AirsonicError> {
+        let size = size.to_string();
+        let inner = self
+            .get("getAlbumList2", &[("type", list_type), ("size", &size)])
+            .await?;
+        Ok(parse_album_list2(&inner))
+    }
+
+    /// `search3` — three-section search across artists/albums/songs.
+    ///
+    /// # Errors
+    /// Transport / API / parse failures.
+    pub async fn search3(&self, query: &str) -> Result<SearchResult3, AirsonicError> {
+        let inner = self
+            .get(
+                "search3",
+                &[
+                    ("query", query),
+                    ("artistCount", "20"),
+                    ("albumCount", "20"),
+                    ("songCount", "20"),
+                ],
+            )
+            .await?;
+        Ok(parse_search3(&inner))
+    }
+}
+
+// ───────────────────────── pure parse helpers ─────────────────────────
+
+/// Unwrap the `{"subsonic-response": {...}}` envelope: returns the inner
+/// object on `status == "ok"`, an [`AirsonicError::Api`] on
+/// `status == "failed"`, or [`AirsonicError::Parse`] on a malformed body.
+fn unwrap_envelope(body: &Value) -> Result<Value, AirsonicError> {
+    let inner = body
+        .get("subsonic-response")
+        .ok_or_else(|| AirsonicError::Parse("missing subsonic-response".into()))?;
+    match inner.get("status").and_then(Value::as_str) {
+        Some("ok") => Ok(inner.clone()),
+        Some("failed") => {
+            let err = inner.get("error");
+            let code = err
+                .and_then(|e| e.get("code"))
+                .and_then(Value::as_i64)
+                .unwrap_or(-1);
+            let message = err
+                .and_then(|e| e.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or("unknown error")
+                .to_string();
+            Err(AirsonicError::Api { code, message })
+        }
+        other => Err(AirsonicError::Parse(format!(
+            "unexpected status: {other:?}"
+        ))),
+    }
+}
+
+/// Flatten `getArtists` → `artists.index[].artist[]` into `Vec<Artist>`.
+#[must_use]
+pub fn parse_artists(inner: &Value) -> Vec<Artist> {
+    inner
+        .get("artists")
+        .and_then(|a| a.get("index"))
+        .and_then(Value::as_array)
+        .map(|indexes| {
+            indexes
+                .iter()
+                .filter_map(|idx| idx.get("artist").and_then(Value::as_array))
+                .flatten()
+                .filter_map(|a| serde_json::from_value(a.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Parse `getAlbumList2` → `albumList2.album[]`.
+#[must_use]
+pub fn parse_album_list2(inner: &Value) -> Vec<Album> {
+    inner
+        .get("albumList2")
+        .and_then(|a| a.get("album"))
+        .and_then(Value::as_array)
+        .map(|albums| {
+            albums
+                .iter()
+                .filter_map(|a| serde_json::from_value(a.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Parse `search3` → `searchResult3.{artist,album,song}[]`.
+#[must_use]
+pub fn parse_search3(inner: &Value) -> SearchResult3 {
+    let sr = inner.get("searchResult3");
+    let arr = |key: &str| -> Vec<Value> {
+        sr.and_then(|s| s.get(key))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    SearchResult3 {
+        artists: arr("artist")
+            .into_iter()
+            .filter_map(|v| serde_json::from_value(v).ok())
+            .collect(),
+        albums: arr("album")
+            .into_iter()
+            .filter_map(|v| serde_json::from_value(v).ok())
+            .collect(),
+        songs: arr("song")
+            .into_iter()
+            .filter_map(|v| serde_json::from_value(v).ok())
+            .collect(),
+    }
+}
+
+/// Minimal percent-encoding for query values (space + the reserved
+/// chars that break a Subsonic query). Avoids a `url`/`percent-encoding`
+/// dep for the handful of chars that actually occur in ids + search
+/// terms.
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn auth_token_matches_subsonic_vector() {
+        // The canonical Subsonic doc example: password "sesame",
+        // salt "c19b2d" → token "26719a1196d2a940705a59634eb18eab".
+        assert_eq!(
+            auth_token("sesame", "c19b2d"),
+            "26719a1196d2a940705a59634eb18eab"
+        );
+    }
+
+    #[test]
+    fn query_params_carry_every_auth_field() {
+        let c = Client::with_salt("http://h:4040", "alice", "pw", "abc");
+        let p = c.query_params();
+        for key in ["u", "t", "s", "v", "c", "f"] {
+            assert!(p.iter().any(|(k, _)| k == key), "missing {key}");
+        }
+        assert_eq!(p.iter().find(|(k, _)| k == "u").unwrap().1, "alice");
+        assert_eq!(p.iter().find(|(k, _)| k == "s").unwrap().1, "abc");
+        assert_eq!(p.iter().find(|(k, _)| k == "f").unwrap().1, "json");
+    }
+
+    #[test]
+    fn endpoint_url_shape_and_trailing_slash_trim() {
+        let c = Client::with_salt("http://h:4040/", "alice", "pw", "abc");
+        let u = c.endpoint_url("getArtists", &[]);
+        assert!(u.starts_with("http://h:4040/rest/getArtists?"));
+        // No double slash from the trimmed base.
+        assert!(!u.contains(":4040//rest"));
+    }
+
+    #[test]
+    fn stream_and_cover_urls_carry_id() {
+        let c = Client::with_salt("http://h:4040", "alice", "pw", "abc");
+        assert!(c.stream_url("song-7").contains("/rest/stream?"));
+        assert!(c.stream_url("song-7").contains("id=song-7"));
+        assert!(c.cover_art_url("al-3").contains("/rest/getCoverArt?"));
+        assert!(c.cover_art_url("al-3").contains("id=al-3"));
+    }
+
+    #[test]
+    fn urlencode_escapes_spaces_and_reserved() {
+        assert_eq!(urlencode("miles davis"), "miles%20davis");
+        assert_eq!(urlencode("a/b&c"), "a%2Fb%26c");
+        assert_eq!(urlencode("plain-id_1.2~"), "plain-id_1.2~");
+    }
+
+    #[test]
+    fn unwrap_envelope_ok_failed_and_malformed() {
+        let ok = json!({"subsonic-response": {"status": "ok", "version": "1.16.1"}});
+        assert!(unwrap_envelope(&ok).is_ok());
+
+        let failed = json!({"subsonic-response": {"status": "failed",
+            "error": {"code": 40, "message": "Wrong username or password"}}});
+        assert_eq!(
+            unwrap_envelope(&failed),
+            Err(AirsonicError::Api { code: 40, message: "Wrong username or password".into() })
+        );
+
+        let malformed = json!({"nope": true});
+        assert!(matches!(unwrap_envelope(&malformed), Err(AirsonicError::Parse(_))));
+    }
+
+    #[test]
+    fn parse_artists_flattens_index() {
+        let inner = json!({"artists": {"index": [
+            {"name": "A", "artist": [
+                {"id": "1", "name": "ABBA", "albumCount": 9},
+                {"id": "2", "name": "Air", "albumCount": 4}
+            ]},
+            {"name": "M", "artist": [
+                {"id": "3", "name": "Miles Davis", "albumCount": 50}
+            ]}
+        ]}});
+        let artists = parse_artists(&inner);
+        assert_eq!(artists.len(), 3);
+        assert_eq!(artists[0].name, "ABBA");
+        assert_eq!(artists[2].album_count, 50);
+    }
+
+    #[test]
+    fn parse_album_list2_reads_albums() {
+        let inner = json!({"albumList2": {"album": [
+            {"id": "a1", "name": "Moon Safari", "artist": "Air", "artistId": "2",
+             "songCount": 10, "coverArt": "al-a1", "year": 1998}
+        ]}});
+        let albums = parse_album_list2(&inner);
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].name, "Moon Safari");
+        assert_eq!(albums[0].year, Some(1998));
+        assert_eq!(albums[0].cover_art, "al-a1");
+    }
+
+    #[test]
+    fn parse_search3_three_sections() {
+        let inner = json!({"searchResult3": {
+            "artist": [{"id": "2", "name": "Air", "albumCount": 4}],
+            "album":  [{"id": "a1", "name": "Moon Safari"}],
+            "song":   [{"id": "s1", "title": "La Femme d'Argent", "duration": 429, "suffix": "flac"}]
+        }});
+        let r = parse_search3(&inner);
+        assert_eq!(r.artists.len(), 1);
+        assert_eq!(r.albums.len(), 1);
+        assert_eq!(r.songs.len(), 1);
+        assert_eq!(r.songs[0].duration, 429);
+        assert_eq!(r.songs[0].suffix, "flac");
+    }
+
+    #[test]
+    fn parse_helpers_tolerate_missing_sections() {
+        let empty = json!({"status": "ok"});
+        assert!(parse_artists(&empty).is_empty());
+        assert!(parse_album_list2(&empty).is_empty());
+        assert_eq!(parse_search3(&empty), SearchResult3::default());
+    }
+}

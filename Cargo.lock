@@ -3692,6 +3692,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
+name = "md5"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
+
+[[package]]
 name = "mde-alert-emit"
 version = "0.0.0"
 dependencies = [
@@ -4015,6 +4021,20 @@ name = "mde-mesh-types"
 version = "0.0.0"
 dependencies = [
  "mackes-mesh-types",
+]
+
+[[package]]
+name = "mde-musicd"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "md5",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "ulid",
 ]
 
 [[package]]

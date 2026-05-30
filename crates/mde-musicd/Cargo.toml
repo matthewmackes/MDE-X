@@ -1,0 +1,37 @@
+[package]
+name        = "mde-musicd"
+description = "AIR-* (v6.1) — native Airsonic music daemon for MDE. AIR-4 slice: the Subsonic/Airsonic REST client (auth-token + endpoint URL building + response parsing) + the mesh-shared credential loader + a `ping` CLI that exercises them end-to-end. Later AIR tasks layer the D-Bus/MPRIS surface (AIR-2/6), PipeWire playback (AIR-5), mesh cache + handoff (AIR-7/8) on top."
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+
+[[bin]]
+name = "mde-musicd"
+path = "src/main.rs"
+
+[lib]
+name = "mde_musicd"
+path = "src/lib.rs"
+
+[dependencies]
+# Match mde-bus's HTTP client (json, no bundled TLS — mesh-local
+# Airsonic is reached over the Nebula overlay, which is the encryption
+# boundary; HTTPS-server support is the AIR-4.b follow-on).
+reqwest    = { version = "0.12", default-features = false, features = ["json"] }
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Subsonic API auth token = md5(password + salt), hex-encoded (Q—).
+md5        = "0.7"
+# Random per-session salt source (already a workspace dep).
+ulid       = "1"
+tokio      = { version = "1", features = ["rt-multi-thread", "macros"] }
+clap       = { version = "4.5", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
