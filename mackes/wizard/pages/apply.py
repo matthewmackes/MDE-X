@@ -51,7 +51,7 @@ from mackes.birthright import (
     apply_display_manager, apply_hotkey, apply_media_clients,
     apply_netdata_monitor, apply_panel_archive, apply_panel_layout,
     apply_panel_swap, apply_plymouth, apply_qnm, apply_remote_desktop,
-    apply_sway_config,
+    apply_sway_config, apply_sway_mesh_config_link,
     apply_tag_manifests_seed, apply_themes,
     apply_third_party_repos, apply_thunar_autostart, apply_uid_normalize,
     apply_uninstall_legacy_xfce, apply_uninstall_legacy_xsessions,
@@ -363,6 +363,7 @@ class ApplyPage(Gtk.Box):
             # fresh installs. Idempotent — preserves operator
             # customizations.
             _Step("Sway config",       lambda: apply_sway_config(merged)),
+            _Step("Sway mesh config",  lambda: apply_sway_mesh_config_link(merged)),
             _Step("Boot splash",       lambda: apply_plymouth(merged)),
             _Step("System update",     lambda: apply_dnf_update(merged)),
             _Step("Third-party repos", lambda: apply_third_party_repos(merged)),

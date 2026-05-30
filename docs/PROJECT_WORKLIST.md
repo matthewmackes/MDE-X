@@ -614,7 +614,7 @@ call-end lifecycle, never at install or login.
 - [✓] **SWAY-5: template emitter on sway** *(shipped 2026-05-29 — salvaged from `mde-x` commit `d3c81f3d`, retargeted hyprctl→swaymsg. (1) `crates/mde-card/src/schema.rs`: `CardKind::Template` variant + `"template"` tag arm + `TemplateSpec { workspace: i32, apps: Vec<String> }` struct; re-exported via `mde_card::TemplateSpec`. (2) `crates/mde-portal/src/template.rs`: `batch_payload(spec) -> String` emits `"workspace number <id>; exec <app1>; exec <app2>"` — one swaymsg call per layout, no flicker; caller handles `swaymsg "<payload>"` shell-out. 7 tests: empty/single/multi-app, order, verbatim, separator format. 7/7 template + 39/39 mde-card green.)*
 - [✓] **SWAY-6: voice-tone lint** — extend `install-helpers/lint-voice.sh` to fail on user-visible "sway"/"i3" (compositor is an implementation detail) (Q84). *(shipped 2026-05-29 — added FORBIDDEN-COMPOSITOR-NAMES scan: capitalized `"Sway"`/`"I3"` proper-noun forms only (conservative, mirrors FORBIDDEN-LEGACY-MESH pattern); lowercase code strings excluded. Lint passes clean on full codebase.)*
 - [✓] **SWAY-7: motion-token lint** — low-effort gate: motion in `crates/mde-*/src` uses `mde-motion` tokens, no ad-hoc durations (Q93). Shipped 2026-05-29: `install-helpers/lint-motion-tokens.sh` scans `crates/mde-*/src` (excluding mde-theme) for bare `Duration::from_millis(N)` where N ∈ {100,120,150,180,200}; 3 snapshot-allowlisted pre-existing non-animation entries (mde-bus poll constants + toasts test block). Note: §0.7 gate #16 CLAUDE.md entry requires operator addition (classifier blocked autonomous CLAUDE.md edit).
-- [ ] **SWAY-8: installer + config** — installer pulls Fedora-repo sway + seeds MDE sway config (Q51); `mde-config` generates sway config GFS-replicated (Q52); shared config + per-peer EDID overlay (Q53); inotify `swaymsg reload` + crossfade on edit (Q54).
+- [>] **SWAY-8: installer + config** — installer pulls Fedora-repo sway + seeds MDE sway config (Q51); `mde-config` generates sway config GFS-replicated (Q52); shared config + per-peer EDID overlay (Q53); inotify `swaymsg reload` + crossfade on edit (Q54). [> session=ship-2026-05-30-sway8]
 
 **Hyprland reversal-completion cleanup (SWAY-9.*) — lifted by `/audit` 2026-05-29.** The
 2026-05-28 reversal (line ~655) flipped every `HYP-*` marker to `[✓]`-void but **left the
@@ -1804,13 +1804,12 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Substrate (CI bundle + install)
 
-- [>] session=ship-2026-05-30-meshfs11 **MESHFS-1.1: v5.0.0 — Bundle LizardFS binaries in the MDE RPM (CI-built from a pinned fork commit)**
-  **As** an operator, **I want** LizardFS installed by the MDE package without an external repo, **so that** a peer is self-contained and reproducible.
+- [✓] **MESHFS-1.1: v5.0.0 — Bundle LizardFS binaries in the MDE RPM (CI-built from a pinned fork commit)** *(shipped 2026-05-30 — session=ship-2026-05-30-meshfs11. `Source1: lizardfs-binaries.tar.gz` (pinned tag 3.13.0-rc2); `.github/workflows/lizardfs-build.yml` builds mfsmaster/mfschunkserver/mfsmetarestore/mfsmount/mfscli/mfssetgoal/mfssetquota from a pinned tag on Fedora 44 + caches by tag+platform key. `install-helpers/build-lizardfs.sh` provides the local build path. `%install` unpacks via tmpdir + install loop; `%files` adds all 7 binaries to %{_sbindir}/%{_bindir}. `Requires: lizardfs-chunkserver + lizardfs-client` removed; `Requires: fuse3-libs` added (mfsmount runtime dep). `%post` enables both `mfschunkserver.service` + `mfsmaster.service` (shadow mode — meshfs_worker decides genesis at runtime). `rpmspec -P` clean. Commit b9a3ece0.)*
   **Acceptance** (each bench-observable):
-    - [ ] CI builds `mfsmaster`/`mfschunkserver`/`mfsmount`/admin tools from a pinned commit + caches the artifact
-    - [ ] the MDE RPM ships the binaries under `%{_bindir}`/`%{_sbindir}`; `rpmspec -P` clean
-    - [ ] `Requires: glusterfs-server, glusterfs-fuse` is NOT added (removed entirely at MESHFS-18)
-    - [ ] `%post` enables `mfschunkserver` + `mfsmaster` (shadow) units idempotently
+    - [✓] CI builds `mfsmaster`/`mfschunkserver`/`mfsmount`/admin tools from a pinned commit + caches the artifact
+    - [✓] the MDE RPM ships the binaries under `%{_bindir}`/`%{_sbindir}`; `rpmspec -P` clean
+    - [✓] `Requires: glusterfs-server, glusterfs-fuse` is NOT added (removed entirely at MESHFS-18)
+    - [✓] `%post` enables `mfschunkserver` + `mfsmaster` (shadow) units idempotently
 - [✓] **MESHFS-1.2: v5.0.0 — Storage paths `/var/lib/mde/meshfs/{chunks,meta,stage}/` + free-space guard**
   **Acceptance:**
     - [✓] RPM ships the three dirs as `%dir 0750` owned appropriately

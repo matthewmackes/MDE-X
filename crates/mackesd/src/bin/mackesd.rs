@@ -3535,6 +3535,18 @@ fn run_serve(
         ));
         worker_names.lock().expect("worker_names mutex").push("remmina-sync".into());
 
+        // SWAY-8 (Q52–Q54) — sway config watcher + EDID hardware overlay.
+        // Writes ~/.config/sway/config.d/00-hardware.conf at startup from
+        // `swaymsg -t get_outputs` (Q53); polls ~/.config/sway/ and the
+        // GFS-replicated mesh-storage/sway/ dir every 5 s + fires
+        // `swaymsg reload` on any config change (Q54). Degrades gracefully
+        // when sway is not running.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::sway_config_watcher::SwayConfigWatcherWorker::new(),
+            RestartPolicy::OnFailure,
+        ));
+        worker_names.lock().expect("worker_names mutex").push("sway_config_watcher".into());
+
         // Portal-52.a (v6.0 R12-Q13) — sway session-restore
         // worker (workspace-structure half). 5s snapshot of
         // workspaces + outputs + layouts to

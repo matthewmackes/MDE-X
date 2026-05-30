@@ -298,6 +298,13 @@ pub mod tag_manifest_watcher;
 // `swaymsg reload` if the content changed. Backing for Hub's
 // "Enter mode" action (HubMenuEnterMode).
 pub mod tag_mode_writer;
+// SWAY-8 (Q52–Q54, 2026-05-30) — mtime-poll config watcher + EDID
+// hardware overlay writer. Polls ~/.config/sway/ and
+// ~/.local/share/mde/mesh-storage/sway/ for changes; fires
+// `swaymsg reload` on any diff. Also writes
+// ~/.config/sway/config.d/00-hardware.conf at startup from
+// `swaymsg -t get_outputs` (Q53 per-peer EDID overlay).
+pub mod sway_config_watcher;
 
 /// Every worker registered with the supervisor implements this
 /// trait. The trait is `async_trait` because the supervisor stores
