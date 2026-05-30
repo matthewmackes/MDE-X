@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use mde_musicd::airsonic::Client;
-use mde_musicd::{cache, creds, state};
+use mde_musicd::{cache, creds, reconnect, state};
 
 #[derive(Parser)]
 #[command(name = "mde-musicd", about = "MDE native Airsonic music daemon.")]
@@ -24,7 +24,12 @@ enum Cmd {
     /// Load the mesh-shared creds + reach the Airsonic server, printing
     /// its reported API version. Exits non-zero when creds are missing
     /// or the server is unreachable.
-    Ping,
+    Ping {
+        /// Retry on failure with exponential backoff (AIR-9 schedule),
+        /// up to this many extra attempts (0 = single try).
+        #[arg(long, default_value_t = 0)]
+        retry: u32,
+    },
     /// Inspect or trim the mesh-shared audio cache (AIR-7).
     Cache {
         #[command(subcommand)]
@@ -69,7 +74,7 @@ enum CacheOp {
 fn main() -> ExitCode {
     let args = Args::parse();
     match args.cmd {
-        Cmd::Ping => ping(),
+        Cmd::Ping { retry } => ping(retry),
         Cmd::Cache { op } => cache_cmd(&op),
         Cmd::State { op } => state_cmd(&op),
     }
@@ -177,7 +182,7 @@ fn cache_cmd(op: &CacheOp) -> ExitCode {
     }
 }
 
-fn ping() -> ExitCode {
+fn ping(retry: u32) -> ExitCode {
     let creds = match creds::load() {
         Ok(c) => c,
         Err(e) => {
@@ -199,14 +204,28 @@ fn ping() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match rt.block_on(client.ping()) {
-        Ok(version) => {
-            println!("airsonic {}: reachable (API v{version})", creds.server_url);
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            eprintln!("mde-musicd: {e}");
-            ExitCode::from(3)
+    // Attempt 0 plus `retry` more, waiting the AIR-9 backoff between
+    // failures (1s, 2s, 4s, …, 60s cap).
+    for attempt in 0..=retry {
+        match rt.block_on(client.ping()) {
+            Ok(version) => {
+                println!("airsonic {}: reachable (API v{version})", creds.server_url);
+                return ExitCode::SUCCESS;
+            }
+            Err(e) => {
+                if attempt == retry {
+                    eprintln!("mde-musicd: {e}");
+                    return ExitCode::from(3);
+                }
+                let delay = reconnect::backoff_delay_secs(
+                    attempt,
+                    reconnect::DEFAULT_BASE_SECS,
+                    reconnect::DEFAULT_CAP_SECS,
+                );
+                eprintln!("mde-musicd: {e} — retrying in {delay}s");
+                std::thread::sleep(std::time::Duration::from_secs(delay));
+            }
         }
     }
+    ExitCode::from(3)
 }
