@@ -4028,7 +4028,10 @@ name = "mde-music"
 version = "0.0.0"
 dependencies = [
  "iced",
+ "mde-bus",
  "mde-musicd",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

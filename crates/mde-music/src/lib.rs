@@ -6,4 +6,5 @@
 //! `mde-musicd` data path (AIR-10.b / AIR-2).
 
 pub mod hub;
+pub mod library;
 pub mod nav;

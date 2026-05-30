@@ -10,6 +10,7 @@ use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Element, Length, Size, Task};
 
 use mde_music::hub::HubCard;
+use mde_music::library::{self, LibraryItem};
 use mde_music::nav::{NavState, Route};
 use mde_musicd::creds::{self, Creds};
 
@@ -40,6 +41,12 @@ struct State {
     form: Option<FirstRunForm>,
     /// The Airsonic connection status line (set once connected).
     connection: String,
+    /// The current category's items (fetched from the daemon over the Bus).
+    items: Vec<LibraryItem>,
+    /// True while a category fetch is in flight.
+    loading: bool,
+    /// Last fetch error (e.g. "daemon not responding"), shown in-pane.
+    load_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +55,10 @@ enum Message {
     OpenCard(HubCard),
     /// Jump to a breadcrumb segment (0 = Library root).
     Ascend(usize),
+    /// A category fetch resolved.
+    ItemsLoaded(Vec<LibraryItem>),
+    /// A category fetch failed (daemon down / no server).
+    ItemsFailed(String),
     /// First-run form field edits.
     UrlChanged(String),
     UserChanged(String),
@@ -58,38 +69,63 @@ enum Message {
 
 impl State {
     fn new() -> Self {
-        match creds::load() {
-            Ok(c) => Self {
-                nav: NavState::new(),
-                form: None,
-                connection: format!("Connected to {}", c.server_url),
-            },
-            Err(_) => Self {
-                nav: NavState::new(),
-                form: Some(FirstRunForm::default()),
-                connection: String::new(),
-            },
-        }
+        let (form, connection) = match creds::load() {
+            Ok(c) => (None, format!("Connected to {}", c.server_url)),
+            Err(_) => (Some(FirstRunForm::default()), String::new()),
+        };
+        Self { nav: NavState::new(), form, connection, items: Vec::new(), loading: false, load_error: None }
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::OpenCard(card) => self.nav.push(Route::Category(card)),
-            Message::Ascend(index) => self.nav.ascend_to(index),
+            Message::OpenCard(card) => {
+                self.nav.push(Route::Category(card));
+                self.items.clear();
+                self.load_error = None;
+                // Fetch the category from the daemon over the Bus (AIR-10.b)
+                // when it's backed by a verb; the rest are AIR-4.b endpoints.
+                if let Some(verb) = library::verb_for(card) {
+                    self.loading = true;
+                    Task::perform(library::fetch(verb), |r| match r {
+                        Ok(items) => Message::ItemsLoaded(items),
+                        Err(e) => Message::ItemsFailed(e),
+                    })
+                } else {
+                    Task::none()
+                }
+            }
+            Message::ItemsLoaded(items) => {
+                self.items = items;
+                self.loading = false;
+                Task::none()
+            }
+            Message::ItemsFailed(e) => {
+                self.items.clear();
+                self.loading = false;
+                self.load_error = Some(e);
+                Task::none()
+            }
+            Message::Ascend(index) => {
+                self.nav.ascend_to(index);
+                Task::none()
+            }
             Message::UrlChanged(s) => {
                 if let Some(f) = &mut self.form {
                     f.url = s;
                 }
+                Task::none()
             }
             Message::UserChanged(s) => {
                 if let Some(f) = &mut self.form {
                     f.user = s;
                 }
+                Task::none()
             }
             Message::PassChanged(s) => {
                 if let Some(f) = &mut self.form {
                     f.pass = s;
                 }
+                Task::none()
             }
             Message::Connect => {
                 if let Some(f) = &mut self.form {
@@ -113,9 +149,9 @@ impl State {
                         );
                     }
                 }
+                Task::none()
             }
         }
-        Task::none()
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -184,13 +220,23 @@ impl State {
                 }
                 cards.into()
             }
-            route => column![
-                text(route.segment()).size(20),
-                Space::with_height(Length::Fixed(8.0)),
-                text("Start mde-musicd to load this from your library."),
-            ]
-            .spacing(4)
-            .into(),
+            route => {
+                let mut col = column![text(route.segment()).size(20)].spacing(6);
+                if self.loading {
+                    col = col.push(text("Loading…").size(13));
+                } else if let Some(err) = &self.load_error {
+                    col = col.push(text(err.clone()).size(13));
+                } else if self.items.is_empty() {
+                    col = col.push(
+                        text("Nothing here yet — start mde-musicd to load your library.").size(13),
+                    );
+                } else {
+                    for item in &self.items {
+                        col = col.push(button(text(item.label.clone())));
+                    }
+                }
+                col.into()
+            }
         };
 
         container(
