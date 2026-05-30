@@ -296,6 +296,19 @@ pub fn materialize_config(
     Ok(())
 }
 
+/// VIRT-4.a (v5.0.0) — VM Nebula subnet announced via
+/// `tun.unsafe_routes` on every peer's nebula config so guests
+/// across the mesh remain mutually routable per
+/// `docs/design/v5.0.0-compute.md` §4. The `128` bit splits the
+/// `10.42.0.0/16` mesh between the peer subnet (`10.42.0.0/17`,
+/// existing enrollment) and this VM subnet.
+///
+/// Exposed at module scope so VIRT-4.b (`nebula_enroll` dynamic
+/// re-render), VIRT-5 (cert sign-request CN/ip allocation), and
+/// VIRT-6 (`compute_provision` cert request payload) all reference
+/// the single source of truth.
+pub const VM_SUBNET_CIDR: &str = "10.42.128.0/17";
+
 /// Pure helper — build the regular peer-role config YAML.
 /// Pulled out for testing without filesystem IO.
 #[must_use]
@@ -348,6 +361,17 @@ pub fn render_config_yaml(
     out.push_str("    - port: any\n");
     out.push_str("      proto: any\n");
     out.push_str("      host: any\n");
+    // VIRT-4.a (v5.0.0) — VM subnet announcement. Every peer
+    // advertises 10.42.128.0/17 via its own overlay IP so guests on
+    // peer A can reach guests on peer B directly via the Nebula
+    // overlay (docs/design/v5.0.0-compute.md §4). The `via` value
+    // is this peer's overlay IP (bundle.overlay_ip); the lighthouse
+    // inherits the same block from this renderer.
+    out.push_str("\n# VM subnet routing (VIRT-4.a):\n");
+    out.push_str("tun:\n");
+    out.push_str("  unsafe_routes:\n");
+    out.push_str(&format!("    - route: {VM_SUBNET_CIDR}\n"));
+    out.push_str(&format!("      via: {}\n", bundle.overlay_ip));
     out
 }
 
@@ -529,6 +553,44 @@ mod tests {
         let yaml = render_lighthouse_config_yaml(&sample_bundle());
         assert!(yaml.contains("am_relay: true"));
         assert!(yaml.contains("punch: true"));
+    }
+
+    // VIRT-4.a (v5.0.0) — VM subnet `unsafe_routes` announcement.
+
+    #[test]
+    fn render_peer_config_includes_vm_subnet_unsafe_route() {
+        let yaml = render_config_yaml(&sample_bundle(), ConfigRole::Peer);
+        assert!(
+            yaml.contains("unsafe_routes:"),
+            "missing unsafe_routes block in:\n{yaml}"
+        );
+        assert!(
+            yaml.contains(VM_SUBNET_CIDR),
+            "missing VM subnet CIDR in:\n{yaml}"
+        );
+        // sample_bundle().overlay_ip == "10.42.0.5" — the `via` is
+        // this peer's own overlay IP, not the lighthouse's.
+        assert!(
+            yaml.contains("via: 10.42.0.5"),
+            "missing `via: <local-overlay-ip>` in:\n{yaml}"
+        );
+    }
+
+    #[test]
+    fn render_lighthouse_config_inherits_vm_subnet_unsafe_route() {
+        let yaml = render_lighthouse_config_yaml(&sample_bundle());
+        assert!(
+            yaml.contains(VM_SUBNET_CIDR),
+            "lighthouse YAML missing VM subnet route in:\n{yaml}"
+        );
+        assert!(yaml.contains("via: 10.42.0.5"));
+    }
+
+    #[test]
+    fn vm_subnet_cidr_is_the_design_locked_value() {
+        // Locks the constant against accidental drift — the design
+        // doc (v5.0.0-compute.md §4) names this CIDR explicitly.
+        assert_eq!(VM_SUBNET_CIDR, "10.42.128.0/17");
     }
 
     #[test]

@@ -1980,17 +1980,30 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
   **Implementation notes:**
     - Check via `virsh pool-list --all` before define
 
-- [ ] **VIRT-4: v5.0.0 — VM Nebula subnet `10.42.128.0/17` — lighthouse route + per-peer nebula.yaml**
+- [ ] **VIRT-4: v5.0.0 — VM Nebula subnet `10.42.128.0/17` — lighthouse route + per-peer nebula.yaml** *(split per §0.12 into 4.a renderer + 4.b dynamic push; bullet 4 is HW-bench gated per §0.15)*
   **As** the mesh, **I want** VM IPs routable across all enrolled peers,
   **so that** a VM on peer A can reach a VM on peer B directly.
   **Acceptance** (each bench-observable):
-    - [ ] `data/nebula/config.yml` template adds `unsafe_routes` entry for `10.42.128.0/17` via the local peer's Nebula IP
-    - [ ] `mackesd::nebula_enroll` pushes the updated route config to mesh-storage on first VM creation; peers pick it up on next Nebula reload
-    - [ ] Lighthouse `data/nebula/lighthouse.yml` template includes `10.42.128.0/17` in its route table
+    - [✓] `data/nebula/config.yml` template adds `unsafe_routes` entry for `10.42.128.0/17` via the local peer's Nebula IP *(VIRT-4.a — implemented as an extension to `nebula_supervisor::render_config_yaml` since the static YAML template doesn't exist as a separate file; the renderer is the single source of truth that materializes `/etc/nebula/config.yaml` on every bundle refresh)*
+    - [ ] `mackesd::nebula_enroll` pushes the updated route config to mesh-storage on first VM creation; peers pick it up on next Nebula reload *(VIRT-4.b — ships with VIRT-6 compute_provision since the trigger is "on first VM creation"; standalone helper would violate §0.8 DoD #7 runtime-reachability)*
+    - [✓] Lighthouse `data/nebula/lighthouse.yml` template includes `10.42.128.0/17` in its route table *(VIRT-4.a — `render_lighthouse_config_yaml` inherits from `render_config_yaml` so the route block lands automatically)*
     - [ ] `ping 10.42.128.1` from a different peer succeeds once VM is running (HW-bench gated per §0.15)
   **Implementation notes:**
     - VM subnet `10.42.128.0/17` — `128` is the VM bit; peer subnet stays `10.42.0.0/17`
     - Route push mirrors MESHFS-* config-propagation pattern via mesh-storage
+
+- [✓] **VIRT-4.a: v5.0.0 — extend `nebula_supervisor::render_config_yaml` with the VM-subnet `unsafe_routes` block** *(opens 2026-05-30 from VIRT-4 split per §0.12)*
+  **Acceptance** (each bench-observable):
+    - [✓] `render_config_yaml` appends `tun:\n  unsafe_routes:\n    - route: 10.42.128.0/17\n      via: <bundle.overlay_ip>\n` so the materialized `/etc/nebula/config.yaml` advertises the VM subnet on every bundle refresh (no separate template file — the renderer IS the template).
+    - [✓] `render_lighthouse_config_yaml` inherits the same block via its existing `render_config_yaml(_, Host)` base call — no separate edit needed.
+    - [✓] Unit tests confirm both peer + lighthouse YAML contain the `10.42.128.0/17` route and the `via: <bundle.overlay_ip>` line.
+    - [✓] `VM_SUBNET_CIDR` exposed as `pub const` so VIRT-4.b + VIRT-5 + VIRT-6 reference the single source of truth.
+
+- [ ] **VIRT-4.b: v5.0.0 — `mackesd::nebula_enroll` dynamic route-config re-render + mesh-storage push on first VM creation** *(opens 2026-05-30 from VIRT-4 split per §0.12; ships ALONGSIDE VIRT-6 compute_provision since that's the runtime caller — shipping standalone would leave a `pub fn push_vm_subnet_route_config()` with zero external refs and trip the §0.8 DoD #7 runtime-reachability gate)*
+  **Acceptance** (each bench-observable):
+    - [ ] `compute_provision` (VIRT-6) invokes the helper exactly once per peer-lifecycle (idempotent: subsequent VM creations are no-ops when the route block already exists in `/etc/nebula/config.yaml`).
+    - [ ] Helper re-runs `nebula_supervisor::materialize_config` for the local peer, then publishes the regenerated `nebula-bundle.json` to `<mesh-storage>/<peer>/mackesd/`; other peers' next reconcile tick picks it up + `systemctl reload nebula`.
+    - [ ] 2 unit tests: idempotency (second call is no-op) + mesh-storage write target.
 
 - [ ] **VIRT-5: v5.0.0 — `cert_authority` mackesd worker — CA-peer signs VM Nebula certs via Bus**
   **As** `compute_provision`, **I want** to request a Nebula cert for a new VM without touching the CA key directly,
