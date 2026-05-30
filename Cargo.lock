@@ -4055,6 +4055,7 @@ dependencies = [
 name = "mde-popover"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "clap",
  "dirs 5.0.1",
  "iced",

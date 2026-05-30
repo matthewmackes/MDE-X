@@ -1,30 +1,28 @@
-//! Phase E.5 — clipboard via `wl-clipboard`.
+//! BUS-5.6 — Super+V clipboard history popover.
 //!
-//! Best-choice deviation from the original "wlr-data-control via
-//! smithay-client-toolkit" lock: the `wl-clipboard` package (the
-//! `wl-copy` + `wl-paste` binaries) is the canonical
-//! command-line interface to the wlr-data-control protocol on
-//! every Wayland-on-wlroots compositor. It's a 50-line
-//! subprocess wrapper instead of 500 lines of SCTK protocol
-//! boilerplate.
+//! Reads clipboard entries from the `clipboard/sync` bus topic
+//! (`<bus_root>/clipboard/sync/<ulid>.json`) written by mde-clipd
+//! (BUS-5.2). Falls back to the v3.0.3 legacy path
+//! (`~/.cache/mde/clipboard.json`) when the bus root is absent so
+//! sessions without mde-clipd running still show something.
 //!
-//! The mesh-replication path (`~/.cache/mde/clipboard.json`)
-//! stays unchanged — `mded` writes it on every paste broadcast
-//! and reads from it on peer connect. This module owns the
-//! local Wayland side; mded owns the mesh side.
+//! Features added in BUS-5.6:
+//! - Type-to-filter: the filter input at the top narrows the list.
+//! - j/k navigation: arrow keys or j/k move the cursor; Enter pastes.
+//! - Enter pastes the highlighted entry via `wl-copy` and dismisses.
 
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Write `text` to the clipboard. Returns `Err` on subprocess
-/// failure.
-pub fn copy_text(text: &str) -> std::io::Result<()> {
+/// Write `text` to the clipboard via `wl-copy`. Returns `Err` on failure.
+pub fn copy_text(text: &[u8], mime: &str) -> std::io::Result<()> {
     let mut child = Command::new("wl-copy")
-        .args(["--type", "text/plain"])
+        .args(["--type", mime])
         .stdin(Stdio::piped())
         .spawn()?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(text.as_bytes())?;
+        stdin.write_all(text)?;
     }
     let status = child.wait()?;
     if !status.success() {
@@ -35,41 +33,168 @@ pub fn copy_text(text: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// One past clipboard entry, as stored in `~/.cache/mde/clipboard.json`
-/// by the mesh-clipboard worker. Defined here so test fixtures don't
-/// need to import the worker's types.
+// ── Wire types (mirrors crates/mde-clipd/src/publish.rs) ─────────────────
+
+#[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ClipboardPayload {
+    Inline { data_b64: String },
+    BlobRef { path: String },
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct BusSyncMsg {
+    publisher_peer: String,
+    selected_mime: String,
+    payload: ClipboardPayload,
+    ts_iso: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct BusEnvelope {
+    ulid: String,
+    body: Option<String>,
+}
+
+// ── ClipEntry (public for tests + legacy parse) ───────────────────────────
+
+/// One past clipboard entry.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct ClipEntry {
-    /// Unix epoch ms when the entry was captured.
-    pub captured_at_ms: u64,
-    /// Mime type — text/plain is the only one mesh-replicated.
+    /// Unique ULID (lexicographic = time-ordered).
+    pub ulid: String,
+    /// Human-readable timestamp from the bus message.
+    pub ts_iso: String,
+    /// MIME type of the payload.
     pub mime: String,
-    /// Body (text/plain) or a base64 blob for non-text mimes.
+    /// Text body (empty string for non-text or if decoding fails).
     pub body: String,
-    /// Which peer originated the entry (None = local).
-    pub origin_peer: Option<String>,
+    /// Originating peer hostname.
+    pub origin_peer: String,
 }
 
-/// Pure helper — parse the clipboard.json file. Returns an
-/// empty vec if the file's missing/malformed.
-#[must_use]
-pub fn parse_clipboard_history(json: &str) -> Vec<ClipEntry> {
-    serde_json::from_str(json).unwrap_or_default()
+// ── Loaders ───────────────────────────────────────────────────────────────
+
+/// Resolve `<bus_root>/clipboard/sync/` from `$MDE_BUS_ROOT` or the
+/// default XDG path.
+fn bus_sync_dir() -> PathBuf {
+    let base: PathBuf = std::env::var("MDE_BUS_ROOT")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var("XDG_DATA_HOME")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|d| PathBuf::from(d).join("mde/bus"))
+        })
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".local/share/mde/bus"))
+        })
+        .unwrap_or_else(|| PathBuf::from("/var/lib/mde/bus"));
+    base.join("clipboard/sync")
 }
 
-/// Default location of the mesh-replicated clipboard history.
-#[must_use]
-pub fn default_history_path() -> std::path::PathBuf {
+/// Load history from the bus topic tree. Returns entries newest-first.
+fn load_from_bus(dir: &Path) -> Vec<ClipEntry> {
+    let rd = match std::fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    let mut paths: Vec<PathBuf> = rd
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map_or(false, |x| x == "json"))
+        .collect();
+    // Lexicographic order on ULID filenames = chronological.
+    paths.sort();
+
+    let mut entries = Vec::new();
+    for path in paths {
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(env) = serde_json::from_str::<BusEnvelope>(&raw) else {
+            continue;
+        };
+        let body_str = env.body.unwrap_or_default();
+        let Ok(msg) = serde_json::from_str::<BusSyncMsg>(&body_str) else {
+            continue;
+        };
+        let text_body = match &msg.payload {
+            ClipboardPayload::Inline { data_b64 } => {
+                use base64::Engine as _;
+                base64::engine::general_purpose::STANDARD
+                    .decode(data_b64)
+                    .ok()
+                    .and_then(|b| String::from_utf8(b).ok())
+                    .unwrap_or_default()
+            }
+            ClipboardPayload::BlobRef { path } => {
+                std::fs::read_to_string(path).unwrap_or_default()
+            }
+        };
+        entries.push(ClipEntry {
+            ulid: env.ulid,
+            ts_iso: msg.ts_iso,
+            mime: msg.selected_mime,
+            body: text_body,
+            origin_peer: msg.publisher_peer,
+        });
+    }
+    entries.reverse(); // newest first
+    entries
+}
+
+/// Parse the legacy `~/.cache/mde/clipboard.json` format.
+#[derive(serde::Deserialize)]
+struct LegacyEntry {
+    captured_at_ms: u64,
+    mime: String,
+    body: String,
+    origin_peer: Option<String>,
+}
+
+fn load_from_legacy(json: &str) -> Vec<ClipEntry> {
+    let legacy: Vec<LegacyEntry> = serde_json::from_str(json).unwrap_or_default();
+    legacy
+        .into_iter()
+        .enumerate()
+        .map(|(_i, e)| ClipEntry {
+            ulid: format!("{:020}", e.captured_at_ms),
+            ts_iso: String::new(),
+            mime: e.mime,
+            body: e.body,
+            origin_peer: e.origin_peer.unwrap_or_else(|| "local".into()),
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
+}
+
+fn default_legacy_path() -> PathBuf {
     dirs::cache_dir()
         .map(|d| d.join("mde/clipboard.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp/mde-clipboard.json"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/mde-clipboard.json"))
 }
 
-// ──────────────────────────────────────────────────────────────
-// v3.0.3 — Iced layer-shell history popover (Super+V)
-// ──────────────────────────────────────────────────────────────
+/// Load history from bus topic (primary) or legacy file (fallback).
+fn load_history() -> Vec<ClipEntry> {
+    let dir = bus_sync_dir();
+    let entries = load_from_bus(&dir);
+    if !entries.is_empty() {
+        return entries;
+    }
+    let raw = std::fs::read_to_string(default_legacy_path()).unwrap_or_default();
+    load_from_legacy(&raw)
+}
 
-use iced::widget::{button, column, container, mouse_area, row, scrollable, text, Space};
+// ── Iced layer-shell popover ───────────────────────────────────────────────
+
+use iced::widget::{button, column, container, mouse_area, row, scrollable, text, text_input,
+    Space};
 use iced::{
     Alignment, Background, Border, Color, Element, Length, Padding, Shadow, Task, Theme,
 };
@@ -78,42 +203,66 @@ use iced_layershell::settings::{LayerShellSettings, Settings};
 use iced_layershell::to_layer_message;
 
 const WIDTH: u32 = 480;
-const HEIGHT: u32 = 480;
+const CARD_HEIGHT: u32 = 520;
 
-const FG_TEXT: Color = Color {
-    r: 0.957,
-    g: 0.957,
-    b: 0.957,
-    a: 1.0,
-};
-const FG_MUTED: Color = Color {
-    r: 0.659,
-    g: 0.659,
-    b: 0.659,
-    a: 1.0,
-};
-const ACCENT: Color = Color {
-    r: 0.169,
-    g: 0.604,
-    b: 0.953,
-    a: 1.0,
-};
-const SURFACE_BG: Color = Color {
-    r: 0.055,
-    g: 0.055,
-    b: 0.063,
-    a: 0.97,
-};
+const FG_TEXT: Color = Color { r: 0.957, g: 0.957, b: 0.957, a: 1.0 };
+const FG_MUTED: Color = Color { r: 0.659, g: 0.659, b: 0.659, a: 1.0 };
+const ACCENT: Color = Color { r: 0.169, g: 0.604, b: 0.953, a: 1.0 };
+const SURFACE_BG: Color = Color { r: 0.055, g: 0.055, b: 0.063, a: 0.97 };
 
 #[to_layer_message]
 #[derive(Debug, Clone)]
 pub enum Message {
-    Copy(usize),
+    FilterChanged(String),
+    Select(usize),
+    CursorUp,
+    CursorDown,
+    PasteSelected,
     Exit,
 }
 
 pub struct App {
-    history: Vec<ClipEntry>,
+    all_entries: Vec<ClipEntry>,
+    filter: String,
+    cursor: usize,
+}
+
+impl App {
+    fn filtered_indices(&self) -> Vec<usize> {
+        let q = self.filter.to_lowercase();
+        self.all_entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                q.is_empty()
+                    || e.body.to_lowercase().contains(&q)
+                    || e.origin_peer.to_lowercase().contains(&q)
+                    || e.mime.to_lowercase().contains(&q)
+            })
+            .map(|(i, _)| i)
+            .take(100)
+            .collect()
+    }
+
+    fn paste_entry(&self, idx: usize) {
+        if let Some(entry) = self.all_entries.get(idx) {
+            let bytes = entry.body.as_bytes();
+            if let Err(e) = copy_text(bytes, &entry.mime) {
+                tracing::warn!(error = %e, "clipboard popover copy failed");
+                crate::toasts::emit(&crate::toasts::ToastEvent {
+                    body: "clipboard copy failed".into(),
+                    kind: crate::toasts::ToastKindWire::Error,
+                    visible_ms: None,
+                });
+            } else {
+                crate::toasts::emit(&crate::toasts::ToastEvent {
+                    body: format!("Copied: {}", preview(&entry.body, 40)),
+                    kind: crate::toasts::ToastKindWire::Success,
+                    visible_ms: None,
+                });
+            }
+        }
+    }
 }
 
 impl iced_layershell::Application for App {
@@ -123,10 +272,12 @@ impl iced_layershell::Application for App {
     type Flags = ();
 
     fn new(_flags: ()) -> (Self, Task<Message>) {
-        let raw = std::fs::read_to_string(default_history_path()).unwrap_or_default();
-        let history = parse_clipboard_history(&raw);
-        tracing::info!(count = history.len(), "clipboard popover loaded");
-        (Self { history }, Task::none())
+        let all_entries = load_history();
+        tracing::info!(count = all_entries.len(), "clipboard popover loaded");
+        (
+            Self { all_entries, filter: String::new(), cursor: 0 },
+            Task::none(),
+        )
     }
 
     fn namespace(&self) -> String {
@@ -135,29 +286,33 @@ impl iced_layershell::Application for App {
 
     fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
-            Message::Copy(idx) => {
-                if let Some(entry) = self.history.get(idx) {
-                    if let Err(e) = copy_text(&entry.body) {
-                        tracing::warn!(error = %e, "clipboard popover copy failed");
-                        crate::toasts::emit(&crate::toasts::ToastEvent {
-                            body: "clipboard copy failed".into(),
-                            kind: crate::toasts::ToastKindWire::Error,
-                            visible_ms: None,
-                        });
-                    } else {
-                        // v3.0.3 — emit a toast confirming the
-                        // copy. First in-tree emit site so the
-                        // toast surface has a real source.
-                        crate::toasts::emit(&crate::toasts::ToastEvent {
-                            body: format!(
-                                "Copied: {}",
-                                preview(&entry.body, 40)
-                            ),
-                            kind: crate::toasts::ToastKindWire::Success,
-                            visible_ms: None,
-                        });
-                    }
+            Message::FilterChanged(s) => {
+                self.filter = s;
+                self.cursor = 0;
+                Task::none()
+            }
+            Message::CursorUp => {
+                if self.cursor > 0 {
+                    self.cursor -= 1;
                 }
+                Task::none()
+            }
+            Message::CursorDown => {
+                let max = self.filtered_indices().len().saturating_sub(1);
+                if self.cursor < max {
+                    self.cursor += 1;
+                }
+                Task::none()
+            }
+            Message::PasteSelected => {
+                let indices = self.filtered_indices();
+                if let Some(&real_idx) = indices.get(self.cursor) {
+                    self.paste_entry(real_idx);
+                }
+                std::process::exit(0);
+            }
+            Message::Select(real_idx) => {
+                self.paste_entry(real_idx);
                 std::process::exit(0);
             }
             Message::Exit => std::process::exit(0),
@@ -166,11 +321,15 @@ impl iced_layershell::Application for App {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        let indices = self.filtered_indices();
+        let count = self.all_entries.len();
+
+        // Header
         let header = container(
             row![
                 text("Clipboard").size(13).color(FG_TEXT),
                 Space::with_width(Length::Fixed(8.0)),
-                text(format!("{} entries · mesh-synced", self.history.len()))
+                text(format!("{count} entries · bus-synced"))
                     .size(10)
                     .color(FG_MUTED),
                 Space::with_width(Length::Fill),
@@ -178,81 +337,91 @@ impl iced_layershell::Application for App {
             ]
             .align_y(Alignment::Center),
         )
-        .padding(Padding {
-            top: 8.0,
-            right: 12.0,
-            bottom: 4.0,
-            left: 12.0,
-        });
+        .padding(Padding { top: 8.0, right: 12.0, bottom: 4.0, left: 12.0 });
 
-        let mut list = column![].spacing(2);
-        if self.history.is_empty() {
-            list = list.push(
-                container(text("No clipboard history yet").size(13).color(FG_MUTED))
-                    .padding(Padding {
-                        top: 28.0,
-                        right: 0.0,
-                        bottom: 0.0,
-                        left: 12.0,
+        // Filter input
+        let filter_row = container(
+            text_input("Filter…", &self.filter)
+                .on_input(Message::FilterChanged)
+                .size(13)
+                .padding(Padding { top: 4.0, right: 8.0, bottom: 4.0, left: 8.0 })
+                .style(|_theme, _status| text_input::Style {
+                    background: Background::Color(Color {
+                        r: ACCENT.r,
+                        g: ACCENT.g,
+                        b: ACCENT.b,
+                        a: 0.08,
                     }),
+                    border: Border {
+                        color: Color { r: ACCENT.r, g: ACCENT.g, b: ACCENT.b, a: 0.35 },
+                        width: 1.0,
+                        radius: 4.0.into(),
+                    },
+                    icon: FG_MUTED,
+                    placeholder: FG_MUTED,
+                    value: FG_TEXT,
+                    selection: Color { r: ACCENT.r, g: ACCENT.g, b: ACCENT.b, a: 0.30 },
+                }),
+        )
+        .padding(Padding { top: 0.0, right: 12.0, bottom: 6.0, left: 12.0 });
+
+        // Entry list
+        let mut list = column![].spacing(2);
+        if indices.is_empty() {
+            list = list.push(
+                container(
+                    text(if self.filter.is_empty() {
+                        "No clipboard history yet"
+                    } else {
+                        "No matches"
+                    })
+                    .size(13)
+                    .color(FG_MUTED),
+                )
+                .padding(Padding { top: 28.0, right: 0.0, bottom: 0.0, left: 12.0 }),
             );
         }
-        for (idx, entry) in self.history.iter().take(50).enumerate() {
-            let origin_label = entry
-                .origin_peer
-                .as_deref()
-                .unwrap_or("local")
-                .to_string();
+        let cursor = self.cursor;
+        for (list_pos, &real_idx) in indices.iter().enumerate() {
+            let entry = &self.all_entries[real_idx];
+            let is_cursor = list_pos == cursor;
             let preview_text = preview(&entry.body, 80);
             let row_btn = button(
                 column![
                     text(preview_text).size(13).color(FG_TEXT),
                     Space::with_height(Length::Fixed(2.0)),
-                    text(format!("{} · {}", origin_label, &entry.mime))
+                    text(format!("{} · {}", &entry.origin_peer, &entry.mime))
                         .size(10)
                         .color(FG_MUTED),
                 ]
-                .padding(Padding {
-                    top: 6.0,
-                    right: 12.0,
-                    bottom: 6.0,
-                    left: 12.0,
-                }),
+                .padding(Padding { top: 6.0, right: 12.0, bottom: 6.0, left: 12.0 }),
             )
             .width(Length::Fill)
-            .style(history_row_style)
-            .on_press(Message::Copy(idx));
+            .style(move |_theme, status| history_row_style(status, is_cursor))
+            .on_press(Message::Select(real_idx));
             list = list.push(row_btn);
         }
 
         let scroll = scrollable(list).height(Length::Fill);
 
+        // Footer hint
         let footer = container(
-            text("Esc closes · click an entry to copy back to clipboard")
+            text("↑↓/jk navigate · Enter paste · Esc close · type to filter")
                 .size(10)
                 .color(FG_MUTED),
         )
-        .padding(Padding {
-            top: 4.0,
-            right: 12.0,
-            bottom: 8.0,
-            left: 12.0,
-        });
+        .padding(Padding { top: 4.0, right: 12.0, bottom: 8.0, left: 12.0 });
 
-        let body = column![header, scroll, footer].padding(Padding {
-            top: 4.0,
-            right: 4.0,
-            bottom: 4.0,
-            left: 4.0,
-        });
+        let body = column![header, filter_row, scroll, footer]
+            .padding(Padding { top: 4.0, right: 4.0, bottom: 4.0, left: 4.0 });
 
         let card: Element<'_, Message> = container(body)
             .width(Length::Fixed(WIDTH as f32))
-            .height(Length::Fixed(HEIGHT as f32))
+            .height(Length::Fixed(CARD_HEIGHT as f32))
             .style(popover_surface)
             .into();
 
-        // v3.0.4 — backdrop dismiss; bottom-left card.
+        // Backdrop dismiss.
         let dismiss = || {
             mouse_area(
                 container(Space::with_width(Length::Fill))
@@ -270,7 +439,7 @@ impl iced_layershell::Application for App {
             }),
             dismiss(),
         ]
-        .height(Length::Fixed((HEIGHT + 48) as f32));
+        .height(Length::Fixed((CARD_HEIGHT + 48) as f32));
         container(column![dismiss(), bottom_strip])
             .width(Length::Fill)
             .height(Length::Fill)
@@ -292,12 +461,16 @@ impl iced_layershell::Application for App {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        iced::keyboard::on_key_press(|key, _| {
+        iced::keyboard::on_key_press(|key, _mods| {
             use iced::keyboard::{key::Named, Key};
-            if matches!(key, Key::Named(Named::Escape)) {
-                Some(Message::Exit)
-            } else {
-                None
+            match key {
+                Key::Named(Named::Escape) => Some(Message::Exit),
+                Key::Named(Named::Enter) => Some(Message::PasteSelected),
+                Key::Named(Named::ArrowUp) => Some(Message::CursorUp),
+                Key::Named(Named::ArrowDown) => Some(Message::CursorDown),
+                Key::Character(ref c) if c.as_str() == "j" => Some(Message::CursorDown),
+                Key::Character(ref c) if c.as_str() == "k" => Some(Message::CursorUp),
+                _ => None,
             }
         })
     }
@@ -308,7 +481,6 @@ pub fn run() -> iced_layershell::Result {
         id: Some("mde-popover-clipboard".into()),
         fonts: crate::fonts::load_fallback_fonts(),
         layer_settings: LayerShellSettings {
-            // v3.0.4 — fullscreen for backdrop dismiss.
             size: None,
             exclusive_zone: -1,
             anchor: Anchor::Top | Anchor::Bottom | Anchor::Left | Anchor::Right,
@@ -321,8 +493,9 @@ pub fn run() -> iced_layershell::Result {
     })
 }
 
-/// Truncate `body` to `max` chars + ellipsize newlines so the
-/// list row stays single-line. Char-safe.
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+/// Truncate `body` to `max` chars + collapse newlines.
 fn preview(body: &str, max: usize) -> String {
     let one_line: String = body
         .chars()
@@ -340,12 +513,7 @@ fn popover_surface(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(SURFACE_BG)),
         border: Border {
-            color: Color {
-                r: 0.957,
-                g: 0.957,
-                b: 0.957,
-                a: 0.10,
-            },
+            color: Color { r: 0.957, g: 0.957, b: 0.957, a: 0.10 },
             width: 1.0,
             radius: 8.0.into(),
         },
@@ -354,81 +522,170 @@ fn popover_surface(_theme: &Theme) -> container::Style {
     }
 }
 
-fn history_row_style(_theme: &Theme, status: button::Status) -> button::Style {
+fn history_row_style(status: button::Status, is_cursor: bool) -> button::Style {
+    let base_alpha: f32 = if is_cursor { 0.16 } else { 0.0 };
     let bg = match status {
         button::Status::Hovered => Some(Background::Color(Color {
-            r: ACCENT.r,
-            g: ACCENT.g,
-            b: ACCENT.b,
-            a: 0.14,
+            r: ACCENT.r, g: ACCENT.g, b: ACCENT.b, a: (base_alpha + 0.10).min(1.0),
         })),
         button::Status::Pressed => Some(Background::Color(Color {
-            r: ACCENT.r,
-            g: ACCENT.g,
-            b: ACCENT.b,
-            a: 0.22,
+            r: ACCENT.r, g: ACCENT.g, b: ACCENT.b, a: (base_alpha + 0.18).min(1.0),
+        })),
+        _ if is_cursor => Some(Background::Color(Color {
+            r: ACCENT.r, g: ACCENT.g, b: ACCENT.b, a: base_alpha,
         })),
         _ => None,
     };
     button::Style {
         background: bg,
         text_color: FG_TEXT,
-        border: Border {
-            color: Color::TRANSPARENT,
-            width: 0.0,
-            radius: 4.0.into(),
-        },
+        border: Border { color: Color::TRANSPARENT, width: 0.0, radius: 4.0.into() },
         shadow: Shadow::default(),
     }
 }
+
+// ── Tests ─────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_clipboard_history_handles_empty_string() {
-        let out = parse_clipboard_history("");
-        assert!(out.is_empty());
+    fn load_from_legacy_empty_string_returns_empty() {
+        assert!(load_from_legacy("").is_empty());
     }
 
     #[test]
-    fn parse_clipboard_history_handles_malformed_json() {
-        let out = parse_clipboard_history("{not json}");
-        assert!(out.is_empty());
+    fn load_from_legacy_malformed_returns_empty() {
+        assert!(load_from_legacy("{not json}").is_empty());
     }
 
     #[test]
-    fn parse_clipboard_history_round_trips() {
-        let entry = ClipEntry {
-            captured_at_ms: 1_700_000_000_000,
-            mime: "text/plain".into(),
-            body: "hello".into(),
-            origin_peer: None,
-        };
-        let json = serde_json::to_string(&vec![entry.clone()]).unwrap();
-        let parsed = parse_clipboard_history(&json);
-        assert_eq!(parsed, vec![entry]);
+    fn load_from_legacy_round_trips() {
+        let json = r#"[{"captured_at_ms":1000,"mime":"text/plain","body":"hello","origin_peer":"lab-01"}]"#;
+        let entries = load_from_legacy(json);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].body, "hello");
+        assert_eq!(entries[0].origin_peer, "lab-01");
+        assert_eq!(entries[0].mime, "text/plain");
     }
 
     #[test]
-    fn parse_clipboard_history_picks_up_peer_origin() {
-        let json =
-            r#"[{"captured_at_ms":1,"mime":"text/plain","body":"x","origin_peer":"lab-01"}]"#;
-        let parsed = parse_clipboard_history(json);
-        assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0].origin_peer, Some("lab-01".into()));
+    fn load_from_legacy_newest_first() {
+        let json = r#"[{"captured_at_ms":1000,"mime":"text/plain","body":"first","origin_peer":null},
+                       {"captured_at_ms":2000,"mime":"text/plain","body":"second","origin_peer":null}]"#;
+        let entries = load_from_legacy(json);
+        assert_eq!(entries[0].body, "second");
+        assert_eq!(entries[1].body, "first");
     }
 
     #[test]
-    fn default_history_path_ends_with_clipboard_json() {
-        let p = default_history_path();
-        assert!(p.ends_with("clipboard.json"));
+    fn load_from_bus_empty_dir_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_from_bus(dir.path()).is_empty());
     }
 
     #[test]
-    fn copy_text_does_not_panic_when_wl_copy_absent() {
-        // Best-effort: just verify no panic on subprocess failure.
-        let _ = copy_text("hello");
+    fn load_from_bus_missing_dir_returns_empty() {
+        let path = std::path::PathBuf::from("/tmp/mde-clipd-test-nonexistent-dir-abc123");
+        assert!(load_from_bus(&path).is_empty());
+    }
+
+    #[test]
+    fn load_from_bus_parses_inline_entry() {
+        use base64::Engine as _;
+        let dir = tempfile::tempdir().unwrap();
+        let body_b64 = base64::engine::general_purpose::STANDARD.encode("hello world");
+        let msg = serde_json::json!({
+            "publisher_peer": "peer-01",
+            "mime_types": ["text/plain"],
+            "selected_mime": "text/plain",
+            "payload": { "kind": "inline", "data_b64": body_b64 },
+            "ts_iso": "2026-05-30T00:00:00Z"
+        });
+        let env = serde_json::json!({
+            "ulid": "01HWAAAAAAAAAAAAAAAAAAAAAA",
+            "topic": "clipboard/sync",
+            "priority": "normal",
+            "title": null,
+            "body": msg.to_string(),
+            "ts_unix_ms": 1748563200000i64,
+            "file_path": "clipboard/sync/01HWAAAAAAAAAAAAAAAAAAAAAA.json"
+        });
+        std::fs::write(
+            dir.path().join("01HWAAAAAAAAAAAAAAAAAAAAAA.json"),
+            serde_json::to_string_pretty(&env).unwrap(),
+        )
+        .unwrap();
+        let entries = load_from_bus(dir.path());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].body, "hello world");
+        assert_eq!(entries[0].origin_peer, "peer-01");
+        assert_eq!(entries[0].mime, "text/plain");
+        assert_eq!(entries[0].ts_iso, "2026-05-30T00:00:00Z");
+    }
+
+    #[test]
+    fn load_from_bus_newest_first() {
+        use base64::Engine as _;
+        let dir = tempfile::tempdir().unwrap();
+        for (ulid, body) in [
+            ("01AAAAAAAAAAAAAAAAAAAAAAAA", "older"),
+            ("01ZZZZZZZZZZZZZZZZZZZZZZZZ", "newer"),
+        ] {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(body);
+            let msg = serde_json::json!({
+                "publisher_peer": "local",
+                "mime_types": ["text/plain"],
+                "selected_mime": "text/plain",
+                "payload": { "kind": "inline", "data_b64": b64 },
+                "ts_iso": ""
+            });
+            let env = serde_json::json!({
+                "ulid": ulid,
+                "topic": "clipboard/sync",
+                "priority": "normal",
+                "title": null,
+                "body": msg.to_string(),
+                "ts_unix_ms": 0i64,
+                "file_path": ""
+            });
+            std::fs::write(
+                dir.path().join(format!("{ulid}.json")),
+                serde_json::to_string_pretty(&env).unwrap(),
+            )
+            .unwrap();
+        }
+        let entries = load_from_bus(dir.path());
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].body, "newer");
+        assert_eq!(entries[1].body, "older");
+    }
+
+    #[test]
+    fn load_from_bus_skips_malformed_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("bad.json"), "not json").unwrap();
+        assert!(load_from_bus(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn preview_truncates_long_text() {
+        let long = "a".repeat(200);
+        let p = preview(&long, 80);
+        assert!(p.chars().count() <= 80);
+        assert!(p.ends_with('…'));
+    }
+
+    #[test]
+    fn preview_collapses_newlines() {
+        let s = "line1\nline2";
+        assert_eq!(preview(s, 80), "line1 line2");
+    }
+
+    #[test]
+    fn preview_short_text_unchanged() {
+        let s = "hello";
+        assert_eq!(preview(s, 80), "hello");
     }
 }
