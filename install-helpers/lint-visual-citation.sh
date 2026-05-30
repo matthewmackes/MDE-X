@@ -66,7 +66,9 @@ VISUAL_SURFACES_REGEX='^(crates/mde-[^/]+/src/.*\.rs$|data/css/.*\.css$|data/pre
 #   mde-theme        — pure math/token library (palette, tween, ease, lerp);
 #                      provides building blocks consumed by Iced surfaces but
 #                      has no rendered Iced view() itself.
-NON_VISUAL_CRATES_REGEX='^crates/(mde-installer|mde-alert-emit|mde-kdc|mde-kdc-proto|mde-mesh-types|mde-clipd|mde-musicd|mde-theme)/'
+#   mde-bus          — Bus CLI + broker daemon (ntfy, SQLite, subs watcher,
+#                      webhook listener); pure headless, no Iced UI.
+NON_VISUAL_CRATES_REGEX='^crates/(mde-installer|mde-alert-emit|mde-kdc|mde-kdc-proto|mde-mesh-types|mde-clipd|mde-musicd|mde-theme|mde-bus)/'
 
 # Get the staged files (commit-msg hook) OR HEAD's modified
 # files (stand-alone mode).

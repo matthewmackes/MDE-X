@@ -28,6 +28,7 @@
 pub mod audit;
 pub mod correlate;
 pub mod dnd;
+pub mod federation;
 pub mod history;
 pub mod mute;
 pub mod persist;
@@ -129,5 +130,12 @@ pub enum Cmd {
     Correlate {
         #[command(subcommand)]
         op: correlate::CorrelateOp,
+    },
+    /// Inter-mesh federation lifecycle (TUNE-15.c). Manage OOB
+    /// pairing passcodes, consume remote mnemonics, and tune the
+    /// per-pair topic grant model.
+    Federation {
+        #[command(subcommand)]
+        op: federation::FederationOp,
     },
 }
