@@ -261,6 +261,26 @@ pub enum Icon {
     ChevronRight,
     /// Chevron down (expanded indicator).
     ChevronDown,
+
+    // --- File-type (CR-3.c) — per-MIME file-row glyphs ---
+    /// Generic document with text lines (text/*, office docs).
+    Document,
+    /// Blank / empty document (new-file placeholder).
+    DocumentBlank,
+    /// Image file (image/*).
+    Image,
+    /// PDF document (application/pdf).
+    Pdf,
+    /// Source code file (text/x-*, application/json, …).
+    Code,
+    /// Audio file (audio/*).
+    Audio,
+    /// Video file (video/*).
+    Video,
+    /// Archive / compressed file (application/zip, …).
+    Archive,
+    /// Directory / folder (inode/directory).
+    Folder,
 }
 
 impl Icon {
@@ -327,6 +347,16 @@ impl Icon {
             Icon::Search => "search",
             Icon::ChevronRight => "chevron_right",
             Icon::ChevronDown => "expand_more",
+
+            Icon::Document => "description",
+            Icon::DocumentBlank => "draft",
+            Icon::Image => "image",
+            Icon::Pdf => "picture_as_pdf",
+            Icon::Code => "code",
+            Icon::Audio => "audio_file",
+            Icon::Video => "video_file",
+            Icon::Archive => "folder_zip",
+            Icon::Folder => "folder",
         }
     }
 
@@ -390,6 +420,16 @@ impl Icon {
             Icon::Search => "\u{1F50D}",
             Icon::ChevronRight => "\u{203A}",
             Icon::ChevronDown => "\u{2304}",
+
+            Icon::Document => "\u{1F4C4}",
+            Icon::DocumentBlank => "\u{1F5CE}",
+            Icon::Image => "\u{1F5BC}",
+            Icon::Pdf => "P",
+            Icon::Code => "<>",
+            Icon::Audio => "\u{266A}",
+            Icon::Video => "\u{1F3AC}",
+            Icon::Archive => "\u{1F4E6}",
+            Icon::Folder => "\u{1F4C1}",
         }
     }
 
@@ -768,6 +808,46 @@ fn material_svg_bytes(icon: Icon, svg_size: u32, filled: bool) -> &'static [u8] 
             include_bytes!("../../../assets/icons/material-symbols/expand_more_20px.svg"),
             include_bytes!("../../../assets/icons/material-symbols/expand_more_24px.svg"),
             include_bytes!("../../../assets/icons/material-symbols/expand_more_40px.svg")),
+
+        // ── File-type icons (CR-3.c, never-filled) ──
+        Icon::Document => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/description_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/description_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/description_40px.svg")),
+        Icon::DocumentBlank => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/draft_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/draft_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/draft_40px.svg")),
+        // Icon::Image shares the `image` SVG with Icon::Wallpaper.
+        Icon::Image => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/image_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/image_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/image_40px.svg")),
+        Icon::Pdf => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/picture_as_pdf_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/picture_as_pdf_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/picture_as_pdf_40px.svg")),
+        Icon::Code => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/code_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/code_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/code_40px.svg")),
+        Icon::Audio => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/audio_file_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/audio_file_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/audio_file_40px.svg")),
+        Icon::Video => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/video_file_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/video_file_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/video_file_40px.svg")),
+        Icon::Archive => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/folder_zip_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/folder_zip_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/folder_zip_40px.svg")),
+        // Icon::Folder shares the `folder` SVG with Icon::Files.
+        Icon::Folder => pick_3(svg_size,
+            include_bytes!("../../../assets/icons/material-symbols/folder_20px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/folder_24px.svg"),
+            include_bytes!("../../../assets/icons/material-symbols/folder_40px.svg")),
     }
 }
 
@@ -809,6 +889,63 @@ pub fn icon_for_device_type(device_type: &str) -> Icon {
         "printer" => Icon::Printer,
         "display" | "monitor" => Icon::Display,
         _ => Icon::Peer,
+    }
+}
+
+/// Pick an [`Icon`] from a MIME type string (CR-3.c).
+///
+/// Single canonical MIME → icon mapping so file-row Object Cards,
+/// the mde-files sidebar, and any future consumer all show the
+/// same glyph for the same file type.
+///
+/// Matching is prefix-based — `"image/"`, `"audio/"`, `"video/"`
+/// — so `image/png`, `image/jpeg`, etc. all resolve to
+/// [`Icon::Image`] without needing an exhaustive list.
+///
+/// Returns [`Icon::Document`] for unrecognised types (the generic
+/// fallback for text / office docs rather than the even-more-
+/// generic `Icon::Files` folder glyph).
+#[must_use]
+pub fn icon_for_mime(mime: &str) -> Icon {
+    if mime == "inode/directory" {
+        return Icon::Folder;
+    }
+    if mime.starts_with("image/") {
+        return Icon::Image;
+    }
+    if mime.starts_with("audio/") {
+        return Icon::Audio;
+    }
+    if mime.starts_with("video/") {
+        return Icon::Video;
+    }
+    match mime {
+        "application/pdf" => Icon::Pdf,
+        "application/zip"
+        | "application/x-tar"
+        | "application/x-bzip2"
+        | "application/gzip"
+        | "application/x-xz"
+        | "application/x-7z-compressed"
+        | "application/x-rar-compressed"
+        | "application/vnd.rar" => Icon::Archive,
+        "application/json"
+        | "application/xml"
+        | "application/x-sh"
+        | "application/javascript"
+        | "application/typescript" => Icon::Code,
+        // Common code MIME types carried under text/* (RFC 2046).
+        "text/html"
+        | "text/css"
+        | "text/javascript"
+        | "text/typescript"
+        | "text/xml" => Icon::Code,
+        // text/x-* is the convention for non-standard source files.
+        m if m.starts_with("text/x-") => Icon::Code,
+        // Remaining text/* (plain text, CSV, Markdown, …) → Document.
+        m if m.starts_with("text/") => Icon::Document,
+        // Unrecognised application/* or anything else → Document.
+        _ => Icon::Document,
     }
 }
 
@@ -1032,6 +1169,125 @@ mod tests {
             Icon::Search,
             Icon::ChevronRight,
             Icon::ChevronDown,
+            // CR-3.c file-type variants.
+            Icon::Document,
+            Icon::DocumentBlank,
+            Icon::Image,
+            Icon::Pdf,
+            Icon::Code,
+            Icon::Audio,
+            Icon::Video,
+            Icon::Archive,
+            Icon::Folder,
         ]
+    }
+
+    // ── CR-3.c: per-mime Icon variants ────────────────────────────
+
+    #[test]
+    fn file_type_icons_resolve_nonempty_svg_at_nav_size() {
+        for icon in [
+            Icon::Document,
+            Icon::DocumentBlank,
+            Icon::Image,
+            Icon::Pdf,
+            Icon::Code,
+            Icon::Audio,
+            Icon::Video,
+            Icon::Archive,
+            Icon::Folder,
+        ] {
+            let resolved = mde_icon(icon, IconSize::Nav);
+            let bytes = resolved.svg_bytes_for_state(IconState::Idle);
+            assert!(
+                bytes.len() > 32,
+                "Icon::{icon:?} SVG payload too small at Nav size"
+            );
+        }
+    }
+
+    #[test]
+    fn file_type_icons_are_never_fill() {
+        for icon in [
+            Icon::Document,
+            Icon::DocumentBlank,
+            Icon::Image,
+            Icon::Pdf,
+            Icon::Code,
+            Icon::Audio,
+            Icon::Video,
+            Icon::Archive,
+            Icon::Folder,
+        ] {
+            assert_eq!(
+                icon.fill_mode(),
+                FillMode::NeverFill,
+                "Icon::{icon:?} should be NeverFill"
+            );
+        }
+    }
+
+    #[test]
+    fn icon_for_mime_image_types() {
+        assert_eq!(icon_for_mime("image/png"), Icon::Image);
+        assert_eq!(icon_for_mime("image/jpeg"), Icon::Image);
+        assert_eq!(icon_for_mime("image/webp"), Icon::Image);
+        assert_eq!(icon_for_mime("image/svg+xml"), Icon::Image);
+    }
+
+    #[test]
+    fn icon_for_mime_audio_types() {
+        assert_eq!(icon_for_mime("audio/mpeg"), Icon::Audio);
+        assert_eq!(icon_for_mime("audio/flac"), Icon::Audio);
+        assert_eq!(icon_for_mime("audio/ogg"), Icon::Audio);
+    }
+
+    #[test]
+    fn icon_for_mime_video_types() {
+        assert_eq!(icon_for_mime("video/mp4"), Icon::Video);
+        assert_eq!(icon_for_mime("video/webm"), Icon::Video);
+        assert_eq!(icon_for_mime("video/x-matroska"), Icon::Video);
+    }
+
+    #[test]
+    fn icon_for_mime_pdf() {
+        assert_eq!(icon_for_mime("application/pdf"), Icon::Pdf);
+    }
+
+    #[test]
+    fn icon_for_mime_archives() {
+        assert_eq!(icon_for_mime("application/zip"), Icon::Archive);
+        assert_eq!(icon_for_mime("application/x-tar"), Icon::Archive);
+        assert_eq!(icon_for_mime("application/gzip"), Icon::Archive);
+        assert_eq!(icon_for_mime("application/x-7z-compressed"), Icon::Archive);
+    }
+
+    #[test]
+    fn icon_for_mime_code_types() {
+        assert_eq!(icon_for_mime("application/json"), Icon::Code);
+        assert_eq!(icon_for_mime("application/javascript"), Icon::Code);
+        assert_eq!(icon_for_mime("text/html"), Icon::Code);
+        assert_eq!(icon_for_mime("text/css"), Icon::Code);
+        assert_eq!(icon_for_mime("text/x-python"), Icon::Code);
+        assert_eq!(icon_for_mime("text/x-rust"), Icon::Code);
+    }
+
+    #[test]
+    fn icon_for_mime_text_plain_is_document() {
+        assert_eq!(icon_for_mime("text/plain"), Icon::Document);
+        assert_eq!(icon_for_mime("text/markdown"), Icon::Document);
+        assert_eq!(icon_for_mime("text/csv"), Icon::Document);
+    }
+
+    #[test]
+    fn icon_for_mime_directory() {
+        assert_eq!(icon_for_mime("inode/directory"), Icon::Folder);
+    }
+
+    #[test]
+    fn icon_for_mime_unknown_falls_back_to_document() {
+        assert_eq!(icon_for_mime("application/octet-stream"), Icon::Document);
+        assert_eq!(icon_for_mime(""), Icon::Document);
+        assert_eq!(icon_for_mime("model/gltf+json"), Icon::Document);
     }
 }

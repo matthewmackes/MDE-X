@@ -92,6 +92,13 @@ close:close:none
 search:search:none
 chevron--right:chevron_right:none
 chevron--down:expand_more:none
+document:description:none
+document-blank:draft:none
+picture-as-pdf:picture_as_pdf:none
+code:code:none
+audio-file:audio_file:none
+video-file:video_file:none
+folder-zip:folder_zip:none
 '
 
 download_one() {
