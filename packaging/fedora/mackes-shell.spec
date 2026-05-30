@@ -229,6 +229,23 @@ Requires:       nmap
 Requires:       cups
 Requires:       cups-filters
 
+# VIRT-2 (v5.0.0) — mesh-native compute stack. Every peer is
+# always-on KVM + Podman compute per docs/design/v5.0.0-compute.md
+# §1. libvirtd is socket-activated (§5) — the %post below enables
+# libvirtd.socket only; libvirtd.service starts on first virsh
+# call so low-RAM peers don't pay the daemon cost when idle.
+# qemu-kvm supplies the hypervisor; virt-viewer is the lightweight
+# SPICE/VNC console (~2 MB) that mde-virtual deep-links instead of
+# pulling in the full Cockpit web stack (§9). virtiofsd shares
+# the /mnt/mesh-storage mount into guests that opt in via
+# share_meshfs=true (§6). Cockpit + cockpit-machines are NOT
+# Required (and never were in this spec) — the mde-virtual Iced
+# app replaces both per the 2026-05-30 20-Q survey lock.
+Requires:       libvirt
+Requires:       qemu-kvm
+Requires:       virt-viewer
+Requires:       virtiofsd
+
 # VV-1 + VV-1.5 (v4.1.0) — voice stack. Kamailio is the SIP
 # proxy/registrar/router; rtpengine is the SRTP relay it drives
 # via the NG unix socket. Both from F44's official repo (no
@@ -1217,6 +1234,14 @@ systemctl enable mfsmaster.service 2>/dev/null || :
 # MON-1 (v2.6) — netdata for the apply_netdata_monitor birthright
 # step (bound to 127.0.0.1 until birthright writes the overlay bind).
 systemctl enable netdata.service 2>/dev/null || :
+# VIRT-2 (v5.0.0) — libvirtd is socket-activated only. The socket
+# unit ships with libvirt itself; enabling it (no --now) means
+# libvirtd.service starts on the first /var/run/libvirt/libvirt-sock
+# connection (mackesd's compute_registry worker calls virsh on
+# every 10s tick), keeping idle low-RAM peers free of the daemon
+# cost. Do NOT enable libvirtd.service directly — that bypasses
+# socket activation and pins the daemon at boot.
+systemctl enable libvirtd.socket 2>/dev/null || :
 # VV-1 + VV-1.5 (v4.1.0) — voice stack state + spool + TLS dirs.
 # Config trees /etc/kamailio-mde/ + /etc/rtpengine-mde/ are owned
 # by the RPM (root:root 0755) so the generated config files end
@@ -1376,6 +1401,12 @@ echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to fini
 %dir %attr(0750, root, root) /var/lib/mde/meshfs/chunks
 %dir %attr(0750, root, root) /var/lib/mde/meshfs/meta
 %dir %attr(0750, root, root) /var/lib/mde/meshfs/stage
+# VIRT-2 (v5.0.0) — KVM VM storage roots. compute_provision
+# (VIRT-6) writes per-VM qcow2 disks under /var/lib/mde-vms/ and
+# operator-staged install media under /isos/. 0750 root:root —
+# libvirtd runs as root so unprivileged users can't list VM disks.
+%dir %attr(0750, root, root) /var/lib/mde-vms
+%dir %attr(0750, root, root) /var/lib/mde-vms/isos
 # MESHFS-1.1 (v5.0.0) — LizardFS binaries bundled from pinned tag
 # 3.13.0-rc2 (build: .github/workflows/lizardfs-build.yml).
 %{_sbindir}/mfsmaster

@@ -1957,14 +1957,14 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - libvirt-rs crate (or virsh subprocess) for VM polling; podman JSON API for containers
     - Socket-activate libvirtd if not already running on first poll
 
-- [ ] **VIRT-2: v5.0.0 — RPM packaging: libvirtd + virt-viewer + qemu-kvm + virtiofsd install**
+- [✓] **VIRT-2: v5.0.0 — RPM packaging: libvirtd + virt-viewer + qemu-kvm + virtiofsd install**
   **As** an installer, **I want** compute stack packages installed at first boot,
   **so that** every peer is ready to host VMs without operator steps.
   **Acceptance** (each bench-observable):
-    - [ ] `packaging/fedora/mackes-shell.spec` `Requires:` adds `libvirt`, `qemu-kvm`, `virt-viewer`, `virtiofsd` (cockpit + cockpit-machines removed — superseded by mde-virtual)
-    - [ ] `%post` enables `libvirtd.socket` (not `libvirtd.service` — socket-activation only)
-    - [ ] `rpmspec -P packaging/fedora/mackes-shell.spec` exits 0 (verify via rpmspec, NOT `make rpm`)
-    - [ ] `%files` adds `/var/lib/mde-vms/` as `%dir 0750 root root` and `/var/lib/mde-vms/isos/` as `%dir 0750 root root`
+    - [✓] `packaging/fedora/mackes-shell.spec` `Requires:` adds `libvirt`, `qemu-kvm`, `virt-viewer`, `virtiofsd` (cockpit + cockpit-machines removed — superseded by mde-virtual)
+    - [✓] `%post` enables `libvirtd.socket` (not `libvirtd.service` — socket-activation only)
+    - [✓] `rpmspec -P packaging/fedora/mackes-shell.spec` exits 0 (verify via rpmspec, NOT `make rpm`)
+    - [✓] `%files` adds `/var/lib/mde-vms/` as `%dir 0750 root root` and `/var/lib/mde-vms/isos/` as `%dir 0750 root root`
   **Implementation notes:**
     - Socket-activation: `systemctl enable --now libvirtd.socket` in `%post`
     - Do NOT `make rpm` — verify via `rpmspec -P` per [[feedback_rpm_gate_skip_for_content_edits]]
