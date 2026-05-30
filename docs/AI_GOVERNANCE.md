@@ -288,87 +288,59 @@ old prefix for grep/history. Migration designed under EPIC-PROC-3. (Q78)
 
 ---
 
-## 11. Release roadmap — v5.0.0 shippable core + post-5.0 continuous main
+## 11. Release roadmap — v5.0.0 full locked scope
 
-> **AMENDED 2026-05-28 (operator-authorized).** The previous "NO
-> INCOMPLETE RELEASES / 1.0 = the whole backlog" rule (Q91 + the old
-> §0.17 + memory [[feedback_no_incomplete_releases]]) is **superseded**.
-> Under that rule the cut required ~1,190 open tasks to all be green
-> with no release valve — a definition of done that could not be
-> reached. Per the operator's 2026-05-28 directive ("make the
-> shippable-release + reconcile changes"), the release is now a
-> **minimal viable core** and everything else lands continuously on
-> main per the §9.2 / Q92 post-cut cadence (which this doc already
-> locked). This is the legitimate Q91-revisit path: an operator-typed
-> amendment, recorded here and in CLAUDE.md §0.17.
+> **AMENDED 2026-05-30 (operator directive: "Nothing is post 5.0").** The
+> 2026-05-28 "minimal viable core + §11.2 continuous-main" split is
+> **retired**. v5.0.0 ships the **full locked worklist** — every task in
+> `docs/PROJECT_WORKLIST.md` that is `[ ] Open` or `[>] In Progress` is a
+> v5.0.0 cut-blocker. There is no §11.2. There are no deferred items.
+> The 2026-05-28 reconcile was the correct read of the *current* state of
+> completion; that state is still accurate. What changes is the framing:
+> "in progress" items are not deferred — they are **unfinished v5.0.0
+> work**. `make pre-cut-check` must see the full worklist green before
+> the cut. Mirrored in CLAUDE.md §0.17 + memory
+> [[feedback_no_incomplete_releases]].
 
-### 11.1 v5.0.0 core — must be green to cut
+### 11.1 v5.0.0 cut gate — full scope
 
-The cut ships when these — and only these — are green. Each is
-essential to a *usable, installable mesh desktop*:
+The cut ships when **all** worklist tasks are `[✓] Done` and HW bench
+bullets are operator-confirmed. The table below enumerates the major
+scope blocks; every item is a cut-blocker:
 
-| # | Core scope item | Source |
+| # | Scope item | Source |
 |---|---|---|
 | C1 | **INST-*** installation manager — peer installs from media without operator hand-holding | Q98 |
 | C2 | **DM-*** display manager (greetd + regreet) — you can log in | Q98 |
-| C3 | **sway shell renders + is usable** — `mde-panel` + `mde-portal` + `mde-session` boot and drive a desktop | §11 item 19 (core subset) |
+| C3 | **sway shell renders + is usable** — `mde-panel` + `mde-portal` + `mde-session` boot and drive a desktop | §11 item 19 |
 | C4 | **Nebula mesh enrollment + LizardFS `mesh-storage` mount** — the core "workgroup" value: files replicate across peers (FS swapped Gluster→LizardFS 2026-05-29, MESHFS-*; renamed `mesh-home`→`mesh-storage`) | v5.0 + Q22 |
-| C5 | **Bus foundation (BUS-1 + BUS-2)** — notifications + high-priority surfaces work end-to-end | BUS |
+| C5 | **Bus foundation (BUS-1..7)** — all Bus epics complete (notifications, routing, federation, clipboard, audit) | BUS |
 | C6 | **4 presets implemented** (ChromeOS Classic L/D + Ableton 12 L/D) | Q79 |
-| C7 | **Operator HW smoke on ≥2 peers** — per-bullet acceptance per 25-Q Q13; full 8-peer bench is a post-5.0 hardening pass, not a cut blocker | Q98 + Q13 (25-Q) |
-| C8 | **PRINT-*** auto CUPS print sharing + sync — a printer on any peer is usable from every peer (`cups_sync` worker) | operator-elevated 2026-05-29 (15-Q survey) |
-| C9 | **FWMON-*** firewall activity monitoring — denied-packet watch + cross-peer Activity view + threshold alerts (`firewall_monitor` worker) | operator-elevated 2026-05-29 (15-Q survey) |
-| C10 | **VIRT-*** KVM + Podman mesh-native compute + `mde-virtual` app — every peer is a compute node; VMs get Nebula certs (`10.42.128.0/17`); unified Bus inventory; cold migration; per-network port exposure; MeshFS via virtiofsd; purpose-built Iced/Rust `mde-virtual` management app | operator-elevated 2026-05-30 (10-Q + 20-Q surveys) |
+| C7 | **Operator HW bench — full 8-peer fleet green** — per-bullet acceptance per 25-Q Q13 | Q98 + Q13 (25-Q) |
+| C8 | **PRINT-*** auto CUPS print sharing + sync — a printer on any peer is usable from every peer (`cups_sync` worker) | operator-elevated 2026-05-29 |
+| C9 | **FWMON-*** firewall activity monitoring — denied-packet watch + cross-peer Activity view + threshold alerts (`firewall_monitor` worker) | operator-elevated 2026-05-29 |
+| C10 | **VIRT-*** KVM + Podman mesh-native compute + `mde-virtual` app — every peer is a compute node; VMs get Nebula certs (`10.42.128.0/17`); unified Bus inventory; cold migration; per-network port exposure; MeshFS via virtiofsd; purpose-built Iced/Rust `mde-virtual` management app | operator-elevated 2026-05-30 |
+| C11 | **CR-* + SWAY-* + ANIM-*** ChromeOS Classic visual retrofit + sway-native shell + maximum-animation system | Q91 + 150-Q survey |
+| C12 | **EPIC-RETIRE-DBUS** — D-Bus → Bus migration complete (only FDO interop survives) | Q96 |
+| C13 | **EPIC-RETIRE-PY-DAEMONS** — every Python daemon ported to Rust (no subprocess-supervised Python) | Q95 |
+| C14 | **EPIC-RETIRE-QNM** — QNM-Shared term retired; renamed to MDE-Workgroup throughout | Q14 + Q77 |
+| C15 | **EPIC-RETIRE-CADDY** — Caddy gateway retired | Q10 |
+| C16 | **EPIC-UI-MATERIAL** — Material Symbols pivot complete; Carbon icons gone from user-visible code | Q97 |
+| C17 | **VOIP-***, **AIR-***, **MON-***, **CONTAINER-*** — VoIP (direct PJSIP-to-Vitelity), music, monitoring, containers complete | Q91 + Q21 (25-Q) |
+| C18 | **DEAD-*** retirement queue fully drained | Q91 |
+| C19 | **PHONE-NEBULA-PEER** — phone elevated to full Nebula peer | Q23 (25-Q) |
+| C20 | **EPIC-TUNING-25Q** — all 16 tuning tasks from the 2026-05-26 25-Q survey complete | 25-Q |
+| C21 | **Security posture documented** (`docs/design/security-posture.md`) | Q25 (25-Q) |
 
-> **C10 added 2026-05-30 by operator directive.** A 10-Q `/plan` survey scoped
-> libvirt + custom mackesd Bus workers for KVM + Podman mesh-native
-> virtualization. A subsequent 20-Q survey added `mde-virtual`, a purpose-built
-> native Iced/Rust app (`crates/mde-virtual/`) replacing the originally-planned
-> Workbench panel + Cockpit deep-link. Every peer is always-on compute
-> (socket-activated libvirtd). VMs get their own Nebula cert + IP from the
-> `10.42.128.0/17` VM subnet. CA key stays on the CA peer; VM certs signed via
-> Bus `compute/cert-sign-request/<ulid>`. MeshFS accessible inside VMs via
-> virtiofsd. Explicit per-network port exposure (mesh / LAN / WAN). Cold
-> migration only (stop → rsync qcow2 over Nebula → restart on target). VM
-> console via `virt-viewer` (not Cockpit; ~2 MB). Design lock:
-> `docs/design/v5.0.0-compute.md`. This widens the v5.0.0 cut gate —
-> `make pre-cut-check` must see VIRT-* green before the cut.
+> **C10 added 2026-05-30 by operator directive.** Design lock:
+> `docs/design/v5.0.0-compute.md`. VM console via `virt-viewer` (~2 MB);
+> CA key stays on CA peer; cert signing via Bus `compute/cert-sign-request/<ulid>`.
+>
+> **C8 + C9 added 2026-05-29 by operator directive.** Design locks:
+> `docs/design/v5.0.0-cups-print-sharing.md`,
+> `docs/design/v5.0.0-firewall-activity-monitor.md`.
 
-> **C8 + C9 added 2026-05-29 by operator directive.** A 15-Q `/plan`
-> survey scoped auto CUPS print sharing/sync (PRINT-*) + firewall activity
-> monitoring (FWMON-*); the operator explicitly elevated **both to
-> v5.0.0 cut-blocking core**, overriding the §0.17 "minimal core" default
-> (which would have routed them to §11.2 post-5.0 continuous main). Design
-> locks: `docs/design/v5.0.0-cups-print-sharing.md`,
-> `docs/design/v5.0.0-firewall-activity-monitor.md`. This widens the
-> v5.0.0 cut gate — `make pre-cut-check` must see PRINT-* + FWMON-* green
-> before the cut.
-
-### 11.2 Post-5.0 — continuous main (NOT cut-blocking)
-
-These land on main as completed (Q92 continuous cadence). Several
-are **incomplete today** — recorded here at their real state per the
-2026-05-28 reconcile so no "done" is overstated:
-
-| Item | Real state as of 2026-05-28 |
-|---|---|
-| **EPIC-RETIRE-DBUS** (D-Bus → Bus) | **In progress** — 13 `#[interface]` blocks still live (mackesd `ipc/*.rs`, `mde-portal`, `mde-session`, `mde-workbench`); epic was first *planned* in commit 544497ce. FDO `org.freedesktop.*` interop stays regardless. |
-| **EPIC-RETIRE-PY-DAEMONS** (Q95) | **In progress** — `mackes/` still holds ~23.5k LOC of Python. |
-| **EPIC-RETIRE-QNM** (Q14 + Q77) | **In progress** — `qnm` refs remain in `mackesd` (`worker.rs`, `leader.rs`, `nebula_enroll.rs`), `mackes-mesh-types`, etc. |
-| **EPIC-RETIRE-CADDY** (Q10) | **In progress** — caddy refs remain in `mackes-mesh-types`, `mde-workbench`, the spec. |
-| **EPIC-UI-MATERIAL** (Q97 Carbon→Material) | **In progress** — ~112 active-code Carbon refs (TUNE-14.b). |
-| **CR-*** ChromeOS Classic retrofit, **SWAY-*/ANIM-*** animation | Continuous polish; release-gated visual sign-off deferred to post-5.0 per [[feedback_no_pre_release_reviews]]. |
-| **BUS-3..7** advanced routing / federation / clipboard / audit | Continuous. |
-| **VOIP-***, **AIR-*** music, **MON-*** monitoring, **CONTAINER-*** | Core-forever components, but not v5.0.0 cut blockers. |
-| **DEAD-*** retirement queue, **EPIC-MASTER/PROC/SEC/SCOPE** | Continuous hygiene. |
-| **PHONE-NEBULA-PEER** | Continuous. |
-| Full 8-peer HW bench | Post-5.0 hardening (C7 covers the cut smoke). |
-
-The master inventory below is retained as the **complete item list**;
-§11.1 names which subset gates the cut. Items not in §11.1 are §11.2
-continuous work.
-
-### 11.3 Master inventory (historical — full locked scope, not the cut gate)
+### 11.2 Master scope inventory (full locked scope — the cut gate)
 
 | # | Scope item | Source |
 |---|---|---|
@@ -392,11 +364,7 @@ continuous work.
 | 18 | **Security posture documented** (`docs/design/security-posture.md`) — Fedora targeted + user-UID stance | Q25 (25-Q) |
 | 19 | **Sway-native shell + maximum-animation system** (`docs/design/sway-native-shell.md`) — vanilla sway compositor; all motion in MDE iced layer-shell surfaces via the `mde-motion` crate; EtherApe network-activity mesh-wallpaper; flat-but-elevated visual identity. **Replaces the removed Hyprland migration.** | 150-Q survey (2026-05-28) |
 
-**Post-v5.0:**
-- Continuous main; tag minor versions annually (5.1, 5.2, …)
-- **VoIP stays in core forever** (Q21 of 25-Q retired Q92's `mde-voice` spinout plan)
-- AIR-* music continues in core
-- **Continuous retirement audit on every /ship cycle** (Q20 of 25-Q replaces quarterly cadence)
+**Note (2026-05-30):** The "Post-v5.0: continuous main" cadence (Q92) is retired per the operator directive "Nothing is post 5.0." Everything in the master inventory ships in v5.0.0. VoIP stays in core forever (Q21 of 25-Q). AIR-* music in core. Continuous retirement audit on every /ship cycle (Q20 of 25-Q — ongoing, not deferred).
 - Quarterly skill curation
 - FUSE-on-Android for phone GFS mount (deferred from PHONE-NEBULA-PEER per Q23 R1 risk note)
 

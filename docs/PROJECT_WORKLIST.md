@@ -2190,16 +2190,17 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 ---
 
-### GF-16.1..GF-16.10: v5.1 — Gluster control surface + notification policy (audit 2026-05-25)
+### GF-16.1..GF-16.10: ❌ RETIRED 2026-05-30 — Gluster control surface superseded by LizardFS (MESHFS-*)
 
-> Audit findings from the 2026-05-25 review of the v5.0.0 GlusterFS
-> surface. Today's shipped pipeline is observation-only —
-> `gluster_worker` + `dev.mackes.MDE.Gluster.Status` expose 8 read
-> methods + 5 signal declarations, but the operator has no
-> discretionary control over sync (pause / throttle / pin /
-> force-heal), and `alert_relay` treats every event as a generic
-> FDO toast regardless of class. Target release v5.1. None of these
-> block the v5.0.0 cut — they're follow-ups to the GF-1..GF-15 epic.
+> **RETIRED 2026-05-30.** These tasks were audit findings against the
+> GlusterFS pipeline. Gluster was replaced entirely by LizardFS on
+> 2026-05-29 (MESHFS-1..18 epic). All Gluster-specific D-Bus APIs,
+> `gluster_worker`, and `dev.mackes.MDE.Gluster.Status` are superseded
+> by the LizardFS `meshfs_*` worker + Bus topics (MESHFS-*). The
+> underlying capabilities (sync throttling, file pinning, battery gating,
+> echo suppression) should be addressed in the MESHFS-* epic if needed.
+> GF-16.4/2/3/5/7/8 were already retired-in-place 2026-05-27 (superseded
+> by BUS). GF-16.1/6/9/10 are retired here — Gluster API is gone.
 
 #### Gluster-centric controls
 
@@ -2469,7 +2470,7 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [ ] 5 pytest tests cover: lighthouse role → off; host role → work; peer role → work; missing role → work (fail-safe); idempotent re-run leaves file alone.
     - [ ] Bench: fresh install with `role=host` → after birthright completes, `<qnm_root>/<self>/mackesd/focus-profile.json` shows `active_mode: work` + the 3 default modes; same install with `role=lighthouse` → shows `active_mode: off`.
 
-### DEAD-2.1..DEAD-2.15: v5.1/v5.2 — Mesh module retirement queue (audit 2026-05-25)
+### DEAD-2.1..DEAD-2.15: v5.0.0 — Mesh module retirement queue (audit 2026-05-25)
 
 > **Audit findings from the 2026-05-25 mesh-module overlap review.**
 > With Nebula (v2.5) owning transport+auth, Gluster (v5.0) owning XDG
@@ -2492,10 +2493,10 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 > `make lint` (ruff F401/F541/F811/F841), `make rpm` when packaging
 > changes, voice-and-tone lint when any user-visible string changed.
 >
-> **Target releases:** v5.1 for DEAD-2.1..2.11 + 2.13..2.15 (no HW
-> gating). DEAD-2.12 is v5.2 (HW-gated on v5.0 gluster bench
-> validation — deleting `mesh_fs.py` before gluster mesh-home is
-> proven on real fleets would leave operators with no file sync).
+> **Target release: v5.0.0 (all tasks — operator directive 2026-05-30:
+> "Nothing is post 5.0").** DEAD-2.12's prior HW-gate ("v5.0 gluster
+> bench") is updated: gate is now MESHFS-12 (LizardFS HW bench green
+> on ≥2 peers), since Gluster was replaced by LizardFS 2026-05-29.
 
 #### Wave 1 — Hard delete (0 external references)
 
@@ -2660,7 +2661,7 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 
 #### Wave 8 — The big one: `mesh_fs.py` + `mesh_gvfs/` + `fs_sync.rs` worker retirement [v5.2 HW-gated]
 
-- [ ] **DEAD-2.12: v5.2 — Delete `mackes/mesh_fs.py` + `mackes/mesh_gvfs/` directory + retire `crates/mackesd/src/workers/fs_sync.rs` worker [HW carve-out]** *(depends on DEAD-2.7 (mesh_fs_fuse), DEAD-2.10 (mesh_sync), DEAD-2.11 (mesh_browser) — and on v5.0 gluster mesh-home being **operator-validated on real hardware bench** per `feedback_no_cut_until_worklist_empty.md`)*
+- [ ] **DEAD-2.12: v5.0.0 — Delete `mackes/mesh_fs.py` + `mackes/mesh_gvfs/` directory + retire `crates/mackesd/src/workers/fs_sync.rs` worker [HW carve-out]** *(depends on DEAD-2.7 (mesh_fs_fuse), DEAD-2.10 (mesh_sync), DEAD-2.11 (mesh_browser) — and on MESHFS-12 (LizardFS ≥2-peer HW bench green) replacing the former gluster bench gate)*
   **As** the v5.2 cleanup pass,
   **I want** to delete the SSHFS-over-QNM peer-dir mount supervisor stack,
   **so that** the codebase has one file-replication path — Gluster mesh-home replicates every XDG file to every peer; the "SSHFS-mount each peer's QNM-Shared bucket under `~/.local/share/mackes-mesh-fuse/`" model is fully obviated.
