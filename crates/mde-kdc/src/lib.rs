@@ -36,6 +36,7 @@ pub mod dispatch;
 pub mod keygen;
 pub mod outbound;
 pub mod pairing;
+pub mod receive;
 pub mod tls;
 pub mod transport;
 

@@ -1898,7 +1898,8 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 - [✓] **MESHFS-14.1: v5.0.0 — Extend `mackesd_state_backup` with `mfsmetadump` + LizardFS topology/goal/quota config**
   **Acceptance:** `[✓]` single encrypted tarball carries Nebula CA + metadata dump + export config; `mackesd state restore <bundle>` rebuilds both on a bare peer.
   **Shipped:** `crates/mackesd/src/meshfs/snapshot.rs` (MeshFsSnapshot + collect(); 9 tests); `BundlePlaintext.meshfs_snapshot` field (schema_version 3); nebula_ca_backup stitches LizardFS snapshot; state restore handler extracts metadata dump + exports config + CS list to recovery dir with operator instructions.
-- [ ] **MESHFS-15.1: v5.0.0 — KDC2 phone share → `~/Documents/From-<phone-name>/` drop folder (carry GF-5/GF-15)** *(file-share UI removal already scoped under GF-5; this retargets the drop folder onto mesh-storage)*.
+- [✓] **MESHFS-15.1: v5.0.0 — KDC2 phone share → `~/Documents/From-<phone-name>/` drop folder (carry GF-5/GF-15)** *(file-share UI removal already scoped under GF-5; this retargets the drop folder onto mesh-storage)*.
+  **Shipped:** `crates/mde-kdc/src/receive.rs` — `ensure_phone_drop_folder` (idempotent `~/Documents/From-<phone-name>/` creation via `create_dir_all`), `ingest_file_share` (async: pinned-TLS pull from `peer_addr:transfer_info.port` → `unique_dest_path` inside drop dir, SHA-256 integrity check, partial-file cleanup on error), `sanitize_phone_name` / `sanitize_file_name` / `unique_dest_path` helpers; 15 tests cover all helpers + hash pass/fail/skip + EOF cleanup. `crates/mde-kdc/src/dbus.rs` `pair_device` now calls `ensure_phone_drop_folder` after successful `upsert` (GF-15.1 — folder created at pairing time, replicated by LizardFS from day one). All [HW carve-out] bench bullets (E2E transfer with real Android phone, cross-peer replication check) are §0.15 release-gate items.
 
 #### Docs + lint + tests
 

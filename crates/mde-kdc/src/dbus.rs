@@ -220,6 +220,9 @@ impl ConnectInterface {
         capabilities: Vec<String>,
         paired_at: i64,
     ) -> zbus::fdo::Result<()> {
+        // Save the name for the drop-folder side-effect below (the
+        // struct move consumes it).
+        let device_name = name.clone();
         let device = PairedDevice {
             id: device_id,
             name,
@@ -232,7 +235,13 @@ impl ConnectInterface {
         };
         self.pairing_store
             .upsert(device)
-            .map_err(|e| zbus::fdo::Error::Failed(format!("PersistFailed: {e}")))
+            .map_err(|e| zbus::fdo::Error::Failed(format!("PersistFailed: {e}")))?;
+        // GF-15.1 / MESHFS-15.1: create the phone's mesh-storage drop folder
+        // at pairing time so LizardFS replicates it immediately. Best-effort
+        // — pairing itself succeeded; the folder is also created on first
+        // receive via `receive::ingest_file_share`.
+        let _ = crate::receive::ensure_phone_drop_folder(&device_name);
+        Ok(())
     }
 
     // ─────────────────────────────────────────────────────
