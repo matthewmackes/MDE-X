@@ -10,6 +10,9 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Instant;
+
+use mde_theme::motion::list::{STAGGER_CAP, STAGGER_REVEAL_MS, STAGGER_STEP_MS};
 
 use iced::widget::{
     button, column, container, mouse_area, row, scrollable, svg, text, text_input, Space,
@@ -48,6 +51,24 @@ use mde_applet_start_menu::{parse_desktop_file, search as search_apps, AppEntry}
 /// 40 px panel on every output we ship for (>= 768 px tall).
 const WIDTH: u32 = 480;
 const HEIGHT: u32 = 560;
+
+/// ANIM-6.a — total entrance window: last-staggered-row delay + reveal.
+/// Matches the ANIM-3.b.2 notifications pattern: cap at STAGGER_CAP rows,
+/// 20 ms per-step, 120 ms reveal window → 260 ms total.
+const MAX_ENTRANCE_MS: u64 =
+    (STAGGER_CAP as u64 - 1) * STAGGER_STEP_MS as u64 + STAGGER_REVEAL_MS as u64;
+
+/// ANIM-6.a — stagger alpha for an app-list row at the given elapsed ms.
+/// Row indices beyond `STAGGER_CAP` are clamped so long lists don't crawl
+/// (Q15 long-list policy). Uses sqrt easing (ease-out) so the reveal feels
+/// snappy at the start and settles naturally.
+fn stagger_alpha(row_index: usize, opened_ms: u64) -> f32 {
+    let delay =
+        row_index.min(STAGGER_CAP.saturating_sub(1)) as u64 * STAGGER_STEP_MS as u64;
+    let elapsed = opened_ms.saturating_sub(delay);
+    let t = (elapsed as f32 / STAGGER_REVEAL_MS as f32).clamp(0.0, 1.0);
+    t.sqrt()
+}
 
 /// Accent — same Material blue 60 / PatternFly blue-400 the panel
 /// uses, kept in sync by visual inspection (a shared theme crate
@@ -88,6 +109,9 @@ pub enum Message {
     /// (was the watermark popover's click handler before the v4.0.1
     /// watermark-into-start-menu move).
     DnfUpgradeClicked,
+    /// ANIM-6.a — drives entrance stagger frames at 16 ms intervals
+    /// during the first MAX_ENTRANCE_MS ms after launch.
+    AnimTick,
 }
 
 pub struct App {
@@ -99,6 +123,9 @@ pub struct App {
     /// during the popover's lifetime reflects on the next render
     /// (cheap — a 3-byte file read).
     system: WatermarkState,
+    /// ANIM-6.a — when the launcher was spawned; drives the entrance
+    /// stagger. Read-only after initialization.
+    opened_at: Instant,
 }
 
 impl iced_layershell::Application for App {
@@ -126,6 +153,7 @@ impl iced_layershell::Application for App {
                 all,
                 query: String::new(),
                 system,
+                opened_at: Instant::now(),
             },
             text_input::focus("start-menu-search"),
         )
@@ -153,11 +181,20 @@ impl iced_layershell::Application for App {
                 spawn_pkexec_dnf_upgrade();
                 Task::none()
             }
+            Message::AnimTick => Task::none(),
             _ => Task::none(),
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
+        // ANIM-6.a — elapsed ms since launch; drives per-row stagger.
+        // After MAX_ENTRANCE_MS all rows are at alpha 1.0 and the tick
+        // subscription has already stopped, so this read is free then.
+        let opened_ms = self.opened_at.elapsed().as_millis() as u64;
+        // row_idx is incremented for each visible app entry so long lists
+        // stagger only the first STAGGER_CAP rows (Q15 long-list policy).
+        let mut row_idx: usize = 0;
+
         // Header — search box.
         let search = text_input("Search apps…", &self.query)
             .id("start-menu-search")
@@ -188,15 +225,21 @@ impl iced_layershell::Application for App {
 
         let mut list = column![].spacing(2);
         for entry in entries.iter().take(200) {
+            // ANIM-6.a — stagger: each app entry fades in after a
+            // per-row delay capped at STAGGER_CAP rows (Q15 policy).
+            let alpha = stagger_alpha(row_idx, opened_ms);
+            row_idx += 1;
             let label = column![
-                text(entry.name.clone()).size(14).color(FG_TEXT),
+                text(entry.name.clone())
+                    .size(14)
+                    .color(Color { a: FG_TEXT.a * alpha, ..FG_TEXT }),
                 text(if entry.comment.is_empty() {
                     String::new()
                 } else {
                     entry.comment.clone()
                 })
                 .size(11)
-                .color(FG_MUTED),
+                .color(Color { a: FG_MUTED.a * alpha, ..FG_MUTED }),
             ]
             .spacing(2);
             let exec = entry.exec.clone();
@@ -208,7 +251,33 @@ impl iced_layershell::Application for App {
                     bottom: 6.0,
                     left: 10.0,
                 })
-                .style(row_button_style)
+                .style(move |_theme: &Theme, status: button::Status| {
+                    let bg = match status {
+                        button::Status::Hovered => Some(Background::Color(Color {
+                            r: ACCENT.r,
+                            g: ACCENT.g,
+                            b: ACCENT.b,
+                            a: 0.14 * alpha,
+                        })),
+                        button::Status::Pressed => Some(Background::Color(Color {
+                            r: ACCENT.r,
+                            g: ACCENT.g,
+                            b: ACCENT.b,
+                            a: 0.22 * alpha,
+                        })),
+                        _ => None,
+                    };
+                    button::Style {
+                        background: bg,
+                        text_color: Color { a: FG_TEXT.a * alpha, ..FG_TEXT },
+                        border: Border {
+                            color: Color::TRANSPARENT,
+                            width: 0.0,
+                            radius: 4.0.into(),
+                        },
+                        shadow: Shadow::default(),
+                    }
+                })
                 .on_press(Message::Launch(exec));
             list = list.push(row_btn);
         }
@@ -401,14 +470,27 @@ impl iced_layershell::Application for App {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        iced::keyboard::on_key_press(|key, _| {
+        let keyboard = iced::keyboard::on_key_press(|key, _| {
             use iced::keyboard::{key::Named, Key};
             if matches!(key, Key::Named(Named::Escape)) {
                 Some(Message::Exit)
             } else {
                 None
             }
-        })
+        });
+        // ANIM-6.a — drive entrance stagger frames during the first
+        // MAX_ENTRANCE_MS ms. Self-disabling: once the window closes the
+        // tick is dropped, avoiding pointless repaints at rest.
+        let opened_ms = self.opened_at.elapsed().as_millis() as u64;
+        if opened_ms <= MAX_ENTRANCE_MS {
+            iced::Subscription::batch([
+                keyboard,
+                iced::time::every(std::time::Duration::from_millis(16))
+                    .map(|_| Message::AnimTick),
+            ])
+        } else {
+            keyboard
+        }
     }
 }
 
@@ -641,5 +723,53 @@ mod tests {
     fn dimensions_pinned_for_visual_consistency() {
         assert_eq!(WIDTH, 480);
         assert_eq!(HEIGHT, 560);
+    }
+
+    // ── ANIM-6.a: stagger_alpha unit tests ────────────────────────────────────
+
+    #[test]
+    fn stagger_alpha_at_zero_ms_is_transparent() {
+        // Row 0 has no delay but reveal hasn't started yet.
+        assert!((stagger_alpha(0, 0) - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn stagger_alpha_row0_fully_opaque_after_reveal_window() {
+        // Row 0 delay = 0 ms; after STAGGER_REVEAL_MS elapsed → alpha = 1.
+        assert!((stagger_alpha(0, STAGGER_REVEAL_MS as u64) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn stagger_alpha_row1_still_transparent_at_row0_reveal() {
+        // Row 1's delay = STAGGER_STEP_MS; at exactly that point elapsed=0 → alpha=0.
+        let ms = STAGGER_STEP_MS as u64;
+        assert!((stagger_alpha(1, ms) - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn stagger_alpha_caps_beyond_stagger_cap() {
+        // Row STAGGER_CAP and row STAGGER_CAP+5 have the same delay.
+        let ms = MAX_ENTRANCE_MS;
+        let at_cap = stagger_alpha(STAGGER_CAP, ms);
+        let beyond = stagger_alpha(STAGGER_CAP + 5, ms);
+        assert!((at_cap - beyond).abs() < 1e-5);
+    }
+
+    #[test]
+    fn max_entrance_ms_matches_token_arithmetic() {
+        let expected =
+            (STAGGER_CAP as u64 - 1) * STAGGER_STEP_MS as u64 + STAGGER_REVEAL_MS as u64;
+        assert_eq!(MAX_ENTRANCE_MS, expected);
+    }
+
+    #[test]
+    fn stagger_alpha_all_rows_opaque_at_max_entrance() {
+        for idx in 0..STAGGER_CAP + 2 {
+            let a = stagger_alpha(idx, MAX_ENTRANCE_MS);
+            assert!(
+                (a - 1.0).abs() < 1e-5,
+                "row {idx} alpha={a} not 1.0 at MAX_ENTRANCE_MS"
+            );
+        }
     }
 }
