@@ -43,6 +43,7 @@ mod toasts;
 mod urgent;
 mod watermark;
 mod weather;
+mod which_key;
 mod window_actions;
 
 use clap::Parser;
@@ -136,6 +137,11 @@ enum Kind {
     /// Esc / Enter / click dismisses. Spawned by the mde-portal Dock
     /// when a `priority=urgent` Bus segment arrives.
     Urgent,
+    /// ANIM-6.c — which-key binding overlay (Q55). Centered card
+    /// listing all `bindsym` entries for the active sway mode. Mode
+    /// name read from MDE_SWAY_MODE env var. Spawned by mde-portal
+    /// Dock on ModeChanged entry; Esc or click-outside dismisses.
+    WhichKey,
 }
 
 fn main() -> iced_layershell::Result {
@@ -170,5 +176,6 @@ fn main() -> iced_layershell::Result {
         Kind::Status => status::run(),
         Kind::Lock => lock::run(),
         Kind::Urgent => urgent::run(),
+        Kind::WhichKey => which_key::run(),
     }
 }

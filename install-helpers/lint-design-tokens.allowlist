@@ -74,6 +74,8 @@ crates/mde-popover/src/toasts.rs:393
 # ANIM-5.c/5.d additions shifted all line numbers (+8 constants,
 # +4 struct field, +1 Default, +5 handler, +5 sweep, +32 fns,
 # +9 fn, +1 lookup, +2 cell_bg, +9 summon, +58 tests).
+# Re-anchored 2026-05-30 (ANIM-6.c): +16 lines from ModeChanged
+# which-key spawn added after line ~821; entries >839 shifted +16.
 crates/mde-portal/src/app.rs:101
 crates/mde-portal/src/app.rs:109
 crates/mde-portal/src/app.rs:117
@@ -83,25 +85,25 @@ crates/mde-portal/src/app.rs:141
 crates/mde-portal/src/app.rs:149
 crates/mde-portal/src/app.rs:157
 crates/mde-portal/src/app.rs:539
-crates/mde-portal/src/app.rs:2156
-crates/mde-portal/src/app.rs:2344
-crates/mde-portal/src/app.rs:2669
-crates/mde-portal/src/app.rs:2671
-crates/mde-portal/src/app.rs:2673
-crates/mde-portal/src/app.rs:2675
-crates/mde-portal/src/app.rs:2677
-crates/mde-portal/src/app.rs:2985
-crates/mde-portal/src/app.rs:2987
-crates/mde-portal/src/app.rs:2989
-crates/mde-portal/src/app.rs:3004
-crates/mde-portal/src/app.rs:3138
-crates/mde-portal/src/app.rs:3146
-crates/mde-portal/src/app.rs:3151
-crates/mde-portal/src/app.rs:3155
-crates/mde-portal/src/app.rs:4095
-crates/mde-portal/src/app.rs:5026
-crates/mde-portal/src/app.rs:5034
-crates/mde-portal/src/app.rs:5044
+crates/mde-portal/src/app.rs:2172
+crates/mde-portal/src/app.rs:2360
+crates/mde-portal/src/app.rs:2685
+crates/mde-portal/src/app.rs:2687
+crates/mde-portal/src/app.rs:2689
+crates/mde-portal/src/app.rs:2691
+crates/mde-portal/src/app.rs:2693
+crates/mde-portal/src/app.rs:3001
+crates/mde-portal/src/app.rs:3003
+crates/mde-portal/src/app.rs:3005
+crates/mde-portal/src/app.rs:3020
+crates/mde-portal/src/app.rs:3154
+crates/mde-portal/src/app.rs:3162
+crates/mde-portal/src/app.rs:3167
+crates/mde-portal/src/app.rs:3171
+crates/mde-portal/src/app.rs:4111
+crates/mde-portal/src/app.rs:5042
+crates/mde-portal/src/app.rs:5050
+crates/mde-portal/src/app.rs:5060
 crates/mde-wizard/src/pages/preset.rs:12
 crates/mde-wizard/src/pages/preset.rs:18
 crates/mde-wizard/src/pages/preset.rs:24

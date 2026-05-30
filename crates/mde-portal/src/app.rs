@@ -839,6 +839,22 @@ impl iced_layershell::Application for DockApp {
                 self.current_mode_tag_color = next
                     .as_deref()
                     .and_then(tag_color_for_mode);
+                // ANIM-6.c (Q55): spawn the which-key binding overlay
+                // when entering a named mode so the operator can see
+                // available bindings immediately. Exits on Esc/click.
+                if let Some(ref mode_name) = next {
+                    let mode_for_spawn = mode_name.clone();
+                    self.current_sway_mode = next;
+                    return Task::perform(
+                        async move {
+                            let _ = tokio::process::Command::new("mde-popover")
+                                .arg("which-key")
+                                .env("MDE_SWAY_MODE", &mode_for_spawn)
+                                .spawn();
+                        },
+                        |_| Message::Noop,
+                    );
+                }
                 self.current_sway_mode = next;
             }
             Message::BindingExecuted(command) => {
