@@ -860,6 +860,34 @@ pub fn apply_trust(cards: &mut [CoalescedHost], store: &TrustStore) {
     }
 }
 
+/// The distinct IPs to firewall-DROP — every IP a `Blocked` host was
+/// seen at (the mesh-coordinated DROP, R8-Q44). Roaming-aware: all of a
+/// blocked card's `ips_seen` are dropped. Pure over the coalesced +
+/// trust-applied cards (MESH-A-5).
+#[must_use]
+pub fn blocked_ips(cards: &[CoalescedHost]) -> Vec<String> {
+    let mut ips: Vec<String> = Vec::new();
+    for card in cards {
+        if card.host.trust == TrustState::Blocked {
+            for ip in &card.ips_seen {
+                if !ips.contains(ip) {
+                    ips.push(ip.clone());
+                }
+            }
+        }
+    }
+    ips
+}
+
+/// firewalld rich-rule body dropping all traffic from a source IP (the
+/// mesh-coordinated DROP, R8-Q44). The family is `ipv6` for a
+/// colon-bearing address, else `ipv4`.
+#[must_use]
+pub fn drop_rich_rule_body(ip: &str) -> String {
+    let family = if ip.contains(':') { "ipv6" } else { "ipv4" };
+    format!(r#"rule family="{family}" source address="{ip}" drop"#)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1289,5 +1317,36 @@ mod tests {
         assert_eq!(TrustState::Trusted.wire_name(), "trusted");
         assert_eq!(TrustState::Unknown.wire_name(), "unknown");
         assert_eq!(TrustState::Blocked.wire_name(), "blocked");
+    }
+
+    // ── MESH-A-5.1: blocked-host DROP planner ──
+
+    #[test]
+    fn blocked_ips_collects_roaming_ips_of_blocked_cards_only() {
+        let mut blocked = CoalescedHost {
+            key: "aa:bb".into(),
+            host: seen_host("10.0.0.5", "aa:bb", 2, HostType::Unknown),
+            sightings: 2,
+            ips_seen: vec!["10.0.0.5".into(), "10.0.0.9".into()],
+        };
+        blocked.host.trust = TrustState::Blocked;
+        // trust defaults Unknown → excluded.
+        let other = CoalescedHost {
+            key: "cc:dd".into(),
+            host: seen_host("10.0.0.7", "cc:dd", 1, HostType::Printer),
+            sightings: 1,
+            ips_seen: vec!["10.0.0.7".into()],
+        };
+        let ips = blocked_ips(&[blocked, other]);
+        assert_eq!(ips, vec!["10.0.0.5", "10.0.0.9"], "both roaming IPs, non-blocked excluded");
+    }
+
+    #[test]
+    fn drop_rich_rule_body_picks_family() {
+        assert_eq!(
+            drop_rich_rule_body("10.0.0.5"),
+            r#"rule family="ipv4" source address="10.0.0.5" drop"#
+        );
+        assert!(drop_rich_rule_body("fe80::1").contains(r#"family="ipv6""#));
     }
 }

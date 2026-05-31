@@ -108,6 +108,12 @@ enum Cmd {
         state: String,
     },
 
+    /// MESH-A-5.1 (v5.0.0) — print the mesh-coordinated firewall DROP
+    /// plan: a firewalld source-DROP rich-rule for every IP a Blocked
+    /// host (operator trust = blocked) was seen at, roaming-aware. The
+    /// A-5.2 worker applies these via firewall-cmd; this prints them.
+    MeshFirewallPlan,
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -1098,6 +1104,17 @@ fn main() -> anyhow::Result<()> {
                 Err(e) => {
                     eprintln!("error: {e}");
                     std::process::exit(1);
+                }
+            }
+        }
+        Cmd::MeshFirewallPlan => {
+            use mackesd_core::surrounding_hosts::{
+                blocked_ips, drop_rich_rule_body, read_all_surrounding,
+            };
+            if let Some(data_dir) = dirs::data_dir() {
+                let base = data_dir.join("mde").join("surrounding");
+                for ip in blocked_ips(&read_all_surrounding(&base)) {
+                    println!("{}", drop_rich_rule_body(&ip));
                 }
             }
         }
