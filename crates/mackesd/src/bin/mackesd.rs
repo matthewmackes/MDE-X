@@ -1015,7 +1015,8 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::DiscoverMdns => {
             use mackesd_core::surrounding_hosts::{
-                classify, collect_mdns, hosts_from_mdns, reverse_dns, HostSignals,
+                arp_neigh_map, classify, collect_mdns, enrich_hosts, hosts_from_mdns,
+                load_system_oui, reverse_dns, HostSignals,
             };
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1037,6 +1038,11 @@ fn main() -> anyhow::Result<()> {
                         host.host_type = classify(&sig);
                     }
                 }
+            }
+            // MESH-A-4.c.1 — ARP-MAC + OUI-vendor enrichment over the
+            // local neighbour table, re-typing mDNS-less hosts.
+            let hosts = enrich_hosts(hosts, &arp_neigh_map(), &load_system_oui());
+            for host in &hosts {
                 println!("{}", serde_json::to_string(host)?);
             }
         }

@@ -529,6 +529,80 @@ pub fn load_system_oui() -> OuiTable {
         .unwrap_or_default()
 }
 
+/// Parse `ip neigh` output into an ip→mac map (lowercased MAC). The
+/// surrounding-host enricher only needs the address→MAC mapping, so
+/// this is a lighter, map-shaped parse than netassess's
+/// `parse_ip_neigh` (which returns `Vec<ArpEntry>` behind the
+/// async-services feature; this module stays feature-free, so it keeps
+/// its own small parser rather than depending on a gated worker).
+#[must_use]
+pub fn parse_neigh_map(stdout: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for line in stdout.lines() {
+        let toks: Vec<&str> = line.split_whitespace().collect();
+        let Some(ip) = toks.first() else {
+            continue;
+        };
+        if let Some(pos) = toks.iter().position(|t| *t == "lladdr") {
+            if let Some(mac) = toks.get(pos + 1) {
+                if !ip.is_empty() && !mac.is_empty() {
+                    map.insert((*ip).to_string(), mac.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Read the ARP/neighbour table as an ip→mac map via `ip neigh`. Empty
+/// when `ip` is absent or errors. HW-bench-gated shell-out; the pure
+/// half is [`parse_neigh_map`].
+#[must_use]
+pub fn arp_neigh_map() -> HashMap<String, String> {
+    let Ok(out) = Command::new("ip").args(["neigh"]).output() else {
+        return HashMap::new();
+    };
+    if !out.status.success() {
+        return HashMap::new();
+    }
+    parse_neigh_map(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Enrich discovered hosts with their MAC (from a pre-built ip→mac map
+/// — e.g. [`arp_neigh_map`]) + the OUI vendor, then re-classify with
+/// the now-fuller signal set. Pure + testable; the `discover-mdns` CLI
+/// + the A-4.c worker supply the map + table. `classify`'s cascade
+/// keeps a confident mDNS/hostname type ahead of the vendor, so
+/// enrichment only ever *adds* type information (a mDNS-less Cisco box
+/// becomes a Router from its OUI).
+#[must_use]
+pub fn enrich_hosts(
+    mut hosts: Vec<SurroundingHost>,
+    mac_by_ip: &HashMap<String, String>,
+    oui: &OuiTable,
+) -> Vec<SurroundingHost> {
+    for host in &mut hosts {
+        if host.mac.is_empty() {
+            if let Some(mac) = mac_by_ip.get(&host.ip) {
+                host.mac = mac.clone();
+            }
+        }
+        if host.vendor.is_empty() && !host.mac.is_empty() {
+            if let Some(v) = oui.vendor_for(&host.mac) {
+                host.vendor = v;
+            }
+        }
+        let sig = HostSignals {
+            mdns_services: host.services.clone(),
+            hostname: host.hostname.clone(),
+            oui_vendor: host.vendor.clone(),
+            ..Default::default()
+        };
+        host.host_type = classify(&sig);
+    }
+    hosts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -765,5 +839,68 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(classify(&sig), HostType::Printer);
+    }
+
+    // ── MESH-A-4.c.1: ARP-MAC + OUI enrichment sweep ──
+
+    fn bare_host(ip: &str, services: &[&str], host_type: HostType) -> SurroundingHost {
+        SurroundingHost {
+            ip: ip.into(),
+            mac: String::new(),
+            vendor: String::new(),
+            hostname: String::new(),
+            services: services.iter().map(|s| (*s).to_string()).collect(),
+            host_type,
+            trust: TrustState::Unknown,
+            first_seen_ms: 0,
+            last_seen_ms: 0,
+        }
+    }
+
+    #[test]
+    fn parse_neigh_map_extracts_ip_to_mac() {
+        let raw = "192.168.1.1 dev eth0 lladdr 00:00:0c:aa:bb:cc REACHABLE\n\
+                   192.168.1.2 dev eth0 FAILED\n\
+                   192.168.1.3 dev eth0 lladdr AA:BB:CC:DD:EE:FF STALE\n";
+        let m = parse_neigh_map(raw);
+        assert_eq!(m.len(), 2, "the lladdr-less FAILED entry is skipped");
+        assert_eq!(m.get("192.168.1.1").map(String::as_str), Some("00:00:0c:aa:bb:cc"));
+        assert_eq!(m.get("192.168.1.3").map(String::as_str), Some("aa:bb:cc:dd:ee:ff")); // lowercased
+    }
+
+    #[test]
+    fn enrich_fills_mac_vendor_and_types_a_mdns_less_host() {
+        let mut macs = HashMap::new();
+        macs.insert("192.168.1.1".to_string(), "00:00:0c:aa:bb:cc".to_string());
+        let oui = parse_oui_db("00000C Cisco Systems\n");
+        let out = enrich_hosts(vec![bare_host("192.168.1.1", &[], HostType::Unknown)], &macs, &oui);
+        assert_eq!(out[0].mac, "00:00:0c:aa:bb:cc");
+        assert_eq!(out[0].vendor, "Cisco Systems");
+        assert_eq!(out[0].host_type, HostType::Router); // vendor typed it
+    }
+
+    #[test]
+    fn enrich_keeps_a_confident_mdns_type() {
+        let mut macs = HashMap::new();
+        macs.insert("192.168.1.50".to_string(), "00:11:22:33:44:55".to_string());
+        let oui = parse_oui_db("001122 Ubiquiti Inc\n");
+        let out = enrich_hosts(
+            vec![bare_host("192.168.1.50", &["_ipp._tcp"], HostType::Printer)],
+            &macs,
+            &oui,
+        );
+        assert_eq!(out[0].vendor, "Ubiquiti Inc"); // vendor recorded …
+        assert_eq!(out[0].host_type, HostType::Printer); // … but mDNS still wins
+    }
+
+    #[test]
+    fn enrich_without_a_mac_leaves_type_unchanged() {
+        let out = enrich_hosts(
+            vec![bare_host("10.0.0.9", &["_googlecast._tcp"], HostType::TvCast)],
+            &HashMap::new(),
+            &OuiTable::default(),
+        );
+        assert_eq!(out[0].host_type, HostType::TvCast);
+        assert!(out[0].mac.is_empty());
     }
 }
