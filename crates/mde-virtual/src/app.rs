@@ -858,6 +858,59 @@ fn save_template(t: &Template) -> Option<std::path::PathBuf> {
     Some(path)
 }
 
+// ── Live sampling (VIRT-17.b) ───────────────────────────────────────────
+
+/// Sum a `virsh domstats <vm> --vcpu` payload's `vcpu.N.time=` ns. Pure.
+pub(crate) fn parse_domstats_vcpu_ns(stdout: &str) -> u64 {
+    let mut total = 0u64;
+    for line in stdout.lines() {
+        let t = line.trim();
+        if let Some(eq) = t.find('=') {
+            let key = &t[..eq];
+            if key.starts_with("vcpu.") && key.ends_with(".time") {
+                if let Ok(v) = t[eq + 1..].trim().parse::<u64>() {
+                    total += v;
+                }
+            }
+        }
+    }
+    total
+}
+
+/// Parse a `virsh dommemstat <vm>` payload's `rss` KiB → MB. Pure.
+pub(crate) fn parse_dommemstat_rss_mb(stdout: &str) -> u64 {
+    for line in stdout.lines() {
+        if let Some(rest) = line.trim().strip_prefix("rss ") {
+            if let Ok(kib) = rest.trim().parse::<u64>() {
+                return kib / 1024;
+            }
+        }
+    }
+    0
+}
+
+/// Sample a local VM directly via virsh: CPU% from the vcpu-time delta
+/// over `interval_s`, RSS MB from dommemstat. Returns
+/// `(cpu_pct, ram_mb, curr_vcpu_ns)` — the caller stores `curr_vcpu_ns`
+/// as the next sample's `prev_ns`.
+fn sample_vm(name: &str, prev_ns: Option<u64>, interval_s: f64) -> (f64, u64, u64) {
+    let curr_ns = parse_domstats_vcpu_ns(&run_cmd(
+        "virsh",
+        &["-c", "qemu:///system", "domstats", name, "--vcpu"],
+    ));
+    let cpu_pct = match prev_ns {
+        Some(p) if curr_ns >= p && interval_s > 0.0 => {
+            ((curr_ns - p) as f64 / (interval_s * 1e9)) * 100.0
+        }
+        _ => 0.0,
+    };
+    let ram_mb = parse_dommemstat_rss_mb(&run_cmd(
+        "virsh",
+        &["-c", "qemu:///system", "dommemstat", name],
+    ));
+    (cpu_pct, ram_mb, curr_ns)
+}
+
 // ── VM detail (VIRT-14.a) ────────────────────────────────────────────────
 
 /// A snapshot of one VM's data for the detail panel. Carries `is_local`
@@ -970,6 +1023,10 @@ pub(crate) enum Message {
     CancelSaveTemplate,
     /// Save the selected VM's config as a template.
     SubmitSaveTemplate,
+    /// 2 s sampler tick (active only while a local VM is selected).
+    SampleTick,
+    /// A live virsh sample finished: `(cpu_pct, ram_mb, curr_vcpu_ns)`.
+    SampleLoaded((f64, u64, u64)),
 }
 
 /// `mde-virtual` application state.
@@ -1000,6 +1057,8 @@ pub(crate) struct VirtualApp {
     /// Per-metric sparkline ring buffers for the selected local VM (17.a).
     cpu_history: VecDeque<f32>,
     ram_history: VecDeque<f32>,
+    /// Prev cumulative vcpu-time ns for the 2 s CPU%-delta sampler (17.b).
+    prev_cpu_ns: Option<u64>,
     local_host: String,
 }
 
@@ -1024,6 +1083,7 @@ impl VirtualApp {
             save_template_name: None,
             cpu_history: VecDeque::new(),
             ram_history: VecDeque::new(),
+            prev_cpu_ns: None,
             local_host: local_hostname(),
         }
     }
@@ -1068,19 +1128,20 @@ impl VirtualApp {
             Message::PollLoaded(r) => {
                 self.fleet = r.fleet;
                 self.local_direct = r.local_direct;
-                // Sample the selected local VM's live CPU/RAM into the
-                // sparkline buffers + refresh the panel's shown stats (17.a).
-                if let Some(name) = self
+                // Refresh a selected REMOTE VM's last-known stats from the
+                // fresh inventory (local VMs are driven live by the 2 s
+                // sampler below — no sparkline for remote per §13 M-table).
+                if let Some((peer, name)) = self
                     .selected
                     .as_ref()
-                    .filter(|d| d.is_local)
-                    .map(|d| d.name.clone())
+                    .filter(|d| !d.is_local)
+                    .map(|d| (d.peer.clone(), d.name.clone()))
                 {
                     let sample = self
                         .fleet
                         .inventories()
                         .iter()
-                        .find(|i| is_local(i, &self.local_host))
+                        .find(|i| i.peer == peer)
                         .and_then(|inv| inv.vms.iter().find(|v| v.name == name))
                         .map(|v| (v.cpu_pct, v.ram_mb));
                     if let Some((cpu, ram)) = sample {
@@ -1088,10 +1149,35 @@ impl VirtualApp {
                             d.cpu_pct = cpu;
                             d.ram_mb = ram;
                         }
-                        push_sample(&mut self.cpu_history, cpu as f32);
-                        push_sample(&mut self.ram_history, ram as f32);
                     }
                 }
+                Task::none()
+            }
+            Message::SampleTick => {
+                let Some(name) = self
+                    .selected
+                    .as_ref()
+                    .filter(|d| d.is_local)
+                    .map(|d| d.name.clone())
+                else {
+                    return Task::none();
+                };
+                let prev = self.prev_cpu_ns;
+                Task::perform(
+                    async move { sample_vm(&name, prev, 2.0) },
+                    Message::SampleLoaded,
+                )
+            }
+            Message::SampleLoaded((cpu, ram, ns)) => {
+                self.prev_cpu_ns = Some(ns);
+                if let Some(d) = self.selected.as_mut() {
+                    if d.is_local {
+                        d.cpu_pct = cpu;
+                        d.ram_mb = ram;
+                    }
+                }
+                push_sample(&mut self.cpu_history, cpu as f32);
+                push_sample(&mut self.ram_history, ram as f32);
                 Task::none()
             }
             Message::Action { kind, name, verb } => {
@@ -1111,6 +1197,7 @@ impl VirtualApp {
                 self.save_template_name = None;
                 self.cpu_history = VecDeque::new();
                 self.ram_history = VecDeque::new();
+                self.prev_cpu_ns = None;
                 let ip = detail.nebula_ip.clone();
                 let local_name = detail.is_local.then(|| detail.name.clone());
                 self.selected = Some(detail);
@@ -1381,7 +1468,17 @@ impl VirtualApp {
     }
 
     pub(crate) fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(Duration::from_secs(5)).map(|_| Message::Refresh)
+        let refresh = iced::time::every(Duration::from_secs(5)).map(|_| Message::Refresh);
+        // While a local VM's detail panel is open, sample it every 2 s (17.b);
+        // the sampler stops the moment the panel closes ("pause when hidden").
+        if self.selected.as_ref().is_some_and(|d| d.is_local) {
+            Subscription::batch([
+                refresh,
+                iced::time::every(Duration::from_secs(2)).map(|_| Message::SampleTick),
+            ])
+        } else {
+            refresh
+        }
     }
 
     pub(crate) fn theme(&self) -> iced::Theme {
@@ -2622,5 +2719,22 @@ mod tests {
                    Allocation:     1234\n\
                    Physical:       21474836480\n";
         assert_eq!(parse_blkinfo_capacity_gb(out), 20); // 20 GiB
+    }
+
+    #[test]
+    fn parse_domstats_vcpu_ns_sums_times() {
+        let out = "Domain: 'web'\n\
+                   vcpu.current=2\n\
+                   vcpu.0.state=1\n\
+                   vcpu.0.time=1000000000\n\
+                   vcpu.1.state=1\n\
+                   vcpu.1.time=500000000\n";
+        assert_eq!(parse_domstats_vcpu_ns(out), 1_500_000_000);
+    }
+
+    #[test]
+    fn parse_dommemstat_rss_to_mb() {
+        let out = "actual 2097152\nrss 524288\navailable 2097152\n";
+        assert_eq!(parse_dommemstat_rss_mb(out), 512); // 524288 KiB / 1024
     }
 }
