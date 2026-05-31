@@ -9,12 +9,12 @@
 //!
 //! Cite: visual-identity.md §1; ref: Apple System Settings.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use iced::widget::{button, checkbox, column, container, row, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length};
 use mde_theme::{Rgba, Tokens, TypeRole};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Directory scanned for installer / cloud-image ISOs (§13 M-table).
 const ISO_DIR: &str = "/var/lib/mde-vms/isos";
@@ -36,6 +36,8 @@ pub struct CreateRequest {
 #[derive(Debug, Clone)]
 pub enum WizardMsg {
     NameInput(String),
+    /// Pre-fill from the saved template at this index.
+    ApplyTemplate(usize),
     VcpusDelta(i64),
     RamDelta(i64),
     DiskDelta(i64),
@@ -75,6 +77,8 @@ pub struct WizardState {
     share_meshfs: bool,
     /// ISOs discovered under [`ISO_DIR`] at open time.
     isos: Vec<String>,
+    /// Saved templates for the step-1 picker (VIRT-15.c).
+    templates: Vec<Template>,
 }
 
 impl WizardState {
@@ -91,6 +95,7 @@ impl WizardState {
             custom_iso: String::new(),
             share_meshfs: true,
             isos: list_isos(),
+            templates: list_templates(),
         }
     }
 
@@ -102,6 +107,20 @@ impl WizardState {
                     .chars()
                     .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
                     .collect();
+                WizardAction::None
+            }
+            WizardMsg::ApplyTemplate(i) => {
+                if let Some(t) = self.templates.get(i).cloned() {
+                    self.name = t
+                        .name
+                        .chars()
+                        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+                        .collect();
+                    self.vcpus = t.vcpus.clamp(1, 16);
+                    self.ram_mb = t.ram_mb.clamp(512, 65536);
+                    self.disk_gb = t.disk_gb.clamp(10, 500);
+                    self.share_meshfs = t.share_meshfs;
+                }
                 WizardAction::None
             }
             WizardMsg::VcpusDelta(d) => {
@@ -251,6 +270,16 @@ impl WizardState {
         if !name_valid(&self.name) {
             col = col.push(muted(tokens, "Name must be non-empty (letters, digits, hyphens)."));
         }
+        if !self.templates.is_empty() {
+            col = col.push(label(tokens, "Start from a template"));
+            for (i, t) in self.templates.iter().enumerate() {
+                let lbl = format!(
+                    "{} — {} vCPU / {} MB / {} GB",
+                    t.name, t.vcpus, t.ram_mb, t.disk_gb
+                );
+                col = col.push(btn(tokens, &lbl, Some(WizardMsg::ApplyTemplate(i))));
+            }
+        }
         col.into()
     }
 
@@ -364,6 +393,45 @@ fn list_isos() -> Vec<String> {
         }
     }
     out.sort();
+    out
+}
+
+/// A saved VM config template (the VIRT-16 store; loaded for the step-1
+/// picker). Stored at `~/.local/share/mde/vm-templates/<ulid>.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Template {
+    pub name: String,
+    pub vcpus: u32,
+    pub ram_mb: u64,
+    pub disk_gb: u64,
+    #[serde(default)]
+    pub share_meshfs: bool,
+}
+
+/// The MeshFS-backed template store dir (`~/.local/share/mde/vm-templates`).
+fn templates_dir() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join("mde").join("vm-templates"))
+}
+
+/// Load all saved templates (sorted by name; empty when the dir is absent).
+fn list_templates() -> Vec<Template> {
+    let Some(dir) = templates_dir() else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.extension().and_then(|x| x.to_str()) == Some("json") {
+                if let Ok(body) = std::fs::read_to_string(&p) {
+                    if let Ok(t) = serde_json::from_str::<Template>(&body) {
+                        out.push(t);
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
 
@@ -577,5 +645,37 @@ mod tests {
         assert_eq!(w.effective_iso(), Some("/tmp/custom.iso".to_string()));
         w.custom_iso = "   ".into();
         assert_eq!(w.effective_iso(), Some("/var/lib/mde-vms/isos/a.iso".to_string()));
+    }
+
+    #[test]
+    fn template_round_trips_json() {
+        let t = Template {
+            name: "web".into(),
+            vcpus: 4,
+            ram_mb: 4096,
+            disk_gb: 40,
+            share_meshfs: true,
+        };
+        let json = serde_json::to_string(&t).unwrap();
+        let back: Template = serde_json::from_str(&json).unwrap();
+        assert_eq!(t, back);
+    }
+
+    #[test]
+    fn apply_template_prefills_and_clamps() {
+        let mut w = WizardState::new();
+        w.templates = vec![Template {
+            name: "big_box!".into(), // sanitized on apply
+            vcpus: 99,               // clamped to 16
+            ram_mb: 8192,
+            disk_gb: 5, // clamped up to 10
+            share_meshfs: false,
+        }];
+        w.update(WizardMsg::ApplyTemplate(0));
+        assert_eq!(w.name, "bigbox"); // '!' + '_' stripped
+        assert_eq!(w.vcpus, 16);
+        assert_eq!(w.ram_mb, 8192);
+        assert_eq!(w.disk_gb, 10);
+        assert!(!w.share_meshfs);
     }
 }
