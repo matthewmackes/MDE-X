@@ -740,6 +740,64 @@ pub(crate) fn migrate_targets(invs: &[Inventory], source_peer: &str) -> Vec<(Str
         .collect()
 }
 
+// ── Create progress (VIRT-15.b) ─────────────────────────────────────────
+
+/// Create-ack payload read from `compute/create-ack/<request_ulid>`
+/// (deserialize mirror of `compute_provision::CreateAck`).
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct CreateAck {
+    #[serde(default)]
+    pub vm_id: Option<String>,
+    #[serde(default)]
+    pub nebula_ip: Option<String>,
+    #[serde(default)]
+    pub meshfs_skipped: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// The status of an in-flight VM creation.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CreateStatus {
+    Pending,
+    Done {
+        vm_id: String,
+        nebula_ip: String,
+        meshfs_skipped: bool,
+    },
+    Failed {
+        error: String,
+    },
+}
+
+/// Map a parsed ack to a terminal status. Pure.
+pub(crate) fn status_from_ack(ack: CreateAck) -> CreateStatus {
+    match ack.error.filter(|e| !e.is_empty()) {
+        Some(error) => CreateStatus::Failed { error },
+        None => CreateStatus::Done {
+            vm_id: ack.vm_id.unwrap_or_default(),
+            nebula_ip: ack.nebula_ip.unwrap_or_default(),
+            meshfs_skipped: ack.meshfs_skipped,
+        },
+    }
+}
+
+/// A VM create awaiting (or resolved to) its ack.
+#[derive(Debug, Clone)]
+pub(crate) struct PendingCreate {
+    pub request_ulid: String,
+    pub status: CreateStatus,
+}
+
+/// Read the create-ack for a request, if the worker has replied yet.
+fn read_create_ack(request_ulid: &str) -> Option<CreateStatus> {
+    let root = bus_root()?;
+    let dir = root.join("compute").join("create-ack").join(request_ulid);
+    let body = latest_json_in(&dir)?;
+    let ack: CreateAck = serde_json::from_str(&body).ok()?;
+    Some(status_from_ack(ack))
+}
+
 // ── VM detail (VIRT-14.a) ────────────────────────────────────────────────
 
 /// A snapshot of one VM's data for the detail panel. Carries `is_local`
@@ -840,6 +898,10 @@ pub(crate) enum Message {
     OpenWizard,
     /// A message from the open creation wizard.
     Wizard(WizardMsg),
+    /// A pending create's ack poll resolved (`None` = still no ack).
+    CreateAckLoaded(Option<CreateStatus>),
+    /// Dismiss the create-status banner.
+    DismissCreate,
 }
 
 /// `mde-virtual` application state.
@@ -863,6 +925,8 @@ pub(crate) struct VirtualApp {
     migrate_open: bool,
     /// The open VM-creation wizard, if any (VIRT-15).
     wizard: Option<WizardState>,
+    /// An in-flight / just-resolved VM creation, for the status banner (15.b).
+    pending_create: Option<PendingCreate>,
     local_host: String,
 }
 
@@ -883,6 +947,7 @@ impl VirtualApp {
             expose_form: None,
             migrate_open: false,
             wizard: None,
+            pending_create: None,
             local_host: local_hostname(),
         }
     }
@@ -899,18 +964,30 @@ impl VirtualApp {
                 Task::none()
             }
             Message::Refresh => {
-                let poll_task = Task::perform(async { poll() }, Message::PollLoaded);
+                let mut tasks = vec![Task::perform(async { poll() }, Message::PollLoaded)];
                 // Keep the open detail panel's exposed-port list fresh.
-                match self.selected.as_ref().map(|d| d.nebula_ip.clone()) {
-                    Some(ip) if !ip.is_empty() => Task::batch([
-                        poll_task,
-                        Task::perform(
-                            async move { read_exposed_for_vm(&ip) },
-                            Message::ExposedLoaded,
-                        ),
-                    ]),
-                    _ => poll_task,
+                if let Some(ip) = self
+                    .selected
+                    .as_ref()
+                    .map(|d| d.nebula_ip.clone())
+                    .filter(|s| !s.is_empty())
+                {
+                    tasks.push(Task::perform(
+                        async move { read_exposed_for_vm(&ip) },
+                        Message::ExposedLoaded,
+                    ));
                 }
+                // Poll the in-flight create's ack until it resolves.
+                if let Some(pc) = &self.pending_create {
+                    if pc.status == CreateStatus::Pending {
+                        let ulid = pc.request_ulid.clone();
+                        tasks.push(Task::perform(
+                            async move { read_create_ack(&ulid) },
+                            Message::CreateAckLoaded,
+                        ));
+                    }
+                }
+                Task::batch(tasks)
             }
             Message::PollLoaded(r) => {
                 self.fleet = r.fleet;
@@ -972,6 +1049,10 @@ impl VirtualApp {
                         let Some(addr) = self.local_peer_addr() else {
                             return Task::none();
                         };
+                        self.pending_create = Some(PendingCreate {
+                            request_ulid: req.request_ulid.clone(),
+                            status: CreateStatus::Pending,
+                        });
                         let topic = format!("compute/create/{addr}");
                         let body = serde_json::to_string(&req).unwrap_or_default();
                         Task::perform(
@@ -984,6 +1065,16 @@ impl VirtualApp {
                         )
                     }
                 }
+            }
+            Message::CreateAckLoaded(opt) => {
+                if let (Some(status), Some(pc)) = (opt, self.pending_create.as_mut()) {
+                    pc.status = status;
+                }
+                Task::none()
+            }
+            Message::DismissCreate => {
+                self.pending_create = None;
+                Task::none()
             }
             Message::Console(name) => {
                 let (prog, args) = console_command(&name);
@@ -1266,14 +1357,74 @@ impl VirtualApp {
     }
 
     fn local_view(&self) -> Element<'_, Message> {
+        let space = self.tokens.space;
         let local_inv: Option<&Inventory> = match &self.fleet {
             FleetState::Available(invs) => invs.iter().find(|i| is_local(i, &self.local_host)),
             FleetState::Unavailable => self.local_direct.as_ref(),
         };
-        match local_inv {
+        let body = match local_inv {
             Some(inv) => self.peer_list(std::iter::once(inv), true),
             None => self.empty_state("No local compute discovered."),
+        };
+        match self.create_status_banner() {
+            Some(banner) => column![banner, body]
+                .spacing(f32::from(space.sm))
+                .height(Length::Fill)
+                .into(),
+            None => body,
         }
+    }
+
+    /// The VM-creation status banner (VIRT-15.b), shown while a create is
+    /// in flight or just resolved. `None` when no create is tracked.
+    fn create_status_banner(&self) -> Option<Element<'_, Message>> {
+        let pc = self.pending_create.as_ref()?;
+        let palette = self.tokens.palette;
+        let space = self.tokens.space;
+        let radius = f32::from(self.tokens.radii.md);
+        let (msg, fg) = match &pc.status {
+            CreateStatus::Pending => ("Creating VM…".to_string(), palette.text_muted),
+            CreateStatus::Done {
+                vm_id,
+                nebula_ip,
+                meshfs_skipped,
+            } => {
+                let ip = if nebula_ip.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({nebula_ip})")
+                };
+                let note = if *meshfs_skipped { " — MeshFS skipped" } else { "" };
+                (format!("Created {vm_id}{ip}{note}"), palette.accent)
+            }
+            CreateStatus::Failed { error } => (format!("Create failed: {error}"), palette.text),
+        };
+        Some(
+            container(
+                row![
+                    text(msg)
+                        .size(TypeRole::Body.size_in(self.tokens.font_size))
+                        .color(rgba(fg))
+                        .width(Length::Fill),
+                    self.simple_button("\u{00d7}", Message::DismissCreate),
+                ]
+                .align_y(iced::alignment::Vertical::Center)
+                .spacing(f32::from(space.sm)),
+            )
+            .width(Length::Fill)
+            .padding([space.sm, space.lg2])
+            .style(move |_t| container::Style {
+                snap: false,
+                background: Some(Background::Color(rgba(palette.surface))),
+                border: Border {
+                    color: rgba(palette.border),
+                    width: 1.0,
+                    radius: radius.into(),
+                },
+                ..container::Style::default()
+            })
+            .into(),
+        )
     }
 
     fn peer_list<'a, I>(&'a self, invs: I, show_actions: bool) -> Element<'a, Message>
@@ -2223,5 +2374,44 @@ mod tests {
         assert!(json.contains("\"target_peer\":\"10.42.0.6\""));
         assert!(json.contains("\"vm_id\":\"u1\""));
         assert!(json.contains("web.qcow2"));
+    }
+
+    #[test]
+    fn create_ack_success_maps_to_done() {
+        let ack: CreateAck =
+            serde_json::from_str(r#"{"vm_id":"web-abc12345","nebula_ip":"10.42.128.5"}"#).unwrap();
+        match status_from_ack(ack) {
+            CreateStatus::Done {
+                vm_id,
+                nebula_ip,
+                meshfs_skipped,
+            } => {
+                assert_eq!(vm_id, "web-abc12345");
+                assert_eq!(nebula_ip, "10.42.128.5");
+                assert!(!meshfs_skipped);
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn create_ack_error_maps_to_failed() {
+        let ack: CreateAck = serde_json::from_str(r#"{"error":"no disk space"}"#).unwrap();
+        assert_eq!(
+            status_from_ack(ack),
+            CreateStatus::Failed {
+                error: "no disk space".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn create_ack_meshfs_skipped_flag() {
+        let ack: CreateAck =
+            serde_json::from_str(r#"{"vm_id":"x","meshfs_skipped":true}"#).unwrap();
+        match status_from_ack(ack) {
+            CreateStatus::Done { meshfs_skipped, .. } => assert!(meshfs_skipped),
+            other => panic!("expected Done, got {other:?}"),
+        }
     }
 }
