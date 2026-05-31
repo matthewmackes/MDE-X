@@ -21,6 +21,8 @@ use iced::{Background, Border, Color, Element, Length, Subscription, Task};
 use mde_theme::{Density, Rgba, Theme, Tokens, TypeRole};
 use serde::{Deserialize, Serialize};
 
+use crate::wizard::{WizardAction, WizardMsg, WizardState};
+
 // ── Inventory data model ────────────────────────────────────────────────
 //
 // A read-only mirror of the document `mded`'s `compute_registry` worker
@@ -834,6 +836,10 @@ pub(crate) enum Message {
     CloseMigrateSheet,
     /// Submit a migration of the selected VM to `target_peer`.
     MigrateTo(String),
+    /// Open the `[+ New VM]` creation wizard.
+    OpenWizard,
+    /// A message from the open creation wizard.
+    Wizard(WizardMsg),
 }
 
 /// `mde-virtual` application state.
@@ -855,6 +861,8 @@ pub(crate) struct VirtualApp {
     expose_form: Option<ExposeForm>,
     /// Whether the `[Migrate to…]` peer-picker is open (VIRT-14.d).
     migrate_open: bool,
+    /// The open VM-creation wizard, if any (VIRT-15).
+    wizard: Option<WizardState>,
     local_host: String,
 }
 
@@ -874,6 +882,7 @@ impl VirtualApp {
             exposed_rules: Vec::new(),
             expose_form: None,
             migrate_open: false,
+            wizard: None,
             local_host: local_hostname(),
         }
     }
@@ -941,6 +950,40 @@ impl VirtualApp {
                 self.selected = None;
                 self.migrate_open = false;
                 Task::none()
+            }
+            Message::OpenWizard => {
+                self.selected = None;
+                self.migrate_open = false;
+                self.wizard = Some(WizardState::new());
+                Task::none()
+            }
+            Message::Wizard(wm) => {
+                let Some(w) = self.wizard.as_mut() else {
+                    return Task::none();
+                };
+                match w.update(wm) {
+                    WizardAction::None => Task::none(),
+                    WizardAction::Cancel => {
+                        self.wizard = None;
+                        Task::none()
+                    }
+                    WizardAction::Create(req) => {
+                        self.wizard = None;
+                        let Some(addr) = self.local_peer_addr() else {
+                            return Task::none();
+                        };
+                        let topic = format!("compute/create/{addr}");
+                        let body = serde_json::to_string(&req).unwrap_or_default();
+                        Task::perform(
+                            async move {
+                                let _ = std::process::Command::new("mde-bus")
+                                    .args(["publish", &topic, "--body-flag", &body])
+                                    .output();
+                            },
+                            |()| Message::Refresh,
+                        )
+                    }
+                }
             }
             Message::Console(name) => {
                 let (prog, args) = console_command(&name);
@@ -1117,15 +1160,24 @@ impl VirtualApp {
             Tab::Fleet => self.fleet_view(),
             Tab::Local => self.local_view(),
         };
-        let content: Element<'_, Message> = match &self.selected {
-            Some(d) => row![
+        let content: Element<'_, Message> = if let Some(w) = &self.wizard {
+            row![
+                container(tab_body).width(Length::FillPortion(3)).height(Length::Fill),
+                w.view(&self.tokens).map(Message::Wizard),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        } else if let Some(d) = &self.selected {
+            row![
                 container(tab_body).width(Length::FillPortion(3)).height(Length::Fill),
                 self.detail_panel(d),
             ]
             .width(Length::Fill)
             .height(Length::Fill)
-            .into(),
-            None => tab_body,
+            .into()
+        } else {
+            tab_body
         };
         let inner = column![self.header_bar(), content]
             .width(Length::Fill)
@@ -1144,7 +1196,7 @@ impl VirtualApp {
     fn header_bar(&self) -> Element<'_, Message> {
         let palette = self.tokens.palette;
         let space = self.tokens.space;
-        row![
+        let mut bar = row![
             text("Virtual")
                 .size(TypeRole::Subheading.size_in(self.tokens.font_size))
                 .color(rgba(palette.text)),
@@ -1154,8 +1206,13 @@ impl VirtualApp {
         ]
         .spacing(f32::from(space.sm))
         .padding([space.sm2, space.lg2])
-        .align_y(iced::alignment::Vertical::Center)
-        .into()
+        .align_y(iced::alignment::Vertical::Center);
+        // `[+ New VM]` — Local tab only, and only when this peer's mded is
+        // publishing inventory (so we have a create target).
+        if self.tab == Tab::Local && self.local_peer_addr().is_some() {
+            bar = bar.push(self.simple_button("+ New VM", Message::OpenWizard));
+        }
+        bar.into()
     }
 
     fn tab_button(&self, label: &str, tab: Tab) -> Element<'_, Message> {
@@ -1195,6 +1252,17 @@ impl VirtualApp {
             return self.empty_state("No compute discovered on the mesh.");
         }
         self.peer_list(invs.iter(), false)
+    }
+
+    /// This peer's own Nebula overlay addr (from its inventory) — the
+    /// `compute/create/<addr>` target. `None` when the local mded isn't
+    /// publishing inventory (then `[+ New VM]` is hidden).
+    fn local_peer_addr(&self) -> Option<String> {
+        self.fleet
+            .inventories()
+            .iter()
+            .find(|i| is_local(i, &self.local_host))
+            .map(|i| i.peer.clone())
     }
 
     fn local_view(&self) -> Element<'_, Message> {
