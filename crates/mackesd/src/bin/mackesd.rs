@@ -125,6 +125,12 @@ enum Cmd {
     /// exits 1 when 2+ respond (rogue DHCP).
     RogueDhcpCheck,
 
+    /// MESH-A-6.4 (v5.0.0) — probe for a captive portal (R8-Q31): a
+    /// `generate_204` check returning non-204 means a portal intercepted
+    /// it. Prints the portal URL (for the UI to open) + exits 1 when
+    /// captive; silent + exit 0 when clear.
+    CaptivePortalCheck,
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -1143,6 +1149,18 @@ fn main() -> anyhow::Result<()> {
             }
             if servers.len() >= 2 {
                 eprintln!("ROGUE-DHCP: {} DHCP servers responding (expected 1)", servers.len());
+                std::process::exit(1);
+            }
+        }
+        Cmd::CaptivePortalCheck => {
+            use mackesd_core::surrounding_hosts::{detect_captive_portal, CAPTIVE_PROBE_URL};
+            if let Some(portal) = detect_captive_portal(CAPTIVE_PROBE_URL) {
+                if portal.is_empty() {
+                    eprintln!("CAPTIVE-PORTAL: detected (splash intercept; no redirect URL)");
+                } else {
+                    println!("{portal}");
+                    eprintln!("CAPTIVE-PORTAL: redirected to {portal}");
+                }
                 std::process::exit(1);
             }
         }

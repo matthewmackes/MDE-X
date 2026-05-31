@@ -953,6 +953,53 @@ pub fn detect_dhcp_servers() -> Vec<String> {
     parse_dhcp_servers(&String::from_utf8_lossy(&out.stdout))
 }
 
+/// Default connectivity-check endpoint — returns `204 No Content` on a
+/// clear connection; a captive portal intercepts it (MESH-A-6.4).
+pub const CAPTIVE_PROBE_URL: &str = "http://connectivitycheck.gstatic.com/generate_204";
+
+/// Detect a captive portal from `curl -sI <generate_204 endpoint>`
+/// output (MESH-A-6.4, R8-Q31). A clear connection returns `204` →
+/// `None`; any other status means a portal intercepted the probe →
+/// `Some(portal_url)` (the `Location:` redirect target when present,
+/// else an empty string for a non-redirecting splash). `None` when no
+/// status line parses (the probe failed = offline, not captive). Pure.
+#[must_use]
+pub fn captive_portal_from_headers(headers: &str) -> Option<String> {
+    let mut status: Option<u16> = None;
+    let mut location: Option<String> = None;
+    for line in headers.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("HTTP/") {
+            if let Some(code) = rest.split_whitespace().nth(1) {
+                status = code.parse().ok();
+            }
+        } else if let Some((k, v)) = line.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("location") {
+                location = Some(v.trim().to_string());
+            }
+        }
+    }
+    match status {
+        Some(204) | None => None,
+        Some(_) => Some(location.unwrap_or_default()),
+    }
+}
+
+/// Probe `url` (a generate_204 endpoint) via `curl -sI --max-time 4`
+/// and report a captive portal. `None` when clear or curl is absent.
+/// HW-bench-gated; the pure half is [`captive_portal_from_headers`].
+#[must_use]
+pub fn detect_captive_portal(url: &str) -> Option<String> {
+    let out = Command::new("curl")
+        .args(["-sI", "--max-time", "4", url])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    captive_portal_from_headers(&String::from_utf8_lossy(&out.stdout))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1468,5 +1515,29 @@ mod tests {
             parse_dhcp_servers("| Server Identifier: 10.0.0.1\n| Server Identifier: 10.0.0.1\n"),
             vec!["10.0.0.1"]
         );
+    }
+
+    // ── MESH-A-6.4: captive-portal detection ──
+
+    #[test]
+    fn captive_portal_detection() {
+        // Clear — generate_204 returns 204.
+        assert_eq!(captive_portal_from_headers("HTTP/1.1 204 No Content\r\n\r\n"), None);
+        // Captive: 302 redirect to the portal.
+        assert_eq!(
+            captive_portal_from_headers(
+                "HTTP/1.1 302 Found\r\nLocation: http://portal.lan/login\r\n\r\n"
+            )
+            .as_deref(),
+            Some("http://portal.lan/login")
+        );
+        // Captive: 200 splash, no redirect → empty portal URL.
+        assert_eq!(
+            captive_portal_from_headers("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n")
+                .as_deref(),
+            Some("")
+        );
+        // No parseable status → treated as clear (offline, not captive).
+        assert_eq!(captive_portal_from_headers(""), None);
     }
 }
