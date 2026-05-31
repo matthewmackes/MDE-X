@@ -146,6 +146,16 @@ enum Cmd {
     /// suspect + exits 1; learns the current scan into the baseline.
     EvilTwinCheck,
 
+    /// MESH-A-6.8 (v5.0.0) — record a persistent-attack hit from SOURCE
+    /// (R8-Q74): coalesces into one accumulating alert per source +
+    /// auto-acks alerts quiet > 24h. Prints the source's current alert.
+    /// Persists to `surrounding/persistent-alerts.json`.
+    RecordAttack {
+        /// Attack source — IP or host identity.
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -1213,6 +1223,31 @@ fn main() -> anyhow::Result<()> {
             if !suspects.is_empty() {
                 eprintln!("EVIL-TWIN: {} known SSID(s) on unexpected BSSIDs", suspects.len());
                 std::process::exit(1);
+            }
+        }
+        Cmd::RecordAttack { source } => {
+            use mackesd_core::surrounding_hosts::{
+                accumulate_alert, auto_ack, load_alert_store, save_alert_store,
+            };
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            if let Some(data_dir) = dirs::data_dir() {
+                let path = data_dir
+                    .join("mde")
+                    .join("surrounding")
+                    .join("persistent-alerts.json");
+                let mut store = load_alert_store(&path);
+                auto_ack(&mut store, now_ms);
+                accumulate_alert(&mut store, &source, now_ms);
+                let _ = save_alert_store(&path, &store);
+                if let Some(a) = store.get(&source) {
+                    println!(
+                        "{}\tcount={}\tfirst_seen_ms={}\tlast_seen_ms={}",
+                        a.source, a.count, a.first_seen_ms, a.last_seen_ms
+                    );
+                }
             }
         }
         Cmd::Probe { action } => match action {

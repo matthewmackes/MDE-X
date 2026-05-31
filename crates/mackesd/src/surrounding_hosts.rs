@@ -1158,6 +1158,89 @@ pub fn scan_wifi_bssids() -> Vec<(String, String)> {
     parse_wifi_bssids(&String::from_utf8_lossy(&out.stdout))
 }
 
+/// 24-hour quiet window for persistent-attack accumulation (R8-Q74):
+/// hits within the window coalesce into one alert; an alert quiet for
+/// longer auto-acks.
+pub const ALERT_QUIET_MS: i64 = 24 * 60 * 60 * 1_000;
+
+/// One accumulating persistent-attack alert (R8-Q74) — repeated hits
+/// from a single source coalesced into one record.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PersistentAlert {
+    /// Attack source (IP / host identity).
+    pub source: String,
+    /// Accumulated hit count in the current (un-acked) window.
+    pub count: u64,
+    /// Unix-epoch ms of the first hit in this window.
+    pub first_seen_ms: i64,
+    /// Unix-epoch ms of the most recent hit.
+    pub last_seen_ms: i64,
+}
+
+/// Accumulating alert store keyed by attack source. Persisted at
+/// `<surrounding-base>/persistent-alerts.json`.
+pub type AlertStore = BTreeMap<String, PersistentAlert>;
+
+/// Record a hit from `source` at `now_ms`, coalescing into the single
+/// accumulating alert for that source (R8-Q74): a hit within
+/// [`ALERT_QUIET_MS`] of the last bumps `count` + `last_seen`; a hit
+/// after a longer quiet starts a fresh alert (count resets to 1).
+pub fn accumulate_alert(store: &mut AlertStore, source: &str, now_ms: i64) {
+    match store.get_mut(source) {
+        Some(a) if now_ms.saturating_sub(a.last_seen_ms) <= ALERT_QUIET_MS => {
+            a.count += 1;
+            a.last_seen_ms = now_ms;
+        }
+        _ => {
+            store.insert(
+                source.to_string(),
+                PersistentAlert {
+                    source: source.to_string(),
+                    count: 1,
+                    first_seen_ms: now_ms,
+                    last_seen_ms: now_ms,
+                },
+            );
+        }
+    }
+}
+
+/// Auto-ack (drop) alerts quiet for more than [`ALERT_QUIET_MS`]
+/// (R8-Q74). Returns the auto-acked sources.
+pub fn auto_ack(store: &mut AlertStore, now_ms: i64) -> Vec<String> {
+    let acked: Vec<String> = store
+        .iter()
+        .filter(|(_, a)| now_ms.saturating_sub(a.last_seen_ms) > ALERT_QUIET_MS)
+        .map(|(s, _)| s.clone())
+        .collect();
+    for s in &acked {
+        store.remove(s);
+    }
+    acked
+}
+
+/// Load the alert store from `path` (empty when absent / malformed).
+#[must_use]
+pub fn load_alert_store(path: &Path) -> AlertStore {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Persist the alert store to `path` (creates the parent dir).
+///
+/// # Errors
+///
+/// I/O errors creating the parent dir or writing the file.
+pub fn save_alert_store(path: &Path, store: &AlertStore) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::to_string_pretty(store).unwrap_or_else(|_| "{}".to_string());
+    std::fs::write(path, body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1747,5 +1830,36 @@ mod tests {
         // Never-seen SSID → not flagged (first sighting only learned).
         let fresh = vec![("Cafe".to_string(), "11:22:33:44:55:66".to_string())];
         assert!(evil_twin_suspects(&fresh, &baseline).is_empty());
+    }
+
+    // ── MESH-A-6.8: persistent-attack accumulation ──
+
+    #[test]
+    fn accumulate_alert_coalesces_within_window_resets_after() {
+        let mut store = AlertStore::new();
+        accumulate_alert(&mut store, "10.0.0.66", 1_000);
+        assert_eq!(store.get("10.0.0.66").unwrap().count, 1);
+        // A hit a minute later → coalesced (count 2, same first_seen).
+        accumulate_alert(&mut store, "10.0.0.66", 61_000);
+        let a = store.get("10.0.0.66").unwrap();
+        assert_eq!(a.count, 2);
+        assert_eq!(a.first_seen_ms, 1_000);
+        assert_eq!(a.last_seen_ms, 61_000);
+        // A hit > 24h after the last → fresh alert (count resets).
+        accumulate_alert(&mut store, "10.0.0.66", 61_000 + ALERT_QUIET_MS + 1);
+        assert_eq!(store.get("10.0.0.66").unwrap().count, 1);
+    }
+
+    #[test]
+    fn auto_ack_drops_only_stale_alerts() {
+        let mut store = AlertStore::new();
+        accumulate_alert(&mut store, "recent", 1_000_000);
+        accumulate_alert(&mut store, "stale", 1_000);
+        // ~24h+1ms after `stale`'s hit, but < 24h after `recent`'s.
+        let now = 1_000 + ALERT_QUIET_MS + 1;
+        let acked = auto_ack(&mut store, now);
+        assert_eq!(acked, vec!["stale"]);
+        assert!(store.contains_key("recent"));
+        assert!(!store.contains_key("stale"));
     }
 }
