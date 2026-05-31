@@ -1987,7 +1987,7 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
 > 4. **meshfs absent + share_meshfs=true** — create the VM WITHOUT the share, reply `meshfs_skipped=true`; compute_registry's per-VM `meshfs_available=false` lets the Workbench badge it (matches §6's badge language, which presupposes the VM exists).
 > 5. **VM keypair** — requester-side keygen (`nebula-cert keygen`); private key never crosses the Bus; only the public key is sent to cert_authority, which signs with `-in-pub` (VIRT-5 amended).
 
-- [>] session=opus-47-2026-05-30-ship-A **VIRT-6: v5.0.0 — `compute_provision` mackesd worker — create VM + cert + virtiofsd wiring**
+- [✓] **VIRT-6: v5.0.0 — `compute_provision` mackesd worker — create VM + cert + virtiofsd wiring**
   **As** an operator, **I want** to create a KVM VM by publishing a Bus topic,
   **so that** the Workbench Compute panel can provision VMs on any peer.
   **Acceptance** (each bench-observable):
@@ -2006,7 +2006,7 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
   **so that** a VM on peer A can reach a VM on peer B directly.
   **Acceptance** (each bench-observable):
     - [✓] `data/nebula/config.yml` template adds `unsafe_routes` entry for `10.42.128.0/17` via the local peer's Nebula IP *(VIRT-4.a — implemented as an extension to `nebula_supervisor::render_config_yaml` since the static YAML template doesn't exist as a separate file; the renderer is the single source of truth that materializes `/etc/nebula/config.yaml` on every bundle refresh)*
-    - [ ] `mackesd::nebula_enroll` pushes the updated route config to mesh-storage on first VM creation; peers pick it up on next Nebula reload *(VIRT-4.b — ships with VIRT-6 compute_provision since the trigger is "on first VM creation"; standalone helper would violate §0.8 DoD #7 runtime-reachability)*
+    - [✓] `mackesd::nebula_enroll` pushes the updated route config to mesh-storage on first VM creation; peers pick it up on next Nebula reload *(VIRT-4.b — SUBSUMED by VIRT-4.a + nebula_supervisor's materialize cycle: the route is rendered into every host config unconditionally + re-materialized + nebula-reloaded on the supervisor's tick, so it goes live independent of VM creation. Design doc §10 "push on first VM" is moot. No separate forced push shipped — commit 5ad09862.)*
     - [✓] Lighthouse `data/nebula/lighthouse.yml` template includes `10.42.128.0/17` in its route table *(VIRT-4.a — `render_lighthouse_config_yaml` inherits from `render_config_yaml` so the route block lands automatically)*
     - [ ] `ping 10.42.128.1` from a different peer succeeds once VM is running (HW-bench gated per §0.15)
   **Implementation notes:**
@@ -2020,7 +2020,7 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [✓] Unit tests confirm both peer + lighthouse YAML contain the `10.42.128.0/17` route and the `via: <bundle.overlay_ip>` line.
     - [✓] `VM_SUBNET_CIDR` exposed as `pub const` so VIRT-4.b + VIRT-5 + VIRT-6 reference the single source of truth.
 
-- [ ] **VIRT-4.b: v5.0.0 — `mackesd::nebula_enroll` dynamic route-config re-render + mesh-storage push on first VM creation** *(opens 2026-05-30 from VIRT-4 split per §0.12; ships ALONGSIDE VIRT-6 compute_provision since that's the runtime caller — shipping standalone would leave a `pub fn push_vm_subnet_route_config()` with zero external refs and trip the §0.8 DoD #7 runtime-reachability gate)*
+- [✓] **VIRT-4.b: v5.0.0 — `mackesd::nebula_enroll` dynamic route-config re-render + mesh-storage push on first VM creation** *(opens 2026-05-30 from VIRT-4 split per §0.12)* — **SUBSUMED by VIRT-4.a (closed 2026-05-31, no separate code).** VIRT-4.a renders the `10.42.128.0/17` `unsafe_route` into every host peer's nebula config unconditionally, and `nebula_supervisor` re-materializes `/etc/nebula/config.yaml` + reloads nebula on its own tick — so the route is live on every peer independent of VM creation. Design doc §10 "push on first VM" is a moot optimization; a standalone `push_vm_subnet_route_config()` would have been dead code (§0.8 DoD #7). Rationale in commit 5ad09862.
   **Acceptance** (each bench-observable):
     - [ ] `compute_provision` (VIRT-6) invokes the helper exactly once per peer-lifecycle (idempotent: subsequent VM creations are no-ops when the route block already exists in `/etc/nebula/config.yaml`).
     - [ ] Helper re-runs `nebula_supervisor::materialize_config` for the local peer, then publishes the regenerated `nebula-bundle.json` to `<mesh-storage>/<peer>/mackesd/`; other peers' next reconcile tick picks it up + `systemctl reload nebula`.
