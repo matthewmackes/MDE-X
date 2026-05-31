@@ -2243,16 +2243,14 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [✓] a 2 s Iced subscription (local VM selected only) samples the VM directly via `virsh domstats --vcpu` + `dommemstat`
     - [✓] cpu%-delta (`parse_domstats_vcpu_ns`) + `parse_dommemstat_rss_mb` parsers unit-tested
 
-- [ ] **VIRT-18: v5.0.0 — `mde-virtual` container + pod management**
+- [ ] **VIRT-18: v5.0.0 — `mde-virtual` container + pod management** *(split per §0.12 2026-05-31 into 18.a list+image-column [shipped] + 18.b pod grouping + container Delete + pod-level actions; umbrella open until 18.b)*
   **As** an operator, **I want** to view and manage Podman containers and pods in `mde-virtual`,
   **so that** containers are first-class alongside KVM VMs in one app.
-  **Acceptance** (each bench-observable):
-    - [ ] Local tab containers section lists Podman containers from `compute/inventory/<local-addr>` (containers array) + refreshes from `podman ps --all --format json` fallback
-    - [ ] Pods are grouped: a pod row with expand/collapse, child container rows indented beneath
-    - [ ] Container row shows: name, image (truncated), state badge, CPU %, RAM MB
-    - [ ] Local container actions: `[Start]`, `[Stop]`, `[Delete]` (with confirmation sheet); pod-level actions apply to all containers in the pod
-    - [ ] Fleet tab containers section is read-only (inventory data, no actions)
-    - [ ] 4 unit tests: pod grouping with mixed containers, start action message, delete confirmation state, fleet read-only guard
+  - [✓] **VIRT-18.a: container list + image column** *(shipped 2026-05-31 — session=opus-48-2026-05-31-virt18a. Container rows already list from the Bus inventory (VIRT-13.a) + the `podman ps --all --format json` fallback (13.b), with local-only Start/Stop quick-actions (13.b) + Fleet read-only. This adds the **image** column: `image` on the `ContainerEntry` mirror + `ResourceRow` (`parse_podman_ps_local` now captures `"Image"`); the row's context column shows a VM's Nebula IP and a container's image (truncated to the last path segment). `cargo build`+`test -p mde-virtual` green (50 tests; parse + rows_for image assertions extended). Lints clean (7). DoD gate 8: read-only display from the already-read inventory; no new surface. Bullets 1/3/5 done; pod grouping + Delete + pod actions are 18.b.)*
+    - [✓] Local tab lists Podman containers from the inventory + `podman ps` fallback (13.a/13.b)
+    - [✓] container row shows name, image (truncated), state badge, CPU %, RAM MB
+    - [✓] Fleet container rows are read-only
+  - [ ] **VIRT-18.b: pod grouping + container Delete + pod-level actions** — group local containers by pod (pod row + indented child rows; needs the inventory's `ContainerEntry` to carry `pod`/`PodName` — extend `compute_registry` + the mirror); `[Delete]` per local container with a confirmation sheet (`podman rm -f`); pod-level `[Start]`/`[Stop]`/`[Delete]` applying to all child containers (`podman pod …`). Acceptance: pods grouped with child rows; Delete confirms then removes; pod actions hit all children; tests: pod grouping with mixed containers, delete-confirmation state. Cite: visual-identity.md §1; ref: Apple System Settings.
 
 - [ ] **VIRT-19: v5.0.0 — `mde-virtual` images section + volume read-only list**
   **As** an operator, **I want** to browse local Podman images and volumes in `mde-virtual`,

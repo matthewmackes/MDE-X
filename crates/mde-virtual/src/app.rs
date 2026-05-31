@@ -60,6 +60,8 @@ pub(crate) struct ContainerEntry {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
+    pub image: String,
+    #[serde(default)]
     pub state: String,
     #[serde(default)]
     pub cpu_pct: f64,
@@ -115,6 +117,8 @@ pub(crate) struct ResourceRow {
     pub disk_path: String,
     /// `false` for containers.
     pub meshfs_available: bool,
+    /// Container image ref (empty for VMs).
+    pub image: String,
 }
 
 /// Flatten an inventory's VMs (first) then containers into display rows.
@@ -131,6 +135,7 @@ pub(crate) fn rows_for(inv: &Inventory) -> Vec<ResourceRow> {
             nebula_ip: vm.nebula_ip.clone(),
             disk_path: vm.disk_path.clone(),
             meshfs_available: vm.meshfs_available,
+            image: String::new(),
         });
     }
     for c in &inv.containers {
@@ -144,6 +149,7 @@ pub(crate) fn rows_for(inv: &Inventory) -> Vec<ResourceRow> {
             nebula_ip: String::new(),
             disk_path: String::new(),
             meshfs_available: false,
+            image: c.image.clone(),
         });
     }
     out
@@ -370,11 +376,17 @@ pub(crate) fn parse_podman_ps_local(stdout: &str) -> Vec<ContainerEntry> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let image = row
+                .get("Image")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             if name.is_empty() {
                 return None;
             }
             Some(ContainerEntry {
                 name,
+                image,
                 state,
                 cpu_pct: 0.0,
                 ram_mb: 0,
@@ -1752,10 +1764,22 @@ impl VirtualApp {
     ) -> Element<'_, Message> {
         let palette = self.tokens.palette;
         let space = self.tokens.space;
-        let nebula = if r.nebula_ip.is_empty() {
-            "\u{2014}".to_string() // —
-        } else {
-            r.nebula_ip.clone()
+        // Context column: VMs show their Nebula IP, containers their image.
+        let context = match r.kind {
+            ResourceKind::Vm => {
+                if r.nebula_ip.is_empty() {
+                    "\u{2014}".to_string() // —
+                } else {
+                    r.nebula_ip.clone()
+                }
+            }
+            ResourceKind::Container => {
+                if r.image.is_empty() {
+                    "\u{2014}".to_string()
+                } else {
+                    r.image.rsplit('/').next().unwrap_or(&r.image).to_string()
+                }
+            }
         };
 
         // VM names are clickable → open the detail panel; containers are
@@ -1795,7 +1819,7 @@ impl VirtualApp {
                 .size(TypeRole::Caption.size_in(self.tokens.font_size))
                 .color(rgba(palette.text_muted))
                 .width(Length::FillPortion(2)),
-            text(nebula)
+            text(context)
                 .size(TypeRole::Caption.size_in(self.tokens.font_size))
                 .color(rgba(palette.text_muted))
                 .width(Length::FillPortion(3)),
@@ -2362,6 +2386,8 @@ mod tests {
         assert!(rows[0].meshfs_available);
         assert_eq!(rows[1].kind, ResourceKind::Container);
         assert!(rows[1].id.is_empty());
+        assert_eq!(rows[1].image, "redis");
+        assert!(rows[0].image.is_empty()); // VM row carries no image
         assert!(rows[1].nebula_ip.is_empty());
         assert!(rows[1].disk_path.is_empty());
         assert!(!rows[1].meshfs_available);
@@ -2444,12 +2470,13 @@ mod tests {
 
     #[test]
     fn parse_podman_ps_local_extracts_name_state() {
-        let json = r#"[{"Id":"abc","Names":["redis"],"State":"running"},
-                       {"Id":"def","Names":["pg"],"State":"exited"}]"#;
+        let json = r#"[{"Id":"abc","Names":["redis"],"State":"running","Image":"docker.io/library/redis:7"},
+                       {"Id":"def","Names":["pg"],"State":"exited","Image":"postgres:16"}]"#;
         let out = parse_podman_ps_local(json);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].name, "redis");
         assert_eq!(out[0].state, "running");
+        assert_eq!(out[0].image, "docker.io/library/redis:7");
         assert_eq!(out[1].name, "pg");
         assert_eq!(out[1].state, "exited");
     }
