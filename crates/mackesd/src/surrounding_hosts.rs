@@ -33,6 +33,7 @@
 //! signals (SNMP sysObjectID, LLDP) deferred to MESH-A-4.b; they are
 //! valid taxonomy members reachable for manual assignment today.
 
+use std::collections::HashMap;
 use std::process::Command;
 
 /// One of the 14 surrounding-host types (R8-Q9). Wire form is the
@@ -449,6 +450,85 @@ pub fn reverse_dns(ip: &str) -> Option<String> {
     parse_getent_hosts(&String::from_utf8_lossy(&out.stdout))
 }
 
+/// An OUI (first-3-octets) → vendor table, built from a system OUI file
+/// in nmap's `nmap-mac-prefixes` format (`<6hex> <vendor>`).
+#[derive(Debug, Clone, Default)]
+pub struct OuiTable {
+    map: HashMap<String, String>,
+}
+
+impl OuiTable {
+    /// Vendor for a MAC address (any common separator), keyed on its
+    /// 3-octet OUI prefix. `None` when the prefix isn't in the table.
+    #[must_use]
+    pub fn vendor_for(&self, mac: &str) -> Option<String> {
+        self.map.get(&mac_oui_prefix(mac)?).cloned()
+    }
+
+    /// Number of OUI entries parsed.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Whether the table is empty (no OUI file found / parsed).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+}
+
+/// Normalise a MAC to its 6-hex-digit OUI prefix (uppercase, no
+/// separators). `None` when fewer than 3 octets of hex are present.
+#[must_use]
+pub fn mac_oui_prefix(mac: &str) -> Option<String> {
+    let hex: String = mac
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(6)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if hex.len() < 6 {
+        None
+    } else {
+        Some(hex)
+    }
+}
+
+/// Parse an nmap-style OUI table (`<6hex> <vendor>` per line; `#`
+/// comments + blank / short / garbage lines skipped).
+#[must_use]
+pub fn parse_oui_db(contents: &str) -> OuiTable {
+    let mut map = HashMap::new();
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((prefix, vendor)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        let prefix = prefix.trim().to_ascii_uppercase();
+        if prefix.len() != 6 || !prefix.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        let vendor = vendor.trim();
+        if !vendor.is_empty() {
+            map.insert(prefix, vendor.to_string());
+        }
+    }
+    OuiTable { map }
+}
+
+/// Load the system OUI table — nmap's prefixes file, present when nmap
+/// is installed (already a MESH-PROBE dependency). Empty when absent.
+#[must_use]
+pub fn load_system_oui() -> OuiTable {
+    std::fs::read_to_string("/usr/share/nmap/nmap-mac-prefixes")
+        .map(|c| parse_oui_db(&c))
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,5 +726,44 @@ mod tests {
         );
         assert_eq!(parse_getent_hosts(""), None);
         assert_eq!(parse_getent_hosts("192.168.1.99"), None); // no name field
+    }
+
+    // ── MESH-A-4.b.3: MAC-OUI → vendor ──
+
+    #[test]
+    fn mac_oui_prefix_normalises_separators() {
+        assert_eq!(mac_oui_prefix("00:1a:2b:cc:dd:ee").as_deref(), Some("001A2B"));
+        assert_eq!(mac_oui_prefix("00-1A-2B-cc-dd-ee").as_deref(), Some("001A2B"));
+        assert_eq!(mac_oui_prefix("001a2bccddee").as_deref(), Some("001A2B"));
+        assert_eq!(mac_oui_prefix("00:1a"), None); // < 3 octets of hex
+    }
+
+    #[test]
+    fn parse_oui_db_and_vendor_lookup() {
+        let db = parse_oui_db(
+            "# nmap-mac-prefixes\n\
+             001A2B Hewlett Packard\n\
+             FFFFFF Some Vendor\n\
+             badline_no_whitespace\n\
+             00 TooShort\n",
+        );
+        assert_eq!(db.len(), 2, "comment / no-whitespace / short lines skipped");
+        assert_eq!(db.vendor_for("00:1a:2b:cc:dd:ee").as_deref(), Some("Hewlett Packard"));
+        assert_eq!(db.vendor_for("FF-FF-FF-00-00-00").as_deref(), Some("Some Vendor"));
+        assert_eq!(db.vendor_for("12:34:56:78:90:ab"), None);
+        assert!(db.vendor_for("zz").is_none()); // unparseable MAC
+    }
+
+    #[test]
+    fn oui_vendor_feeds_the_classifier() {
+        // An HP-OUI MAC resolves to a printer vendor, which classify
+        // maps to Printer via host_type_from_vendor.
+        let db = parse_oui_db("001A2B Hewlett Packard\n");
+        let vendor = db.vendor_for("00:1a:2b:00:00:01").unwrap();
+        let sig = HostSignals {
+            oui_vendor: vendor,
+            ..Default::default()
+        };
+        assert_eq!(classify(&sig), HostType::Printer);
     }
 }

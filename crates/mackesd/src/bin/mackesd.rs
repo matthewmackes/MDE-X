@@ -76,6 +76,10 @@ enum Cmd {
         /// Hostname (feeds the console hostname hint, MESH-A-4.b.2).
         #[arg(long = "hostname", value_name = "HOSTNAME", default_value = "")]
         hostname: String,
+        /// MAC address — its OUI resolves the vendor via the system OUI
+        /// table when --vendor is not given (MESH-A-4.b.3).
+        #[arg(long = "mac", value_name = "MAC", default_value = "")]
+        mac: String,
     },
 
     /// MESH-A-4.b.1 (v5.0.0) — browse the LAN for mDNS services
@@ -991,11 +995,19 @@ fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         },
-        Cmd::ClassifyHost { mdns, port, vendor, hostname } => {
+        Cmd::ClassifyHost { mdns, port, vendor, hostname, mac } => {
+            // Derive the vendor from the MAC's OUI when not given directly.
+            let oui_vendor = if vendor.is_empty() && !mac.is_empty() {
+                mackesd_core::surrounding_hosts::load_system_oui()
+                    .vendor_for(&mac)
+                    .unwrap_or_default()
+            } else {
+                vendor
+            };
             let sig = mackesd_core::surrounding_hosts::HostSignals {
                 mdns_services: mdns,
                 open_ports: port,
-                oui_vendor: vendor,
+                oui_vendor,
                 hostname,
             };
             let ty = mackesd_core::surrounding_hosts::classify(&sig);
