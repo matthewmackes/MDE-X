@@ -151,6 +151,31 @@ pub struct SubnetDiscovery {
     pub source: String,
 }
 
+/// One hop in a route trace (MESH-A-2).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TraceHop {
+    /// Time-to-live / hop number (1-based).
+    pub ttl: u8,
+    /// Hop IP (`*` when the hop didn't answer).
+    pub ip: String,
+    /// Round-trip milliseconds for the hop (0.0 when `*`).
+    pub rtt_ms: f64,
+}
+
+/// A route trace to one target (MESH-A-2, R7-Q7).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RouteTrace {
+    /// Target IP/host traced.
+    pub target: String,
+    /// Target class: `gateway`, `public-dns`, `lighthouse`, `peer`,
+    /// `mesh-storage-leader`. (MESH-A-2.a ships `gateway` +
+    /// `public-dns`; `lighthouse`/`peer`/`mesh-storage-leader` land
+    /// with MESH-A-2.b.)
+    pub kind: String,
+    /// Hops in TTL order.
+    pub hops: Vec<TraceHop>,
+}
+
 /// The full per-peer assessment snapshot (the 9 items + metadata).
 /// Each item is optional so a partial collection (missing tool)
 /// still produces a valid snapshot.
@@ -183,6 +208,11 @@ pub struct AssessmentSnapshot {
     pub tunnel: TunnelHealth,
     /// Item 9.
     pub subnet: SubnetDiscovery,
+    /// MESH-A-2 route traces (R7-Q7). A-2.a traces gateway + the two
+    /// public DNS anchors; lighthouse/peer/mesh-storage-leader
+    /// targets land with A-2.b.
+    #[serde(default)]
+    pub route_traces: Vec<RouteTrace>,
 }
 
 // ── Pure parsers (one per shell-out; unit-tested) ──────────────────
@@ -340,6 +370,68 @@ pub fn parse_tunnel_up(stdout: &str, iface: &str) -> bool {
         || stdout.contains("state UP")
 }
 
+/// Parse `traceroute -n` output into hops. Skips the
+/// `traceroute to …` header. Each hop line is `<ttl>  <ip>  <rtt>
+/// ms …` or `<ttl>  * * *` (unanswered → ip `*`, rtt 0). The first
+/// `<num> ms` pair on the line is taken as the hop RTT.
+#[must_use]
+pub fn parse_traceroute(stdout: &str) -> Vec<TraceHop> {
+    let mut hops = Vec::new();
+    for line in stdout.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with("traceroute to") {
+            continue;
+        }
+        let toks: Vec<&str> = t.split_whitespace().collect();
+        if toks.len() < 2 {
+            continue;
+        }
+        let Ok(ttl) = toks[0].parse::<u8>() else {
+            continue;
+        };
+        if toks[1] == "*" {
+            hops.push(TraceHop {
+                ttl,
+                ip: "*".into(),
+                rtt_ms: 0.0,
+            });
+            continue;
+        }
+        let rtt_ms = toks
+            .iter()
+            .enumerate()
+            .find_map(|(i, tk)| {
+                if toks.get(i + 1) == Some(&"ms") {
+                    tk.parse::<f64>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.0);
+        hops.push(TraceHop {
+            ttl,
+            ip: toks[1].to_string(),
+            rtt_ms,
+        });
+    }
+    hops
+}
+
+/// Build the MESH-A-2.a route-trace target list: the default
+/// gateway (skipped when unknown) + the two public DNS anchors.
+/// Lighthouse / peer / mesh-storage-leader targets land with
+/// MESH-A-2.b (they need the bundle / roster DB / meshfs status).
+#[must_use]
+pub fn build_route_targets(gateway: &str) -> Vec<(String, String)> {
+    let mut targets = Vec::new();
+    if !gateway.is_empty() {
+        targets.push((gateway.to_string(), "gateway".to_string()));
+    }
+    targets.push(("1.1.1.1".to_string(), "public-dns".to_string()));
+    targets.push(("8.8.8.8".to_string(), "public-dns".to_string()));
+    targets
+}
+
 /// Build the per-snapshot filename `<iso8601>-<hash>.json`, where
 /// `<hash>` is the first 8 hex chars of the SHA-256 of the JSON body
 /// (dedup + integrity). `iso8601` is colon-free (`:` is illegal on
@@ -428,6 +520,27 @@ fn collect_subnet(arp: &[ArpEntry]) -> SubnetDiscovery {
     }
 }
 
+/// MESH-A-2.a — trace each locally-resolvable target. Silent empty
+/// when `traceroute` is absent. One quick query per hop, 2 s wait,
+/// 20-hop cap to bound runtime.
+fn collect_route_traces(gateway: &str) -> Vec<RouteTrace> {
+    if !binary_present("traceroute") {
+        return vec![];
+    }
+    build_route_targets(gateway)
+        .into_iter()
+        .map(|(target, kind)| {
+            let hops = run_stdout(
+                "traceroute",
+                &["-n", "-w", "2", "-q", "1", "-m", "20", &target],
+            )
+            .map(|s| parse_traceroute(&s))
+            .unwrap_or_default();
+            RouteTrace { target, kind, hops }
+        })
+        .collect()
+}
+
 fn now_epoch_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -510,6 +623,7 @@ impl NetAssessWorker {
             overlay_ip: String::new(),
         };
         let subnet = collect_subnet(&arp);
+        let route_traces = collect_route_traces(&gateway);
 
         AssessmentSnapshot {
             ts_ms: now_epoch_ms(),
@@ -523,6 +637,7 @@ impl NetAssessWorker {
             mtu,
             tunnel,
             subnet,
+            route_traces,
         }
     }
 
@@ -745,6 +860,48 @@ mod tests {
         }
     }
 
+    // ── parse_traceroute (MESH-A-2.a) ──
+
+    #[test]
+    fn traceroute_parses_hops_and_stars() {
+        let raw = "traceroute to 1.1.1.1 (1.1.1.1), 30 hops max, 60 byte packets\n\
+                   \x201  10.0.0.1  0.456 ms  0.389 ms  0.402 ms\n\
+                   \x202  * * *\n\
+                   \x203  203.0.113.1  12.3 ms  11.8 ms\n";
+        let hops = parse_traceroute(raw);
+        assert_eq!(hops.len(), 3);
+        assert_eq!(hops[0].ttl, 1);
+        assert_eq!(hops[0].ip, "10.0.0.1");
+        assert!((hops[0].rtt_ms - 0.456).abs() < 0.001);
+        assert_eq!(hops[1].ip, "*"); // unanswered hop
+        assert_eq!(hops[1].rtt_ms, 0.0);
+        assert_eq!(hops[2].ttl, 3);
+        assert!((hops[2].rtt_ms - 12.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn traceroute_skips_header_and_blanks() {
+        assert!(parse_traceroute("traceroute to 8.8.8.8 (8.8.8.8), 30 hops max\n\n").is_empty());
+    }
+
+    // ── build_route_targets (MESH-A-2.a) ──
+
+    #[test]
+    fn route_targets_include_gateway_and_two_public_dns() {
+        let t = build_route_targets("192.168.1.1");
+        assert_eq!(t.len(), 3);
+        assert_eq!(t[0], ("192.168.1.1".to_string(), "gateway".to_string()));
+        assert!(t.iter().any(|(ip, k)| ip == "1.1.1.1" && k == "public-dns"));
+        assert!(t.iter().any(|(ip, k)| ip == "8.8.8.8" && k == "public-dns"));
+    }
+
+    #[test]
+    fn route_targets_skip_gateway_when_unknown() {
+        let t = build_route_targets("");
+        assert_eq!(t.len(), 2); // only the two public DNS anchors
+        assert!(t.iter().all(|(_, k)| k == "public-dns"));
+    }
+
     // ── snapshot JSON shape (design doc §7.1 — all 9 items present) ──
 
     #[test]
@@ -761,6 +918,7 @@ mod tests {
             mtu: None,
             tunnel: TunnelHealth::default(),
             subnet: SubnetDiscovery::default(),
+            route_traces: vec![],
         };
         let s = serde_json::to_string(&snap).unwrap();
         for field in [
