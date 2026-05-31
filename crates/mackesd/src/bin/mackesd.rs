@@ -131,6 +131,11 @@ enum Cmd {
     /// captive; silent + exit 0 when clear.
     CaptivePortalCheck,
 
+    /// VOIP-4 (v5.0.0) — measure this peer's Vitelity-link RTT (TCP-connect
+    /// to `out.vitelity.net:5061`) + publish it to `voip/link-rtt/<peer>`.
+    /// Prints the RTT in ms (or "unreachable").
+    VoipRtt,
+
     /// MESH-A-6.5 (v5.0.0) — detect a DNS leak (R8-Q41): a configured
     /// /etc/resolv.conf resolver not in `--expected` (the mesh resolver
     /// set). Prints leaked resolvers + exits 1 when any.
@@ -1204,6 +1209,30 @@ fn main() -> anyhow::Result<()> {
                     eprintln!("CAPTIVE-PORTAL: redirected to {portal}");
                 }
                 std::process::exit(1);
+            }
+        }
+        Cmd::VoipRtt => {
+            use mackesd_core::voip_rtt::{
+                own_nebula_ip, publish_link_rtt, rtt_topic, sample_link_rtt, VITELITY_PROXY_HOST,
+                VITELITY_PROXY_PORT,
+            };
+            let peer = own_nebula_ip().unwrap_or_default();
+            let sample = sample_link_rtt(&peer);
+            match sample.rtt_ms {
+                Some(ms) => {
+                    println!("voip-link-rtt: {ms} ms ({VITELITY_PROXY_HOST}:{VITELITY_PROXY_PORT})");
+                }
+                None => {
+                    println!(
+                        "voip-link-rtt: unreachable ({VITELITY_PROXY_HOST}:{VITELITY_PROXY_PORT})"
+                    );
+                }
+            }
+            if peer.is_empty() {
+                eprintln!("voip-rtt: no nebula1 overlay IP — measured but not published");
+            } else {
+                publish_link_rtt(&sample);
+                eprintln!("voip-rtt: published to {}", rtt_topic(&peer));
             }
         }
         Cmd::DnsLeakCheck { expected } => {

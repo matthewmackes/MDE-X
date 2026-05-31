@@ -121,6 +121,10 @@ pub mod validation;
 // builds the per-peer `priority` weights baked into
 // dispatcher.list rows.
 pub mod voice;
+// VOIP-4 (v5.0.0) — Vitelity-link RTT telemetry: measures the RTT to the
+// Vitelity SIP edge + publishes `voip/link-rtt/<peer>`. Consumed by the
+// `mackesd voip-rtt` CLI (VOIP-4.a) + the 60s broadcast worker (VOIP-4.b).
+pub mod voip_rtt;
 pub mod worker;
 
 // v2.0.0 Phase A modules — async surface for the unified backend.
