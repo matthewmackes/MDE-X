@@ -50,6 +50,10 @@ use sha2::{Digest, Sha256};
 
 use mde_bus::persist::Persist;
 
+use crate::ca::bundle::{bundle_path, read_bundle, LighthouseEntry};
+use crate::nebula_roster::{export_roster, RosterRow};
+use crate::workers::meshfs_worker::DEFAULT_VIP;
+
 use super::{ShutdownToken, Worker};
 
 /// Active-collection cadence — hourly (design doc §7.1).
@@ -537,22 +541,56 @@ fn collect_subnet(arp: &[ArpEntry]) -> SubnetDiscovery {
 /// MESH-A-2.a — trace each locally-resolvable target. Silent empty
 /// when `traceroute` is absent. One quick query per hop, 2 s wait,
 /// 20-hop cap to bound runtime.
-fn collect_route_traces(gateway: &str) -> Vec<RouteTrace> {
-    if !binary_present("traceroute") {
+/// Run a traceroute to each `(target, kind)` and collect the hops.
+/// Silent empty when there are no targets or `traceroute` is absent.
+fn trace_targets(targets: &[(String, String)]) -> Vec<RouteTrace> {
+    if targets.is_empty() || !binary_present("traceroute") {
         return vec![];
     }
-    build_route_targets(gateway)
-        .into_iter()
+    targets
+        .iter()
         .map(|(target, kind)| {
             let hops = run_stdout(
                 "traceroute",
-                &["-n", "-w", "2", "-q", "1", "-m", "20", &target],
+                &["-n", "-w", "2", "-q", "1", "-m", "20", target],
             )
             .map(|s| parse_traceroute(&s))
             .unwrap_or_default();
-            RouteTrace { target, kind, hops }
+            RouteTrace {
+                target: target.clone(),
+                kind: kind.clone(),
+                hops,
+            }
         })
         .collect()
+}
+
+/// MESH-A-2.b lighthouse trace targets — every lighthouse the local
+/// peer's Nebula bundle advertises (skips empty overlay IPs). Pure
+/// over the already-read roster so it is unit-testable.
+fn lighthouse_trace_targets(lighthouses: &[LighthouseEntry]) -> Vec<(String, String)> {
+    lighthouses
+        .iter()
+        .filter(|l| !l.overlay_ip.is_empty())
+        .map(|l| (l.overlay_ip.clone(), "lighthouse".to_string()))
+        .collect()
+}
+
+/// MESH-A-2.b peer trace targets — every active roster peer except
+/// this one (`self_node_id`) and any row missing an overlay IP.
+fn peer_trace_targets(roster: &[RosterRow], self_node_id: &str) -> Vec<(String, String)> {
+    roster
+        .iter()
+        .filter(|r| r.node_id != self_node_id && !r.overlay_ip.is_empty())
+        .map(|r| (r.overlay_ip.clone(), "peer".to_string()))
+        .collect()
+}
+
+/// MESH-A-2.b mesh-storage leader trace target — the LizardFS floating
+/// VIP, which the active master always owns
+/// ([`DEFAULT_VIP`](crate::workers::meshfs_worker::DEFAULT_VIP)).
+fn leader_trace_target(vip: &str) -> (String, String) {
+    (vip.to_string(), "mesh-storage-leader".to_string())
 }
 
 fn now_epoch_ms() -> i64 {
@@ -632,6 +670,17 @@ pub struct NetAssessWorker {
     nebula_iface: String,
     tick: Duration,
     bus_root_override: Option<PathBuf>,
+    /// MESH-A-2.b mesh context (set together via
+    /// [`with_mesh_context`](NetAssessWorker::with_mesh_context)).
+    /// QNM-Shared root — locates this peer's Nebula bundle for the
+    /// lighthouse trace targets.
+    qnm_root: Option<PathBuf>,
+    /// This peer's stable node-id — excludes itself from the peer
+    /// trace targets.
+    node_id: Option<String>,
+    /// Roster DB path — `export_roster` reads it for the peer trace
+    /// targets.
+    db_path: Option<PathBuf>,
 }
 
 impl NetAssessWorker {
@@ -645,6 +694,9 @@ impl NetAssessWorker {
             nebula_iface: DEFAULT_NEBULA_INTERFACE.into(),
             tick: DEFAULT_TICK_INTERVAL,
             bus_root_override: None,
+            qnm_root: None,
+            node_id: None,
+            db_path: None,
         }
     }
 
@@ -663,6 +715,24 @@ impl NetAssessWorker {
         self
     }
 
+    /// Wire the MESH-A-2.b mesh context: the QNM-Shared root (for the
+    /// Nebula bundle's lighthouse roster), this peer's node-id (to skip
+    /// itself in the peer roster), and the roster DB path. When unset
+    /// (pre-enrollment host) only A-2.a's locally-resolvable targets
+    /// trace.
+    #[must_use]
+    pub fn with_mesh_context(
+        mut self,
+        qnm_root: PathBuf,
+        node_id: String,
+        db_path: PathBuf,
+    ) -> Self {
+        self.qnm_root = Some(qnm_root);
+        self.node_id = Some(node_id);
+        self.db_path = Some(db_path);
+        self
+    }
+
     fn primary_iface(&self) -> String {
         // The default-route device is the primary interface.
         run_stdout("ip", &["route", "show", "default"])
@@ -673,6 +743,46 @@ impl NetAssessWorker {
                     .map(String::from)
             })
             .unwrap_or_else(|| "eth0".into())
+    }
+
+    /// Gather the MESH-A-2.b mesh-derived trace targets from the
+    /// worker's optional mesh context: the lighthouses in this peer's
+    /// Nebula bundle, every other roster peer, and the mesh-storage
+    /// leader VIP. Returns empty on a pre-enrollment / store-less host
+    /// so A-2.a's locally-resolvable targets still trace.
+    fn mesh_route_targets(&self) -> Vec<(String, String)> {
+        let mut targets = Vec::new();
+
+        // Lighthouses — this peer's bundle at
+        // <qnm_root>/<host>/mackesd/nebula-bundle.json.
+        if let Some(qnm_root) = &self.qnm_root {
+            let path = bundle_path(qnm_root, &self.host);
+            match read_bundle(&path) {
+                Ok(bundle) => targets.extend(lighthouse_trace_targets(&bundle.lighthouses)),
+                Err(e) => {
+                    tracing::debug!(error = %e, "netassess: no nebula bundle for lighthouse targets");
+                }
+            }
+        }
+
+        // Peers — the roster DB, excluding self by node-id.
+        if let (Some(db_path), Some(node_id)) = (&self.db_path, &self.node_id) {
+            match crate::store::open(db_path) {
+                Ok(conn) => match export_roster(&conn) {
+                    Ok(roster) => targets.extend(peer_trace_targets(&roster, node_id)),
+                    Err(e) => tracing::debug!(error = %e, "netassess: roster export failed"),
+                },
+                Err(e) => tracing::debug!(error = %e, "netassess: roster DB open failed"),
+            }
+        }
+
+        // Mesh-storage leader — the floating VIP, present whenever this
+        // peer carries any mesh context (i.e. it is enrolled).
+        if self.qnm_root.is_some() || self.db_path.is_some() {
+            targets.push(leader_trace_target(DEFAULT_VIP));
+        }
+
+        targets
     }
 
     fn collect(&self) -> AssessmentSnapshot {
@@ -710,7 +820,11 @@ impl NetAssessWorker {
             overlay_ip: String::new(),
         };
         let subnet = collect_subnet(&arp);
-        let route_traces = collect_route_traces(&gateway);
+        // A-2.a locally-resolvable (gateway + public DNS) + A-2.b
+        // mesh-derived (lighthouses + peers + mesh-storage leader).
+        let mut route_targets = build_route_targets(&gateway);
+        route_targets.extend(self.mesh_route_targets());
+        let route_traces = trace_targets(&route_targets);
 
         AssessmentSnapshot {
             ts_ms: now_epoch_ms(),
@@ -1113,5 +1227,66 @@ mod tests {
         );
         assert!(parse_refresh_request("garbage").is_err());
         assert!(parse_refresh_request("[1,2]").is_err());
+    }
+
+    // ── MESH-A-2.b: mesh-derived trace targets ──
+
+    fn lighthouse(node_id: &str, overlay_ip: &str) -> LighthouseEntry {
+        LighthouseEntry {
+            node_id: node_id.into(),
+            overlay_ip: overlay_ip.into(),
+            external_addr: "203.0.113.7:4242".into(),
+        }
+    }
+
+    fn roster_row(node_id: &str, overlay_ip: &str) -> RosterRow {
+        RosterRow {
+            node_id: node_id.into(),
+            name: "host".into(),
+            overlay_ip: overlay_ip.into(),
+            epoch: 1,
+            cert_pem: String::new(),
+            created_at: 0,
+            expires_at: 0,
+            groups: "peer".into(),
+        }
+    }
+
+    #[test]
+    fn lighthouse_target_from_bundle() {
+        let lighthouses = vec![
+            lighthouse("host:anvil", "10.42.0.1"),
+            lighthouse("host:forge", "10.42.0.2"),
+            lighthouse("host:empty", ""), // skipped — no overlay IP
+        ];
+        let t = lighthouse_trace_targets(&lighthouses);
+        assert_eq!(t.len(), 2);
+        assert!(t.iter().all(|(_, k)| k == "lighthouse"));
+        assert_eq!(t[0].0, "10.42.0.1");
+        assert_eq!(t[1].0, "10.42.0.2");
+    }
+
+    #[test]
+    fn peer_targets_from_roster() {
+        let roster = vec![
+            roster_row("peer:self", "10.42.0.5"), // excluded — this peer
+            roster_row("peer:anvil", "10.42.0.6"),
+            roster_row("peer:forge", "10.42.0.7"),
+            roster_row("peer:ghost", ""), // excluded — no overlay IP
+        ];
+        let t = peer_trace_targets(&roster, "peer:self");
+        assert_eq!(t.len(), 2);
+        assert!(t.iter().all(|(_, k)| k == "peer"));
+        let ips: Vec<&str> = t.iter().map(|(ip, _)| ip.as_str()).collect();
+        assert_eq!(ips, vec!["10.42.0.6", "10.42.0.7"]);
+        assert!(!ips.contains(&"10.42.0.5"), "self must be excluded");
+    }
+
+    #[test]
+    fn leader_target_resolution() {
+        let (ip, kind) = leader_trace_target(DEFAULT_VIP);
+        assert_eq!(ip, DEFAULT_VIP);
+        assert_eq!(ip, "10.42.0.1");
+        assert_eq!(kind, "mesh-storage-leader");
     }
 }

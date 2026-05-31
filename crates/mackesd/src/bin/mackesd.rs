@@ -3172,7 +3172,8 @@ fn run_serve(
         if let Some(data_dir) = dirs::data_dir() {
             let netassess_base = data_dir.join("mde").join("netassess");
             sup.spawn(Spawn::new(
-                mackesd_core::workers::netassess::NetAssessWorker::new(fw_host, netassess_base),
+                mackesd_core::workers::netassess::NetAssessWorker::new(fw_host, netassess_base)
+                    .with_mesh_context(qnm_root.clone(), node_id.clone(), db_path.clone()),
                 RestartPolicy::Always,
             ));
             worker_names
