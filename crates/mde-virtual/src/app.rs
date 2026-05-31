@@ -1,16 +1,16 @@
-//! `mde-virtual` application core (VIRT-13.a + 13.b).
+//! `mde-virtual` application core (VIRT-13 + VIRT-14.a).
 //!
-//! Holds the Fleet/Local viewer: the Bus-fed inventory data model, the
-//! 5 s poll, the Iced `update` / `view` / `subscription` surface, plus
-//! the Local tab's direct `virsh`/`podman` control + offline fallback.
-//! Every visual value flows from `mde-theme` tokens — no hardcoded
-//! colors or sizes (lint-design-tokens contract).
+//! Holds the Fleet/Local viewer, the 5 s Bus poll, the Local tab's direct
+//! `virsh`/`podman` control + offline fallback, and the VM detail panel
+//! (state, stats, full lifecycle actions, console). Every visual value
+//! flows from `mde-theme` tokens — no hardcoded colors or sizes.
 //!
 //! Per the §13 design (M4/M5/M11): the Fleet tab is read-only for remote
 //! peers; the Local tab controls *this* peer's compute directly via
-//! `virsh -c qemu:///system <verb>` / `podman <verb>` (no Bus round-trip
-//! — local control), and falls back to a direct `virsh list` / `podman
-//! ps` read when the Bus is unavailable.
+//! `virsh -c qemu:///system <verb>` / `podman <verb>` (no Bus round-trip),
+//! the VM console launches `virt-viewer --connect qemu:///system`, and a
+//! direct `virsh list` / `podman ps` read backs the Local tab when the
+//! Bus is unavailable.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -24,13 +24,10 @@ use serde::Deserialize;
 // ── Inventory data model ────────────────────────────────────────────────
 //
 // A read-only mirror of the document `mded`'s `compute_registry` worker
-// publishes to `compute/inventory/<peer>` (see
-// `crates/mackesd/src/workers/compute_registry.rs`). We own a local copy
-// rather than depend on that crate: the worker lives behind the
-// `async-services` feature, and this GUI only ever *reads* the JSON.
-// Every field is `#[serde(default)]` so a future schema addition can't
-// break deserialization (forward-compatible, matching the daemon's own
-// tolerant-read convention).
+// publishes to `compute/inventory/<peer>`. We own a local copy rather
+// than depend on that crate (its worker is `async-services`-gated). Every
+// field is `#[serde(default)]` so a future schema addition can't break
+// deserialization.
 
 /// One VM row from a peer's published inventory.
 #[derive(Debug, Clone, Deserialize)]
@@ -44,7 +41,11 @@ pub(crate) struct VmEntry {
     #[serde(default)]
     pub ram_mb: u64,
     #[serde(default)]
+    pub disk_path: String,
+    #[serde(default)]
     pub nebula_ip: String,
+    #[serde(default)]
+    pub meshfs_available: bool,
 }
 
 /// One container row from a peer's published inventory.
@@ -102,6 +103,10 @@ pub(crate) struct ResourceRow {
     pub ram_mb: u64,
     /// Empty for containers (Podman rows carry no overlay IP).
     pub nebula_ip: String,
+    /// Empty for containers.
+    pub disk_path: String,
+    /// `false` for containers.
+    pub meshfs_available: bool,
 }
 
 /// Flatten an inventory's VMs (first) then containers into display rows.
@@ -115,6 +120,8 @@ pub(crate) fn rows_for(inv: &Inventory) -> Vec<ResourceRow> {
             cpu_pct: vm.cpu_pct,
             ram_mb: vm.ram_mb,
             nebula_ip: vm.nebula_ip.clone(),
+            disk_path: vm.disk_path.clone(),
+            meshfs_available: vm.meshfs_available,
         });
     }
     for c in &inv.containers {
@@ -125,6 +132,8 @@ pub(crate) fn rows_for(inv: &Inventory) -> Vec<ResourceRow> {
             cpu_pct: c.cpu_pct,
             ram_mb: c.ram_mb,
             nebula_ip: String::new(),
+            disk_path: String::new(),
+            meshfs_available: false,
         });
     }
     out
@@ -141,16 +150,16 @@ pub(crate) fn state_is_paused(state: &str) -> bool {
     s.contains("paused") || s.contains("suspended")
 }
 
-// ── Local control (VIRT-13.b) ───────────────────────────────────────────
+// ── Local control (VIRT-13.b + 14.a) ────────────────────────────────────
 
-/// A lifecycle action a Local-tab row can request. Applied directly to
-/// this peer's compute (the Local tab is always local) via `virsh` /
-/// `podman` — no Bus round-trip.
+/// A lifecycle action applied directly to this peer's compute (the Local
+/// tab + the VM detail panel are always local) via `virsh` / `podman`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActionVerb {
     Start,
     Stop,
-    Pause,
+    ForceOff,
+    Suspend,
     Resume,
 }
 
@@ -159,17 +168,26 @@ impl ActionVerb {
         match self {
             ActionVerb::Start => "Start",
             ActionVerb::Stop => "Stop",
-            ActionVerb::Pause => "Pause",
+            ActionVerb::ForceOff => "Force off",
+            ActionVerb::Suspend => "Suspend",
             ActionVerb::Resume => "Resume",
         }
     }
 }
 
-/// The contextual action set for a given state: stop/pause a running
-/// resource, resume a paused one, start anything else.
+/// The five VM detail-panel actions, in display order.
+const DETAIL_ACTIONS: [ActionVerb; 5] = [
+    ActionVerb::Start,
+    ActionVerb::Stop,
+    ActionVerb::ForceOff,
+    ActionVerb::Suspend,
+    ActionVerb::Resume,
+];
+
+/// The contextual quick-action set for a Local-tab row.
 pub(crate) fn actions_for_state(state: &str) -> Vec<ActionVerb> {
     if state_is_running(state) {
-        vec![ActionVerb::Stop, ActionVerb::Pause]
+        vec![ActionVerb::Stop, ActionVerb::Suspend]
     } else if state_is_paused(state) {
         vec![ActionVerb::Resume]
     } else {
@@ -177,16 +195,27 @@ pub(crate) fn actions_for_state(state: &str) -> Vec<ActionVerb> {
     }
 }
 
+/// Whether a verb is meaningful for a given state (used to enable/disable
+/// the detail-panel buttons): start a stopped resource, stop/force/suspend
+/// a running one, resume a paused one.
+pub(crate) fn verb_applies(verb: ActionVerb, state: &str) -> bool {
+    match verb {
+        ActionVerb::Start => !state_is_running(state) && !state_is_paused(state),
+        ActionVerb::Stop | ActionVerb::ForceOff | ActionVerb::Suspend => state_is_running(state),
+        ActionVerb::Resume => state_is_paused(state),
+    }
+}
+
 /// Resolve `(program, argv)` for a lifecycle action. VMs go through the
-/// system libvirtd (`-c qemu:///system`, where `/var/lib/mde-vms` VMs
-/// live); containers through rootless `podman`.
+/// system libvirtd (`-c qemu:///system`); containers through `podman`.
 pub(crate) fn command_for(kind: ResourceKind, verb: ActionVerb, name: &str) -> (&'static str, Vec<String>) {
     match kind {
         ResourceKind::Vm => {
             let v = match verb {
                 ActionVerb::Start => "start",
                 ActionVerb::Stop => "shutdown",
-                ActionVerb::Pause => "suspend",
+                ActionVerb::ForceOff => "destroy",
+                ActionVerb::Suspend => "suspend",
                 ActionVerb::Resume => "resume",
             };
             (
@@ -203,12 +232,22 @@ pub(crate) fn command_for(kind: ResourceKind, verb: ActionVerb, name: &str) -> (
             let v = match verb {
                 ActionVerb::Start => "start",
                 ActionVerb::Stop => "stop",
-                ActionVerb::Pause => "pause",
+                ActionVerb::ForceOff => "kill",
+                ActionVerb::Suspend => "pause",
                 ActionVerb::Resume => "unpause",
             };
             ("podman", vec![v.to_string(), name.to_string()])
         }
     }
+}
+
+/// Resolve `(program, argv)` for launching a VM's graphical console
+/// (§13 M5 — `virt-viewer --connect qemu:///system <domain>`).
+pub(crate) fn console_command(name: &str) -> (&'static str, Vec<String>) {
+    (
+        "virt-viewer",
+        vec!["--connect".to_string(), "qemu:///system".to_string(), name.to_string()],
+    )
 }
 
 /// Run a command + return its stdout (empty on missing binary / failure).
@@ -247,8 +286,7 @@ pub(crate) fn parse_virsh_list_state(stdout: &str) -> Vec<(String, String)> {
 }
 
 /// Parse `podman ps --all --format json` into container rows (name +
-/// state only; the rich CPU/RAM stats come from the daemon when the Bus
-/// is up). Mirrors `compute_registry::parse_podman_ps_json`. Pure.
+/// state only). Mirrors `compute_registry::parse_podman_ps_json`. Pure.
 pub(crate) fn parse_podman_ps_local(stdout: &str) -> Vec<ContainerEntry> {
     let Ok(rows) = serde_json::from_str::<Vec<serde_json::Value>>(stdout) else {
         return vec![];
@@ -282,7 +320,7 @@ pub(crate) fn parse_podman_ps_local(stdout: &str) -> Vec<ContainerEntry> {
 
 /// Read this peer's compute directly off libvirt + podman — the Bus-
 /// independent fallback the Local tab uses when the mesh is unavailable
-/// (§13 M11). CPU/RAM are left at 0 (degraded offline view).
+/// (§13 M11). CPU/RAM/disk are left empty (degraded offline view).
 fn read_local_direct() -> Inventory {
     let vms = parse_virsh_list_state(&run_cmd("virsh", &["-c", "qemu:///system", "list", "--all"]))
         .into_iter()
@@ -291,7 +329,9 @@ fn read_local_direct() -> Inventory {
             state,
             cpu_pct: 0.0,
             ram_mb: 0,
+            disk_path: String::new(),
             nebula_ip: String::new(),
+            meshfs_available: false,
         })
         .collect();
     let containers = parse_podman_ps_local(&run_cmd("podman", &["ps", "--all", "--format", "json"]));
@@ -306,10 +346,8 @@ fn read_local_direct() -> Inventory {
 // ── Bus read ────────────────────────────────────────────────────────────
 
 /// Resolve the Mackes Bus on-disk root (`$XDG_DATA_HOME/mde/bus`).
-///
-/// Mirrors `mde_bus::default_data_dir()`; replicated here as a one-liner
-/// over the stable BUS-1.6/1.7 path convention so the GUI doesn't pull in
-/// the whole broker crate just to learn one directory.
+/// Mirrors `mde_bus::default_data_dir()`; replicated as a one-liner so the
+/// GUI doesn't pull in the whole broker crate just to learn one directory.
 fn bus_root() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("mde").join("bus"))
 }
@@ -326,10 +364,8 @@ pub(crate) fn is_local(inv: &Inventory, local_host: &str) -> bool {
     !local_host.is_empty() && inv.hostname == local_host
 }
 
-/// One poll's Bus result. `Unavailable` means the Bus root itself is
-/// missing or unreachable (broker not running / no home) — the Fleet tab
-/// renders the "Mesh unavailable" banner. An *empty* `Available` means
-/// the Bus is up but no peer has published compute yet.
+/// One poll's Bus result. `Unavailable` → the Fleet tab renders the
+/// "Mesh unavailable" banner. An empty `Available` = Bus up, no compute.
 #[derive(Debug, Clone)]
 pub(crate) enum FleetState {
     Unavailable,
@@ -375,7 +411,6 @@ fn read_fleet() -> FleetState {
         return FleetState::Unavailable;
     };
     if !root.is_dir() {
-        // Broker has never run / bus tree absent — treat as unreachable.
         return FleetState::Unavailable;
     }
     let inv_dir = root.join("compute").join("inventory");
@@ -384,12 +419,11 @@ fn read_fleet() -> FleetState {
 }
 
 /// Collect `(ulid_filename, Inventory)` pairs from the inventory topic
-/// tree: `<inv_dir>/<peer>/<ulid>.json` (and tolerating flat
-/// `<inv_dir>/<ulid>.json`). Unreadable / unparseable files are skipped.
+/// tree: `<inv_dir>/<peer>/<ulid>.json` (and tolerating flat files).
 fn collect_inventory_files(inv_dir: &Path) -> Vec<(String, Inventory)> {
     let mut out = Vec::new();
     let Ok(top) = std::fs::read_dir(inv_dir) else {
-        return out; // topic tree not created yet → no compute published
+        return out;
     };
     for top_entry in top.flatten() {
         let p = top_entry.path();
@@ -421,10 +455,8 @@ fn push_if_json(path: &Path, out: &mut Vec<(String, Inventory)>) {
     }
 }
 
-/// Keep only the newest inventory per peer. ULID filenames sort
-/// lexicographically by creation time, so the lexically-largest filename
-/// is the freshest snapshot. Output is sorted by hostname (then peer) for
-/// a stable display order. Pure — unit-tested.
+/// Keep only the newest inventory per peer (ULID filenames sort by time).
+/// Output is sorted by hostname (then peer) for a stable display order.
 pub(crate) fn pick_latest_per_peer(entries: Vec<(String, Inventory)>) -> Vec<Inventory> {
     let mut best: BTreeMap<String, (String, Inventory)> = BTreeMap::new();
     for (fname, inv) in entries {
@@ -441,6 +473,37 @@ pub(crate) fn pick_latest_per_peer(entries: Vec<(String, Inventory)>) -> Vec<Inv
     out
 }
 
+// ── VM detail (VIRT-14.a) ────────────────────────────────────────────────
+
+/// A snapshot of one VM's data for the detail panel. Carries `is_local`
+/// so the panel can enable actions only for VMs on this peer (§13 M4).
+#[derive(Debug, Clone)]
+pub(crate) struct VmDetail {
+    pub name: String,
+    pub state: String,
+    pub cpu_pct: f64,
+    pub ram_mb: u64,
+    pub disk_path: String,
+    pub nebula_ip: String,
+    pub meshfs_available: bool,
+    pub is_local: bool,
+}
+
+impl VmDetail {
+    fn from_row(r: &ResourceRow, is_local: bool) -> Self {
+        Self {
+            name: r.name.clone(),
+            state: r.state.clone(),
+            cpu_pct: r.cpu_pct,
+            ram_mb: r.ram_mb,
+            disk_path: r.disk_path.clone(),
+            nebula_ip: r.nebula_ip.clone(),
+            meshfs_available: r.meshfs_available,
+            is_local,
+        }
+    }
+}
+
 // ── Iced application ──────────────────────────────────────────────────────
 
 /// The two top-level tabs.
@@ -453,20 +516,22 @@ pub(crate) enum Tab {
 /// Application messages.
 #[derive(Debug, Clone)]
 pub(crate) enum Message {
-    /// Switch the active tab.
     SwitchTab(Tab),
-    /// Collapse/expand a peer's section (keyed by Nebula IP).
     TogglePeer(String),
-    /// 5 s timer fired — kick off a fresh poll.
     Refresh,
-    /// A poll finished.
     PollLoaded(PollResult),
-    /// A Local-tab lifecycle action on this peer's compute.
+    /// A lifecycle action on this peer's compute (Local rows + detail panel).
     Action {
         kind: ResourceKind,
         name: String,
         verb: ActionVerb,
     },
+    /// Open the detail panel for a VM (row name clicked).
+    SelectVm(VmDetail),
+    /// Close the detail panel.
+    CloseDetail,
+    /// Launch the graphical console for a local VM.
+    Console(String),
 }
 
 /// `mde-virtual` application state.
@@ -478,6 +543,8 @@ pub(crate) struct VirtualApp {
     local_direct: Option<Inventory>,
     /// Per-peer expansion state; absent = expanded (default open).
     expanded: HashMap<String, bool>,
+    /// The VM whose detail panel is open, if any.
+    selected: Option<VmDetail>,
     local_host: String,
 }
 
@@ -492,6 +559,7 @@ impl VirtualApp {
             fleet,
             local_direct,
             expanded: HashMap::new(),
+            selected: None,
             local_host: local_hostname(),
         }
     }
@@ -516,14 +584,26 @@ impl VirtualApp {
             Message::Action { kind, name, verb } => {
                 let (prog, args) = command_for(kind, verb, &name);
                 let prog = prog.to_string();
-                // Run the lifecycle command off-thread, then refresh so the
-                // new state shows without waiting for the 5 s tick.
                 Task::perform(
                     async move {
                         let _ = std::process::Command::new(prog).args(&args).output();
                     },
                     |()| Message::Refresh,
                 )
+            }
+            Message::SelectVm(detail) => {
+                self.selected = Some(detail);
+                Task::none()
+            }
+            Message::CloseDetail => {
+                self.selected = None;
+                Task::none()
+            }
+            Message::Console(name) => {
+                let (prog, args) = console_command(&name);
+                // Detached spawn — the console is a long-lived child window.
+                let _ = std::process::Command::new(prog).args(&args).spawn();
+                Task::none()
             }
         }
     }
@@ -541,11 +621,21 @@ impl VirtualApp {
 
     pub(crate) fn view(&self) -> Element<'_, Message> {
         let palette = self.tokens.palette;
-        let body: Element<'_, Message> = match self.tab {
+        let tab_body = match self.tab {
             Tab::Fleet => self.fleet_view(),
             Tab::Local => self.local_view(),
         };
-        let inner = column![self.header_bar(), body]
+        let content: Element<'_, Message> = match &self.selected {
+            Some(d) => row![
+                container(tab_body).width(Length::FillPortion(3)).height(Length::Fill),
+                self.detail_panel(d),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into(),
+            None => tab_body,
+        };
+        let inner = column![self.header_bar(), content]
             .width(Length::Fill)
             .height(Length::Fill);
         container(inner)
@@ -616,8 +706,6 @@ impl VirtualApp {
     }
 
     fn local_view(&self) -> Element<'_, Message> {
-        // Prefer the Bus-sourced local inventory; when the mesh is down,
-        // use the direct libvirt/podman read so the tab keeps working.
         let local_inv: Option<&Inventory> = match &self.fleet {
             FleetState::Available(invs) => invs.iter().find(|i| is_local(i, &self.local_host)),
             FleetState::Unavailable => self.local_direct.as_ref(),
@@ -648,6 +736,7 @@ impl VirtualApp {
     fn peer_section<'a>(&'a self, inv: &'a Inventory, show_actions: bool) -> Element<'a, Message> {
         let palette = self.tokens.palette;
         let space = self.tokens.space;
+        let local = is_local(inv, &self.local_host);
         let expanded = self.expanded.get(&inv.peer).copied().unwrap_or(true);
         let chevron = if expanded { "\u{25be}" } else { "\u{25b8}" }; // ▾ / ▸
         let host_label = if inv.hostname.is_empty() {
@@ -693,14 +782,14 @@ impl VirtualApp {
                 col = col.push(self.muted_line("No VMs or containers."));
             } else {
                 for r in &rows {
-                    col = col.push(self.resource_row(r, show_actions));
+                    col = col.push(self.resource_row(r, show_actions, local));
                 }
             }
         }
         container(col).width(Length::Fill).into()
     }
 
-    fn resource_row(&self, r: &ResourceRow, show_actions: bool) -> Element<'_, Message> {
+    fn resource_row(&self, r: &ResourceRow, show_actions: bool, is_local: bool) -> Element<'_, Message> {
         let palette = self.tokens.palette;
         let space = self.tokens.space;
         let nebula = if r.nebula_ip.is_empty() {
@@ -708,11 +797,34 @@ impl VirtualApp {
         } else {
             r.nebula_ip.clone()
         };
-        let mut widget = row![
+
+        // VM names are clickable → open the detail panel; containers are
+        // plain text (their management lands with VIRT-18).
+        let name_el: Element<'_, Message> = if matches!(r.kind, ResourceKind::Vm) {
+            let detail = VmDetail::from_row(r, is_local);
+            button(
+                text(r.name.clone())
+                    .size(TypeRole::Body.size_in(self.tokens.font_size))
+                    .color(rgba(palette.accent)),
+            )
+            .on_press(Message::SelectVm(detail))
+            .padding(0)
+            .width(Length::FillPortion(4))
+            .style(|_t, _s| button::Style {
+                background: None,
+                ..button::Style::default()
+            })
+            .into()
+        } else {
             text(r.name.clone())
                 .size(TypeRole::Body.size_in(self.tokens.font_size))
                 .color(rgba(palette.text))
-                .width(Length::FillPortion(4)),
+                .width(Length::FillPortion(4))
+                .into()
+        };
+
+        let mut widget = row![
+            name_el,
             self.type_badge(r.kind),
             self.state_badge(&r.state),
             text(format!("{:.0}%", r.cpu_pct))
@@ -734,31 +846,156 @@ impl VirtualApp {
 
         if show_actions {
             for verb in actions_for_state(&r.state) {
-                widget = widget.push(self.action_button(r.kind, &r.name, verb));
+                widget = widget.push(self.action_button(r.kind, &r.name, verb, true));
             }
         }
         widget.into()
     }
 
-    fn action_button(&self, kind: ResourceKind, name: &str, verb: ActionVerb) -> Element<'_, Message> {
+    /// A lifecycle action button. When `enabled` is false the button
+    /// renders greyed with no `on_press` (iced's disabled state).
+    fn action_button(
+        &self,
+        kind: ResourceKind,
+        name: &str,
+        verb: ActionVerb,
+        enabled: bool,
+    ) -> Element<'_, Message> {
         let palette = self.tokens.palette;
         let space = self.tokens.space;
         let radius = f32::from(self.tokens.radii.sm);
         let name = name.to_string();
-        button(text(verb.label()).size(TypeRole::Caption.size_in(self.tokens.font_size)))
-            .on_press(Message::Action { kind, name, verb })
+        let mut b = button(text(verb.label()).size(TypeRole::Caption.size_in(self.tokens.font_size)))
             .padding([space.xs2, space.xs])
             .style(move |_t, _status| button::Style {
                 background: Some(Background::Color(rgba(palette.surface))),
-                text_color: rgba(palette.accent),
+                text_color: if enabled {
+                    rgba(palette.accent)
+                } else {
+                    rgba(palette.text_muted)
+                },
                 border: Border {
                     color: rgba(palette.border),
                     width: 1.0,
                     radius: radius.into(),
                 },
                 ..button::Style::default()
+            });
+        if enabled {
+            b = b.on_press(Message::Action { kind, name, verb });
+        }
+        b.into()
+    }
+
+    fn detail_panel<'a>(&'a self, d: &'a VmDetail) -> Element<'a, Message> {
+        let palette = self.tokens.palette;
+        let space = self.tokens.space;
+        let radius = f32::from(self.tokens.radii.md);
+
+        let title = row![
+            text(d.name.clone())
+                .size(TypeRole::Subheading.size_in(self.tokens.font_size))
+                .color(rgba(palette.text)),
+            Space::new().width(Length::Fill),
+            button(text("\u{00d7}").size(TypeRole::Subheading.size_in(self.tokens.font_size))) // ×
+                .on_press(Message::CloseDetail)
+                .padding([space.xs2, space.xs])
+                .style(move |_t, _s| button::Style {
+                    background: None,
+                    text_color: rgba(palette.text_muted),
+                    ..button::Style::default()
+                }),
+        ]
+        .align_y(iced::alignment::Vertical::Center);
+
+        let meshfs = if d.meshfs_available {
+            self.badge_chip("\u{2713} MeshFS", palette.accent, palette.surface) // ✓
+        } else {
+            self.badge_chip("\u{26a0} MeshFS offline", palette.text_muted, palette.surface) // ⚠
+        };
+
+        let mut col = column![
+            title,
+            row![self.state_badge(&d.state), meshfs].spacing(f32::from(space.sm)),
+            self.detail_kv("CPU", &format!("{:.0}%", d.cpu_pct)),
+            self.detail_kv("RAM", &format!("{} MB", d.ram_mb)),
+            self.detail_kv(
+                "Disk",
+                if d.disk_path.is_empty() { "\u{2014}" } else { &d.disk_path }
+            ),
+            self.detail_kv(
+                "Nebula IP",
+                if d.nebula_ip.is_empty() { "\u{2014}" } else { &d.nebula_ip }
+            ),
+        ]
+        .spacing(f32::from(space.sm))
+        .width(Length::Fill);
+
+        // Action buttons — enabled only on local VMs whose state allows
+        // the verb (§13 M4: remote VMs are read-only).
+        let mut actions = row![].spacing(f32::from(space.xs));
+        for verb in DETAIL_ACTIONS {
+            let enabled = d.is_local && verb_applies(verb, &d.state);
+            actions = actions.push(self.action_button(ResourceKind::Vm, &d.name, verb, enabled));
+        }
+        col = col.push(actions);
+
+        // Console — local VMs only.
+        let mut console = button(
+            text("Console").size(TypeRole::Caption.size_in(self.tokens.font_size)),
+        )
+        .padding([space.xs2, space.xs])
+        .style(move |_t, _s| button::Style {
+            background: Some(Background::Color(rgba(palette.surface))),
+            text_color: if d.is_local {
+                rgba(palette.accent)
+            } else {
+                rgba(palette.text_muted)
+            },
+            border: Border {
+                color: rgba(palette.border),
+                width: 1.0,
+                radius: f32::from(self.tokens.radii.sm).into(),
+            },
+            ..button::Style::default()
+        });
+        if d.is_local {
+            console = console.on_press(Message::Console(d.name.clone()));
+        }
+        col = col.push(console);
+
+        container(col)
+            .width(Length::FillPortion(2))
+            .height(Length::Fill)
+            .padding([space.md, space.lg2])
+            .style(move |_t| container::Style {
+                snap: false,
+                background: Some(Background::Color(rgba(palette.surface))),
+                border: Border {
+                    color: rgba(palette.border),
+                    width: 1.0,
+                    radius: radius.into(),
+                },
+                ..container::Style::default()
             })
             .into()
+    }
+
+    fn detail_kv(&self, label: &str, value: &str) -> Element<'_, Message> {
+        let palette = self.tokens.palette;
+        let space = self.tokens.space;
+        row![
+            text(label.to_string())
+                .size(TypeRole::Caption.size_in(self.tokens.font_size))
+                .color(rgba(palette.text_muted))
+                .width(Length::FillPortion(2)),
+            text(value.to_string())
+                .size(TypeRole::Body.size_in(self.tokens.font_size))
+                .color(rgba(palette.text))
+                .width(Length::FillPortion(3)),
+        ]
+        .spacing(f32::from(space.sm))
+        .into()
     }
 
     fn type_badge(&self, kind: ResourceKind) -> Element<'_, Message> {
@@ -862,7 +1099,7 @@ mod tests {
         format!(
             r#"{{"peer":"{peer}","hostname":"{host}",
                  "vms":[{{"id":"u1","name":"web","state":"running",
-                          "cpu_pct":12.5,"ram_mb":2048,"disk_path":"/x",
+                          "cpu_pct":12.5,"ram_mb":2048,"disk_path":"/var/lib/mde-vms/web.qcow2",
                           "nebula_ip":"10.42.0.5","meshfs_available":true}}],
                  "containers":[{{"id":"c1","name":"redis","state":"running",
                                  "image":"redis","cpu_pct":1.0,"ram_mb":64}}]}}"#
@@ -877,6 +1114,8 @@ mod tests {
         assert_eq!(inv.vms.len(), 1);
         assert_eq!(inv.vms[0].name, "web");
         assert_eq!(inv.vms[0].nebula_ip, "10.42.0.5");
+        assert_eq!(inv.vms[0].disk_path, "/var/lib/mde-vms/web.qcow2");
+        assert!(inv.vms[0].meshfs_available);
         assert_eq!(inv.containers.len(), 1);
         assert_eq!(inv.containers[0].name, "redis");
     }
@@ -891,14 +1130,18 @@ mod tests {
     }
 
     #[test]
-    fn rows_for_flattens_vms_then_containers() {
+    fn rows_for_flattens_vms_then_containers_with_vm_fields() {
         let inv: Inventory = serde_json::from_str(&sample_json("p", "h")).unwrap();
         let rows = rows_for(&inv);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].kind, ResourceKind::Vm);
         assert_eq!(rows[0].nebula_ip, "10.42.0.5");
+        assert_eq!(rows[0].disk_path, "/var/lib/mde-vms/web.qcow2");
+        assert!(rows[0].meshfs_available);
         assert_eq!(rows[1].kind, ResourceKind::Container);
         assert!(rows[1].nebula_ip.is_empty());
+        assert!(rows[1].disk_path.is_empty());
+        assert!(!rows[1].meshfs_available);
     }
 
     #[test]
@@ -920,7 +1163,7 @@ mod tests {
         let b: Inventory = serde_json::from_str(&sample_json("10.42.0.5", "alpha")).unwrap();
         let out = pick_latest_per_peer(vec![("01A".into(), a), ("01B".into(), b)]);
         assert_eq!(out.len(), 2);
-        assert_eq!(out[0].hostname, "alpha"); // sorted by hostname
+        assert_eq!(out[0].hostname, "alpha");
         assert_eq!(out[1].hostname, "bravo");
     }
 
@@ -929,7 +1172,7 @@ mod tests {
         let inv: Inventory = serde_json::from_str(&sample_json("p", "alpha")).unwrap();
         assert!(is_local(&inv, "alpha"));
         assert!(!is_local(&inv, "bravo"));
-        assert!(!is_local(&inv, "")); // empty local host never matches
+        assert!(!is_local(&inv, ""));
     }
 
     #[test]
@@ -996,7 +1239,7 @@ mod tests {
 
     #[test]
     fn actions_for_state_is_contextual() {
-        assert_eq!(actions_for_state("running"), vec![ActionVerb::Stop, ActionVerb::Pause]);
+        assert_eq!(actions_for_state("running"), vec![ActionVerb::Stop, ActionVerb::Suspend]);
         assert_eq!(actions_for_state("paused"), vec![ActionVerb::Resume]);
         assert_eq!(actions_for_state("shut off"), vec![ActionVerb::Start]);
     }
@@ -1006,10 +1249,47 @@ mod tests {
         let (p, a) = command_for(ResourceKind::Vm, ActionVerb::Stop, "web");
         assert_eq!(p, "virsh");
         assert_eq!(a, vec!["-c", "qemu:///system", "shutdown", "web"]);
+        let (_, a) = command_for(ResourceKind::Vm, ActionVerb::ForceOff, "web");
+        assert_eq!(a, vec!["-c", "qemu:///system", "destroy", "web"]);
         let (p, a) = command_for(ResourceKind::Container, ActionVerb::Start, "redis");
         assert_eq!(p, "podman");
         assert_eq!(a, vec!["start", "redis"]);
-        let (_, a) = command_for(ResourceKind::Container, ActionVerb::Resume, "redis");
-        assert_eq!(a, vec!["unpause", "redis"]);
+        let (_, a) = command_for(ResourceKind::Container, ActionVerb::ForceOff, "redis");
+        assert_eq!(a, vec!["kill", "redis"]);
+    }
+
+    #[test]
+    fn console_command_targets_system_libvirtd() {
+        let (p, a) = console_command("web");
+        assert_eq!(p, "virt-viewer");
+        assert_eq!(a, vec!["--connect", "qemu:///system", "web"]);
+    }
+
+    #[test]
+    fn verb_applies_by_state() {
+        // Stopped VM: only Start applies.
+        assert!(verb_applies(ActionVerb::Start, "shut off"));
+        assert!(!verb_applies(ActionVerb::Stop, "shut off"));
+        // Running VM: stop/force/suspend apply, start/resume don't.
+        assert!(verb_applies(ActionVerb::Stop, "running"));
+        assert!(verb_applies(ActionVerb::ForceOff, "running"));
+        assert!(verb_applies(ActionVerb::Suspend, "running"));
+        assert!(!verb_applies(ActionVerb::Start, "running"));
+        assert!(!verb_applies(ActionVerb::Resume, "running"));
+        // Paused VM: only Resume applies.
+        assert!(verb_applies(ActionVerb::Resume, "paused"));
+        assert!(!verb_applies(ActionVerb::Stop, "paused"));
+    }
+
+    #[test]
+    fn vm_detail_from_row_carries_fields_and_locality() {
+        let inv: Inventory = serde_json::from_str(&sample_json("10.42.0.5", "alpha")).unwrap();
+        let rows = rows_for(&inv);
+        let d = VmDetail::from_row(&rows[0], true);
+        assert_eq!(d.name, "web");
+        assert_eq!(d.disk_path, "/var/lib/mde-vms/web.qcow2");
+        assert_eq!(d.nebula_ip, "10.42.0.5");
+        assert!(d.meshfs_available);
+        assert!(d.is_local);
     }
 }
