@@ -33,7 +33,7 @@
 //! signals (SNMP sysObjectID, LLDP) deferred to MESH-A-4.b; they are
 //! valid taxonomy members reachable for manual assignment today.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::process::Command;
 
@@ -113,6 +113,19 @@ impl Default for TrustState {
     fn default() -> Self {
         // A freshly-seen neighbour is untrusted-but-not-blocked.
         TrustState::Unknown
+    }
+}
+
+impl TrustState {
+    /// Stable lowercase wire name (matches the serde rename + the
+    /// `mde_card::probe::HostFacts.trust_state` strings).
+    #[must_use]
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            TrustState::Trusted => "trusted",
+            TrustState::Unknown => "unknown",
+            TrustState::Blocked => "blocked",
+        }
     }
 }
 
@@ -779,7 +792,72 @@ pub fn read_all_surrounding(root: &Path) -> Vec<CoalescedHost> {
             }
         }
     }
-    coalesce_sightings(raw)
+    let mut cards = coalesce_sightings(raw);
+    apply_trust(&mut cards, &load_trust_store(&root.join("trust.json")));
+    cards
+}
+
+/// Operator trust overrides keyed by host identity (MAC when known,
+/// else IP). Persisted at `<surrounding-base>/trust.json` (mesh-synced
+/// — every peer honours the operator's Trust/Block decisions per
+/// R8-Q10 / R8-Q11). Absence of a key means the default `Unknown`.
+pub type TrustStore = BTreeMap<String, TrustState>;
+
+/// Parse the trust-store JSON object (`{ "<key>": "trusted" | … }`).
+/// Fail-open: a malformed body yields an empty store.
+#[must_use]
+pub fn parse_trust_store(json: &str) -> TrustStore {
+    serde_json::from_str(json).unwrap_or_default()
+}
+
+/// Load the trust store from `path` (empty when absent / malformed).
+#[must_use]
+pub fn load_trust_store(path: &Path) -> TrustStore {
+    std::fs::read_to_string(path)
+        .map(|s| parse_trust_store(&s))
+        .unwrap_or_default()
+}
+
+/// Persist the trust store to `path` (creates the parent dir).
+///
+/// # Errors
+///
+/// I/O errors creating the parent dir or writing the file.
+pub fn save_trust_store(path: &Path, store: &TrustStore) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::to_string_pretty(store).unwrap_or_else(|_| "{}".to_string());
+    std::fs::write(path, body)
+}
+
+/// Set a host's trust override + persist (the Trust / Block card
+/// actions, R8-Q11). Setting `Unknown` clears the override (back to the
+/// default). Returns the updated store.
+///
+/// # Errors
+///
+/// Propagates [`save_trust_store`] I/O errors.
+pub fn set_host_trust(path: &Path, key: &str, state: TrustState) -> std::io::Result<TrustStore> {
+    let mut store = load_trust_store(path);
+    if state == TrustState::Unknown {
+        store.remove(key);
+    } else {
+        store.insert(key.to_string(), state);
+    }
+    save_trust_store(path, &store)?;
+    Ok(store)
+}
+
+/// Apply trust overrides to coalesced cards — a card whose `key` is in
+/// the store takes that trust state, else it keeps the default
+/// `Unknown`.
+pub fn apply_trust(cards: &mut [CoalescedHost], store: &TrustStore) {
+    for card in cards.iter_mut() {
+        if let Some(state) = store.get(&card.key) {
+            card.host.trust = *state;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1166,5 +1244,50 @@ mod tests {
     fn read_all_empty_when_root_absent() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(read_all_surrounding(&tmp.path().join("nope")).is_empty());
+    }
+
+    // ── MESH-A-4.d: trust persistence ──
+
+    #[test]
+    fn trust_store_round_trips_and_clears_on_unknown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("surrounding").join("trust.json");
+        set_host_trust(&path, "aa:bb", TrustState::Blocked).unwrap();
+        set_host_trust(&path, "10.0.0.5", TrustState::Trusted).unwrap();
+        let store = load_trust_store(&path);
+        assert_eq!(store.get("aa:bb"), Some(&TrustState::Blocked));
+        assert_eq!(store.get("10.0.0.5"), Some(&TrustState::Trusted));
+        // Unknown clears the override.
+        set_host_trust(&path, "aa:bb", TrustState::Unknown).unwrap();
+        assert!(!load_trust_store(&path).contains_key("aa:bb"));
+    }
+
+    #[test]
+    fn parse_trust_store_fail_open() {
+        assert!(parse_trust_store("not json").is_empty());
+        let s = parse_trust_store(r#"{"aa:bb":"blocked"}"#);
+        assert_eq!(s.get("aa:bb"), Some(&TrustState::Blocked));
+    }
+
+    #[test]
+    fn apply_trust_overrides_card_trust() {
+        let mut cards = vec![CoalescedHost {
+            key: "aa:bb".into(),
+            host: seen_host("10.0.0.5", "aa:bb", 1, HostType::Router),
+            sightings: 1,
+            ips_seen: vec!["10.0.0.5".into()],
+        }];
+        assert_eq!(cards[0].host.trust, TrustState::Unknown);
+        let mut store = TrustStore::new();
+        store.insert("aa:bb".into(), TrustState::Blocked);
+        apply_trust(&mut cards, &store);
+        assert_eq!(cards[0].host.trust, TrustState::Blocked);
+    }
+
+    #[test]
+    fn trust_state_wire_names() {
+        assert_eq!(TrustState::Trusted.wire_name(), "trusted");
+        assert_eq!(TrustState::Unknown.wire_name(), "unknown");
+        assert_eq!(TrustState::Blocked.wire_name(), "blocked");
     }
 }

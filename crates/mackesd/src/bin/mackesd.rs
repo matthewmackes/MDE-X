@@ -94,6 +94,20 @@ enum Cmd {
     /// IPs. One `CoalescedHost` JSON line per host.
     SurroundingList,
 
+    /// MESH-A-4.d (v5.0.0) — set a surrounding host's operator trust
+    /// (the Trust / Block card actions, R8-Q11). KEY is the host's MAC
+    /// (preferred) or IP; STATE is `trusted` | `blocked` | `unknown`
+    /// (`unknown` clears the override). Persists to the mesh-synced
+    /// `surrounding/trust.json`.
+    SurroundingTrust {
+        /// Host identity key — MAC (preferred) or IP.
+        #[arg(value_name = "KEY")]
+        key: String,
+        /// Trust state: `trusted` | `blocked` | `unknown`.
+        #[arg(value_name = "STATE")]
+        state: String,
+    },
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -1060,6 +1074,30 @@ fn main() -> anyhow::Result<()> {
                 let base = data_dir.join("mde").join("surrounding");
                 for ch in read_all_surrounding(&base) {
                     println!("{}", serde_json::to_string(&ch)?);
+                }
+            }
+        }
+        Cmd::SurroundingTrust { key, state } => {
+            use mackesd_core::surrounding_hosts::{set_host_trust, TrustState};
+            let ts = match state.to_ascii_lowercase().as_str() {
+                "trusted" => TrustState::Trusted,
+                "blocked" => TrustState::Blocked,
+                "unknown" => TrustState::Unknown,
+                other => {
+                    eprintln!("error: unknown trust state '{other}' (want trusted|blocked|unknown)");
+                    std::process::exit(1);
+                }
+            };
+            let Some(data_dir) = dirs::data_dir() else {
+                eprintln!("error: no XDG data dir");
+                std::process::exit(1);
+            };
+            let path = data_dir.join("mde").join("surrounding").join("trust.json");
+            match set_host_trust(&path, &key, ts) {
+                Ok(_) => println!("{key}\t{}", ts.wire_name()),
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    std::process::exit(1);
                 }
             }
         }
