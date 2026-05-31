@@ -13,7 +13,7 @@ name = "mde-virtual"
 path = "src/main.rs"
 
 [dependencies]
-iced       = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced", "wayland"] }
+iced       = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced", "wayland", "canvas"] }
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap       = { version = "4.5", features = ["derive"] }

@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod sparkline;
 mod wizard;
 
 use clap::Parser;

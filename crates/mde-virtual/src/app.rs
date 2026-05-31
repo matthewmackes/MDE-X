@@ -12,7 +12,7 @@
 //! direct `virsh list` / `podman ps` read backs the Local tab when the
 //! Bus is unavailable.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -21,6 +21,7 @@ use iced::{Background, Border, Color, Element, Length, Subscription, Task};
 use mde_theme::{Density, Rgba, Theme, Tokens, TypeRole};
 use serde::{Deserialize, Serialize};
 
+use crate::sparkline::{self, push_sample};
 use crate::wizard::{Template, WizardAction, WizardMsg, WizardState};
 
 // ── Inventory data model ────────────────────────────────────────────────
@@ -996,6 +997,9 @@ pub(crate) struct VirtualApp {
     pending_create: Option<PendingCreate>,
     /// The open `[Save as template…]` name prompt, if any (VIRT-16.a).
     save_template_name: Option<String>,
+    /// Per-metric sparkline ring buffers for the selected local VM (17.a).
+    cpu_history: VecDeque<f32>,
+    ram_history: VecDeque<f32>,
     local_host: String,
 }
 
@@ -1018,6 +1022,8 @@ impl VirtualApp {
             wizard: None,
             pending_create: None,
             save_template_name: None,
+            cpu_history: VecDeque::new(),
+            ram_history: VecDeque::new(),
             local_host: local_hostname(),
         }
     }
@@ -1062,6 +1068,30 @@ impl VirtualApp {
             Message::PollLoaded(r) => {
                 self.fleet = r.fleet;
                 self.local_direct = r.local_direct;
+                // Sample the selected local VM's live CPU/RAM into the
+                // sparkline buffers + refresh the panel's shown stats (17.a).
+                if let Some(name) = self
+                    .selected
+                    .as_ref()
+                    .filter(|d| d.is_local)
+                    .map(|d| d.name.clone())
+                {
+                    let sample = self
+                        .fleet
+                        .inventories()
+                        .iter()
+                        .find(|i| is_local(i, &self.local_host))
+                        .and_then(|inv| inv.vms.iter().find(|v| v.name == name))
+                        .map(|v| (v.cpu_pct, v.ram_mb));
+                    if let Some((cpu, ram)) = sample {
+                        if let Some(d) = self.selected.as_mut() {
+                            d.cpu_pct = cpu;
+                            d.ram_mb = ram;
+                        }
+                        push_sample(&mut self.cpu_history, cpu as f32);
+                        push_sample(&mut self.ram_history, ram as f32);
+                    }
+                }
                 Task::none()
             }
             Message::Action { kind, name, verb } => {
@@ -1079,6 +1109,8 @@ impl VirtualApp {
                 self.exposed_rules = Vec::new();
                 self.migrate_open = false;
                 self.save_template_name = None;
+                self.cpu_history = VecDeque::new();
+                self.ram_history = VecDeque::new();
                 let ip = detail.nebula_ip.clone();
                 let local_name = detail.is_local.then(|| detail.name.clone());
                 self.selected = Some(detail);
@@ -1762,6 +1794,13 @@ impl VirtualApp {
         .spacing(f32::from(space.sm))
         .width(Length::Fill);
 
+        // Live CPU/RAM sparklines (local VMs only) — VIRT-17.a.
+        if d.is_local {
+            let palette = self.tokens.palette;
+            col = col.push(self.spark_row("CPU %", &self.cpu_history, palette.accent));
+            col = col.push(self.spark_row("RAM (MB)", &self.ram_history, palette.text_muted));
+        }
+
         // Action buttons — enabled only on local VMs whose state allows
         // the verb (§13 M4: remote VMs are read-only).
         let mut actions = row![].spacing(f32::from(space.xs));
@@ -1836,6 +1875,20 @@ impl VirtualApp {
                 .width(Length::FillPortion(3)),
         ]
         .spacing(f32::from(space.sm))
+        .into()
+    }
+
+    fn spark_row(&self, label: &str, history: &VecDeque<f32>, color: Rgba) -> Element<'_, Message> {
+        let space = self.tokens.space;
+        let palette = self.tokens.palette;
+        column![
+            text(label.to_string())
+                .size(TypeRole::Caption.size_in(self.tokens.font_size))
+                .color(rgba(palette.text_muted)),
+            sparkline::sparkline(history.iter().copied().collect(), rgba(color), 36.0),
+        ]
+        .spacing(f32::from(space.xs2))
+        .width(Length::Fill)
         .into()
     }
 

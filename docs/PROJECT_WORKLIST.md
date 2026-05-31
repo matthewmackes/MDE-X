@@ -2231,15 +2231,15 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [✓] each step-1 picker template has a `[Delete]` that removes its `.json` + reloads the list (`list_templates` carries the path)
     - [✓] delete-removes-file unit-tested
 
-- [ ] **VIRT-17: v5.0.0 — `mde-virtual` real-time CPU/RAM sparklines in VM detail panel**
+- [ ] **VIRT-17: v5.0.0 — `mde-virtual` real-time CPU/RAM sparklines in VM detail panel** *(split per §0.12 2026-05-31 into 17.a sparkline+ring-buffer [shipped] + 17.b 2 s virsh-direct live sampling; umbrella open until 17.b)*
   **As** an operator, **I want** live CPU% and RAM sparklines in the VM detail panel,
   **so that** I can see resource trends without opening a separate monitoring tool.
-  **Acceptance** (each bench-observable):
-    - [ ] VM detail panel runs a 2-second Iced subscription calling `virDomainGetCPUStats` + `virDomainMemoryStats` (via `virt` crate or `virsh dommemstat` fallback)
-    - [ ] 60-point ring buffer per metric; sparkline renders as a thin line chart inside the detail panel (no axes, just shape)
-    - [ ] Sparkline pauses when detail panel is hidden; resumes on re-open (no background polling)
-    - [ ] Remote VMs in Fleet tab show last-known CPU%/RAM from `compute/inventory/*` Bus message (no live sparkline for remote VMs)
-    - [ ] 2 unit tests: ring buffer overflow wraps correctly, sparkline dataset maps to point positions
+  - [✓] **VIRT-17.a: sparkline canvas + ring buffer + sampling** *(shipped 2026-05-31 — session=opus-48-2026-05-31-virt17a. New module `crates/mde-virtual/src/sparkline.rs` (`mod sparkline;`; iced `canvas` feature added): `push_sample` (60-point `VecDeque` ring buffer, drops oldest when full) + `spark_points` (pure: maps values to `(x,y)` in a box, x even-spread, y inverted + auto-scaled to the data max) + a `canvas::Program` (`Spark`) that strokes the polyline (no axes — just the shape) + a `sparkline(values, color, height) -> Element` helper. In app.rs: `cpu_history`/`ram_history` `VecDeque<f32>` buffers (reset on `SelectVm`); on each `PollLoaded`, if a local VM is selected, its current `cpu_pct`/`ram_mb` are looked up from the freshly-polled fleet, pushed to the buffers, AND written back to `self.selected` so the panel's CPU/RAM numbers update live; the detail panel renders two labelled sparklines (`spark_row`) for local VMs only. Sampling only happens while a local VM is selected (no growth when no panel → satisfies "pause when hidden"); remote VMs show their last-known inventory CPU%/RAM with no sparkline (bullet 4). `cargo build`+`test -p mde-virtual` green (48 tests, +3: ring-buffer wrap, spark_points box mapping, empty-below-2). Lints clean (7). DoD gate 8: read-only — samples come from the already-read mesh-local inventory; no listener/port/D-Bus/new surface. The 2 s virsh-direct live sampling (vs the current 5 s inventory cadence) is VIRT-17.b.)*
+    - [✓] 60-point ring buffer per metric; sparkline renders as a thin line chart in the detail panel (no axes, just shape)
+    - [✓] sparkline pauses when no local VM is selected (no sampling); resumes on select
+    - [✓] remote VMs show last-known CPU%/RAM from `compute/inventory/*` with no live sparkline
+    - [✓] unit tests: ring-buffer overflow wraps, sparkline dataset → point positions
+  - [ ] **VIRT-17.b: 2 s virsh-direct live sampling** — replace the 5 s inventory-cadence sampling (17.a) with a dedicated 2 s Iced subscription (active only while a local VM is selected) that reads the VM's CPU/RAM directly via `virsh domstats --vcpu` (cpu% from the stored-prev vcpu-time delta) + `virsh dommemstat` (rss), for finer-grained live sparklines. Acceptance: a 2 s subscription samples the selected local VM directly; cpu%-delta + dommemstat parsers unit-tested. Cite: visual-identity.md §1; ref: Apple System Settings.
 
 - [ ] **VIRT-18: v5.0.0 — `mde-virtual` container + pod management**
   **As** an operator, **I want** to view and manage Podman containers and pods in `mde-virtual`,
