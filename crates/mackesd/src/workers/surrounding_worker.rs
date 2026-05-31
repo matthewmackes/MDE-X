@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::surrounding_hosts::{
     arp_neigh_map, classify, collect_mdns, enrich_hosts, hosts_from_mdns, load_system_oui,
-    reverse_dns, HostSignals, SurroundingHost,
+    refine_unknown_with_http, reverse_dns, HostSignals, SurroundingHost,
 };
 use crate::workers::netassess::snapshot_filename;
 
@@ -81,7 +81,9 @@ impl SurroundingWorker {
                 }
             }
         }
-        enrich_hosts(hosts, &arp_neigh_map(), &load_system_oui())
+        let mut hosts = enrich_hosts(hosts, &arp_neigh_map(), &load_system_oui());
+        refine_unknown_with_http(&mut hosts);
+        hosts
     }
 
     fn host_dir(&self) -> PathBuf {

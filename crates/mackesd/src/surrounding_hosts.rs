@@ -603,6 +603,92 @@ pub fn enrich_hosts(
     hosts
 }
 
+/// Parse the `Server:` header value from `curl -I` output. Header name
+/// match is case-insensitive; `None` when absent or empty.
+#[must_use]
+pub fn parse_http_server(headers: &str) -> Option<String> {
+    for line in headers.lines() {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("server") {
+                let v = value.trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Map an HTTP `Server` banner to a host type for the recognisable
+/// embedded-device servers (MESH-A-4.c.3). Generic servers
+/// (nginx/Apache) say nothing about device type → `None`.
+#[must_use]
+pub fn host_type_from_http_server(server: &str) -> Option<HostType> {
+    let s = server.to_ascii_lowercase();
+    if s.contains("cups") || s.contains("ipp") {
+        return Some(HostType::Printer);
+    }
+    if s.contains("hikvision")
+        || s.contains("dahua")
+        || s.contains("axis")
+        || s.contains("webcam")
+        || s.contains("rtsp")
+    {
+        return Some(HostType::Camera);
+    }
+    if s.contains("synology")
+        || s.contains("diskstation")
+        || s.contains("qnap")
+        || s.contains("freenas")
+        || s.contains("truenas")
+    {
+        return Some(HostType::Nas);
+    }
+    if s.contains("routeros")
+        || s.contains("mikrotik")
+        || s.contains("openwrt")
+        || s.contains("dd-wrt")
+    {
+        return Some(HostType::Router);
+    }
+    None
+}
+
+/// Fetch the `Server` banner from `http://<ip>` via `curl -sI`
+/// (3s timeout). `None` when curl is absent or the host doesn't serve
+/// HTTP. HW-bench-gated shell-out; the pure half is
+/// [`parse_http_server`].
+#[must_use]
+pub fn http_server_banner(ip: &str) -> Option<String> {
+    let url = format!("http://{ip}");
+    let out = Command::new("curl")
+        .args(["-sI", "--max-time", "3", &url])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_http_server(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Refine still-[`HostType::Unknown`] hosts from their HTTP `Server`
+/// banner. Only Unknown hosts are probed — a confident mDNS / hostname
+/// / vendor type is left alone, and skipping typed hosts bounds the
+/// per-sweep `curl` calls. The shell-out is HW-bench-gated.
+pub fn refine_unknown_with_http(hosts: &mut [SurroundingHost]) {
+    for host in hosts.iter_mut() {
+        if host.host_type != HostType::Unknown {
+            continue;
+        }
+        if let Some(server) = http_server_banner(&host.ip) {
+            if let Some(t) = host_type_from_http_server(&server) {
+                host.host_type = t;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -902,5 +988,26 @@ mod tests {
         );
         assert_eq!(out[0].host_type, HostType::TvCast);
         assert!(out[0].mac.is_empty());
+    }
+
+    // ── MESH-A-4.c.3: HTTP banner ──
+
+    #[test]
+    fn parse_http_server_extracts_case_insensitive() {
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nSERVER: CUPS/2.4 IPP/2.1\r\n\r\n";
+        assert_eq!(parse_http_server(headers).as_deref(), Some("CUPS/2.4 IPP/2.1"));
+        assert_eq!(parse_http_server("HTTP/1.1 200 OK\r\n\r\n"), None);
+        assert_eq!(parse_http_server("Server:   \r\n"), None); // empty value
+    }
+
+    #[test]
+    fn host_type_from_http_server_maps_embedded_devices() {
+        assert_eq!(host_type_from_http_server("CUPS/2.4"), Some(HostType::Printer));
+        assert_eq!(host_type_from_http_server("Hikvision-Webs"), Some(HostType::Camera));
+        assert_eq!(host_type_from_http_server("Synology DiskStation"), Some(HostType::Nas));
+        assert_eq!(host_type_from_http_server("RouterOS/7.1 (MikroTik)"), Some(HostType::Router));
+        // Generic web servers say nothing about device type.
+        assert_eq!(host_type_from_http_server("nginx/1.24"), None);
+        assert_eq!(host_type_from_http_server("Apache/2.4.57"), None);
     }
 }
