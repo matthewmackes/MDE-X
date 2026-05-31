@@ -114,6 +114,11 @@ enum Cmd {
     /// A-5.2 worker applies these via firewall-cmd; this prints them.
     MeshFirewallPlan,
 
+    /// MESH-A-6.1 (v5.0.0) — scan the ARP/neighbour table for spoofing
+    /// suspects (R8-Q53): a MAC bound to 2+ IPv4 addresses. Prints one
+    /// `<mac>\t<ip,ip,…>` line per suspect (empty when clean).
+    ArpSpoofCheck,
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -1116,6 +1121,12 @@ fn main() -> anyhow::Result<()> {
                 for ip in blocked_ips(&read_all_surrounding(&base)) {
                     println!("{}", drop_rich_rule_body(&ip));
                 }
+            }
+        }
+        Cmd::ArpSpoofCheck => {
+            use mackesd_core::surrounding_hosts::{arp_neigh_map, arp_spoof_suspects};
+            for (mac, ips) in arp_spoof_suspects(&arp_neigh_map()) {
+                println!("{mac}\t{}", ips.join(","));
             }
         }
         Cmd::Probe { action } => match action {

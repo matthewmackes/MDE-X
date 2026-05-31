@@ -888,6 +888,34 @@ pub fn drop_rich_rule_body(ip: &str) -> String {
     format!(r#"rule family="{family}" source address="{ip}" drop"#)
 }
 
+/// Detect ARP-spoofing suspects in a neighbour map (MESH-A-6.1,
+/// R8-Q53): a MAC bound to **2+ distinct IPv4 addresses** — the
+/// classic poisoning signature (one attacker MAC answering ARP for the
+/// gateway + victim IPs). IPv4-only on purpose: a normal dual-stack
+/// host shares its MAC across its v4 + v6 addresses, which is not a
+/// spoof. Returns `(mac, sorted-ips)` per suspect, MAC-sorted. Pure.
+#[must_use]
+pub fn arp_spoof_suspects(neigh: &HashMap<String, String>) -> Vec<(String, Vec<String>)> {
+    let mut by_mac: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (ip, mac) in neigh {
+        if ip.contains(':') {
+            continue; // IPv4 only
+        }
+        let ips = by_mac.entry(mac.clone()).or_default();
+        if !ips.contains(ip) {
+            ips.push(ip.clone());
+        }
+    }
+    by_mac
+        .into_iter()
+        .filter(|(_, ips)| ips.len() >= 2)
+        .map(|(mac, mut ips)| {
+            ips.sort();
+            (mac, ips)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1348,5 +1376,30 @@ mod tests {
             r#"rule family="ipv4" source address="10.0.0.5" drop"#
         );
         assert!(drop_rich_rule_body("fe80::1").contains(r#"family="ipv6""#));
+    }
+
+    // ── MESH-A-6.1: ARP-spoof detection ──
+
+    #[test]
+    fn arp_spoof_flags_mac_with_multiple_ipv4s() {
+        let mut neigh = HashMap::new();
+        neigh.insert("192.168.1.1".to_string(), "aa:bb:cc:00:00:01".to_string()); // gateway
+        neigh.insert("192.168.1.5".to_string(), "aa:bb:cc:00:00:02".to_string()); // a host
+        // Attacker MAC answers ARP for two IPv4s (gateway impersonation):
+        neigh.insert("192.168.1.50".to_string(), "de:ad:be:ef:00:00".to_string());
+        neigh.insert("192.168.1.60".to_string(), "de:ad:be:ef:00:00".to_string());
+        let suspects = arp_spoof_suspects(&neigh);
+        assert_eq!(suspects.len(), 1);
+        assert_eq!(suspects[0].0, "de:ad:be:ef:00:00");
+        assert_eq!(suspects[0].1, vec!["192.168.1.50", "192.168.1.60"]);
+    }
+
+    #[test]
+    fn arp_spoof_ignores_dual_stack_single_mac() {
+        // A normal dual-stack host: one MAC on its v4 + v6 — not a spoof.
+        let mut neigh = HashMap::new();
+        neigh.insert("192.168.1.5".to_string(), "aa:bb:cc:00:00:02".to_string());
+        neigh.insert("fe80::1".to_string(), "aa:bb:cc:00:00:02".to_string());
+        assert!(arp_spoof_suspects(&neigh).is_empty());
     }
 }
