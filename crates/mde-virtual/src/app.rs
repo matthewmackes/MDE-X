@@ -528,6 +528,124 @@ pub(crate) fn pick_latest_per_peer(entries: Vec<(String, Inventory)>) -> Vec<Inv
     out
 }
 
+// ── Exposed ports (VIRT-14.c) ───────────────────────────────────────────
+//
+// Read-only mirror of `compute_expose`'s published `compute/exposed/<peer>`
+// document, used to list a VM's active port-forwards in the detail panel.
+
+/// Which network a forward lives on (mirror of `compute_expose::Network`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Network {
+    Mesh,
+    Lan,
+    Wan,
+}
+
+impl Network {
+    fn label(self) -> &'static str {
+        match self {
+            Network::Mesh => "Mesh",
+            Network::Lan => "LAN",
+            Network::Wan => "WAN",
+        }
+    }
+}
+
+/// One active forwarding rule (mirror of `compute_expose::ActiveRule`).
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ActiveRule {
+    pub network: Network,
+    #[serde(default)]
+    pub vm_nebula_ip: String,
+    #[serde(default)]
+    pub host_port: u16,
+    #[serde(default)]
+    pub proto: String,
+}
+
+/// The published `compute/exposed/<peer>` payload.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ExposedState {
+    #[serde(default)]
+    pub peer: String,
+    #[serde(default)]
+    pub rules: Vec<ActiveRule>,
+}
+
+/// Flatten per-peer exposed-state docs to the rules matching one VM's
+/// overlay IP. Pure; an empty IP matches nothing.
+pub(crate) fn rules_for_vm(states: Vec<ExposedState>, vm_nebula_ip: &str) -> Vec<ActiveRule> {
+    if vm_nebula_ip.is_empty() {
+        return vec![];
+    }
+    states
+        .into_iter()
+        .flat_map(|s| s.rules)
+        .filter(|r| r.vm_nebula_ip == vm_nebula_ip)
+        .collect()
+}
+
+/// Deserialize the freshest `*.json` doc per peer subdir under a topic
+/// tree (newest ULID wins), tolerating flat files too.
+fn latest_docs_in_topic<T: serde::de::DeserializeOwned>(topic_dir: &Path) -> Vec<T> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(topic_dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let body = if p.is_dir() {
+            latest_json_in(&p)
+        } else if p.extension().and_then(|x| x.to_str()) == Some("json") {
+            std::fs::read_to_string(&p).ok()
+        } else {
+            None
+        };
+        if let Some(b) = body {
+            if let Ok(doc) = serde_json::from_str::<T>(&b) {
+                out.push(doc);
+            }
+        }
+    }
+    out
+}
+
+/// The lexically-newest `*.json` body in a directory (newest ULID wins).
+fn latest_json_in(dir: &Path) -> Option<String> {
+    let mut best: Option<(String, String)> = None;
+    for e in std::fs::read_dir(dir).ok()?.flatten() {
+        let p = e.path();
+        if p.extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()).map(String::from) else {
+            continue;
+        };
+        let better = best.as_ref().map_or(true, |(s, _)| stem > *s);
+        if better {
+            if let Ok(body) = std::fs::read_to_string(&p) {
+                best = Some((stem, body));
+            }
+        }
+    }
+    best.map(|(_, body)| body)
+}
+
+/// Read the active exposed forwards for one VM across all peers' published
+/// `compute/exposed/*` state.
+fn read_exposed_for_vm(vm_nebula_ip: &str) -> Vec<ActiveRule> {
+    if vm_nebula_ip.is_empty() {
+        return vec![];
+    }
+    let Some(root) = bus_root() else {
+        return vec![];
+    };
+    let states: Vec<ExposedState> =
+        latest_docs_in_topic(&root.join("compute").join("exposed"));
+    rules_for_vm(states, vm_nebula_ip)
+}
+
 // ── VM detail (VIRT-14.a) ────────────────────────────────────────────────
 
 /// A snapshot of one VM's data for the detail panel. Carries `is_local`
@@ -593,6 +711,8 @@ pub(crate) enum Message {
     TakeSnapshot(String),
     /// Delete a named snapshot from a local VM.
     DeleteSnapshot { vm: String, snap: String },
+    /// A selected VM's exposed-port list finished loading.
+    ExposedLoaded(Vec<ActiveRule>),
 }
 
 /// `mde-virtual` application state.
@@ -608,6 +728,8 @@ pub(crate) struct VirtualApp {
     selected: Option<VmDetail>,
     /// Snapshot names for the selected VM (VIRT-14.b); refreshed on select.
     selected_snapshots: Vec<String>,
+    /// Active exposed-port rules for the selected VM (VIRT-14.c); on select.
+    exposed_rules: Vec<ActiveRule>,
     local_host: String,
 }
 
@@ -624,6 +746,7 @@ impl VirtualApp {
             expanded: HashMap::new(),
             selected: None,
             selected_snapshots: Vec::new(),
+            exposed_rules: Vec::new(),
             local_host: local_hostname(),
         }
     }
@@ -657,13 +780,20 @@ impl VirtualApp {
             }
             Message::SelectVm(detail) => {
                 self.selected_snapshots = Vec::new();
-                let fetch = detail.is_local.then(|| detail.name.clone());
+                self.exposed_rules = Vec::new();
+                let ip = detail.nebula_ip.clone();
+                let local_name = detail.is_local.then(|| detail.name.clone());
                 self.selected = Some(detail);
-                match fetch {
-                    Some(vm) => {
-                        Task::perform(async move { snapshot_list(&vm) }, Message::SnapshotsLoaded)
-                    }
-                    None => Task::none(),
+                // Exposed ports are mesh-readable for any VM; snapshots only
+                // for local VMs (virsh is local).
+                let exposed =
+                    Task::perform(async move { read_exposed_for_vm(&ip) }, Message::ExposedLoaded);
+                match local_name {
+                    Some(vm) => Task::batch([
+                        exposed,
+                        Task::perform(async move { snapshot_list(&vm) }, Message::SnapshotsLoaded),
+                    ]),
+                    None => exposed,
                 }
             }
             Message::CloseDetail => {
@@ -678,6 +808,10 @@ impl VirtualApp {
             }
             Message::SnapshotsLoaded(snaps) => {
                 self.selected_snapshots = snaps;
+                Task::none()
+            }
+            Message::ExposedLoaded(rules) => {
+                self.exposed_rules = rules;
                 Task::none()
             }
             Message::TakeSnapshot(vm) => {
@@ -1061,6 +1195,9 @@ impl VirtualApp {
         }
         col = col.push(console);
 
+        // Exposed ports (any VM — exposures are mesh-readable) — VIRT-14.c.
+        col = col.push(self.exposed_section());
+
         // Snapshots (local VMs only) — VIRT-14.b.
         if d.is_local {
             col = col.push(self.snapshot_section(d));
@@ -1098,6 +1235,26 @@ impl VirtualApp {
         ]
         .spacing(f32::from(space.sm))
         .into()
+    }
+
+    fn exposed_section(&self) -> Element<'_, Message> {
+        let palette = self.tokens.palette;
+        let space = self.tokens.space;
+        let mut col = column![text("Exposed ports")
+            .size(TypeRole::Subheading.size_in(self.tokens.font_size))
+            .color(rgba(palette.text))]
+        .spacing(f32::from(space.xs))
+        .width(Length::Fill);
+        if self.exposed_rules.is_empty() {
+            col = col.push(self.muted_line("No exposed ports."));
+        } else {
+            for r in &self.exposed_rules {
+                col = col.push(
+                    self.detail_kv(r.network.label(), &format!("{}/{}", r.host_port, r.proto)),
+                );
+            }
+        }
+        col.into()
     }
 
     fn snapshot_section<'a>(&'a self, d: &'a VmDetail) -> Element<'a, Message> {
@@ -1476,5 +1633,35 @@ mod tests {
         assert_eq!(a, vec!["-c", "qemu:///system", "snapshot-create-as", "web"]);
         let (_, a) = snapshot_delete_command("web", "snap-1");
         assert_eq!(a, vec!["-c", "qemu:///system", "snapshot-delete", "web", "snap-1"]);
+    }
+
+    #[test]
+    fn network_deserializes_lowercase_wire_names() {
+        assert_eq!(serde_json::from_str::<Network>("\"mesh\"").unwrap(), Network::Mesh);
+        assert_eq!(serde_json::from_str::<Network>("\"lan\"").unwrap(), Network::Lan);
+        assert_eq!(serde_json::from_str::<Network>("\"wan\"").unwrap(), Network::Wan);
+    }
+
+    #[test]
+    fn rules_for_vm_filters_by_overlay_ip() {
+        let json = r#"{"peer":"10.42.0.1","rules":[
+            {"network":"mesh","vm_nebula_ip":"10.42.128.5","host_port":8080,"proto":"tcp"},
+            {"network":"lan","vm_nebula_ip":"10.42.128.9","host_port":443,"proto":"tcp"}
+        ]}"#;
+        let state: ExposedState = serde_json::from_str(json).unwrap();
+        assert_eq!(state.peer, "10.42.0.1");
+        let mine = rules_for_vm(vec![state], "10.42.128.5");
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].host_port, 8080);
+        assert_eq!(mine[0].network, Network::Mesh);
+        assert_eq!(mine[0].proto, "tcp");
+    }
+
+    #[test]
+    fn rules_for_vm_empty_ip_matches_nothing() {
+        let json =
+            r#"{"peer":"p","rules":[{"network":"mesh","vm_nebula_ip":"","host_port":1,"proto":"tcp"}]}"#;
+        let state: ExposedState = serde_json::from_str(json).unwrap();
+        assert!(rules_for_vm(vec![state], "").is_empty());
     }
 }
