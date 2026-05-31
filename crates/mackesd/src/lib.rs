@@ -20,6 +20,9 @@ pub mod ca;
 // MESH-A-7 (v5.0.0) — well-known port → connect-action mappings,
 // consumed by the `mackesd connect` CLI + (future) host-card UI.
 pub mod connect_actions;
+// MESH-A-9 (v5.0.0) — audit log of network-state changes →
+// kind="audit" activity entries, consumed by `mackesd audit-log`.
+pub mod audit_log;
 // HYP-8.5 (v6.5) — operator-edited config-file modules. Currently
 // hosts the tag-manifest schema + loader (`~/.config/mde/tags/`).
 // Future v6.5 config families (Hyprland-side per-peer overrides,

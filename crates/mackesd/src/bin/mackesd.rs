@@ -156,6 +156,18 @@ enum Cmd {
         source: String,
     },
 
+    /// MESH-A-9 (v5.0.0) — write a network-state-change audit entry
+    /// (R8-Q80): a `kind="audit"` activity record at
+    /// `mde/activity/audit/<iso>-<hash>.json`. Prints the written path.
+    AuditLog {
+        /// The audited event (e.g. `host-blocked`, `arp-spoof-detected`).
+        #[arg(value_name = "EVENT")]
+        event: String,
+        /// Optional context detail.
+        #[arg(long = "detail", value_name = "TEXT", default_value = "")]
+        detail: String,
+    },
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -1247,6 +1259,19 @@ fn main() -> anyhow::Result<()> {
                         "{}\tcount={}\tfirst_seen_ms={}\tlast_seen_ms={}",
                         a.source, a.count, a.first_seen_ms, a.last_seen_ms
                     );
+                }
+            }
+        }
+        Cmd::AuditLog { event, detail } => {
+            use mackesd_core::audit_log::write_audit_event;
+            if let Some(data_dir) = dirs::data_dir() {
+                let activity_root = data_dir.join("mde").join("activity");
+                match write_audit_event(&activity_root, &event, &detail) {
+                    Ok(path) => println!("{}", path.display()),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(1);
+                    }
                 }
             }
         }
