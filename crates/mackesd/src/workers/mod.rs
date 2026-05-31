@@ -174,6 +174,14 @@ pub mod compute_expose;
 // `event/compute/migrate-ready` + virsh undefine. VIRT-8.b
 // (target-side compute_provision handler) ships with VIRT-6.
 pub mod compute_migrate;
+// MESH-A-1 (v5.0.0) — per-peer network assessment. Collects the 9
+// items from docs/design/v6.0-mde-portal.md §7.1 (wifi / arp /
+// gateway-dns / public-ip / speedtest / ipv4-6 / mtu / tunnel /
+// subnet) on an hourly tick, writes a timestamped JSON snapshot to
+// ~/.local/share/mde/netassess/<host>/<iso>-<hash>.json, and trims
+// the 30-day rolling window. Pure parsers per item; shell-outs
+// degrade to None when a tool is absent.
+pub mod netassess;
 // VIRT-6 (v5.0.0) — compute_provision. Drains
 // `compute/create/<own-addr>`: ensures the mde-vms pool (VIRT-3),
 // allocates a per-peer /24 VM IP, requester-side nebula-cert keygen

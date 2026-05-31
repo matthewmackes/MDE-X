@@ -3153,7 +3153,7 @@ fn run_serve(
         // lighthouse roster.
         sup.spawn(Spawn::new(
             mackesd_core::workers::compute_provision::ComputeProvisionWorker::new(
-                fw_host,
+                fw_host.clone(),
                 qnm_root.clone(),
                 node_id.clone(),
             ),
@@ -3163,6 +3163,25 @@ fn run_serve(
             .lock()
             .expect("worker_names mutex")
             .push("compute_provision".into());
+
+        // MESH-A-1 (v5.0.0) — per-peer network assessment. Collects
+        // the 9 items (docs/design/v6.0-mde-portal.md §7.1) hourly +
+        // writes ~/.local/share/mde/netassess/<host>/<iso>-<hash>.json
+        // with a 30-day rolling trim. Shell-outs degrade to None when
+        // a tool is absent (headless / air-gapped peers).
+        if let Some(data_dir) = dirs::data_dir() {
+            let netassess_base = data_dir.join("mde").join("netassess");
+            sup.spawn(Spawn::new(
+                mackesd_core::workers::netassess::NetAssessWorker::new(fw_host, netassess_base),
+                RestartPolicy::Always,
+            ));
+            worker_names
+                .lock()
+                .expect("worker_names mutex")
+                .push("netassess".into());
+        } else {
+            tracing::warn!("netassess: no XDG data dir; skipping network assessment worker");
+        }
 
         // EPIC-MESH-PROBE (MESH-PROBE-4) — scheduled two-tier nmap
         // probe worker. Resolves mesh-peer overlay IPs, scans them
