@@ -1241,6 +1241,28 @@ pub fn save_alert_store(path: &Path, store: &AlertStore) -> std::io::Result<()> 
     std::fs::write(path, body)
 }
 
+/// Whether an mDNS service type marks an MDE/MAP2 peer (MESH-A-8 /
+/// R8-Q90). Best-choice marker set — `_map2-node._tcp` is the observed
+/// node service; `_mde*` / `_mackes*` cover the rebrand variants. No
+/// single in-tree definition, so this is the documented heuristic.
+fn is_mde_service(service_type: &str) -> bool {
+    let s = service_type.to_ascii_lowercase();
+    s.contains("_map2-node") || s.contains("_mde") || s.contains("_mackes")
+}
+
+/// LAN MDE-peer pairing candidates (R8-Q90 auto-suggest): discovered
+/// hosts advertising an MDE mDNS service. Returns `(ip, hostname)` per
+/// candidate. Pure over the discovered/coalesced hosts; the onboarding
+/// wizard (pair-with-passcode / install-first / QR, R8-Q35) is A-8.2.
+#[must_use]
+pub fn mde_peer_candidates(hosts: &[SurroundingHost]) -> Vec<(String, String)> {
+    hosts
+        .iter()
+        .filter(|h| h.services.iter().any(|s| is_mde_service(s)))
+        .map(|h| (h.ip.clone(), h.hostname.clone()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1861,5 +1883,27 @@ mod tests {
         assert_eq!(acked, vec!["stale"]);
         assert!(store.contains_key("recent"));
         assert!(!store.contains_key("stale"));
+    }
+
+    // ── MESH-A-8.1: LAN MDE-peer detection ──
+
+    #[test]
+    fn is_mde_service_matches_markers() {
+        assert!(is_mde_service("_map2-node._tcp"));
+        assert!(is_mde_service("_mde-sync._tcp"));
+        assert!(is_mde_service("_mackes._tcp"));
+        assert!(!is_mde_service("_smb._tcp"));
+        assert!(!is_mde_service("_googlecast._tcp"));
+    }
+
+    #[test]
+    fn mde_peer_candidates_flags_mde_advertisers_only() {
+        let hosts = vec![
+            bare_host("10.0.0.5", &["_map2-node._tcp", "_device-info._tcp"], HostType::Computer),
+            bare_host("10.0.0.6", &["_smb._tcp"], HostType::Nas), // not MDE
+        ];
+        let cands = mde_peer_candidates(&hosts);
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].0, "10.0.0.5");
     }
 }

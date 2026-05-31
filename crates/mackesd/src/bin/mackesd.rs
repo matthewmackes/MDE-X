@@ -168,6 +168,11 @@ enum Cmd {
         detail: String,
     },
 
+    /// MESH-A-8.1 (v5.0.0) — list LAN MDE-peer pairing candidates
+    /// (R8-Q90): mDNS hosts advertising an MDE service. One
+    /// `<ip>\t<hostname>` line per candidate.
+    DiscoverMdePeers,
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -1273,6 +1278,19 @@ fn main() -> anyhow::Result<()> {
                         std::process::exit(1);
                     }
                 }
+            }
+        }
+        Cmd::DiscoverMdePeers => {
+            use mackesd_core::surrounding_hosts::{
+                collect_mdns, hosts_from_mdns, mde_peer_candidates,
+            };
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let hosts = hosts_from_mdns(&collect_mdns("avahi-browse"), now_ms);
+            for (ip, hostname) in mde_peer_candidates(&hosts) {
+                println!("{ip}\t{hostname}");
             }
         }
         Cmd::Probe { action } => match action {
