@@ -916,6 +916,43 @@ pub fn arp_spoof_suspects(neigh: &HashMap<String, String>) -> Vec<(String, Vec<S
         .collect()
 }
 
+/// Parse `nmap --script broadcast-dhcp-discover` output for the
+/// distinct DHCP server IPs — each `Server Identifier: <ip>` line
+/// (MESH-A-6.2, R8-Q54). 2+ distinct servers answering on one segment
+/// is a rogue DHCP server. Pure; tolerant of nmap's `|` / `|_` line
+/// prefixes.
+#[must_use]
+pub fn parse_dhcp_servers(stdout: &str) -> Vec<String> {
+    let mut servers = Vec::new();
+    for line in stdout.lines() {
+        let line = line.trim_start_matches(['|', '_', ' ']).trim();
+        if let Some(rest) = line.strip_prefix("Server Identifier:") {
+            let ip = rest.trim().to_string();
+            if !ip.is_empty() && !servers.contains(&ip) {
+                servers.push(ip);
+            }
+        }
+    }
+    servers
+}
+
+/// Run `nmap --script broadcast-dhcp-discover` + parse the responding
+/// DHCP servers. Empty when nmap is absent. HW-bench-gated (broadcast
+/// scan); the pure half is [`parse_dhcp_servers`].
+#[must_use]
+pub fn detect_dhcp_servers() -> Vec<String> {
+    let Ok(out) = Command::new("nmap")
+        .args(["--script", "broadcast-dhcp-discover"])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    parse_dhcp_servers(&String::from_utf8_lossy(&out.stdout))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1401,5 +1438,35 @@ mod tests {
         neigh.insert("192.168.1.5".to_string(), "aa:bb:cc:00:00:02".to_string());
         neigh.insert("fe80::1".to_string(), "aa:bb:cc:00:00:02".to_string());
         assert!(arp_spoof_suspects(&neigh).is_empty());
+    }
+
+    // ── MESH-A-6.2: rogue-DHCP detection ──
+
+    #[test]
+    fn parse_dhcp_servers_extracts_distinct_server_ids() {
+        let out = "Pre-scan script results:\n\
+                   | broadcast-dhcp-discover: \n\
+                   |   Response 1 of 2: \n\
+                   |     IP Offered: 192.168.1.50\n\
+                   |     Server Identifier: 192.168.1.1\n\
+                   |   Response 2 of 2: \n\
+                   |     IP Offered: 192.168.1.51\n\
+                   |_    Server Identifier: 192.168.1.250\n";
+        let servers = parse_dhcp_servers(out);
+        assert_eq!(servers, vec!["192.168.1.1", "192.168.1.250"], "2 servers → rogue");
+    }
+
+    #[test]
+    fn parse_dhcp_servers_single_and_none_and_dedup() {
+        assert_eq!(
+            parse_dhcp_servers("|     Server Identifier: 10.0.0.1\n"),
+            vec!["10.0.0.1"]
+        );
+        assert!(parse_dhcp_servers("no dhcp output here").is_empty());
+        // Same server quoted twice → deduped.
+        assert_eq!(
+            parse_dhcp_servers("| Server Identifier: 10.0.0.1\n| Server Identifier: 10.0.0.1\n"),
+            vec!["10.0.0.1"]
+        );
     }
 }

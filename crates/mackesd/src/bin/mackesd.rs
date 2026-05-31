@@ -119,6 +119,12 @@ enum Cmd {
     /// `<mac>\t<ip,ip,…>` line per suspect (empty when clean).
     ArpSpoofCheck,
 
+    /// MESH-A-6.2 (v5.0.0) — broadcast a DHCP discover
+    /// (`nmap --script broadcast-dhcp-discover`) + list the responding
+    /// DHCP servers (R8-Q54). Prints one server IP per line; warns +
+    /// exits 1 when 2+ respond (rogue DHCP).
+    RogueDhcpCheck,
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -1127,6 +1133,17 @@ fn main() -> anyhow::Result<()> {
             use mackesd_core::surrounding_hosts::{arp_neigh_map, arp_spoof_suspects};
             for (mac, ips) in arp_spoof_suspects(&arp_neigh_map()) {
                 println!("{mac}\t{}", ips.join(","));
+            }
+        }
+        Cmd::RogueDhcpCheck => {
+            use mackesd_core::surrounding_hosts::detect_dhcp_servers;
+            let servers = detect_dhcp_servers();
+            for s in &servers {
+                println!("{s}");
+            }
+            if servers.len() >= 2 {
+                eprintln!("ROGUE-DHCP: {} DHCP servers responding (expected 1)", servers.len());
+                std::process::exit(1);
             }
         }
         Cmd::Probe { action } => match action {
