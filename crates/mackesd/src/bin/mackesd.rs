@@ -75,6 +75,12 @@ enum Cmd {
         vendor: String,
     },
 
+    /// MESH-A-4.b.1 (v5.0.0) — browse the LAN for mDNS services
+    /// (`avahi-browse -aprt`), group them by host, classify each, and
+    /// print one `SurroundingHost` JSON line per discovered host.
+    /// Empty output when `avahi-browse` is absent.
+    DiscoverMdns,
+
     /// EPIC-MESH-PROBE — run the nmap probe engine (MESH-PROBE-2).
     Probe {
         #[command(subcommand)]
@@ -990,6 +996,17 @@ fn main() -> anyhow::Result<()> {
             };
             let ty = mackesd_core::surrounding_hosts::classify(&sig);
             println!("{}", ty.wire_name());
+        }
+        Cmd::DiscoverMdns => {
+            use mackesd_core::surrounding_hosts::{collect_mdns, hosts_from_mdns};
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let records = collect_mdns("avahi-browse");
+            for host in hosts_from_mdns(&records, now_ms) {
+                println!("{}", serde_json::to_string(&host)?);
+            }
         }
         Cmd::Probe { action } => match action {
             ProbeCmd::Scan { targets, deep, source, nse_dir } => {

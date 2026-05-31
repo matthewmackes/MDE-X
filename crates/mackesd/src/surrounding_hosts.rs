@@ -33,6 +33,8 @@
 //! signals (SNMP sysObjectID, LLDP) deferred to MESH-A-4.b; they are
 //! valid taxonomy members reachable for manual assignment today.
 
+use std::process::Command;
+
 /// One of the 14 surrounding-host types (R8-Q9). Wire form is the
 /// kebab-case [`HostType::wire_name`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -126,6 +128,49 @@ pub struct HostSignals {
     /// MAC-OUI vendor string (`Hewlett Packard`, `Ubiquiti Inc`, …).
     #[serde(default)]
     pub oui_vendor: String,
+}
+
+/// A discovered surrounding host (a LAN neighbour that is not a mesh
+/// peer). Built by the MESH-A-4.b collectors; the A-4.c worker stores
+/// + mesh-syncs these records. (The A-4.a note pencilled this struct
+/// in for A-4.c; it lands here in A-4.b.1, where the mDNS sweep first
+/// constructs it.)
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SurroundingHost {
+    /// IPv4/IPv6 address.
+    pub ip: String,
+    /// MAC address (empty until an ARP/OUI pass fills it — A-4.b.2).
+    #[serde(default)]
+    pub mac: String,
+    /// MAC-OUI vendor (empty until A-4.b.2).
+    #[serde(default)]
+    pub vendor: String,
+    /// Hostname (mDNS / reverse-DNS; may be empty).
+    #[serde(default)]
+    pub hostname: String,
+    /// Advertised service identifiers (mDNS service types today).
+    #[serde(default)]
+    pub services: Vec<String>,
+    /// Classified host type.
+    pub host_type: HostType,
+    /// Trust state (defaults to Unknown for a freshly-seen host).
+    #[serde(default)]
+    pub trust: TrustState,
+    /// Unix-epoch ms first seen.
+    pub first_seen_ms: i64,
+    /// Unix-epoch ms last seen.
+    pub last_seen_ms: i64,
+}
+
+/// One resolved mDNS service record (an `avahi-browse` `=` line).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MdnsService {
+    /// Resolved address.
+    pub ip: String,
+    /// Resolved hostname.
+    pub hostname: String,
+    /// Service type (`_ipp._tcp`, `_googlecast._tcp`, …).
+    pub service_type: String,
 }
 
 /// Classify a host from its discovery signals into one of the 14
@@ -261,6 +306,93 @@ fn host_type_from_port(port: u16) -> Option<HostType> {
     }
 }
 
+/// Parse `avahi-browse -aprt` output into resolved mDNS service
+/// records. Only `=` (resolved) lines carry an address; `+` (browse)
+/// lines are skipped. Fields are `;`-separated:
+/// `=;iface;proto;name;type;domain;hostname;address;port;txt…`.
+#[must_use]
+pub fn parse_avahi_browse(stdout: &str) -> Vec<MdnsService> {
+    let mut out = Vec::new();
+    for line in stdout.lines() {
+        if !line.starts_with('=') {
+            continue;
+        }
+        let f: Vec<&str> = line.split(';').collect();
+        if f.len() < 8 {
+            continue;
+        }
+        let service_type = f[4].trim().to_string();
+        let hostname = f[6].trim().to_string();
+        let ip = f[7].trim().to_string();
+        if ip.is_empty() || service_type.is_empty() {
+            continue;
+        }
+        out.push(MdnsService {
+            ip,
+            hostname,
+            service_type,
+        });
+    }
+    out
+}
+
+/// Group resolved mDNS records by IP into [`SurroundingHost`]s,
+/// classifying each from its advertised service types. `now_ms`
+/// stamps first/last-seen. Pure over the already-collected records.
+#[must_use]
+pub fn hosts_from_mdns(records: &[MdnsService], now_ms: i64) -> Vec<SurroundingHost> {
+    use std::collections::BTreeMap;
+    // ip -> (hostname, service-types in first-seen order)
+    let mut by_ip: BTreeMap<String, (String, Vec<String>)> = BTreeMap::new();
+    for r in records {
+        let entry = by_ip
+            .entry(r.ip.clone())
+            .or_insert_with(|| (r.hostname.clone(), Vec::new()));
+        if entry.0.is_empty() && !r.hostname.is_empty() {
+            entry.0 = r.hostname.clone();
+        }
+        if !entry.1.contains(&r.service_type) {
+            entry.1.push(r.service_type.clone());
+        }
+    }
+    by_ip
+        .into_iter()
+        .map(|(ip, (hostname, services))| {
+            let sig = HostSignals {
+                mdns_services: services.clone(),
+                ..Default::default()
+            };
+            SurroundingHost {
+                ip,
+                mac: String::new(),
+                vendor: String::new(),
+                hostname,
+                services,
+                host_type: classify(&sig),
+                trust: TrustState::default(),
+                first_seen_ms: now_ms,
+                last_seen_ms: now_ms,
+            }
+        })
+        .collect()
+}
+
+/// Browse the LAN for mDNS services via `avahi-browse -aprt` and parse
+/// the resolved records. Returns empty when `binary` is absent
+/// (headless / air-gapped peer) or exits non-zero. The shell-out is
+/// HW-bench-gated like the netassess collectors; [`parse_avahi_browse`]
+/// is the unit-tested pure half.
+#[must_use]
+pub fn collect_mdns(binary: &str) -> Vec<MdnsService> {
+    let Ok(out) = Command::new(binary).args(["-a", "-p", "-r", "-t"]).output() else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    parse_avahi_browse(&String::from_utf8_lossy(&out.stdout))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,5 +493,54 @@ mod tests {
         assert_eq!(serde_json::to_string(&TrustState::Unknown).unwrap(), "\"unknown\"");
         assert_eq!(serde_json::to_string(&TrustState::Blocked).unwrap(), "\"blocked\"");
         assert_eq!(TrustState::default(), TrustState::Unknown);
+    }
+
+    // ── MESH-A-4.b.1: mDNS collector ──
+
+    #[test]
+    fn parse_avahi_browse_keeps_resolved_skips_browse_lines() {
+        let raw = "+;eth0;IPv4;HP\\032LaserJet;_ipp._tcp;local\n\
+                   =;eth0;IPv4;HP\\032LaserJet;_ipp._tcp;local;printer.local;192.168.1.50;631;\"txtvers=1\"\n\
+                   =;eth0;IPv4;Chromecast;_googlecast._tcp;local;cast.local;192.168.1.60;8009;\"\"\n";
+        let recs = parse_avahi_browse(raw);
+        assert_eq!(recs.len(), 2, "the + browse line is skipped");
+        assert_eq!(recs[0].ip, "192.168.1.50");
+        assert_eq!(recs[0].service_type, "_ipp._tcp");
+        assert_eq!(recs[0].hostname, "printer.local");
+        assert_eq!(recs[1].ip, "192.168.1.60");
+        assert_eq!(recs[1].service_type, "_googlecast._tcp");
+    }
+
+    #[test]
+    fn hosts_from_mdns_groups_by_ip_and_classifies() {
+        let recs = vec![
+            MdnsService {
+                ip: "192.168.1.50".into(),
+                hostname: "printer.local".into(),
+                service_type: "_ipp._tcp".into(),
+            },
+            MdnsService {
+                ip: "192.168.1.50".into(),
+                hostname: "printer.local".into(),
+                service_type: "_pdl-datastream._tcp".into(),
+            },
+            MdnsService {
+                ip: "192.168.1.60".into(),
+                hostname: "cast.local".into(),
+                service_type: "_googlecast._tcp".into(),
+            },
+        ];
+        let hosts = hosts_from_mdns(&recs, 1234);
+        assert_eq!(hosts.len(), 2, "two distinct IPs → two hosts");
+        let printer = hosts.iter().find(|h| h.ip == "192.168.1.50").unwrap();
+        assert_eq!(printer.host_type, HostType::Printer);
+        assert_eq!(printer.services.len(), 2, "both service types retained");
+        assert_eq!(printer.hostname, "printer.local");
+        assert_eq!(printer.first_seen_ms, 1234);
+        assert_eq!(printer.last_seen_ms, 1234);
+        assert_eq!(printer.trust, TrustState::Unknown);
+        assert!(printer.mac.is_empty(), "MAC fills in A-4.b.2");
+        let cast = hosts.iter().find(|h| h.ip == "192.168.1.60").unwrap();
+        assert_eq!(cast.host_type, HostType::TvCast);
     }
 }
