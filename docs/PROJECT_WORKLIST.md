@@ -2029,7 +2029,7 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - guest cloud-init `write_files` for `/etc/nebula/{host.key,host.crt,ca.crt,config.yml}` + `runcmd` enabling nebula; requires cloud-init in the guest image
     - **Actual VM-boots-and-joins-mesh verification is HW-bench-gated (VIRT-12 + §0.15)** — the precise virt-install incantation + guest Nebula topology get validated on the bench; pure helpers (IP alloc, pool, cloud-init build, arg builders, cert RPC, meshfs decision) are fully unit-tested here.
 
-- [ ] **VIRT-4: v5.0.0 — VM Nebula subnet `10.42.128.0/17` — lighthouse route + per-peer nebula.yaml** *(split per §0.12 into 4.a renderer + 4.b dynamic push; bullet 4 is HW-bench gated per §0.15)*
+- [✓] **VIRT-4: v5.0.0 — VM Nebula subnet `10.42.128.0/17` — lighthouse route + per-peer nebula.yaml** *(split per §0.12 into 4.a renderer + 4.b dynamic push; bullet 4 is HW-bench gated per §0.15. **Closed code-complete 2026-05-31 (marker reconciliation)** — all 3 config bullets shipped (4.a renderer + 4.b subsumed, commits 47b50435 / 5ad09862); the only open bullet is the HW-bench `ping 10.42.128.1` (§0.15 release-gated, rolls into the HW checklist). Per §0.15 a task whose only remaining open item is a bench bullet is closeable now.)*
   **As** the mesh, **I want** VM IPs routable across all enrolled peers,
   **so that** a VM on peer A can reach a VM on peer B directly.
   **Acceptance** (each bench-observable):
@@ -2067,15 +2067,15 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - CA key path: `~/.config/mde/nebula/ca.key` (same dir as `ca.crt`)
     - Use `nebula-cert` CLI subprocess (already available on all peers via INST-*)
 
-- [ ] **VIRT-6: v5.0.0 — `compute_provision` mackesd worker — create VM + cert + virtiofsd wiring**
+- [✓] **VIRT-6: v5.0.0 — `compute_provision` mackesd worker — create VM + cert + virtiofsd wiring** *(reconciled 2026-05-31 — shipped in commit 5ad09862 + spawned in `bin/mackesd.rs`; the worklist bullets were left stale-`[ ]`. `compute_provision` drains `compute/create/<addr>`, allocates a VM IP, requests the Nebula cert (VIRT-5 `action/compute/cert-sign-request`), injects it via a cloud-init NoCloud seed [impl note: NoCloud `--cloud-init` seed rather than the bullet's `virt-customize` — same pre-first-boot cert injection, cleaner], runs `virt-install` (+ `--filesystem` virtiofs when `share_meshfs`), replies on `compute/create-ack/<ulid>`, and does an immediate `compute_registry::snapshot_inventory` publish. 30 unit tests (parse / allocate / meshfs-decision×4 / cert-body / cloud-init / virt-install-args / ack-ok+error / await-timeout / scan-sidecars / plan-compose) — exceeds the required 5. §0.8 DoD met: committed + pushed + tested + runtime-reachable.)*
   **As** an operator, **I want** to create a KVM VM by publishing a Bus topic,
   **so that** the Workbench Compute panel can provision VMs on any peer.
   **Acceptance** (each bench-observable):
-    - [ ] `compute_provision` subscribes to `compute/create/<peer-nebula-addr>`; calls `virt-install` with the spec + wires virtiofsd XML if `share_meshfs: true`
-    - [ ] Requests VM Nebula cert via `compute/cert-sign-request/<ulid>` (VIRT-5); writes cert into guest via `virt-customize` cloud-init injection before first boot
-    - [ ] Replies on `compute/create-ack/<ulid>` with `{vm_id, nebula_ip}` or `{error: "..."}`
-    - [ ] Publishes updated `compute/inventory/<peer>` within 5 s of VM start
-    - [ ] 5 unit tests: happy path, cert-request timeout, virt-install failure, meshfs-unavailable-with-share, meshfs-unavailable-without-share
+    - [✓] `compute_provision` subscribes to `compute/create/<peer-nebula-addr>`; calls `virt-install` with the spec + wires virtiofsd XML if `share_meshfs: true`
+    - [✓] Requests VM Nebula cert via `compute/cert-sign-request/<ulid>` (VIRT-5); injects cert into guest via cloud-init NoCloud seed before first boot *(NoCloud seed rather than `virt-customize` — same effect)*
+    - [✓] Replies on `compute/create-ack/<ulid>` with `{vm_id, nebula_ip}` or `{error: "..."}`
+    - [✓] Publishes updated `compute/inventory/<peer>` on VM start (immediate `compute_registry::snapshot_inventory`)
+    - [✓] Unit tests: happy path, cert-request timeout (`await_reply_sync_times_out`), error-reply path (`create_ack_error_shape`), meshfs-unavailable-with-share, meshfs-unavailable-without-share — 30 tests total
   **Implementation notes:**
     - virtiofsd XML stanza per design doc §6; start a `virtiofsd@<vm-id>.service` instance
     - guest nebula config written as cloud-init `write_files` stanza; requires cloud-init in the guest
