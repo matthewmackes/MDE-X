@@ -5,6 +5,23 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**KVM + Podman mesh-native compute — `mde-virtual` app (2026-05-31)**
+- A new **Virtual** app manages the KVM virtual machines and Podman
+  containers across your whole workgroup from one window: a Fleet tab
+  (every peer's compute, read-only) and a Local tab (your machine, with
+  full controls). Launch it from the Workbench Virtual tile, the Dock,
+  or Portal search.
+- Create a VM with a four-step wizard (name → CPU/RAM → disk + installer
+  ISO → review); a status banner tracks provisioning. Save any VM's
+  settings as a template and reuse it on any peer.
+- Each VM's detail panel shows live CPU/RAM sparklines and offers
+  start / stop / suspend / force-off, a graphical console (`virt-viewer`),
+  libvirt snapshots, per-network port forwarding (mesh / LAN / WAN), and
+  cold migration to another peer over the Nebula overlay.
+- VMs can share the mesh-storage filesystem over virtiofs, so guests see
+  the same shared files as the host.
+- See `docs/help/virtual.md` for the full guide.
+
 **Firewall activity monitoring (2026-05-29)**
 - MDE now records every external packet that firewalld blocks and shows
   fleet-wide denial data in the Workbench → Firewall panel (Activity

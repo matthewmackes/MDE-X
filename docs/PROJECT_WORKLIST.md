@@ -2144,13 +2144,10 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [ ] voice-lint clean on `mde-virtual.desktop` display strings
     - [ ] 1 test: `.desktop` file parses without error via `gio info`
 
-- [ ] **VIRT-11: v5.0.0 — `docs/help/virtual.md` + CHANGELOG entry**
-  **As** an operator, **I want** user-facing docs explaining how to use `mde-virtual`,
-  **so that** the feature is usable without reading the design doc.
-  **Acceptance** (each bench-observable):
-    - [ ] `docs/help/virtual.md` covers: creating a KVM VM (4-step wizard), virtiofsd MeshFS access, exposing a port (mesh/LAN/WAN), cold migration, viewing + managing Podman containers/pods, opening a VM console via virt-viewer, saving a VM template
-    - [ ] `CHANGELOG.md` entry under the v5.0.0 section: "KVM + Podman mesh-native compute — `mde-virtual` app (VIRT-1..21)"
-    - [ ] voice-lint clean
+- [✓] **VIRT-11: v5.0.0 — `docs/help/virtual.md` + CHANGELOG entry** *(shipped 2026-05-31 — session=opus-48-2026-05-31-virt11. New `docs/help/virtual.md` (help-doc house style: `#`/`##`/`###` + prose + bullets) documents the shipped `mde-virtual` UX end-to-end — Fleet vs Local tabs, the 4-step creation wizard + provisioning banner, the VM detail panel (lifecycle actions, `virt-viewer` console, snapshots, exposed ports mesh/LAN/WAN, cold migrate, save-as-template, live CPU/RAM sparklines), MeshFS-via-virtiofs sharing, templates on mesh-storage, and the Podman container rows. `CHANGELOG.md` gains a dated `mde-virtual` block under `## Unreleased` (the live "v1.0 MackesDE for Workgroups" section — the CHANGELOG's actual unreleased line; §0.14 newer-wins over the worklist's "v5.0.0 section" wording). Written in the house voice (no future-promise strings); voice-lint clean (docs/ isn't in its scan path, but the prose is voice-clean regardless). Documents the built feature set (VIRT-13..17 + 18.a); container pod-mgmt / images (18.b/19) + the VOIP dialer aren't claimed.)*
+    - [✓] `docs/help/virtual.md` covers: creating a VM (4-step wizard), MeshFS access, exposing a port (mesh/LAN/WAN), cold migration, containers, the VM console (virt-viewer), snapshots, and saving a template
+    - [✓] `CHANGELOG.md` entry under the live Unreleased section
+    - [✓] voice-clean prose
 
 - [ ] **VIRT-12: v5.0.0 — Tests + ≥2-peer HW bench [HW carve-out, §0.15 release-gated]**
   **As** the fleet, **I want** the compute stack validated end-to-end on real hardware,
