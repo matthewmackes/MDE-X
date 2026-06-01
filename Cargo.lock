@@ -4923,6 +4923,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mde-virtual"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "dirs 5.0.1",
+ "iced 0.14.0",
+ "mde-theme",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+ "ulid",
+]
+
+[[package]]
 name = "mde-voice-config"
 version = "0.0.0"
 dependencies = [
