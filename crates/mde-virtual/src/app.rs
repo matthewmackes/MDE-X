@@ -395,6 +395,135 @@ pub(crate) fn parse_podman_ps_local(stdout: &str) -> Vec<ContainerEntry> {
         .collect()
 }
 
+/// One local Podman image row (VIRT-19.a) — read-only browse view.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ImageEntry {
+    pub repository: String,
+    pub tag: String,
+    pub size: String,
+    pub created: String,
+}
+
+/// One local Podman volume row (VIRT-19.a) — read-only.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct VolumeEntry {
+    pub name: String,
+    pub mountpoint: String,
+    pub driver: String,
+}
+
+/// Humanize a byte count (`podman images` reports `Size` as an int on
+/// some versions, a pre-formatted string on others — see [`json_size`]).
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut s = bytes as f64;
+    let mut i = 0;
+    while s >= 1024.0 && i < UNITS.len() - 1 {
+        s /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{s:.1} {}", UNITS[i])
+    }
+}
+
+/// Repository + tag for an image row, tolerating both the `Names`
+/// (`["repo:tag"]`) and the `Repository`/`Tag` JSON shapes podman emits.
+fn image_repo_tag(row: &serde_json::Value) -> (String, String) {
+    if let Some(name) = row
+        .get("Names")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_str())
+    {
+        // Split on the LAST colon so a registry `host:port/repo:tag`
+        // keeps its port with the repository.
+        return match name.rsplit_once(':') {
+            Some((repo, tag)) => (repo.to_string(), tag.to_string()),
+            None => (name.to_string(), "latest".to_string()),
+        };
+    }
+    let repo = row.get("Repository").and_then(|v| v.as_str()).unwrap_or("<none>").to_string();
+    let tag = row.get("Tag").and_then(|v| v.as_str()).unwrap_or("<none>").to_string();
+    (repo, tag)
+}
+
+fn json_size(row: &serde_json::Value) -> String {
+    match row.get("Size") {
+        Some(v) if v.is_u64() => human_size(v.as_u64().unwrap_or(0)),
+        Some(v) if v.is_string() => v.as_str().unwrap_or("").to_string(),
+        _ => String::new(),
+    }
+}
+
+fn json_created(row: &serde_json::Value) -> String {
+    if let Some(s) = row.get("CreatedAt").and_then(|v| v.as_str()) {
+        return s.to_string();
+    }
+    match row.get("Created") {
+        Some(v) if v.is_string() => v.as_str().unwrap_or("").to_string(),
+        Some(v) if v.is_u64() => v.as_u64().unwrap_or(0).to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Parse `podman images --format json` into image rows. Pure; tolerant
+/// of the field-shape differences across podman versions.
+pub(crate) fn parse_podman_images(stdout: &str) -> Vec<ImageEntry> {
+    let Ok(rows) = serde_json::from_str::<Vec<serde_json::Value>>(stdout) else {
+        return vec![];
+    };
+    rows.into_iter()
+        .map(|row| {
+            let (repository, tag) = image_repo_tag(&row);
+            ImageEntry {
+                repository,
+                tag,
+                size: json_size(&row),
+                created: json_created(&row),
+            }
+        })
+        .collect()
+}
+
+/// Parse `podman volume ls --format json` into volume rows. Pure.
+pub(crate) fn parse_podman_volumes(stdout: &str) -> Vec<VolumeEntry> {
+    let Ok(rows) = serde_json::from_str::<Vec<serde_json::Value>>(stdout) else {
+        return vec![];
+    };
+    rows.into_iter()
+        .filter_map(|row| {
+            let name = row.get("Name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if name.is_empty() {
+                return None;
+            }
+            Some(VolumeEntry {
+                name,
+                mountpoint: row
+                    .get("Mountpoint")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                driver: row
+                    .get("Driver")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("local")
+                    .to_string(),
+            })
+        })
+        .collect()
+}
+
+/// Read this peer's local Podman images + volumes (VIRT-19.a). Empty
+/// vectors when podman is absent.
+pub(crate) fn read_local_images_volumes() -> (Vec<ImageEntry>, Vec<VolumeEntry>) {
+    let images = parse_podman_images(&run_cmd("podman", &["images", "--format", "json"]));
+    let volumes = parse_podman_volumes(&run_cmd("podman", &["volume", "ls", "--format", "json"]));
+    (images, volumes)
+}
+
 /// Read this peer's compute directly off libvirt + podman — the Bus-
 /// independent fallback the Local tab uses when the mesh is unavailable
 /// (§13 M11). CPU/RAM/disk are left empty (degraded offline view).
@@ -1076,6 +1205,8 @@ pub(crate) enum Message {
     CheckComputeEvents,
     /// Newest `compute/event` ULID observed (`None` = no events / no Bus).
     ComputeEventMarker(Option<String>),
+    /// VIRT-19.a: local Podman images + volumes finished loading.
+    ImagesVolumesLoaded(Vec<ImageEntry>, Vec<VolumeEntry>),
 }
 
 /// `mde-virtual` application state.
@@ -1113,6 +1244,10 @@ pub(crate) struct VirtualApp {
     /// detect a fresh lifecycle event and refresh promptly. Seeded on the
     /// first check so startup backlog doesn't trigger a refresh.
     event_marker: Option<String>,
+    /// VIRT-19.a: local Podman images + volumes (read-only Local-tab lists),
+    /// refreshed on each poll.
+    images: Vec<ImageEntry>,
+    volumes: Vec<VolumeEntry>,
 }
 
 impl VirtualApp {
@@ -1139,6 +1274,8 @@ impl VirtualApp {
             prev_cpu_ns: None,
             local_host: local_hostname(),
             event_marker: None,
+            images: Vec::new(),
+            volumes: Vec::new(),
         }
     }
 
@@ -1194,7 +1331,18 @@ impl VirtualApp {
                         ));
                     }
                 }
+                // VIRT-19.a: refresh the Local-tab images/volumes lists so
+                // they're ready the moment the operator opens the Local tab.
+                tasks.push(Task::perform(
+                    async { read_local_images_volumes() },
+                    |(images, volumes)| Message::ImagesVolumesLoaded(images, volumes),
+                ));
                 Task::batch(tasks)
+            }
+            Message::ImagesVolumesLoaded(images, volumes) => {
+                self.images = images;
+                self.volumes = volumes;
+                Task::none()
             }
             Message::PollLoaded(r) => {
                 self.fleet = r.fleet;
@@ -1681,17 +1829,128 @@ impl VirtualApp {
             FleetState::Available(invs) => invs.iter().find(|i| is_local(i, &self.local_host)),
             FleetState::Unavailable => self.local_direct.as_ref(),
         };
-        let body = match local_inv {
-            Some(inv) => self.peer_list(std::iter::once(inv), true),
-            None => self.empty_state("No local compute discovered."),
-        };
+        let mut sections: Vec<Element<'_, Message>> = Vec::new();
+        match local_inv {
+            Some(inv) => sections.push(self.peer_section(inv, true)),
+            None => sections.push(self.section_note("No local VMs or containers.")),
+        }
+        // VIRT-19.a: read-only Images + Volumes browse sections.
+        sections.push(self.images_section());
+        sections.push(self.volumes_section());
+        let list: Element<'_, Message> = scrollable(
+            column(sections)
+                .spacing(f32::from(space.sm))
+                .padding([space.sm, space.lg2])
+                .width(Length::Fill),
+        )
+        .height(Length::Fill)
+        .into();
         match self.create_status_banner() {
-            Some(banner) => column![banner, body]
+            Some(banner) => column![banner, list]
                 .spacing(f32::from(space.sm))
                 .height(Length::Fill)
                 .into(),
-            None => body,
+            None => list,
         }
+    }
+
+    /// A muted one-line note used in place of an empty section body.
+    fn section_note(&self, msg: &str) -> Element<'_, Message> {
+        let palette = self.tokens.palette;
+        text(msg.to_string())
+            .size(TypeRole::Body.size_in(self.tokens.font_size))
+            .color(rgba(palette.text_muted))
+            .into()
+    }
+
+    /// A titled, bordered section card wrapping `body` (VIRT-19.a).
+    fn titled_card<'a>(&self, title: &str, body: Element<'a, Message>) -> Element<'a, Message> {
+        let space = self.tokens.space;
+        let palette = self.tokens.palette;
+        let radius = f32::from(self.tokens.radii.md);
+        let heading = text(title.to_string())
+            .size(TypeRole::Subheading.size_in(self.tokens.font_size))
+            .color(rgba(palette.text));
+        container(column![heading, body].spacing(f32::from(space.xs)))
+            .width(Length::Fill)
+            .padding([space.sm, space.sm2])
+            .style(move |_t| container::Style {
+                snap: false,
+                background: Some(Background::Color(rgba(palette.surface))),
+                border: Border {
+                    color: rgba(palette.border),
+                    width: 1.0,
+                    radius: radius.into(),
+                },
+                ..container::Style::default()
+            })
+            .into()
+    }
+
+    /// VIRT-19.a: read-only Images list (repository:tag, size, created).
+    fn images_section(&self) -> Element<'_, Message> {
+        let space = self.tokens.space;
+        let palette = self.tokens.palette;
+        let fs = self.tokens.font_size;
+        let body: Element<'_, Message> = if self.images.is_empty() {
+            self.section_note("No local images.")
+        } else {
+            let mut rows = column![].spacing(f32::from(space.xs));
+            for img in &self.images {
+                rows = rows.push(
+                    row![
+                        text(format!("{}:{}", img.repository, img.tag))
+                            .size(TypeRole::Body.size_in(fs))
+                            .color(rgba(palette.text))
+                            .width(Length::FillPortion(3)),
+                        text(img.size.clone())
+                            .size(TypeRole::Caption.size_in(fs))
+                            .color(rgba(palette.text_muted))
+                            .width(Length::FillPortion(1)),
+                        text(img.created.clone())
+                            .size(TypeRole::Caption.size_in(fs))
+                            .color(rgba(palette.text_muted))
+                            .width(Length::FillPortion(2)),
+                    ]
+                    .spacing(f32::from(space.sm)),
+                );
+            }
+            rows.into()
+        };
+        self.titled_card("Images", body)
+    }
+
+    /// VIRT-19.a: read-only Volumes list (name, mount point, driver).
+    fn volumes_section(&self) -> Element<'_, Message> {
+        let space = self.tokens.space;
+        let palette = self.tokens.palette;
+        let fs = self.tokens.font_size;
+        let body: Element<'_, Message> = if self.volumes.is_empty() {
+            self.section_note("No local volumes.")
+        } else {
+            let mut rows = column![].spacing(f32::from(space.xs));
+            for vol in &self.volumes {
+                rows = rows.push(
+                    row![
+                        text(vol.name.clone())
+                            .size(TypeRole::Body.size_in(fs))
+                            .color(rgba(palette.text))
+                            .width(Length::FillPortion(2)),
+                        text(vol.mountpoint.clone())
+                            .size(TypeRole::Caption.size_in(fs))
+                            .color(rgba(palette.text_muted))
+                            .width(Length::FillPortion(3)),
+                        text(vol.driver.clone())
+                            .size(TypeRole::Caption.size_in(fs))
+                            .color(rgba(palette.text_muted))
+                            .width(Length::FillPortion(1)),
+                    ]
+                    .spacing(f32::from(space.sm)),
+                );
+            }
+            rows.into()
+        };
+        self.titled_card("Volumes", body)
     }
 
     /// The VM-creation status banner (VIRT-15.b), shown while a create is
@@ -2427,6 +2686,44 @@ mod tests {
             Some("01H000000000000000000CCCCC".to_string())
         );
         assert_eq!(newest_ulid(std::iter::empty()), None);
+    }
+
+    #[test]
+    fn parse_podman_images_tolerates_shapes() {
+        // Names array + int Size + CreatedAt string.
+        let json = r#"[{"Names":["docker.io/library/redis:7"],"Size":1234567,"CreatedAt":"2024-01-02 03:04:05"}]"#;
+        let imgs = parse_podman_images(json);
+        assert_eq!(imgs.len(), 1);
+        assert_eq!(imgs[0].repository, "docker.io/library/redis");
+        assert_eq!(imgs[0].tag, "7");
+        assert_eq!(imgs[0].size, "1.2 MB");
+        assert_eq!(imgs[0].created, "2024-01-02 03:04:05");
+        // Repository/Tag fallback + pre-formatted string Size.
+        let json2 = r#"[{"Repository":"localhost/app","Tag":"dev","Size":"10 MB"}]"#;
+        let imgs2 = parse_podman_images(json2);
+        assert_eq!(imgs2[0].repository, "localhost/app");
+        assert_eq!(imgs2[0].tag, "dev");
+        assert_eq!(imgs2[0].size, "10 MB");
+        // Bad JSON → empty.
+        assert!(parse_podman_images("not json").is_empty());
+    }
+
+    #[test]
+    fn parse_podman_volumes_reads_fields_and_drops_nameless() {
+        let json = r#"[{"Name":"pgdata","Mountpoint":"/var/lib/containers/storage/volumes/pgdata/_data","Driver":"local"},
+                       {"Name":""}]"#;
+        let vols = parse_podman_volumes(json);
+        assert_eq!(vols.len(), 1); // the empty-name row is dropped
+        assert_eq!(vols[0].name, "pgdata");
+        assert_eq!(vols[0].driver, "local");
+        assert!(vols[0].mountpoint.ends_with("/pgdata/_data"));
+    }
+
+    #[test]
+    fn human_size_scales() {
+        assert_eq!(human_size(512), "512 B");
+        assert_eq!(human_size(2048), "2.0 KB");
+        assert_eq!(human_size(1_500_000), "1.4 MB");
     }
 
     #[test]

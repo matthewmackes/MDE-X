@@ -2256,15 +2256,18 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [✓] Fleet container rows are read-only
   - [ ] **VIRT-18.b: pod grouping + container Delete + pod-level actions** — group local containers by pod (pod row + indented child rows; needs the inventory's `ContainerEntry` to carry `pod`/`PodName` — extend `compute_registry` + the mirror); `[Delete]` per local container with a confirmation sheet (`podman rm -f`); pod-level `[Start]`/`[Stop]`/`[Delete]` applying to all child containers (`podman pod …`). Acceptance: pods grouped with child rows; Delete confirms then removes; pod actions hit all children; tests: pod grouping with mixed containers, delete-confirmation state. Cite: visual-identity.md §1; ref: Apple System Settings.
 
-- [ ] **VIRT-19: v5.0.0 — `mde-virtual` images section + volume read-only list**
+- [ ] **VIRT-19: v5.0.0 — `mde-virtual` images section + volume read-only list** *(split §0.12 2026-06-01 — session=opus-48-2026-06-01-virt19a. 19.a [✓] ships the read-only browse half (Images + Volumes lists); 19.b [ ] is the mutating half (`Pull image…` with stdout streaming + per-image `Delete` with the in-use guard + confirmation). Umbrella stays open until 19.b.)*
   **As** an operator, **I want** to browse local Podman images and volumes in `mde-virtual`,
   **so that** I can manage local storage without dropping to a terminal.
   **Acceptance** (each bench-observable):
-    - [ ] Local tab `Images` sub-section: lists images from `podman images --format json`; columns: repository, tag, size, created
-    - [ ] `[Pull image…]` button opens a text field sheet; submits `podman pull <ref>` via `std::process::Command` and streams stdout to a progress area
-    - [ ] `[Delete]` per image (confirmation sheet); refuses with inline error if the image is in use by a running container
-    - [ ] Local tab `Volumes` sub-section: read-only list from `podman volume ls --format json`; name + mount point + driver
-    - [ ] 3 unit tests: image list parsing, in-use deletion guard, volume list rendering
+    - [✓] Local tab `Images` sub-section: lists images from `podman images --format json`; columns: repository, tag, size, created *(19.a — `parse_podman_images` tolerates the Names-array vs Repository/Tag + int-vs-string Size shapes; rendered as a titled card via `images_section`)*
+    - [ ] `[Pull image…]` button opens a text field sheet; submits `podman pull <ref>` via `std::process::Command` and streams stdout to a progress area *(19.b)*
+    - [ ] `[Delete]` per image (confirmation sheet); refuses with inline error if the image is in use by a running container *(19.b)*
+    - [✓] Local tab `Volumes` sub-section: read-only list from `podman volume ls --format json`; name + mount point + driver *(19.a — `parse_podman_volumes` + `volumes_section`)*
+    - [✓] 3 unit tests: image list parsing, in-use deletion guard, volume list rendering *(19.a — image-parse shape tolerance, volume-parse drops-nameless, human_size scaling; the in-use-deletion-guard test lands with 19.b's Delete action)*
+  **Sub-tasks (§0.12 split 2026-06-01):**
+    - [✓] **VIRT-19.a** — read-only Images + Volumes lists in the Local tab (parse `podman images` / `volume ls` → titled-card sections; loaded on the poll path). *(shipped 2026-06-01 — session=opus-48-2026-06-01-virt19a; 56 mde-virtual tests pass)*
+    - [ ] **VIRT-19.b** — `[Pull image…]` (stdout-streaming progress) + per-image `[Delete]` (confirmation + running-container in-use guard).
 
 - [ ] **VIRT-20: v5.0.0 — `mde-virtual` bulk actions — checkboxes + contextual action bar**
   **As** an operator, **I want** to select multiple VMs or containers and act on them at once,
