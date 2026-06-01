@@ -111,16 +111,23 @@ jobs:
         if: steps.cache-lfs.outputs.cache-hit != 'true' || inputs.force_rebuild == 'true'
         run: |
           bindir=$(mktemp -d)
-          # Copy the built binaries; filenames vary by LizardFS version.
+          # LizardFS 3.13 binary names differ from the legacy mfs* set:
+          # the FUSE3 client is `mfsmount3` (we install it as mfsmount, the
+          # name the systemd unit + spec expect), and goal/quota/admin live
+          # in the unified `lizardfs` / `lizardfs-admin` tools — the old
+          # mfscli/mfssetgoal/mfssetquota are argv[0] symlinks, not separate
+          # binaries. Each entry is built-name:bundled-name.
           missing=""
-          for b in mfsmaster mfschunkserver mfsmount mfsmetarestore mfscli \
-                   mfssetgoal mfssetquota; do
-            src=$(find /tmp/lizardfs-build -name "$b" -type f | head -1)
+          for pair in mfsmaster:mfsmaster mfschunkserver:mfschunkserver \
+                      mfsmetarestore:mfsmetarestore mfsmount3:mfsmount \
+                      lizardfs:lizardfs lizardfs-admin:lizardfs-admin; do
+            srcname="${pair%%:*}"; dstname="${pair##*:}"
+            src=$(find /tmp/lizardfs-build -name "$srcname" -type f | head -1)
             if [ -n "$src" ]; then
-              cp "$src" "$bindir/$b"
-              strip "$bindir/$b" 2>/dev/null || true
+              cp "$src" "$bindir/$dstname"
+              strip "$bindir/$dstname" 2>/dev/null || true
             else
-              missing="$missing $b"
+              missing="$missing $dstname($srcname)"
             fi
           done
           ls -lh "$bindir/"

@@ -51,13 +51,19 @@ echo "build-lizardfs.sh: bundling binaries ..."
 BIN_DIR="${WORK}/bins"
 mkdir -p "${BIN_DIR}"
 _missing=""
-for b in mfsmaster mfschunkserver mfsmount mfsmetarestore mfscli mfssetgoal mfssetquota; do
-    src=$(find "${WORK}/build" -name "${b}" -type f | head -1)
+# built-name:bundled-name — mfsmount3 is the FUSE3 client (bundled as
+# mfsmount); lizardfs / lizardfs-admin are the unified goal/quota/admin
+# CLIs (3.13 dropped separate mfscli/mfssetgoal/mfssetquota binaries).
+for pair in mfsmaster:mfsmaster mfschunkserver:mfschunkserver \
+            mfsmetarestore:mfsmetarestore mfsmount3:mfsmount \
+            lizardfs:lizardfs lizardfs-admin:lizardfs-admin; do
+    srcname="${pair%%:*}"; dstname="${pair##*:}"
+    src=$(find "${WORK}/build" -name "${srcname}" -type f | head -1)
     if [ -n "${src}" ]; then
-        cp "${src}" "${BIN_DIR}/${b}"
-        strip "${BIN_DIR}/${b}" 2>/dev/null || true
+        cp "${src}" "${BIN_DIR}/${dstname}"
+        strip "${BIN_DIR}/${dstname}" 2>/dev/null || true
     else
-        _missing="${_missing} ${b}"
+        _missing="${_missing} ${dstname}(${srcname})"
     fi
 done
 ls -lh "${BIN_DIR}/"
