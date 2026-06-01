@@ -192,6 +192,44 @@ pub fn build_rich_rule_body(
     }
 }
 
+/// Read one firewalld rich-rule attribute (`key="value"`), returning
+/// the value. Used by [`parse_rich_rule`] to reverse a rule line.
+fn rich_rule_attr(line: &str, key: &str) -> Option<String> {
+    let needle = format!("{key}=\"");
+    let start = line.find(&needle)? + needle.len();
+    let rest = &line[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+/// Reverse one of our managed forward-port rich rules (built by
+/// [`build_rich_rule_body`]) back into an [`ActiveRule`]. `network` is
+/// supplied by the caller from the zone that was queried. Returns `None`
+/// for rules that aren't ours — anything without a `forward-port` to a
+/// VM-subnet (`10.42.*`) `to-addr` — so unrelated zone rules are skipped.
+/// (VIRT-7.followup: seed the shadow set on startup.)
+#[must_use]
+pub fn parse_rich_rule(network: Network, line: &str) -> Option<ActiveRule> {
+    let line = line.trim();
+    if !line.contains("forward-port") {
+        return None;
+    }
+    let vm_nebula_ip = rich_rule_attr(line, "to-addr")?;
+    // Only our managed rules forward to a VM overlay IP (10.42.128.0/17,
+    // all under the 10.42. mesh prefix).
+    if !vm_nebula_ip.starts_with("10.42.") {
+        return None;
+    }
+    let host_port = rich_rule_attr(line, "port")?.parse::<u16>().ok()?;
+    let proto = rich_rule_attr(line, "protocol")?;
+    Some(ActiveRule {
+        network,
+        vm_nebula_ip,
+        host_port,
+        proto,
+    })
+}
+
 /// Parse an expose-request body. Bad JSON / unknown network
 /// strings surface as descriptive errors so the caller can log +
 /// drop the message.
@@ -332,6 +370,18 @@ fn run_firewall_cmd(args: &[String]) -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+/// Run `firewall-cmd <args>` and capture stdout (empty string on
+/// failure). Used for read-only queries like `--list-rich-rules`.
+fn firewall_cmd_stdout(args: &[String]) -> String {
+    Command::new("firewall-cmd")
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default()
 }
 
 fn detect_wan_zone() -> String {
@@ -618,6 +668,42 @@ fn default_bus_root() -> Option<PathBuf> {
     Some(dirs::data_dir()?.join("mde").join("bus"))
 }
 
+/// Seed the active-rule shadow set from firewalld's persisted rich rules
+/// at startup (VIRT-7.followup). After a mackesd restart the in-memory
+/// `active` set would otherwise be empty until the next expose/unexpose,
+/// leaving the first `compute/exposed/<peer>` publish stale; this
+/// reconstructs it from the `--permanent` rules firewalld actually holds.
+/// Only our managed forward-port rules are picked up.
+///
+/// Each distinct zone is queried once; when two networks resolve to the
+/// same zone (e.g. a WAN interface that also sits in `public`), the zone
+/// is attributed to the more-exposed network (Wan before Lan) so the
+/// display never under-reports reach.
+fn seed_active_from_firewalld(worker: &ComputeExposeWorker, wan_zone: &str) {
+    let mut active = worker.active.lock().expect("active mutex");
+    let mut seen_zones: BTreeSet<String> = BTreeSet::new();
+    for network in [Network::Mesh, Network::Wan, Network::Lan] {
+        let zone = zone_for_network(network, wan_zone);
+        if !seen_zones.insert(zone.clone()) {
+            continue;
+        }
+        let stdout = firewall_cmd_stdout(&[
+            "--list-rich-rules".to_string(),
+            format!("--zone={zone}"),
+        ]);
+        for line in stdout.lines() {
+            if let Some(rule) = parse_rich_rule(network, line) {
+                active.insert(rule);
+            }
+        }
+    }
+    tracing::info!(
+        target: "mackesd::compute_expose",
+        count = active.len(),
+        "seeded active-rule shadow set from firewalld --permanent rules",
+    );
+}
+
 #[async_trait::async_trait]
 impl Worker for ComputeExposeWorker {
     fn name(&self) -> &'static str {
@@ -644,6 +730,10 @@ impl Worker for ComputeExposeWorker {
             }
         };
         let wan_zone = detect_wan_zone();
+        // VIRT-7.followup: seed the shadow set from firewalld's persisted
+        // (--permanent) rules so the first compute/exposed publish reflects
+        // reality after a restart instead of an empty set.
+        seed_active_from_firewalld(self, &wan_zone);
         let mut expose_cursor: Option<String> = None;
         let mut unexpose_cursor: Option<String> = None;
         let mut tick = tokio::time::interval(self.poll_interval);
@@ -675,6 +765,63 @@ impl Worker for ComputeExposeWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── VIRT-7.followup: parse_rich_rule (reverse of build_rich_rule_body) ──
+
+    #[test]
+    fn parse_rich_rule_round_trips_build() {
+        // Lan/Wan form (no leading destination address).
+        let body = build_rich_rule_body(Network::Lan, "10.42.0.1", "10.42.128.7", 8080, "tcp");
+        assert_eq!(
+            parse_rich_rule(Network::Lan, &body),
+            Some(ActiveRule {
+                network: Network::Lan,
+                vm_nebula_ip: "10.42.128.7".to_string(),
+                host_port: 8080,
+                proto: "tcp".to_string(),
+            })
+        );
+        // Mesh form (has a leading `destination address="…"`).
+        let mesh = build_rich_rule_body(Network::Mesh, "10.42.0.1", "10.42.200.3", 443, "tcp");
+        assert_eq!(
+            parse_rich_rule(Network::Mesh, &mesh),
+            Some(ActiveRule {
+                network: Network::Mesh,
+                vm_nebula_ip: "10.42.200.3".to_string(),
+                host_port: 443,
+                proto: "tcp".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_rich_rule_skips_unmanaged() {
+        // A plain service rule (no forward-port).
+        assert_eq!(
+            parse_rich_rule(Network::Lan, r#"rule family="ipv4" service name="ssh" accept"#),
+            None
+        );
+        // A forward-port to a non-VM address (not one of ours).
+        let foreign = r#"rule family="ipv4" port port="80" protocol="tcp" forward-port port="80" protocol="tcp" to-addr="192.168.1.5" to-port="80""#;
+        assert_eq!(parse_rich_rule(Network::Lan, foreign), None);
+        // Blank line.
+        assert_eq!(parse_rich_rule(Network::Lan, ""), None);
+    }
+
+    #[test]
+    fn parse_rich_rule_multiline_list_output() {
+        // Simulates `firewall-cmd --list-rich-rules` (one rule per line).
+        let body1 = build_rich_rule_body(Network::Lan, "10.42.0.1", "10.42.128.7", 8080, "tcp");
+        let body2 = build_rich_rule_body(Network::Lan, "10.42.0.1", "10.42.128.9", 5432, "tcp");
+        let out = format!("{body1}\n{body2}\n");
+        let rules: Vec<ActiveRule> = out
+            .lines()
+            .filter_map(|l| parse_rich_rule(Network::Lan, l))
+            .collect();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].host_port, 8080);
+        assert_eq!(rules[1].host_port, 5432);
+    }
 
     // ── Network enum ──
 
