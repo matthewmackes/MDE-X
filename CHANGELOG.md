@@ -27,6 +27,8 @@ unreleased; tag versions get a date when they ship.
 - Desktop notifications now pop when a VM starts, stops, or crashes on
   any peer in your workgroup, so you hear about compute changes without
   keeping Virtual open. Crash alerts are marked urgent.
+- Virtual's Fleet view also refreshes within a couple of seconds of a
+  lifecycle change instead of waiting for the next inventory cycle.
 
 **Firewall activity monitoring (2026-05-29)**
 - MDE now records every external packet that firewalld blocks and shows

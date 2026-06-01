@@ -430,6 +430,38 @@ fn bus_root() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("mde").join("bus"))
 }
 
+/// Lexically-max ULID from an iterator (`None` if empty). ULIDs sort
+/// lexicographically by creation time, so the max is the newest.
+fn newest_ulid(ulids: impl Iterator<Item = String>) -> Option<String> {
+    ulids.max()
+}
+
+/// Newest `compute/event/<peer>/<ulid>.json` filename-ULID across every
+/// peer on the Bus (VIRT-21.b), or `None` when the Bus / topic is absent.
+/// Used as a high-water mark so the Fleet tab can spot a fresh VM
+/// lifecycle event and re-poll inventory immediately.
+fn newest_compute_event_ulid() -> Option<String> {
+    let dir = bus_root()?.join("compute").join("event");
+    let mut ulids = Vec::new();
+    for peer in std::fs::read_dir(&dir).ok()?.flatten() {
+        let pp = peer.path();
+        if !pp.is_dir() {
+            continue;
+        }
+        if let Ok(files) = std::fs::read_dir(&pp) {
+            for f in files.flatten() {
+                let p = f.path();
+                if p.extension().and_then(|s| s.to_str()) == Some("json") {
+                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                        ulids.push(stem.to_string());
+                    }
+                }
+            }
+        }
+    }
+    newest_ulid(ulids.into_iter())
+}
+
 /// This machine's hostname (`/etc/hostname`), used to pick the local peer.
 pub(crate) fn local_hostname() -> String {
     std::fs::read_to_string("/etc/hostname")
@@ -1039,6 +1071,11 @@ pub(crate) enum Message {
     SampleTick,
     /// A live virsh sample finished: `(cpu_pct, ram_mb, curr_vcpu_ns)`.
     SampleLoaded((f64, u64, u64)),
+    /// VIRT-21.b: Fleet-tab timer to check `compute/event/*` for new VM
+    /// lifecycle events (start/stop/crash).
+    CheckComputeEvents,
+    /// Newest `compute/event` ULID observed (`None` = no events / no Bus).
+    ComputeEventMarker(Option<String>),
 }
 
 /// `mde-virtual` application state.
@@ -1072,6 +1109,10 @@ pub(crate) struct VirtualApp {
     /// Prev cumulative vcpu-time ns for the 2 s CPU%-delta sampler (17.b).
     prev_cpu_ns: Option<u64>,
     local_host: String,
+    /// VIRT-21.b: newest `compute/event` ULID seen, so the Fleet tab can
+    /// detect a fresh lifecycle event and refresh promptly. Seeded on the
+    /// first check so startup backlog doesn't trigger a refresh.
+    event_marker: Option<String>,
 }
 
 impl VirtualApp {
@@ -1097,11 +1138,29 @@ impl VirtualApp {
             ram_history: VecDeque::new(),
             prev_cpu_ns: None,
             local_host: local_hostname(),
+            event_marker: None,
         }
     }
 
     pub(crate) fn update(&mut self, msg: Message) -> Task<Message> {
         match msg {
+            Message::CheckComputeEvents => {
+                Task::perform(async { newest_compute_event_ulid() }, Message::ComputeEventMarker)
+            }
+            Message::ComputeEventMarker(m) => {
+                // Seed silently on first observation so startup backlog
+                // doesn't refresh; afterwards a newer ULID means a fresh
+                // lifecycle event → re-poll inventory now.
+                if self.event_marker.is_none() {
+                    self.event_marker = m;
+                    Task::none()
+                } else if m.is_some() && m != self.event_marker {
+                    self.event_marker = m;
+                    Task::perform(async {}, |()| Message::Refresh)
+                } else {
+                    Task::none()
+                }
+            }
             Message::SwitchTab(t) => {
                 self.tab = t;
                 Task::none()
@@ -1480,17 +1539,22 @@ impl VirtualApp {
     }
 
     pub(crate) fn subscription(&self) -> Subscription<Message> {
-        let refresh = iced::time::every(Duration::from_secs(5)).map(|_| Message::Refresh);
+        let mut subs =
+            vec![iced::time::every(Duration::from_secs(5)).map(|_| Message::Refresh)];
+        // VIRT-21.b: on the Fleet tab, poll `compute/event/*` every 2 s so a
+        // VM start/stop/crash refreshes the affected row promptly (≈2 s)
+        // instead of waiting for the next 10 s inventory broadcast + 5 s poll.
+        if matches!(self.tab, Tab::Fleet) {
+            subs.push(
+                iced::time::every(Duration::from_secs(2)).map(|_| Message::CheckComputeEvents),
+            );
+        }
         // While a local VM's detail panel is open, sample it every 2 s (17.b);
         // the sampler stops the moment the panel closes ("pause when hidden").
         if self.selected.as_ref().is_some_and(|d| d.is_local) {
-            Subscription::batch([
-                refresh,
-                iced::time::every(Duration::from_secs(2)).map(|_| Message::SampleTick),
-            ])
-        } else {
-            refresh
+            subs.push(iced::time::every(Duration::from_secs(2)).map(|_| Message::SampleTick));
         }
+        Subscription::batch(subs)
     }
 
     pub(crate) fn theme(&self) -> iced::Theme {
@@ -2349,6 +2413,20 @@ mod tests {
                  "containers":[{{"id":"c1","name":"redis","state":"running",
                                  "image":"redis","cpu_pct":1.0,"ram_mb":64}}]}}"#
         )
+    }
+
+    #[test]
+    fn newest_ulid_picks_lexical_max() {
+        let ulids = vec![
+            "01H000000000000000000AAAAA".to_string(),
+            "01H000000000000000000CCCCC".to_string(),
+            "01H000000000000000000BBBBB".to_string(),
+        ];
+        assert_eq!(
+            newest_ulid(ulids.into_iter()),
+            Some("01H000000000000000000CCCCC".to_string())
+        );
+        assert_eq!(newest_ulid(std::iter::empty()), None);
     }
 
     #[test]
