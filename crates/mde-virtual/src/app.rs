@@ -383,6 +383,11 @@ pub(crate) fn parse_virsh_list_state(stdout: &str) -> Vec<(String, String)> {
     out
 }
 
+/// Argv for force-removing a local container (VIRT-18.b.2).
+pub(crate) fn container_delete_command(name: &str) -> (&'static str, Vec<String>) {
+    ("podman", vec!["rm".into(), "-f".into(), name.into()])
+}
+
 /// Parse `podman ps --all --format json` into container rows (name +
 /// state only). Mirrors `compute_registry::parse_podman_ps_json`. Pure.
 pub(crate) fn parse_podman_ps_local(stdout: &str) -> Vec<ContainerEntry> {
@@ -1240,6 +1245,12 @@ pub(crate) enum Message {
     ComputeEventMarker(Option<String>),
     /// VIRT-19.a: local Podman images + volumes finished loading.
     ImagesVolumesLoaded(Vec<ImageEntry>, Vec<VolumeEntry>),
+    /// VIRT-18.b.2: open the delete-confirmation for a local container.
+    RequestContainerDelete(String),
+    /// Confirm the pending container delete (`podman rm -f`).
+    ConfirmContainerDelete,
+    /// Dismiss the delete confirmation without removing.
+    CancelContainerDelete,
 }
 
 /// `mde-virtual` application state.
@@ -1281,6 +1292,8 @@ pub(crate) struct VirtualApp {
     /// refreshed on each poll.
     images: Vec<ImageEntry>,
     volumes: Vec<VolumeEntry>,
+    /// VIRT-18.b.2: the local container awaiting delete confirmation, if any.
+    pending_container_delete: Option<String>,
 }
 
 impl VirtualApp {
@@ -1309,6 +1322,7 @@ impl VirtualApp {
             event_marker: None,
             images: Vec::new(),
             volumes: Vec::new(),
+            pending_container_delete: None,
         }
     }
 
@@ -1376,6 +1390,26 @@ impl VirtualApp {
                 self.images = images;
                 self.volumes = volumes;
                 Task::none()
+            }
+            Message::RequestContainerDelete(name) => {
+                self.pending_container_delete = Some(name);
+                Task::none()
+            }
+            Message::CancelContainerDelete => {
+                self.pending_container_delete = None;
+                Task::none()
+            }
+            Message::ConfirmContainerDelete => {
+                let Some(name) = self.pending_container_delete.take() else {
+                    return Task::none();
+                };
+                let (bin, args) = container_delete_command(&name);
+                Task::perform(
+                    async move {
+                        let _ = std::process::Command::new(bin).args(&args).status();
+                    },
+                    |()| Message::Refresh,
+                )
             }
             Message::PollLoaded(r) => {
                 self.fleet = r.fleet;
@@ -1878,13 +1912,60 @@ impl VirtualApp {
         )
         .height(Length::Fill)
         .into();
-        match self.create_status_banner() {
-            Some(banner) => column![banner, list]
-                .spacing(f32::from(space.sm))
-                .height(Length::Fill)
-                .into(),
-            None => list,
+        let mut banners: Vec<Element<'_, Message>> = Vec::new();
+        if let Some(b) = self.create_status_banner() {
+            banners.push(b);
         }
+        if let Some(b) = self.container_delete_banner() {
+            banners.push(b);
+        }
+        if banners.is_empty() {
+            list
+        } else {
+            let mut col = column![].spacing(f32::from(space.sm)).height(Length::Fill);
+            for b in banners {
+                col = col.push(b);
+            }
+            col.push(list).into()
+        }
+    }
+
+    /// VIRT-18.b.2: the container delete-confirmation banner, shown while a
+    /// delete is pending. `None` when nothing is awaiting confirmation.
+    fn container_delete_banner(&self) -> Option<Element<'_, Message>> {
+        let name = self.pending_container_delete.as_ref()?;
+        let palette = self.tokens.palette;
+        let space = self.tokens.space;
+        let radius = f32::from(self.tokens.radii.md);
+        Some(
+            container(
+                row![
+                    text(format!(
+                        "Delete container {name}? It is force-removed with `podman rm -f`."
+                    ))
+                    .size(TypeRole::Body.size_in(self.tokens.font_size))
+                    .color(rgba(palette.text))
+                    .width(Length::Fill),
+                    self.simple_button("Delete", Message::ConfirmContainerDelete),
+                    self.simple_button("Cancel", Message::CancelContainerDelete),
+                ]
+                .align_y(iced::alignment::Vertical::Center)
+                .spacing(f32::from(space.sm)),
+            )
+            .width(Length::Fill)
+            .padding([space.sm, space.lg2])
+            .style(move |_t| container::Style {
+                snap: false,
+                background: Some(Background::Color(rgba(palette.surface))),
+                border: Border {
+                    color: rgba(palette.border),
+                    width: 1.0,
+                    radius: radius.into(),
+                },
+                ..container::Style::default()
+            })
+            .into(),
+        )
     }
 
     /// A muted one-line note used in place of an empty section body.
@@ -2214,8 +2295,35 @@ impl VirtualApp {
             for verb in actions_for_state(&r.state) {
                 widget = widget.push(self.action_button(r.kind, &r.name, verb, true));
             }
+            // VIRT-18.b.2: containers get a confirmation-gated Delete.
+            if matches!(r.kind, ResourceKind::Container) {
+                widget = widget.push(self.delete_button(&r.name));
+            }
         }
         widget.into()
+    }
+
+    /// A container `[Delete]` button → opens the delete confirmation
+    /// (VIRT-18.b.2). Styled like an action button.
+    fn delete_button(&self, name: &str) -> Element<'_, Message> {
+        let palette = self.tokens.palette;
+        let space = self.tokens.space;
+        let radius = f32::from(self.tokens.radii.sm);
+        let name = name.to_string();
+        button(text("Delete").size(TypeRole::Caption.size_in(self.tokens.font_size)))
+            .on_press(Message::RequestContainerDelete(name))
+            .padding([space.xs2, space.xs])
+            .style(move |_t, _status| button::Style {
+                background: Some(Background::Color(rgba(palette.surface))),
+                text_color: rgba(palette.text),
+                border: Border {
+                    color: rgba(palette.border),
+                    width: 1.0,
+                    radius: radius.into(),
+                },
+                ..button::Style::default()
+            })
+            .into()
     }
 
     /// A lifecycle action button. When `enabled` is false the button
@@ -2818,6 +2926,26 @@ mod tests {
         assert_eq!(pods.len(), 1);
         assert_eq!(pods[0].0, "app-pod");
         assert_eq!(pods[0].1.len(), 2);
+    }
+
+    #[test]
+    fn container_delete_command_is_rm_force() {
+        let (bin, args) = container_delete_command("redis");
+        assert_eq!(bin, "podman");
+        assert_eq!(
+            args,
+            vec!["rm".to_string(), "-f".to_string(), "redis".to_string()]
+        );
+    }
+
+    #[test]
+    fn container_delete_confirmation_state() {
+        let mut app = VirtualApp::new();
+        assert!(app.pending_container_delete.is_none());
+        let _ = app.update(Message::RequestContainerDelete("redis".into()));
+        assert_eq!(app.pending_container_delete.as_deref(), Some("redis"));
+        let _ = app.update(Message::CancelContainerDelete);
+        assert!(app.pending_container_delete.is_none());
     }
 
     #[test]

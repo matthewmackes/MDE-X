@@ -22,7 +22,8 @@ unreleased; tag versions get a date when they ship.
 - VMs can share the mesh-storage filesystem over virtiofs, so guests see
   the same shared files as the host.
 - The Local tab also lists this peer's Podman images and volumes for
-  browsing, and groups containers under their pod.
+  browsing, groups containers under their pod, and can delete a container
+  (with a confirmation prompt).
 - See `docs/help/virtual.md` for the full guide.
 
 **Compute lifecycle toasts (2026-06-01)**
