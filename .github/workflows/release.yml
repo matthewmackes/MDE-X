@@ -92,6 +92,32 @@ jobs:
             echo "OK — tag base $BASE_VER matches mackes.__version__ (rc='$RC')"
           fi
 
+      # MESHFS-1.1 — the spec's `Source1: lizardfs-binaries.tar.gz` (the
+      # compiled LizardFS daemons) must sit in rpmbuild/SOURCES/ before
+      # rpmbuild runs, or %install fails on the missing source. Restore the
+      # lizardfs-build.yml cache when present (same key); otherwise build
+      # the binaries inline (the fedora:44 job runs as root, so the
+      # boost-devel/fuse3-devel deps install cleanly). This wires the
+      # consumption lizardfs-build.yml's header always promised.
+      - name: Restore cached LizardFS binaries
+        uses: actions/cache@v4
+        with:
+          path: lizardfs-binaries.tar.gz
+          key: lizardfs-3.13.0-rc2-fedora44-v1
+
+      - name: Provide LizardFS Source1
+        env:
+          LIZARDFS_TAG: "3.13.0-rc2"
+        run: |
+          if [ ! -f lizardfs-binaries.tar.gz ]; then
+            dnf install -y --setopt=install_weak_deps=False \
+              cmake gcc gcc-c++ fuse3-devel fuse3-libs zlib-devel \
+              openssl-devel boost-devel python3-devel pkg-config make
+            install-helpers/build-lizardfs.sh "$LIZARDFS_TAG"
+          fi
+          mkdir -p rpmbuild/SOURCES
+          cp lizardfs-binaries.tar.gz rpmbuild/SOURCES/
+
       - name: Build sdist + RPM
         run: |
           make rpm
