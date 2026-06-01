@@ -92,32 +92,49 @@ jobs:
               -DCMAKE_INSTALL_PREFIX=/usr \
               -DENABLE_TESTS=OFF \
               -DENABLE_WERROR=OFF \
+              -DENABLE_URAFT=OFF \
               -DFUSE_INCLUDE_PATH=/usr/include/fuse3 \
               -DFUSE_LIBRARY=/usr/lib64/libfuse3.so
-          make -j"$(nproc)" \
-              mfsmaster \
-              mfschunkserver \
-              mfsmount \
-              mfsmetarestore \
-              mfscli \
-              mfssetgoal \
-              mfssetquota \
-              || make -j"$(nproc)"
+          # uraft (the HA-master helper) is the one component that does
+          # not build on Fedora 44's toolchain — it uses 2017-era
+          # boost::asio io_service / deadline_timer, removed upstream.
+          # It is NOT one of the 7 daemons we bundle, so disable it at
+          # configure time (-DENABLE_URAFT=OFF) rather than chasing a
+          # source port. Build everything else keep-going (-k) so no
+          # other unused legacy target can sink the build; the Bundle
+          # step verifies the 7 we actually need landed. (The previous
+          # `make <names> || make` fallback masked a target-name typo:
+          # the FUSE client's cmake target is `mount`, not `mfsmount`.)
+          make -j"$(nproc)" -k
 
       - name: Bundle binaries
         if: steps.cache-lfs.outputs.cache-hit != 'true' || inputs.force_rebuild == 'true'
         run: |
           bindir=$(mktemp -d)
           # Copy the built binaries; filenames vary by LizardFS version.
+          missing=""
           for b in mfsmaster mfschunkserver mfsmount mfsmetarestore mfscli \
                    mfssetgoal mfssetquota; do
             src=$(find /tmp/lizardfs-build -name "$b" -type f | head -1)
             if [ -n "$src" ]; then
               cp "$src" "$bindir/$b"
               strip "$bindir/$b" 2>/dev/null || true
+            else
+              missing="$missing $b"
             fi
           done
           ls -lh "$bindir/"
+          # Never publish an incomplete mesh-storage layer. If a daemon
+          # is missing it's almost certainly a target/output-name skew —
+          # dump the real candidate names so the fix is one iteration.
+          if [ -n "$missing" ]; then
+            echo "::error::LizardFS build did not produce:$missing" >&2
+            echo "--- executables actually built (candidate names): ---" >&2
+            find /tmp/lizardfs-build -maxdepth 4 -type f -executable \
+              \( -name 'mfs*' -o -name 'lizardfs*' -o -name 'mount' \) \
+              -printf '%f\n' | sort -u >&2
+            exit 1
+          fi
           tar -czf lizardfs-binaries.tar.gz -C "$bindir" .
           echo "Artifact size: $(du -sh lizardfs-binaries.tar.gz)"
 
