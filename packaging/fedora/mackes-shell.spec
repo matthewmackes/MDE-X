@@ -680,19 +680,32 @@ install -d -m 0750 %{buildroot}/var/lib/mde/meshfs
 install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/chunks
 install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/meta
 install -d -m 0750 %{buildroot}/var/lib/mde/meshfs/stage
+# VIRT-6 (v5.0.0) — per-VM qcow2 disk + ISO library tree. mde-virtual
+# writes VM disks under /var/lib/mde-vms/ and ISOs under .../isos/ at
+# runtime; both are %dir-owned + attr-locked in %files, so the package
+# must create the tree (install -d makes the /var/lib/mde-vms parent too).
+install -d -m 0750 %{buildroot}/var/lib/mde-vms/isos
 # MESHFS-1.1 (v5.0.0) — Unpack the CI-built LizardFS binaries from
 # Source1 (lizardfs-binaries.tar.gz, produced by lizardfs-build.yml).
 # sbin: mfsmaster (master), mfschunkserver (CS), mfsmetarestore (recovery).
-# bin:  mfsmount (FUSE client), mfscli, mfssetgoal, mfssetquota.
+# bin:  mfsmount (FUSE3 client, bundled from mfsmount3), lizardfs +
+#       lizardfs-admin (unified goal/quota/status CLIs — LizardFS 3.13
+#       has no separate mfscli/mfssetgoal/mfssetquota binaries; those
+#       legacy names are argv[0] symlinks into the lizardfs multitool).
 _lfs_tmp=$(mktemp -d)
 tar -xzf %{SOURCE1} -C "${_lfs_tmp}"
+# Fail loudly if the CI tarball is missing a daemon. The old
+# `[ -f ] && install || :` swallowed a missing binary and surfaced it
+# only as a confusing %files "File not found" at the end of the build;
+# an incomplete mesh-storage layer must never package silently. (On
+# Fedora's UsrMerge %{_sbindir} == %{_bindir} == /usr/bin — the split
+# below is cosmetic but kept for clarity / non-merged targets.)
+install -d %{buildroot}%{_sbindir} %{buildroot}%{_bindir}
 for _b in mfsmaster mfschunkserver mfsmetarestore; do
-    [ -f "${_lfs_tmp}/${_b}" ] && \
-        install -m 0755 "${_lfs_tmp}/${_b}" %{buildroot}%{_sbindir}/ || :
+    install -m 0755 "${_lfs_tmp}/${_b}" %{buildroot}%{_sbindir}/
 done
-for _b in mfsmount mfscli mfssetgoal mfssetquota; do
-    [ -f "${_lfs_tmp}/${_b}" ] && \
-        install -m 0755 "${_lfs_tmp}/${_b}" %{buildroot}%{_bindir}/ || :
+for _b in mfsmount lizardfs lizardfs-admin; do
+    install -m 0755 "${_lfs_tmp}/${_b}" %{buildroot}%{_bindir}/
 done
 rm -rf "${_lfs_tmp}"
 # VV-1 (v4.1.0) — Kamailio daemon unit + config dir.
@@ -1431,9 +1444,8 @@ echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to fini
 %{_sbindir}/mfschunkserver
 %{_sbindir}/mfsmetarestore
 %{_bindir}/mfsmount
-%{_bindir}/mfscli
-%{_bindir}/mfssetgoal
-%{_bindir}/mfssetquota
+%{_bindir}/lizardfs
+%{_bindir}/lizardfs-admin
 # GF-4.1 (v5.0.0) — mesh-home FUSE mount template. Stays in
 # base so a lighthouse install can mount mesh-home even
 # without the desktop session host.
