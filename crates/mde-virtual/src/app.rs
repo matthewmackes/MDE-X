@@ -399,6 +399,20 @@ pub(crate) fn pod_delete_command(pod: &str) -> (&'static str, Vec<String>) {
     ("podman", vec!["pod".into(), "rm".into(), "-f".into(), pod.into()])
 }
 
+/// Argv for removing a local image (VIRT-19.b).
+pub(crate) fn image_delete_command(image_ref: &str) -> (&'static str, Vec<String>) {
+    ("podman", vec!["rmi".into(), image_ref.into()])
+}
+
+/// True when `image_ref` is the image of a running container (VIRT-19.b
+/// in-use guard — podman would refuse the removal, so the UI refuses up
+/// front with an inline message instead of opening the confirmation).
+pub(crate) fn image_in_use(image_ref: &str, containers: &[ContainerEntry]) -> bool {
+    containers
+        .iter()
+        .any(|c| c.image == image_ref && c.state == "running")
+}
+
 /// Parse `podman ps --all --format json` into container rows (name +
 /// state only). Mirrors `compute_registry::parse_podman_ps_json`. Pure.
 pub(crate) fn parse_podman_ps_local(stdout: &str) -> Vec<ContainerEntry> {
@@ -1270,6 +1284,12 @@ pub(crate) enum Message {
     ConfirmPodDelete,
     /// Dismiss the pod delete confirmation.
     CancelPodDelete,
+    /// VIRT-19.b: open the delete-confirmation for a local image.
+    RequestImageDelete(String),
+    /// Confirm the pending image delete (`podman rmi`).
+    ConfirmImageDelete,
+    /// Dismiss the image delete confirmation.
+    CancelImageDelete,
 }
 
 /// `mde-virtual` application state.
@@ -1315,6 +1335,8 @@ pub(crate) struct VirtualApp {
     pending_container_delete: Option<String>,
     /// VIRT-18.b.3: the pod awaiting delete confirmation, if any.
     pending_pod_delete: Option<String>,
+    /// VIRT-19.b: the image ref awaiting delete confirmation, if any.
+    pending_image_delete: Option<String>,
 }
 
 impl VirtualApp {
@@ -1345,6 +1367,7 @@ impl VirtualApp {
             volumes: Vec::new(),
             pending_container_delete: None,
             pending_pod_delete: None,
+            pending_image_delete: None,
         }
     }
 
@@ -1455,6 +1478,26 @@ impl VirtualApp {
                     return Task::none();
                 };
                 let (bin, args) = pod_delete_command(&pod);
+                Task::perform(
+                    async move {
+                        let _ = std::process::Command::new(bin).args(&args).status();
+                    },
+                    |()| Message::Refresh,
+                )
+            }
+            Message::RequestImageDelete(image_ref) => {
+                self.pending_image_delete = Some(image_ref);
+                Task::none()
+            }
+            Message::CancelImageDelete => {
+                self.pending_image_delete = None;
+                Task::none()
+            }
+            Message::ConfirmImageDelete => {
+                let Some(image_ref) = self.pending_image_delete.take() else {
+                    return Task::none();
+                };
+                let (bin, args) = image_delete_command(&image_ref);
                 Task::perform(
                     async move {
                         let _ = std::process::Command::new(bin).args(&args).status();
@@ -1973,6 +2016,9 @@ impl VirtualApp {
         if let Some(b) = self.pod_delete_banner() {
             banners.push(b);
         }
+        if let Some(b) = self.image_delete_banner() {
+            banners.push(b);
+        }
         if banners.is_empty() {
             list
         } else {
@@ -1982,6 +2028,67 @@ impl VirtualApp {
             }
             col.push(list).into()
         }
+    }
+
+    /// This peer's containers (Bus inventory, or the direct local read when
+    /// the mesh is down) — for the VIRT-19.b image in-use guard.
+    fn local_containers(&self) -> Vec<ContainerEntry> {
+        match &self.fleet {
+            FleetState::Available(invs) => invs
+                .iter()
+                .find(|i| is_local(i, &self.local_host))
+                .map(|i| i.containers.clone())
+                .unwrap_or_default(),
+            FleetState::Unavailable => self
+                .local_direct
+                .as_ref()
+                .map(|i| i.containers.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// VIRT-19.b: the image delete-confirmation banner. When the image is in
+    /// use by a running container it refuses inline rather than confirming.
+    fn image_delete_banner(&self) -> Option<Element<'_, Message>> {
+        let image_ref = self.pending_image_delete.as_ref()?;
+        let palette = self.tokens.palette;
+        let space = self.tokens.space;
+        let radius = f32::from(self.tokens.radii.md);
+        let in_use = image_in_use(image_ref, &self.local_containers());
+        let msg = if in_use {
+            format!("Can't delete {image_ref}: in use by a running container.")
+        } else {
+            format!("Delete image {image_ref}? (`podman rmi`)")
+        };
+        let mut bar = row![text(msg)
+            .size(TypeRole::Body.size_in(self.tokens.font_size))
+            .color(rgba(palette.text))
+            .width(Length::Fill)]
+        .align_y(iced::alignment::Vertical::Center)
+        .spacing(f32::from(space.sm));
+        if !in_use {
+            bar = bar.push(self.simple_button("Delete", Message::ConfirmImageDelete));
+        }
+        bar = bar.push(self.simple_button(
+            if in_use { "OK" } else { "Cancel" },
+            Message::CancelImageDelete,
+        ));
+        Some(
+            container(bar)
+                .width(Length::Fill)
+                .padding([space.sm, space.lg2])
+                .style(move |_t| container::Style {
+                    snap: false,
+                    background: Some(Background::Color(rgba(palette.surface))),
+                    border: Border {
+                        color: rgba(palette.border),
+                        width: 1.0,
+                        radius: radius.into(),
+                    },
+                    ..container::Style::default()
+                })
+                .into(),
+        )
     }
 
     /// VIRT-18.b.3: the pod delete-confirmation banner (removes the pod and
@@ -2103,9 +2210,10 @@ impl VirtualApp {
         } else {
             let mut rows = column![].spacing(f32::from(space.xs));
             for img in &self.images {
+                let image_ref = format!("{}:{}", img.repository, img.tag);
                 rows = rows.push(
                     row![
-                        text(format!("{}:{}", img.repository, img.tag))
+                        text(image_ref.clone())
                             .size(TypeRole::Body.size_in(fs))
                             .color(rgba(palette.text))
                             .width(Length::FillPortion(3)),
@@ -2118,6 +2226,7 @@ impl VirtualApp {
                             .color(rgba(palette.text_muted))
                             .width(Length::FillPortion(2)),
                     ]
+                    .push(self.pod_button("Delete", Message::RequestImageDelete(image_ref)))
                     .spacing(f32::from(space.sm)),
                 );
             }
@@ -3103,6 +3212,47 @@ mod tests {
         assert_eq!(app.pending_pod_delete.as_deref(), Some("app-pod"));
         let _ = app.update(Message::CancelPodDelete);
         assert!(app.pending_pod_delete.is_none());
+    }
+
+    #[test]
+    fn image_delete_command_is_rmi() {
+        let (bin, args) = image_delete_command("redis:7");
+        assert_eq!(bin, "podman");
+        assert_eq!(args, vec!["rmi".to_string(), "redis:7".to_string()]);
+    }
+
+    #[test]
+    fn image_in_use_detects_running_container() {
+        let containers = vec![
+            ContainerEntry {
+                name: "c1".into(),
+                image: "redis:7".into(),
+                state: "running".into(),
+                cpu_pct: 0.0,
+                ram_mb: 0,
+                pod: String::new(),
+            },
+            ContainerEntry {
+                name: "c2".into(),
+                image: "nginx:1".into(),
+                state: "exited".into(),
+                cpu_pct: 0.0,
+                ram_mb: 0,
+                pod: String::new(),
+            },
+        ];
+        assert!(image_in_use("redis:7", &containers)); // running ⇒ in use
+        assert!(!image_in_use("nginx:1", &containers)); // exited ⇒ not in use
+        assert!(!image_in_use("absent:1", &containers));
+    }
+
+    #[test]
+    fn image_delete_confirmation_state() {
+        let mut app = VirtualApp::new();
+        let _ = app.update(Message::RequestImageDelete("redis:7".into()));
+        assert_eq!(app.pending_image_delete.as_deref(), Some("redis:7"));
+        let _ = app.update(Message::CancelImageDelete);
+        assert!(app.pending_image_delete.is_none());
     }
 
     #[test]

@@ -2265,12 +2265,14 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
   **Acceptance** (each bench-observable):
     - [✓] Local tab `Images` sub-section: lists images from `podman images --format json`; columns: repository, tag, size, created *(19.a — `parse_podman_images` tolerates the Names-array vs Repository/Tag + int-vs-string Size shapes; rendered as a titled card via `images_section`)*
     - [ ] `[Pull image…]` button opens a text field sheet; submits `podman pull <ref>` via `std::process::Command` and streams stdout to a progress area *(19.b)*
-    - [ ] `[Delete]` per image (confirmation sheet); refuses with inline error if the image is in use by a running container *(19.b)*
+    - [✓] `[Delete]` per image (confirmation sheet); refuses with inline error if the image is in use by a running container *(19.b.1)*
     - [✓] Local tab `Volumes` sub-section: read-only list from `podman volume ls --format json`; name + mount point + driver *(19.a — `parse_podman_volumes` + `volumes_section`)*
     - [✓] 3 unit tests: image list parsing, in-use deletion guard, volume list rendering *(19.a — image-parse shape tolerance, volume-parse drops-nameless, human_size scaling; the in-use-deletion-guard test lands with 19.b's Delete action)*
   **Sub-tasks (§0.12 split 2026-06-01):**
     - [✓] **VIRT-19.a** — read-only Images + Volumes lists in the Local tab (parse `podman images` / `volume ls` → titled-card sections; loaded on the poll path). *(shipped 2026-06-01 — session=opus-48-2026-06-01-virt19a; 56 mde-virtual tests pass)*
-    - [ ] **VIRT-19.b** — `[Pull image…]` (stdout-streaming progress) + per-image `[Delete]` (confirmation + running-container in-use guard).
+    - [ ] **VIRT-19.b** *(split §0.12 2026-06-01 into 19.b.1 image Delete [✓] + 19.b.2 image Pull; umbrella open until 19.b.2)*
+      - [✓] **VIRT-19.b.1: image Delete + in-use guard** *(shipped 2026-06-01 — session=opus-48-2026-06-01-virt19b1. Each image row gains a `[Delete]` button → `RequestImageDelete` → a banner that either confirms ("Delete image <ref>?" → `podman rmi`) or, when `image_in_use` finds a running container on that image, refuses inline ("Can't delete <ref>: in use…") with an OK dismiss. `image_delete_command` + `image_in_use` pure-fns + a state-transition test; 64 mde-virtual tests pass.)*
+      - [ ] **VIRT-19.b.2: image Pull** — `[Pull image…]` text-field sheet → `podman pull <ref>` with stdout streamed to a progress area.
 
 - [ ] **VIRT-20: v5.0.0 — `mde-virtual` bulk actions — checkboxes + contextual action bar**
   **As** an operator, **I want** to select multiple VMs or containers and act on them at once,

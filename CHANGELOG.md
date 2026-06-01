@@ -23,7 +23,8 @@ unreleased; tag versions get a date when they ship.
   the same shared files as the host.
 - The Local tab also lists this peer's Podman images and volumes for
   browsing, groups containers under their pod, and can start, stop, or
-  delete a container or a whole pod (deletes ask for confirmation first).
+  delete a container, a whole pod, or an image (deletes ask for
+  confirmation; an image in use by a running container is protected).
 - See `docs/help/virtual.md` for the full guide.
 
 **Compute lifecycle toasts (2026-06-01)**
