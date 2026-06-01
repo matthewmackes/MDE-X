@@ -23,6 +23,11 @@ unreleased; tag versions get a date when they ship.
   the same shared files as the host.
 - See `docs/help/virtual.md` for the full guide.
 
+**Compute lifecycle toasts (2026-06-01)**
+- Desktop notifications now pop when a VM starts, stops, or crashes on
+  any peer in your workgroup, so you hear about compute changes without
+  keeping Virtual open. Crash alerts are marked urgent.
+
 **Firewall activity monitoring (2026-05-29)**
 - MDE now records every external packet that firewalld blocks and shows
   fleet-wide denial data in the Workbench → Firewall panel (Activity

@@ -2277,15 +2277,18 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [ ] Selecting all via header checkbox selects all visible rows in the active section
     - [ ] 4 unit tests: mixed selection action intersection, header select-all, confirmation sheet resource list, bulk stop sends one message per resource
 
-- [ ] **VIRT-21: v5.0.0 — `compute_registry` state-change events → `compute/event/<peer>` → FDO toasts**
+- [ ] **VIRT-21: v5.0.0 — `compute_registry` state-change events → `compute/event/<peer>` → FDO toasts** *(split §0.12 2026-06-01 — session=opus-48-2026-06-01-virt21a. 21.a [✓] ships the toast pipeline end-to-end (compute_registry state-diff + `compute/event/<peer>` publish + the new `compute_event_toast` mded worker that subscribes + raises notify-send toasts); 21.b [ ] is the mde-virtual immediate-refresh-on-event optimization. Umbrella stays open until 21.b.)*
   **As** an operator, **I want** desktop notifications when VMs start, stop, or crash,
   **so that** I don't have to keep `mde-virtual` open to know what's happening.
   **Acceptance** (each bench-observable):
-    - [ ] `compute_registry` mackesd worker detects state transitions (running→stopped, stopped→running, running→crashed) by polling `virsh domstate` every 10 s and diffing against prior state
-    - [ ] State change publishes `compute/event/<peer-nebula-addr>` Bus message: `{ "vm_id": "…", "vm_name": "…", "event": "started"|"stopped"|"crashed", "peer": "…" }`
-    - [ ] `mded` FDO notification worker subscribes to `compute/event/*` and emits a desktop toast: `"VM <name> started/stopped/crashed on <hostname>"`; crash events use urgency `Critical`
-    - [ ] `mde-virtual` Fleet tab also subscribes to `compute/event/*` and refreshes the affected peer's inventory row immediately without waiting for the 10 s inventory broadcast
-    - [ ] 3 unit tests: state-diff detects crashed transition, event message schema, FDO urgency mapping
+    - [✓] `compute_registry` mackesd worker detects state transitions (running→stopped, stopped→running, running→crashed) and diffs against prior state *(21.a — diffs the per-tick libvirt `state` from the 10 s inventory poll via `classify_transition`; first-sight + no-change are silent so a worker restart doesn't toast-storm)*
+    - [✓] State change publishes `compute/event/<peer-nebula-addr>` Bus message: `{ "vm_id", "vm_name", "event": "started"|"stopped"|"crashed", "peer" }` *(21.a — `publish_event` mirrors `publish_inventory`; payload is a superset adding `hostname` for the toast body)*
+    - [✓] `mded` FDO notification worker subscribes to `compute/event/*` and emits a desktop toast: `"VM <name> started/stopped/crashed on <hostname>"`; crash events use urgency `Critical` *(21.a — new `compute_event_toast` worker; per-topic cursor seeded to head on first sight; `event_urgency` maps crashed→critical)*
+    - [ ] `mde-virtual` Fleet tab also subscribes to `compute/event/*` and refreshes the affected peer's inventory row immediately without waiting for the 10 s inventory broadcast *(21.b)*
+    - [✓] 3 unit tests: state-diff detects crashed transition, event message schema, FDO urgency mapping *(21.a — 7 tests: 4 in compute_registry (classify crashed/started/stopped/first-sight/noop + schema round-trip + event_topic), 3 in compute_event_toast (urgency, argv shape, peer fallback))*
+  **Sub-tasks (§0.12 split 2026-06-01):**
+    - [✓] **VIRT-21.a** — toast pipeline: `compute_registry` state-diff + `compute/event/<peer>` publish + `compute_event_toast` mded worker (subscribe `compute/event/*` → notify-send; crash=critical). *(shipped 2026-06-01 — session=opus-48-2026-06-01-virt21a)*
+    - [ ] **VIRT-21.b** — `mde-virtual` Fleet tab subscribes to `compute/event/*` for immediate row refresh (vs the existing 5 s inventory poll).
 
 ---
 

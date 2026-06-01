@@ -425,6 +425,71 @@ pub fn publish_inventory(peer: &str, inv: &Inventory) {
         .spawn();
 }
 
+/// One VM state-change event published to `compute/event/<peer>` when
+/// `compute_registry` detects a transition between ticks (VIRT-21).
+/// `hostname` is a superset of the design-doc §3 schema (`vm_id`,
+/// `vm_name`, `event`, `peer`) so the FDO toast can read
+/// "… on <hostname>" without a second inventory lookup.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ComputeEvent {
+    /// libvirt UUID of the VM.
+    pub vm_id: String,
+    /// VM display name.
+    pub vm_name: String,
+    /// `"started"`, `"stopped"`, or `"crashed"`.
+    pub event: String,
+    /// Publishing peer's Nebula overlay address.
+    pub peer: String,
+    /// Publishing peer's hostname (toast body).
+    pub hostname: String,
+}
+
+/// Classify a VM state transition into a notifiable event, or `None`
+/// when the change isn't toast-worthy.
+///
+/// Returns `None` on first sight (`prev == None`) so a worker (re)start
+/// doesn't toast every already-running VM. Maps the three transitions
+/// VIRT-21 cares about:
+/// - any → `crashed`        ⇒ `"crashed"`
+/// - non-running → `running` ⇒ `"started"`
+/// - `running` → `shut off`  ⇒ `"stopped"`
+#[must_use]
+pub fn classify_transition(prev: Option<&str>, cur: &str) -> Option<&'static str> {
+    let prev = prev?.trim();
+    let cur = cur.trim();
+    if cur == prev {
+        return None;
+    }
+    if cur == "crashed" {
+        return Some("crashed");
+    }
+    if prev != "running" && cur == "running" {
+        return Some("started");
+    }
+    if prev == "running" && cur == "shut off" {
+        return Some("stopped");
+    }
+    None
+}
+
+/// Bus topic a VM event is published to.
+#[must_use]
+pub fn event_topic(peer: &str) -> String {
+    format!("compute/event/{peer}")
+}
+
+/// Publish a [`ComputeEvent`] to `compute/event/<peer>` via the
+/// `mde-bus` CLI (mirrors [`publish_inventory`]).
+pub fn publish_event(peer: &str, ev: &ComputeEvent) {
+    let topic = event_topic(peer);
+    let Ok(body) = serde_json::to_string(ev) else {
+        return;
+    };
+    let _ = Command::new("mde-bus")
+        .args(["publish", &topic, "--body-flag", &body])
+        .spawn();
+}
+
 /// Collect VM entries via virsh. `prev` carries cumulative
 /// vcpu-time-ns per uuid across calls so `cpu_pct` is a true
 /// per-interval delta; pass a fresh empty map for a one-shot
@@ -514,6 +579,8 @@ pub struct ComputeRegistryWorker {
     vm_storage: PathBuf,
     /// `uuid → previous vcpu-time-ns sample` for cpu_pct deltas.
     prev_cpu_ns: Mutex<BTreeMap<String, u64>>,
+    /// `uuid → previous libvirt state` for VIRT-21 transition events.
+    prev_state: Mutex<BTreeMap<String, String>>,
 }
 
 impl ComputeRegistryWorker {
@@ -530,6 +597,7 @@ impl ComputeRegistryWorker {
             meshfs_mount: PathBuf::from(DEFAULT_MESHFS_MOUNT),
             vm_storage: PathBuf::from(DEFAULT_VM_STORAGE),
             prev_cpu_ns: Mutex::new(BTreeMap::new()),
+            prev_state: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -568,6 +636,35 @@ impl ComputeRegistryWorker {
         // Publish even when peer is empty (Nebula not yet up) so the
         // topic-shape is consistent — subscribers can ignore peer=="".
         publish_inventory(&peer, &inventory);
+
+        // VIRT-21: detect VM state transitions against the prior tick and
+        // publish `compute/event/<peer>` for each notable change, then
+        // replace the snapshot with current states. VMs that vanished
+        // (undefined since last tick) drop out silently — no event.
+        {
+            let mut prev = self.prev_state.lock().expect("prev_state mutex");
+            for vm in &inventory.vms {
+                if let Some(ev) =
+                    classify_transition(prev.get(&vm.id).map(String::as_str), &vm.state)
+                {
+                    publish_event(
+                        &peer,
+                        &ComputeEvent {
+                            vm_id: vm.id.clone(),
+                            vm_name: vm.name.clone(),
+                            event: ev.to_string(),
+                            peer: peer.clone(),
+                            hostname: self.hostname.clone(),
+                        },
+                    );
+                }
+            }
+            *prev = inventory
+                .vms
+                .iter()
+                .map(|v| (v.id.clone(), v.state.clone()))
+                .collect();
+        }
     }
 }
 
@@ -601,6 +698,57 @@ mod tests {
         let raw = "\nabc-123\n\ndef-456\n\n";
         let v = parse_virsh_uuid_list(raw);
         assert_eq!(v, vec!["abc-123".to_string(), "def-456".to_string()]);
+    }
+
+    // --- VIRT-21: classify_transition + ComputeEvent schema ---
+
+    #[test]
+    fn classify_transition_detects_crashed() {
+        assert_eq!(classify_transition(Some("running"), "crashed"), Some("crashed"));
+        // Already crashed ⇒ no repeat event.
+        assert_eq!(classify_transition(Some("crashed"), "crashed"), None);
+    }
+
+    #[test]
+    fn classify_transition_started_and_stopped() {
+        assert_eq!(classify_transition(Some("shut off"), "running"), Some("started"));
+        assert_eq!(classify_transition(Some("running"), "shut off"), Some("stopped"));
+        // paused → running counts as started; running → paused isn't notable.
+        assert_eq!(classify_transition(Some("paused"), "running"), Some("started"));
+        assert_eq!(classify_transition(Some("running"), "paused"), None);
+    }
+
+    #[test]
+    fn classify_transition_first_sight_and_noop_are_silent() {
+        // No prior sample (worker just started) ⇒ never toast.
+        assert_eq!(classify_transition(None, "running"), None);
+        assert_eq!(classify_transition(None, "crashed"), None);
+        // No change ⇒ no event.
+        assert_eq!(classify_transition(Some("running"), "running"), None);
+    }
+
+    #[test]
+    fn compute_event_schema_round_trips() {
+        let ev = ComputeEvent {
+            vm_id: "uuid-1".into(),
+            vm_name: "web1".into(),
+            event: "started".into(),
+            peer: "10.42.0.5".into(),
+            hostname: "host-b".into(),
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        // Design-doc §3 required fields present.
+        assert!(json.contains("\"vm_id\":\"uuid-1\""));
+        assert!(json.contains("\"vm_name\":\"web1\""));
+        assert!(json.contains("\"event\":\"started\""));
+        assert!(json.contains("\"peer\":\"10.42.0.5\""));
+        let back: ComputeEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, ev);
+    }
+
+    #[test]
+    fn event_topic_is_per_peer() {
+        assert_eq!(event_topic("10.42.0.5"), "compute/event/10.42.0.5");
     }
 
     // --- parse_virsh_dominfo ---

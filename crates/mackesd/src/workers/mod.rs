@@ -174,6 +174,9 @@ pub mod compute_expose;
 // `event/compute/migrate-ready` + virsh undefine. VIRT-8.b
 // (target-side compute_provision handler) ships with VIRT-6.
 pub mod compute_migrate;
+// VIRT-21 (v5.0.0) — desktop toasts on VM lifecycle changes. Drains
+// every `compute/event/<peer>` topic + fires `notify-send`.
+pub mod compute_event_toast;
 // MESH-A-1 (v5.0.0) — per-peer network assessment. Collects the 9
 // items from docs/design/v6.0-mde-portal.md §7.1 (wifi / arp /
 // gateway-dns / public-ip / speedtest / ipv4-6 / mtu / tunnel /

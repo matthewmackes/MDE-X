@@ -3523,6 +3523,19 @@ fn run_serve(
             .expect("worker_names mutex")
             .push("compute_migrate".into());
 
+        // VIRT-21 (v5.0.0) — compute_event_toast. Subscribes to every
+        // compute/event/<peer> topic and raises an FDO desktop toast on
+        // VM start/stop/crash so fleet lifecycle changes surface without
+        // keeping mde-virtual open.
+        sup.spawn(Spawn::new(
+            mackesd_core::workers::compute_event_toast::ComputeEventToastWorker::new(),
+            RestartPolicy::Always,
+        ));
+        worker_names
+            .lock()
+            .expect("worker_names mutex")
+            .push("compute_event_toast".into());
+
         // VIRT-6 (v5.0.0) — compute_provision. Drains this peer's
         // `compute/create/<addr>` topic: ensures the mde-vms pool,
         // allocates a per-peer /24 VM IP, runs requester-side
