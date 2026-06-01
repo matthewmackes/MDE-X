@@ -30,6 +30,7 @@ mkdir -p "${WORK}/build"
 cmake "${WORK}/src" \
     -B "${WORK}/build" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_CXX_FLAGS="-include cstdint" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DENABLE_TESTS=OFF \
