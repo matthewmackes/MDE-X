@@ -13,7 +13,7 @@
 #
 # Build deps on Fedora 44:
 #   cmake, gcc, g++, fuse3-devel, fuse3-libs, zlib-devel,
-#   openssl-devel, boost-devel, python3-devel, pkg-config
+#   openssl-devel, boost-devel, spdlog-devel, python3-devel, pkg-config
 
 name: lizardfs-build
 
@@ -53,6 +53,7 @@ jobs:
             zlib-devel \
             openssl-devel \
             boost-devel \
+            spdlog-devel \
             python3-devel \
             python3 \
             pkg-config \
