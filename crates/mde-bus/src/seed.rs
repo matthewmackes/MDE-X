@@ -72,7 +72,7 @@ const CURATED: &[CuratedTopic] = &[
     },
     CuratedTopic {
         name_template: "mon/disk",
-        description: "Netdata aggregator — disk + GFS quota breaches.",
+        description: "Netdata aggregator — disk + mesh-storage quota breaches.",
         priority_default: Priority::High,
         retention_s: None,
     },

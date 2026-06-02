@@ -2336,7 +2336,7 @@ fn main() -> anyhow::Result<()> {
                     ) {
                         Ok(true) => println!(
                             "banned '{node_id}' (recorded in {}'s ban list; \
-                             propagates to every peer via GFS).",
+                             propagates to every peer via mesh-storage).",
                             self_id
                         ),
                         Ok(false) => println!("'{node_id}' was already banned (no-op)."),

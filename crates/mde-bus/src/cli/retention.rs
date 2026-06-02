@@ -96,7 +96,7 @@ pub fn run(op: RetentionOp) -> Result<()> {
                 println!("  high    TTL: {}", format_ttl(policy.ttl_high_secs));
                 println!("  urgent  TTL: forever (never auto-expired)");
                 println!();
-                println!("GFS quota:");
+                println!("Disk quota:");
                 println!("  soft: {}", format_bytes(DEFAULT_QUOTA_SOFT_BYTES));
                 println!("  hard: {}", format_bytes(DEFAULT_QUOTA_HARD_BYTES));
                 println!("  used: {}", format_bytes(used));
