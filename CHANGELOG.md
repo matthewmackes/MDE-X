@@ -5,6 +5,14 @@ unreleased; tag versions get a date when they ship.
 
 ## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
 
+**Native music playback engine (2026-06-02)**
+- The music daemon now decodes and plays your Airsonic library locally
+  through the system audio (PipeWire), with **gapless album playback**:
+  queued tracks flow into each other with no silence at the boundaries.
+  FLAC, MP3, Ogg Vorbis, AAC, and WAV are supported.
+- `mde-musicd play <song-id>…` plays one or more tracks back to back,
+  with volume, pause/resume, and a live playhead.
+
 **KVM + Podman mesh-native compute — `mde-virtual` app (2026-05-31)**
 - A new **Virtual** app manages the KVM virtual machines and Podman
   containers across your whole workgroup from one window: a Fleet tab

@@ -1,15 +1,17 @@
-//! `mde-musicd` binary — AIR-4 slice.
+//! `mde-musicd` binary.
 //!
-//! The full daemon (D-Bus + MPRIS + PipeWire) lands in AIR-2/5/6; this
-//! entry point ships the `ping` subcommand that loads the mesh-shared
-//! creds + reaches the Airsonic server, exercising the [`airsonic`] +
-//! [`creds`] modules end-to-end (their §0.12 runtime reachability).
+//! Subcommands exercise the daemon's modules end-to-end (their §0.12
+//! runtime reachability): `ping` (creds + Airsonic reach), `queue` /
+//! `state` / `cache` (AIR-2/7/8), `serve` (the Bus control responder),
+//! and `play` (the AIR-5 engine: Symphonia decode → cpal output).
+//! The remaining `D-Bus` + MPRIS surfaces land in AIR-2.c/6.
 
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
 use mde_musicd::airsonic::Client;
+use mde_musicd::engine::{Engine, SourceCodec};
 use mde_musicd::{bus_responder, cache, creds, queue, reconnect, state};
 
 #[derive(Parser)]
@@ -49,6 +51,16 @@ enum Cmd {
     /// `reply/<ulid>`). Loops until interrupted (AIR-2 control surface;
     /// the play flow + MPRIS are AIR-2.c, gated on the audio engine).
     Serve,
+    /// Decode + play one or more songs gaplessly through the native
+    /// engine (AIR-5: Symphonia → cpal). Resolves each id's Airsonic
+    /// stream URL, then blocks until the last track finishes. This is the
+    /// engine's runtime entry point (§0.12); gap-free album playback is a
+    /// release HW-bench item (§0.15).
+    Play {
+        /// Airsonic song ids to play, in order.
+        #[arg(required = true)]
+        song_ids: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -104,7 +116,40 @@ fn main() -> ExitCode {
         Cmd::State { op } => state_cmd(&op),
         Cmd::Queue { op } => queue_cmd(&op),
         Cmd::Serve => serve(),
+        Cmd::Play { song_ids } => play_cmd(&song_ids),
     }
+}
+
+fn play_cmd(song_ids: &[String]) -> ExitCode {
+    let creds = match creds::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(2);
+        }
+    };
+    let client = Client::new(&creds.server_url, &creds.username, &creds.password);
+    // The stream endpoint serves the decodable bytes regardless of
+    // suffix; Symphonia probes the container from content, so an
+    // id-only CLI play hands the engine an Unknown hint.
+    let tracks: Vec<(String, SourceCodec)> = song_ids
+        .iter()
+        .map(|id| (client.stream_url(id), SourceCodec::Unknown))
+        .collect();
+    let engine = match Engine::new() {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("mde-musicd: audio engine unavailable: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("mde-musicd: playing {} track(s)", tracks.len());
+    engine.play(tracks);
+    // Block until the decode thread drains + the ring empties.
+    while engine.is_active() {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    ExitCode::SUCCESS
 }
 
 fn serve() -> ExitCode {

@@ -7,13 +7,15 @@
 //!
 //! Later AIR tasks layer on top:
 //! * AIR-2/6 — the zbus `dev.mackes.MDE.Music` + MPRIS surfaces.
-//! * AIR-5 — PipeWire-native playback + gapless pre-buffer.
+//! * AIR-5 — native gapless playback ([`engine`]: Symphonia decode →
+//!   cpal/ALSA→PipeWire output), reachable via `mde-musicd play`.
 //! * AIR-7/8 — mesh-shared cache + exclusive-playback handoff.
 
 pub mod airsonic;
 pub mod bus_responder;
 pub mod cache;
 pub mod creds;
+pub mod engine;
 pub mod queue;
 pub mod reconnect;
 pub mod state;
