@@ -21,6 +21,17 @@
 > CLAUDE.md §0.15 + memory `feedback_no_pre_release_reviews`. The 4
 > `[!]` items are *cut-process* blocked, not visual-bench — they stay.
 
+> **NEXT/FIRST CUT = v10.0.0 (operator directive 2026-06-02).** The
+> first official release ships as **v10.0.0** ("MackesDE for Workgroups
+> 10.0"), superseding every earlier candidate label: v4.0 (the cut-gated
+> NF-6.4 / NF-20.2 / "v4.0 cut tag" / KDC2-6.8 tasks), the "v5.0.0 ships
+> everything" epic-tag (§0.17), and EPIC-MASTER-2's "1.0 reset". Those all
+> denote this single **v10.0.0** cut: the four `[!]` cut-gated tasks +
+> the §0.6 four-file version bump now target **10.0.0**. The `v5.0.0 —`
+> prefix still on individual epic tasks is an internal label for the same
+> cut — a bulk re-tag is deferred hygiene, not a scope change. See memory
+> [[project_next_cut_version]].
+>
 > **Release strategy (updated 2026-05-23 by operator):**
 > **v4.0.0 shipped 2026-05-22** (commit `fbd9c5a`, RPM
 > `mde-4.0.0-1.fc44.x86_64`). The current in-flight bundle is
@@ -6680,9 +6691,10 @@ neither defect was caught at release time.
   + retained the existing `Application`-trait surface tests
   by importing `iced_layershell::Application as _` into the
   test module. `cargo test -p mde-panel --lib`: 181/0/0.
-- [!] **v4.0: cut release tag (retargeted from v3.0.2 per
-  operator scope-shift 2026-05-24 — "v4.0 is now the target
-  release for all features not yet released")** — Original
+- [!] **v10.0.0: cut release tag (re-pointed v4.0 → v10.0.0 per
+  operator directive 2026-06-02; was retargeted from v3.0.2 on
+  2026-05-24)** — the first official cut ships as v10.0.0; runs
+  `cut release 10.0.0` per §0.6. Original
   target was v3.0.2; the unreleased v2.5 Nebula + v4.1 VV
   workstreams now consolidate into a single v4.0 cut. The
   `cut release 4.0.<next>` shorthand fires the operator-

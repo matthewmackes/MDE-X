@@ -3,7 +3,7 @@
 All notable user-facing and architectural changes. The current line is
 unreleased; tag versions get a date when they ship.
 
-## Unreleased — v1.0 MackesDE for Workgroups (rebrand cut)
+## Unreleased — v10.0.0 MackesDE for Workgroups (first official cut)
 
 **Native music playback engine (2026-06-02)**
 - The music daemon now decodes and plays your Airsonic library locally
