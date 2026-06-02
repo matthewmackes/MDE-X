@@ -92,6 +92,14 @@ pub struct StoredMessage {
     /// deserializing to an empty vec — no migration, full backward-compat.
     #[serde(default)]
     pub actions: Vec<Action>,
+    /// BUS-2.7.d — ULID of the message this is a reply to, when set
+    /// (`mde-bus publish --reply-to <ulid>`). `None` for top-level
+    /// messages. `#[serde(default)]` keeps pre-2.7.d files (no field on
+    /// disk) deserializing to `None` — backward-compat, no migration.
+    /// Threaded views (BUS-6.1) key off this; like `actions` it lives in
+    /// the on-disk JSON only, never the SQLite index.
+    #[serde(default)]
+    pub reply_to: Option<String>,
 }
 
 /// Errors surfaced by [`Persist`] operations.
@@ -182,6 +190,23 @@ impl Persist {
         body: Option<&str>,
         actions: &[Action],
     ) -> Result<StoredMessage, PersistError> {
+        self.write_full(topic, priority, title, body, actions, None)
+    }
+
+    /// BUS-2.7.d — full-envelope writer: action buttons AND an optional
+    /// `reply_to` parent ULID (threaded replies; BUS-6.1 renders threads).
+    /// [`Persist::write`] + [`Persist::write_with_actions`] are thin
+    /// wrappers so the 40+ existing call sites stay untouched (the additive
+    /// pivot from 2.7.a). `reply_to` persists in the on-disk JSON only.
+    pub fn write_full(
+        &self,
+        topic: &str,
+        priority: Priority,
+        title: Option<&str>,
+        body: Option<&str>,
+        actions: &[Action],
+        reply_to: Option<&str>,
+    ) -> Result<StoredMessage, PersistError> {
         validate_topic(topic)?;
 
         // ULID carries the timestamp + a random tail; monotonic
@@ -212,6 +237,7 @@ impl Persist {
             ts_unix_ms,
             file_path: rel_path,
             actions: actions.to_vec(),
+            reply_to: reply_to.map(String::from),
         };
 
         // Write JSON atomically. tmp-then-rename so a crash mid-
@@ -508,6 +534,8 @@ fn row_to_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMessage> {
         // actions; the full message (incl. actions) lives in the on-disk
         // JSON at `file_path`, which consumers read when they render.
         actions: Vec::new(),
+        // BUS-2.7.d: `reply_to` is likewise on-disk-JSON only — not indexed.
+        reply_to: None,
     })
 }
 
@@ -687,6 +715,38 @@ mod tests {
             p.write("wild/+/card", Priority::Default, None, None),
             Err(PersistError::BadTopic(_))
         ));
+    }
+
+    #[test]
+    fn write_full_persists_reply_to_in_json() {
+        // BUS-2.7.d — write_full sets reply_to on the envelope; it round-
+        // trips through the on-disk JSON, and the plain `write` wrapper
+        // leaves it None.
+        let (_tmp, p) = open_tmp();
+        let reply = p
+            .write_full(
+                "t/x",
+                Priority::Default,
+                None,
+                Some("re: hi"),
+                &[],
+                Some("01PARENTULID"),
+            )
+            .unwrap();
+        assert_eq!(reply.reply_to.as_deref(), Some("01PARENTULID"));
+        let raw = std::fs::read_to_string(p.bus_root().join(&reply.file_path)).unwrap();
+        let parsed: StoredMessage = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed.reply_to.as_deref(), Some("01PARENTULID"));
+        let top = p.write("t/x", Priority::Default, None, Some("top")).unwrap();
+        assert_eq!(top.reply_to, None, "the plain wrapper sets no reply_to");
+    }
+
+    #[test]
+    fn stored_message_deserializes_without_reply_to_field() {
+        // BUS-2.7.d — pre-2.7.d on-disk JSON (no reply_to key) loads as None.
+        let raw = r#"{"ulid":"01X","topic":"t","priority":"default","title":null,"body":"b","ts_unix_ms":0,"file_path":"t/01X.json","actions":[]}"#;
+        let parsed: StoredMessage = serde_json::from_str(raw).unwrap();
+        assert_eq!(parsed.reply_to, None);
     }
 
     #[test]

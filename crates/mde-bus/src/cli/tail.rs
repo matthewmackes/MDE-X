@@ -86,9 +86,15 @@ pub fn format_line(msg: &StoredMessage) -> String {
             .join(", ");
         format!("  [{list}]")
     };
+    // BUS-2.7.d — show the parent ULID when this message is a threaded
+    // reply, so an operator tailing the bus sees the thread linkage.
+    let reply = match &msg.reply_to {
+        Some(parent) => format!("  ↳{parent}"),
+        None => String::new(),
+    };
     format!(
-        "{}  {}  {}  {}{}",
-        msg.ulid, msg.topic, msg.priority, summary, actions
+        "{}  {}  {}  {}{}{}",
+        msg.ulid, msg.topic, msg.priority, summary, reply, actions
     )
 }
 
@@ -217,6 +223,7 @@ mod tests {
             ts_unix_ms: 0,
             file_path: "t/x/01ABCDE.json".to_string(),
             actions: Vec::new(),
+            reply_to: None,
         };
         let line = format_line(&m);
         assert!(line.contains("01ABCDE"));
@@ -237,6 +244,7 @@ mod tests {
             ts_unix_ms: 0,
             file_path: "t/x/01ABCDE.json".to_string(),
             actions: Vec::new(),
+            reply_to: None,
         };
         let line = format_line(&m);
         assert!(line.contains("the body line"));
@@ -257,10 +265,48 @@ mod tests {
                 label: "Resolve".to_string(),
                 url: "mde://files/resolve".to_string(),
             }],
+            reply_to: None,
         };
         let line = format_line(&m);
         assert!(line.contains("Conflict"));
         assert!(line.contains("Resolve→mde://files/resolve"));
+    }
+
+    #[test]
+    fn format_line_shows_reply_to() {
+        // BUS-2.7.d — a threaded reply renders its parent ULID inline.
+        let m = StoredMessage {
+            ulid: "01REPLY".to_string(),
+            topic: "fleet/announce".to_string(),
+            priority: "default".to_string(),
+            title: Some("re: status".to_string()),
+            body: None,
+            ts_unix_ms: 0,
+            file_path: "fleet/announce/01REPLY.json".to_string(),
+            actions: Vec::new(),
+            reply_to: Some("01PARENT".to_string()),
+        };
+        let line = format_line(&m);
+        assert!(line.contains("↳01PARENT"), "reply linkage shown: {line}");
+    }
+
+    #[test]
+    fn format_emit_json_round_trips_reply_to() {
+        // BUS-2.7.d — reply_to survives the --json serialize/deserialize.
+        let m = StoredMessage {
+            ulid: "01J0RPL".to_string(),
+            topic: "fleet/announce".to_string(),
+            priority: "default".to_string(),
+            title: Some("re".to_string()),
+            body: None,
+            ts_unix_ms: 1,
+            file_path: "fleet/announce/01J0RPL.json".to_string(),
+            actions: Vec::new(),
+            reply_to: Some("01PARENT".to_string()),
+        };
+        let parsed: StoredMessage = serde_json::from_str(&format_emit(&m, true)).unwrap();
+        assert_eq!(parsed.reply_to.as_deref(), Some("01PARENT"));
+        assert_eq!(parsed, m);
     }
 
     #[test]
@@ -274,6 +320,7 @@ mod tests {
             ts_unix_ms: 1_700_000_000_000,
             file_path: "fleet/announce/01J0AAA.json".to_string(),
             actions: Vec::new(),
+            reply_to: None,
         };
         let json = format_emit(&m, true);
         let parsed: StoredMessage = serde_json::from_str(&json).unwrap();
@@ -291,6 +338,7 @@ mod tests {
             ts_unix_ms: 0,
             file_path: "p".to_string(),
             actions: Vec::new(),
+            reply_to: None,
         };
         assert_eq!(format_emit(&m, false), format_line(&m));
     }

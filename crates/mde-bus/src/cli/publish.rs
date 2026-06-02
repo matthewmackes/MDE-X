@@ -52,6 +52,10 @@ pub struct PublishArgs {
     /// `=`) are skipped.
     #[arg(long = "action", value_name = "LABEL=URL")]
     pub actions: Vec<String>,
+    /// BUS-2.7.d — ULID of the message this replies to (threaded reply).
+    /// Persists as `reply_to` in the envelope; BUS-6.1 renders threads.
+    #[arg(long = "reply-to", value_name = "ULID")]
+    pub reply_to: Option<String>,
     /// Persist-only mode — skip the broker POST entirely. Useful
     /// for offline message recording or for tests.
     #[arg(long)]
@@ -156,7 +160,14 @@ pub async fn run(args: PublishArgs) -> Result<()> {
     let persist = Persist::open(bus_root).context("open persist")?;
     let actions = parse_actions(&args.actions);
     let stored = persist
-        .write_with_actions(&args.topic, priority, args.title.as_deref(), Some(&body), &actions)
+        .write_full(
+            &args.topic,
+            priority,
+            args.title.as_deref(),
+            Some(&body),
+            &actions,
+            args.reply_to.as_deref(),
+        )
         .with_context(|| format!("persist publish {} → {}", args.topic, args.topic))?;
 
     if args.json {
@@ -300,6 +311,7 @@ mod tests {
             broker_url: None,
             json: false,
             actions: Vec::new(),
+            reply_to: Some("01J0CLIPARENT".to_string()),
         };
         run(args).await.unwrap();
         // Verify Persist stored the message.
@@ -308,5 +320,10 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].title.as_deref(), Some("title"));
         assert_eq!(rows[0].body.as_deref(), Some("hello"));
+        // BUS-2.7.d — reply_to lives in the on-disk JSON (not the SQLite
+        // index); confirm the CLI threaded --reply-to through write_full.
+        let raw = std::fs::read_to_string(tmp.path().join(&rows[0].file_path)).unwrap();
+        let parsed: crate::persist::StoredMessage = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed.reply_to.as_deref(), Some("01J0CLIPARENT"));
     }
 }

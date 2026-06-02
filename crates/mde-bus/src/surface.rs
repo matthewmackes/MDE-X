@@ -248,6 +248,7 @@ mod tests {
             ts_unix_ms: 0,
             file_path: format!("t/{ulid}.json"),
             actions: Vec::new(),
+            reply_to: None,
         }
     }
 
@@ -340,6 +341,7 @@ mod tests {
             ts_unix_ms: ts_ms,
             file_path: format!("{topic}/{ulid}.json"),
             actions: Vec::new(),
+            reply_to: None,
         }
     }
 
