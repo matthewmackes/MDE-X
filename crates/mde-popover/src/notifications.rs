@@ -96,6 +96,20 @@ fn dismiss_alpha(start: Instant) -> f32 {
 // BUS-2.3 — Bus message integration (pure data layer)
 // ──────────────────────────────────────────────────────────────
 
+/// BUS-2.7 — max action buttons rendered per notification
+/// (`v6.x-mackes-bus.md` §9). Publishers may set more; the surface
+/// renders only the first `MAX_BUS_ACTIONS`.
+const MAX_BUS_ACTIONS: usize = 5;
+
+/// BUS-2.7.b — one notification action button parsed from a Bus
+/// message's on-disk `actions` array: a `label` the surface renders
+/// and a `url` (typically `mde://…`) dispatched via `mde-open` on click.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BusAction {
+    pub label: String,
+    pub url: String,
+}
+
 /// A Bus message loaded from the GFS file tree for popover display.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BusPopoverMessage {
@@ -104,6 +118,10 @@ pub struct BusPopoverMessage {
     pub priority: String,
     pub title: String,
     pub body: String,
+    /// BUS-2.7.b — action buttons published with the message
+    /// (`mde-bus publish --action LABEL=URL`). Empty for pre-2.7
+    /// messages + any message published without `--action`.
+    pub actions: Vec<BusAction>,
 }
 
 /// Resolve `$XDG_DATA_HOME/mde/bus` (or `~/.local/share/mde/bus`).
@@ -137,7 +155,32 @@ pub fn parse_bus_message(path: &Path, ulid: &str, topic: &str) -> Option<BusPopo
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    Some(BusPopoverMessage { ulid: ulid.to_string(), topic: topic.to_string(), priority, title, body })
+    // BUS-2.7.b — pull the optional action buttons (label + url pairs).
+    // Missing field / non-array → no actions (backward-compatible with
+    // every pre-2.7 message). Entries missing label or url are skipped;
+    // the list is capped at MAX_BUS_ACTIONS per the §9 design lock.
+    let actions = outer
+        .get("actions")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| {
+                    let label = a.get("label").and_then(|v| v.as_str())?.to_string();
+                    let url = a.get("url").and_then(|v| v.as_str())?.to_string();
+                    Some(BusAction { label, url })
+                })
+                .take(MAX_BUS_ACTIONS)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(BusPopoverMessage {
+        ulid: ulid.to_string(),
+        topic: topic.to_string(),
+        priority,
+        title,
+        body,
+        actions,
+    })
 }
 
 /// Walk `dir` recursively, collecting `(topic, ulid, path)` for each
@@ -227,6 +270,9 @@ pub enum Message {
     ToggleCollapse(String),
     /// BUS-2.3 — move a Bus message ULID to the acked-list.
     AckBusMessage(String),
+    /// BUS-2.7.b — operator clicked a notification action button;
+    /// dispatch its `url` (an `mde://…` deep-link) via `mde-open`.
+    OpenAction(String),
 }
 
 /// BUG-8.c — group layout selector. Default is `Peer` so existing
@@ -319,6 +365,14 @@ fn update(state: &mut App, msg: Message) -> Task<Message> {
             // ANIM-3.b.2 — start dismiss fade instead of instant ack.
             // The row fades out; AnimTick moves it to bus_acked once done.
             state.dismissing.insert(ulid, Instant::now());
+            Task::none()
+        }
+        Message::OpenAction(url) => {
+            // BUS-2.7.b — hand the action URL to `mde-open`, the
+            // `mde://` dispatcher (Portal-35). Fire-and-forget, matching
+            // the farewell/window-action spawn idiom; the dispatched
+            // surface grabs focus, which dismisses this popover.
+            let _ = std::process::Command::new("mde-open").arg(&url).spawn();
             Task::none()
         }
         Message::AnimTick => {
@@ -839,6 +893,35 @@ pub fn run() -> iced_layershell::Result {
 /// BUS-2.3 / ANIM-3.b.2 — render one Bus message row with an "Ack"
 /// button on the right. `alpha` = entrance stagger or dismiss-fade
 /// value (0.0–1.0); all colors are scaled so the row fades in/out.
+/// BUS-2.7.b — render one notification action button. The `label` is
+/// operator-supplied (`mde-bus publish --action LABEL=URL`); the click
+/// dispatches `url` through `mde-open`. Styled to read as a secondary
+/// control (accent outline, hover-fill) alongside the row's Ack button.
+fn action_button<'a>(label: &str, url: &str) -> Element<'a, Message> {
+    let url = url.to_string();
+    iced::widget::Button::new(text(label.to_string()).size(10).color(FG_TEXT))
+        .padding(Padding { top: 2.0, right: 8.0, bottom: 2.0, left: 8.0 })
+        .style(|_t: &Theme, status: iced::widget::button::Status| {
+            let bg = match status {
+                iced::widget::button::Status::Hovered => Color { r: 0.18, g: 0.18, b: 0.20, a: 1.0 },
+                _ => Color::TRANSPARENT,
+            };
+            iced::widget::button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: FG_TEXT,
+                border: Border {
+                    color: Color { a: 0.35, ..ACCENT },
+                    width: 1.0,
+                    radius: 3.0.into(),
+                },
+                shadow: Shadow::default(),
+                snap: false,
+            }
+        })
+        .on_press(Message::OpenAction(url))
+        .into()
+}
+
 fn render_bus_row(msg: &BusPopoverMessage, alpha: f32) -> Element<'_, Message> {
     let priority_color = match msg.priority.as_str() {
         "urgent" => BUS_URGENT_COLOR,
@@ -888,7 +971,18 @@ fn render_bus_row(msg: &BusPopoverMessage, alpha: f32) -> Element<'_, Message> {
         Space::new().into()
     };
 
-    let text_col = column![topic_label, title_label, body_label].spacing(1);
+    // BUS-2.7.b — action buttons under the body. Hidden while the row
+    // fades (alpha < full) so a dismissing card doesn't accept clicks.
+    let mut text_col = column![topic_label, title_label, body_label].spacing(1);
+    if alpha >= 0.99 && !msg.actions.is_empty() {
+        let mut actions_row = row![].spacing(6);
+        for action in &msg.actions {
+            actions_row = actions_row.push(action_button(&action.label, &action.url));
+        }
+        text_col = text_col
+            .push(Space::new().height(Length::Fixed(4.0)))
+            .push(actions_row);
+    }
     let content_row = row![
         text_col,
         Space::new().width(Length::Fill),
@@ -1244,6 +1338,7 @@ mod tests {
             priority: priority.to_string(),
             title: format!("{priority} message"),
             body: "body".to_string(),
+            actions: Vec::new(),
         }
     }
 
@@ -1305,5 +1400,68 @@ mod tests {
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].ulid, ulid);
         assert_eq!(msgs[0].topic, "fleet/announce");
+    }
+
+    /// Helper: write one Bus JSON file and parse it back.
+    fn parse_with_actions(actions_json: &str) -> BusPopoverMessage {
+        let dir = tempfile::tempdir().unwrap();
+        let ulid = "01JABCDEFGHJKMNPQRST";
+        let path = dir.path().join(format!("{ulid}.json"));
+        let json = format!(
+            r#"{{"ulid":"{ulid}","topic":"meshfs/conflict","priority":"high","title":"Conflict","body":"edit clash","ts_unix_ms":0,"file_path":"",{actions_json}}}"#
+        );
+        std::fs::write(&path, &json).unwrap();
+        parse_bus_message(&path, ulid, "meshfs/conflict").expect("parses")
+    }
+
+    #[test]
+    fn parse_bus_message_reads_actions() {
+        // BUS-2.7.b — the MESHFS-conflict → "Resolve" use-case from 2.7.a.
+        let msg = parse_with_actions(r#""actions":[{"label":"Resolve","url":"mde://meshfs/resolve/abc"}]"#);
+        assert_eq!(msg.actions.len(), 1);
+        assert_eq!(msg.actions[0].label, "Resolve");
+        assert_eq!(msg.actions[0].url, "mde://meshfs/resolve/abc");
+    }
+
+    #[test]
+    fn parse_bus_message_no_actions_field_is_empty() {
+        // Backward-compat: pre-2.7 messages have no `actions` key on disk.
+        let dir = tempfile::tempdir().unwrap();
+        let ulid = "01JABCDEFGHJKMNPQRST";
+        let path = dir.path().join(format!("{ulid}.json"));
+        std::fs::write(
+            &path,
+            r#"{"ulid":"01JABCDEFGHJKMNPQRST","topic":"fleet/announce","priority":"default","title":"t","body":"b","ts_unix_ms":0,"file_path":""}"#,
+        )
+        .unwrap();
+        let msg = parse_bus_message(&path, ulid, "fleet/announce").expect("parses");
+        assert!(msg.actions.is_empty());
+    }
+
+    #[test]
+    fn parse_bus_message_caps_actions_at_five() {
+        let many: Vec<String> = (0..8)
+            .map(|i| format!(r#"{{"label":"a{i}","url":"mde://x/{i}"}}"#))
+            .collect();
+        let msg = parse_with_actions(&format!(r#""actions":[{}]"#, many.join(",")));
+        assert_eq!(msg.actions.len(), MAX_BUS_ACTIONS, "capped at the §9 limit");
+        assert_eq!(msg.actions[0].label, "a0");
+    }
+
+    #[test]
+    fn parse_bus_message_skips_malformed_actions() {
+        // An entry missing `url` is dropped; the well-formed one survives.
+        let msg = parse_with_actions(
+            r#""actions":[{"label":"NoUrl"},{"label":"Open","url":"mde://hub"}]"#,
+        );
+        assert_eq!(msg.actions.len(), 1);
+        assert_eq!(msg.actions[0].label, "Open");
+    }
+
+    #[test]
+    fn parse_bus_message_actions_non_array_is_empty() {
+        // A malformed (non-array) `actions` value degrades to no actions.
+        let msg = parse_with_actions(r#""actions":"not-an-array""#);
+        assert!(msg.actions.is_empty());
     }
 }
