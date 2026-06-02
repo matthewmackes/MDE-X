@@ -1,21 +1,27 @@
 #!/bin/sh
-# install-helpers/pre-cut-check.sh — §0.17 NO INCOMPLETE RELEASES
+# install-helpers/pre-cut-check.sh — §0.17 "v5.0.0 SHIPS EVERYTHING"
 # enforcement (TUNE-7, locked 2026-05-26 per Q11 + Q12 of the 25-Q
-# tuning survey).
+# tuning survey; broadened from the retired INST-/DM- subset to the
+# FULL Active worklist 2026-06-02 per §0.17 + §0 cut-shorthand step 0).
 #
-# Refuses the cut when any §11 1.0-roadmap item from
-# `docs/AI_GOVERNANCE.md` still has an open task in the worklist.
-# Hard block per Q12 — no operator override flag, no env-var
-# bypass, no "force" mode. The only legitimate path past this gate
-# is the operator typing "amend Q91 to drop <item>" (which removes
-# the line from AI_GOVERNANCE.md §11 — then re-running this script
-# passes automatically).
+# Refuses the cut when ANY task in the worklist's Active section is
+# still Open `[ ]` or In-Progress `[>]`. Per the 2026-05-30 operator
+# directive (§0.17, "nothing is post 5.0"), v5.0.0 ships the FULL
+# locked worklist — every open/in-progress Active task is a cut-
+# blocker, regardless of epic prefix. The old §11.1 "shippable core"
+# gate (INST-/DM- only) is retired; this scans the whole section.
 #
-# Each row in `docs/AI_GOVERNANCE.md` §11 names an epic prefix
-# (BUS-, GF-, DEAD-, CR-, INST-, DM-, etc.). The script greps the
-# active section of `docs/PROJECT_WORKLIST.md` for `[ ] **<PREFIX>`
-# or `[>] **<PREFIX>` markers — any hit means at least one task is
-# open or in-progress for that roadmap item, and the cut refuses.
+# Hard block per Q12 — no operator override flag, no env-var bypass,
+# no "force" mode. The legitimate paths past this gate: ship the work
+# to `[✓]`, or the operator deletes the task from the worklist as
+# out-of-scope (lock-amendment per §0.16; never auto-proposed per §0.17).
+#
+# `[!] Blocked` tasks are reported as INFORMATIONAL, not hard blocks:
+# §0.17's literal text names only `[ ]`/`[>]` as cut-blockers, and the
+# worklist's pre-release-verification note records the cut-process
+# `[!]` items (version-bump-at-cut-time, CHANGELOG, etc.) as expected
+# to remain blocked through step 0. They surface in the report for the
+# operator's eye but do not refuse the cut.
 #
 # Per §0.6 cut-release shorthand step 0: this script must exit 0
 # before `cut release X.Y.Z` proceeds to step 1 (version bump).
@@ -23,15 +29,15 @@
 # Per §0.15: HW-* tasks gate the cut via their per-bullet schema;
 # this script verifies the task-level [✓] but the operator-typed
 # bench-green confirmation on each HW-* sub-bullet is the
-# substantive check. (The schema is "every sub-bullet [✓]" + then
-# the task-level [✓] is set; this script reads the task-level mark.)
+# substantive check.
 #
 # Exit codes:
-#   0 = clean. Every §11 roadmap epic is fully closed (or all rows
-#       carry a §0.16-style operator-issued lift recorded inline).
-#   1 = at least one §11 roadmap item has open work in the worklist.
-#       The output lists the offending epic prefix + the count of
-#       open tasks + a sample title.
+#   0 = clean. Every Active-section task is [✓] Done (or [!] Blocked,
+#       informational), and every HW-* task is closed (task-level +
+#       per-bullet).
+#   1 = at least one Active task is [ ] Open or [>] In-Progress, or an
+#       HW-* task has open work. Output lists the counts, a per-epic-
+#       family histogram, and a sample title.
 #
 # Usage:
 #   make pre-cut-check       (the canonical entry point)
@@ -54,26 +60,11 @@ if [ ! -f "$WORKLIST" ]; then
     exit 1
 fi
 
-# Locked v5.0.0-CORE epic prefixes per `docs/AI_GOVERNANCE.md`
-# §11.1. AMENDED 2026-05-28 (§0.17 shippable-core amendment):
-# this gate now checks ONLY the §11.1 core subset, NOT the whole
-# §11 roadmap. The old all-§11-green list (BUS-/GF-/CR-/Portal-/
-# all EPIC-RETIRE-*/MON-/TUNE-/…) is retired — those are §11.2
-# post-5.0 continuous-main epics and do NOT block the cut.
-#
-# Only two core items gate cleanly by task-prefix: the cut must be
-# INSTALLABLE (INST-) and LOGINABLE (DM-). The rest of the §11.1
-# core — sway shell is usable, Nebula mesh-home mounts, Bus
-# foundation delivers, the 4 presets render — cannot be proven
-# from task marks; it is verified by the §11.1 C7 operator
-# ≥2-peer HW smoke at cut time (per §0.15), not by this script.
-#
-# The list is intentionally explicit (not auto-extracted) so an
-# unexpected design-doc edit doesn't silently change the gate.
-ROADMAP_PREFIXES='
-INST-
-DM-
-'
+# §0.17 full-worklist gate (2026-06-02): the cut blocks on EVERY open
+# / in-progress task in the Active section, not a hand-picked prefix
+# subset. The retired INST-/DM- "shippable core" list is gone — per
+# §0.17 there is no core-vs-rest split; the whole locked worklist is
+# the cut definition, so there's no ROADMAP_PREFIXES list to maintain.
 
 # Active section bounds — §11 only gates tasks in the "Active"
 # section of the worklist; History / Future-deliverables / SUPERSEDED
@@ -96,35 +87,31 @@ ACTIVE_TMP=$(mktemp)
 trap 'rm -f "$ACTIVE_TMP"' EXIT
 sed -n "${ACTIVE_START},${ACTIVE_END}p" "$WORKLIST" > "$ACTIVE_TMP"
 
-# Walk each roadmap prefix.
-OPEN_COUNT=0
-INPROGRESS_COUNT=0
-OPEN_PREFIXES=""
+# §0.17 full-section scan. Count every open / in-progress / blocked
+# task header in the Active slice, regardless of epic prefix.
+#   `^- [ ] **`     = Open        → blocks the cut
+#   `^- [>] ... **` = In-Progress → blocks the cut (it didn't close)
+#   `^- [!] **`     = Blocked     → informational only (see header note)
+OPEN_COUNT=$(grep -cE '^- \[ \] \*\*' "$ACTIVE_TMP" || true)
+INPROGRESS_COUNT=$(grep -cE '^- \[>\][^*]*\*\*' "$ACTIVE_TMP" || true)
+BLOCKED_COUNT=$(grep -cE '^- \[!\] \*\*' "$ACTIVE_TMP" || true)
 
-for prefix in $ROADMAP_PREFIXES; do
-    [ -z "$prefix" ] && continue
-    # `[ ] **<prefix>` matches Open tasks.
-    # `[>] **<prefix>` and `[>] session=... **<prefix>` match In-Progress.
-    # We count both — In-Progress at cut time means the task didn't
-    # close, so the cut refuses.
-    open=$(grep -cE "^- \[ \] \*\*${prefix}" "$ACTIVE_TMP" || true)
-    inprog=$(grep -cE "^- \[>\][^*]*\*\*${prefix}" "$ACTIVE_TMP" || true)
-    blocked=$(grep -cE "^- \[!\] \*\*${prefix}" "$ACTIVE_TMP" || true)
-    total=$((open + inprog + blocked))
-    if [ "$total" -gt 0 ]; then
-        OPEN_COUNT=$((OPEN_COUNT + open + blocked))
-        INPROGRESS_COUNT=$((INPROGRESS_COUNT + inprog))
-        OPEN_PREFIXES="${OPEN_PREFIXES}\n  ${prefix}: ${open} open, ${inprog} in-progress, ${blocked} blocked"
-        # First sample title for each prefix, so the operator sees
-        # what's blocking.
-        sample=$(grep -E "^- \[( |>|!)\][^*]*\*\*${prefix}" "$ACTIVE_TMP" | head -1)
-        if [ -n "$sample" ]; then
-            # Truncate at 120 chars for readability.
-            short=$(echo "$sample" | cut -c1-120)
-            OPEN_PREFIXES="${OPEN_PREFIXES}\n    sample: ${short}..."
-        fi
-    fi
-done
+# Per-epic-family histogram of the blocking (open + in-progress)
+# tasks so the operator sees which epics still carry work. Family =
+# the alnum run right after the `**` (Portal-5.c → Portal, BUS-2.7.c
+# → BUS, KDC2-6.8 → KDC2, NF-6.x → NF).
+EPIC_HIST=$(awk '
+    /^- \[ \] \*\*/ || /^- \[>\][^*]*\*\*/ {
+        if (match($0, /\*\*[A-Za-z0-9]+/)) {
+            fam = substr($0, RSTART + 2, RLENGTH - 2);
+            count[fam]++;
+        }
+    }
+    END { for (f in count) printf "  %-14s %d\n", f, count[f]; }
+' "$ACTIVE_TMP" | sort -k2 -rn)
+
+# First open / in-progress sample title, truncated for the report.
+SAMPLE=$(grep -E '^- \[( |>)\][^*]*\*\*' "$ACTIVE_TMP" | head -1 | cut -c1-120)
 
 # TUNE-8 (Q13 of 25-Q tuning survey, 2026-05-26) — HW-* per-bullet
 # verification. HW tasks live in their own "Epic: Hardware Testing"
@@ -214,16 +201,24 @@ TOTAL=$((OPEN_COUNT + INPROGRESS_COUNT + HW_OPEN))
 
 if [ "$TOTAL" -gt 0 ]; then
     cat >&2 <<EOF
-$0: REFUSING THE CUT — §11 roadmap items still have open work.
+$0: REFUSING THE CUT — the Active worklist still has open work.
 
-$OPEN_COUNT open / blocked tasks + $INPROGRESS_COUNT in-progress
-tasks across §11 roadmap epic prefixes + $HW_OPEN open HW-* tasks
-(task-level OR per-bullet). Per CLAUDE.md §0.17 (Q11 + Q12 of 25-Q
-tuning survey, 2026-05-26) this is a HARD BLOCK with no operator
-override flag.
+§0.17 (v5.0.0 ships the FULL worklist): every [ ] Open and [>] In-
+Progress task in the Active section of docs/PROJECT_WORKLIST.md is a
+cut-blocker. Current Active state:
 
-Open epics:
-$(printf '%b' "$OPEN_PREFIXES")
+  ${OPEN_COUNT} open          ([ ])
+  ${INPROGRESS_COUNT} in-progress   ([>])
+  ${HW_OPEN} open HW-*       (task-level OR per-bullet, §0.15)
+  ${BLOCKED_COUNT} blocked       ([!] — informational, NOT counted toward the block)
+
+Open / in-progress work by epic family:
+${EPIC_HIST}
+
+Sample: ${SAMPLE}...
+
+Per CLAUDE.md §0.17 + §0 cut-shorthand step 0 this is a HARD BLOCK
+with no operator override flag.
 EOF
     if [ "$HW_OPEN" -gt 0 ]; then
         cat >&2 <<EOF
@@ -232,22 +227,25 @@ Open HW-* tasks (§0.15 + Q13 per-bullet schema — bench-green required):
 ${HW_DETAIL}
 EOF
     fi
+    if [ "$BLOCKED_COUNT" -gt 0 ]; then
+        printf '\n[!] Blocked (informational — do NOT block the cut per §0.17; each\nshould be a cut-process or operator-tracked carve-out):\n' >&2
+        grep -E '^- \[!\] \*\*' "$ACTIVE_TMP" \
+            | cut -c1-100 | sed 's/^- \[!\] /  /' | head -20 >&2
+    fi
     cat >&2 <<EOF
 
-The cut proceeds when one of these is true:
-  (a) Every task above is marked [✓] in docs/PROJECT_WORKLIST.md
-      with the §0.8 Definition of Done satisfied. For HW-* tasks,
-      every per-bullet AC sub-item must also be [✓] with
-      operator-confirmed bench results per §0.15.
-  (b) The operator types "amend Q91 to drop <epic>" and that epic
-      line is removed from docs/AI_GOVERNANCE.md §11 + this script's
-      ROADMAP_PREFIXES list. (Lock-amendment per §0.16 operator-
-      override path; never auto-proposed by Claude per §0.17.)
+The cut proceeds when:
+  (a) Every [ ]/[>] task above is [✓] Done per the §0.8 Definition of
+      Done (HW-* also needs every per-bullet AC [✓] with operator-
+      confirmed bench results per §0.15), or
+  (b) The operator deletes a task from the worklist as out-of-scope
+      (lock-amendment per §0.16; never auto-proposed by Claude per
+      §0.17).
 
 Until then, /ship the remaining work. See CLAUDE.md §0.17.
 EOF
     exit 1
 fi
 
-echo "$0: clean — every §11 roadmap epic prefix + every HW-* task (task-level + per-bullet) shows zero open work."
+echo "$0: clean — every Active-section task is [✓] Done (or [!] blocked/informational) and every HW-* task is closed (task-level + per-bullet)."
 exit 0
