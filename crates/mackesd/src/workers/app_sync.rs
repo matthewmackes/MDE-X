@@ -307,7 +307,7 @@ fn ensure_bookmark(bookmarks: &Path, media_dir: &Path) {
 /// `$HOME`-based (overridable in tests via [`Paths::under`]).
 #[derive(Debug, Clone)]
 struct Paths {
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     media_dir: PathBuf,
     sublime: PathBuf,
     delfin: PathBuf,
@@ -324,10 +324,10 @@ impl Paths {
     }
 
     /// All client paths rooted under `home`; discovery under
-    /// `qnm_root`. The seam tests use.
-    fn under(home: &Path, qnm_root: PathBuf) -> Self {
+    /// `workgroup_root`. The seam tests use.
+    fn under(home: &Path, workgroup_root: PathBuf) -> Self {
         Self {
-            qnm_root,
+            workgroup_root,
             media_dir: home.join("Mackes Media"),
             sublime: home.join(".config/sublime-music/config.json"),
             delfin: home.join(".local/share/Delfin/servers.json"),
@@ -374,14 +374,14 @@ fn sync_servers(paths: &Paths, servers: &[MediaServer]) -> usize {
 /// map to `KIND_AIRSONIC`; `jellyfin` maps to `KIND_JELLYFIN`. The
 /// precise `service_kind` comes from the bundled NSE detector
 /// (MESH-PROBE-3) on the worker's deep pass.
-fn discover_from_inventory(qnm_root: &std::path::Path) -> Vec<MediaServer> {
+fn discover_from_inventory(workgroup_root: &std::path::Path) -> Vec<MediaServer> {
     let mut servers = Vec::new();
     for (probe_kind, media_kind) in [
         ("airsonic", KIND_AIRSONIC),
         ("navidrome", KIND_AIRSONIC),
         ("jellyfin", KIND_JELLYFIN),
     ] {
-        for hs in crate::probe_nmap::peers_with_service(qnm_root, probe_kind) {
+        for hs in crate::probe_nmap::peers_with_service(workgroup_root, probe_kind) {
             let host = if hs.host.hostname.is_empty() {
                 hs.host.ip.clone()
             } else {
@@ -401,7 +401,7 @@ fn discover_from_inventory(qnm_root: &std::path::Path) -> Vec<MediaServer> {
 /// Full cycle: read discovered media servers from the probe inventory,
 /// then sync configs.
 fn run_once(paths: &Paths) -> usize {
-    let servers = discover_from_inventory(&paths.qnm_root);
+    let servers = discover_from_inventory(&paths.workgroup_root);
     let n = sync_servers(paths, &servers);
     if n > 0 {
         let airsonic = servers.iter().filter(|s| s.kind == KIND_AIRSONIC).count();
@@ -415,7 +415,7 @@ fn run_once(paths: &Paths) -> usize {
 
 /// Supervisor-ready app-config sync worker. 60 s tick; each tick
 /// discovers + writes configs. Best-effort throughout (a missing
-/// `qnm_root` or unreachable peer just yields fewer servers).
+/// `workgroup_root` or unreachable peer just yields fewer servers).
 pub struct AppSyncWorker {
     paths: Paths,
     tick: Duration,

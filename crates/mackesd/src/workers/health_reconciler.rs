@@ -48,7 +48,7 @@ pub const TICK_INTERVAL: Duration = Duration::from_secs(5);
 /// `~/QNM-Shared` mount failure doesn't pin the worker to a
 /// stale connection.
 pub struct HealthReconcilerWorker {
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     db_path: PathBuf,
     /// Stable node id of the local peer. Excluded from the
     /// reconcile scan because heartbeat-self is unreachable by
@@ -73,13 +73,13 @@ impl HealthReconcilerWorker {
     /// override.
     #[must_use]
     pub fn new(
-        qnm_root: PathBuf,
+        workgroup_root: PathBuf,
         db_path: PathBuf,
         local_node_id: String,
         signal_slot: SignalSenderSlot,
     ) -> Self {
         Self {
-            qnm_root,
+            workgroup_root,
             db_path,
             local_node_id,
             signal_slot,
@@ -125,7 +125,7 @@ impl Worker for HealthReconcilerWorker {
                     // blocking task so it doesn't pin the tokio
                     // scheduler. Cheap (microseconds for the
                     // local SQLite handle + N small JSON reads).
-                    let qnm = self.qnm_root.clone();
+                    let qnm = self.workgroup_root.clone();
                     let db = self.db_path.clone();
                     let local = self.local_node_id.clone();
                     let now_override = self.now_ms_override;
@@ -145,7 +145,7 @@ impl Worker for HealthReconcilerWorker {
 /// Exposed `pub` so the operator-mode smoke tests can fire a
 /// single tick + assert against a tempdir + in-memory store.
 pub fn tick_once(
-    qnm_root: &std::path::Path,
+    workgroup_root: &std::path::Path,
     db_path: &std::path::Path,
     local_node_id: &str,
     now_ms_override: Option<i64>,
@@ -162,7 +162,7 @@ pub fn tick_once(
             return;
         }
     };
-    reconcile_with_conn(&conn, qnm_root, local_node_id, now_ms_override, signal_slot);
+    reconcile_with_conn(&conn, workgroup_root, local_node_id, now_ms_override, signal_slot);
 }
 
 /// Connection-injected variant — tests pass an `:memory:` store
@@ -170,7 +170,7 @@ pub fn tick_once(
 /// `tick_once` which opens its own per-tick handle.
 pub fn reconcile_with_conn(
     conn: &rusqlite::Connection,
-    qnm_root: &std::path::Path,
+    workgroup_root: &std::path::Path,
     local_node_id: &str,
     now_ms_override: Option<i64>,
     signal_slot: &SignalSenderSlot,
@@ -187,7 +187,7 @@ pub fn reconcile_with_conn(
         if node.node_id == local_node_id {
             continue;
         }
-        let next = compute_health_for_peer(qnm_root, &node.node_id, now_ms);
+        let next = compute_health_for_peer(workgroup_root, &node.node_id, now_ms);
         let next_str = match next {
             HealthState::Healthy => "healthy",
             HealthState::Degraded => "degraded",
@@ -226,13 +226,13 @@ pub fn reconcile_with_conn(
     // into nodes.mde_version so mackesd's own consumers (Workbench mesh
     // view) see them. The installer tools read the files directly; this
     // is the nodes-table cache. See docs/design/v2.7-peer-data-convergence.md.
-    mirror_peer_versions(conn, qnm_root);
+    mirror_peer_versions(conn, workgroup_root);
 }
 
-/// PEERVER-4 mirror: union the GFS `<qnm_root>/peers/*.json` and write
+/// PEERVER-4 mirror: union the GFS `<workgroup_root>/peers/*.json` and write
 /// each peer's `mde_version` onto its `nodes` row (matched by name).
-fn mirror_peer_versions(conn: &rusqlite::Connection, qnm_root: &std::path::Path) {
-    let dir = mackes_mesh_types::peers::peers_dir(qnm_root);
+fn mirror_peer_versions(conn: &rusqlite::Connection, workgroup_root: &std::path::Path) {
+    let dir = mackes_mesh_types::peers::peers_dir(workgroup_root);
     for rec in mackes_mesh_types::peers::read_peers(&dir) {
         if let Err(e) =
             crate::store::set_node_mde_version_by_name(conn, &rec.hostname, rec.mde_version.as_deref())
@@ -247,11 +247,11 @@ fn mirror_peer_versions(conn: &rusqlite::Connection, qnm_root: &std::path::Path)
 /// `Unreachable` when the file is missing OR malformed —
 /// either case means "no recent evidence the peer is alive."
 fn compute_health_for_peer(
-    qnm_root: &std::path::Path,
+    workgroup_root: &std::path::Path,
     node_id: &str,
     now_ms: i64,
 ) -> HealthState {
-    let path = heartbeat_path(qnm_root, node_id);
+    let path = heartbeat_path(workgroup_root, node_id);
     let bytes = match std::fs::read(&path) {
         Ok(b) => b,
         Err(_) => return HealthState::Unreachable,

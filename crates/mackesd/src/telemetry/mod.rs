@@ -79,8 +79,8 @@ pub const fn health_state_from_age(age_ms: u64) -> HealthState {
 
 /// Build the on-disk path a peer's heartbeat JSON lives at.
 #[must_use]
-pub fn heartbeat_path(qnm_root: &Path, node_id: &str) -> PathBuf {
-    qnm_root
+pub fn heartbeat_path(workgroup_root: &Path, node_id: &str) -> PathBuf {
+    workgroup_root
         .join(node_id)
         .join("mackesd")
         .join("heartbeat.json")
@@ -88,8 +88,8 @@ pub fn heartbeat_path(qnm_root: &Path, node_id: &str) -> PathBuf {
 
 /// Build the on-disk path a peer's link-sample JSON lives at.
 #[must_use]
-pub fn links_path(qnm_root: &Path, node_id: &str) -> PathBuf {
-    qnm_root.join(node_id).join("mackesd").join("links.json")
+pub fn links_path(workgroup_root: &Path, node_id: &str) -> PathBuf {
+    workgroup_root.join(node_id).join("mackesd").join("links.json")
 }
 
 /// 12.3.3 heartbeat cadence. Locked at 10 s per the lock.
@@ -122,7 +122,7 @@ pub fn build_heartbeat(node_id: &str, applied_revision: Option<&str>) -> Heartbe
 /// peer's heartbeat fresh even while the rest of the reconciler is
 /// processing a long-running deploy.
 pub fn spawn_heartbeat_worker(
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     node_id: String,
     shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> std::thread::JoinHandle<()> {
@@ -139,7 +139,7 @@ pub fn spawn_heartbeat_worker(
             .unwrap_or(&node_id)
             .to_string();
         let mde_version = detect_mde_core_version();
-        let peers_dir = mackes_mesh_types::peers::peers_dir(&qnm_root);
+        let peers_dir = mackes_mesh_types::peers::peers_dir(&workgroup_root);
         let peer_write_min = std::time::Duration::from_secs(60);
         let mut last_peer_write: Option<std::time::Instant> = None;
         // Check the shutdown flag every 100 ms instead of sleeping the
@@ -152,7 +152,7 @@ pub fn spawn_heartbeat_worker(
         const CHECK_CHUNK: std::time::Duration = std::time::Duration::from_millis(100);
         while !shutdown.load(Ordering::Relaxed) {
             let hb = build_heartbeat(&node_id, None);
-            if let Err(e) = write_heartbeat(&qnm_root, &hb) {
+            if let Err(e) = write_heartbeat(&workgroup_root, &hb) {
                 eprintln!("heartbeat: write failed: {e}");
             }
             // PEERVER-2 — refresh the peer-convergence record at most
@@ -205,8 +205,8 @@ pub fn detect_mde_core_version() -> Option<String> {
 /// # Errors
 /// Returns `std::io::Error` when the parent directory isn't
 /// writable or the rename fails.
-pub fn write_heartbeat(qnm_root: &Path, hb: &Heartbeat) -> std::io::Result<PathBuf> {
-    let path = heartbeat_path(qnm_root, &hb.node_id);
+pub fn write_heartbeat(workgroup_root: &Path, hb: &Heartbeat) -> std::io::Result<PathBuf> {
+    let path = heartbeat_path(workgroup_root, &hb.node_id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -224,11 +224,11 @@ pub fn write_heartbeat(qnm_root: &Path, hb: &Heartbeat) -> std::io::Result<PathB
 /// Returns `std::io::Error` when the parent directory isn't
 /// writable or the rename fails.
 pub fn write_links(
-    qnm_root: &Path,
+    workgroup_root: &Path,
     node_id: &str,
     samples: &[LinkSample],
 ) -> std::io::Result<PathBuf> {
-    let path = links_path(qnm_root, node_id);
+    let path = links_path(workgroup_root, node_id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

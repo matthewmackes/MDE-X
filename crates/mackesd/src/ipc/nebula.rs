@@ -198,7 +198,7 @@ pub struct NebulaStatusService {
     /// to `~/QNM-Shared` (via
     /// `mackesd_core::default_qnm_shared_root`) when the
     /// caller doesn't override.
-    qnm_root: std::path::PathBuf,
+    workgroup_root: std::path::PathBuf,
 }
 
 impl NebulaStatusService {
@@ -218,7 +218,7 @@ impl NebulaStatusService {
             host: host.into(),
             role_marker_path: std::path::PathBuf::from(DEFAULT_ROLE_HOST_MARKER),
             mesh_id: std::env::var("MDE_MESH_ID").unwrap_or(default_mesh),
-            qnm_root: crate::default_qnm_shared_root(),
+            workgroup_root: crate::default_qnm_shared_root(),
         }
     }
 
@@ -242,8 +242,8 @@ impl NebulaStatusService {
     /// the per-peer pending-enroll + bundle paths. Tests
     /// redirect into a tempdir.
     #[must_use]
-    pub fn with_qnm_root(mut self, path: std::path::PathBuf) -> Self {
-        self.qnm_root = path;
+    pub fn with_workgroup_root(mut self, path: std::path::PathBuf) -> Self {
+        self.workgroup_root = path;
         self
     }
 
@@ -294,12 +294,12 @@ impl NebulaStatusService {
     /// testable without a SignalEmitter. The public surface
     /// (`enroll`) wraps this and fires `EnrollmentCompleted`.
     pub async fn enroll_inner(&self, token: String) -> zbus::fdo::Result<String> {
-        let qnm_root = self.qnm_root.clone();
+        let workgroup_root = self.workgroup_root.clone();
         let node_id = self.node_id.clone();
         let display_name = self.host.clone();
         let outcome = tokio::task::spawn_blocking(move || {
             crate::nebula_enroll::enroll_with_token(
-                &qnm_root,
+                &workgroup_root,
                 &node_id,
                 &display_name,
                 &token,
@@ -800,7 +800,7 @@ mod tests {
         // which we surface as zbus::fdo::Error::Failed.
         let tmp = tempfile::tempdir().expect("tempdir");
         let svc = NebulaStatusService::new(fresh_store(), "peer:local", "anvil")
-            .with_qnm_root(tmp.path().to_path_buf());
+            .with_workgroup_root(tmp.path().to_path_buf());
         let err = svc
             .enroll_inner("not a valid token".to_string())
             .await
@@ -842,10 +842,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn with_qnm_root_overrides_default() {
+    async fn with_workgroup_root_overrides_default() {
         let custom = std::path::PathBuf::from("/tmp/custom-qnm-test");
         let svc = NebulaStatusService::new(fresh_store(), "peer:local", "anvil")
-            .with_qnm_root(custom.clone());
-        assert_eq!(svc.qnm_root, custom);
+            .with_workgroup_root(custom.clone());
+        assert_eq!(svc.workgroup_root, custom);
     }
 }

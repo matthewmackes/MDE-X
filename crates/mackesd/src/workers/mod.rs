@@ -225,8 +225,8 @@ pub mod alert_relay;
 // every tick (a) checks leader-state via the role-host
 // marker; if leader, publishes a JSON pointer
 // {node_id, overlay_ip, epoch_s} under
-// `<qnm_root>/<self>/mackesd/netdata-aggregator.json`. (b)
-// always scans `<qnm_root>/*/mackesd/netdata-aggregator
+// `<workgroup_root>/<self>/mackesd/netdata-aggregator.json`. (b)
+// always scans `<workgroup_root>/*/mackesd/netdata-aggregator
 // .json`, picks the freshest pointer + mirrors the IP to
 // `/var/lib/mackesd/netdata/aggregator-ip` + rewrites
 // `/etc/netdata/netdata.conf`'s `[stream]` block + reloads

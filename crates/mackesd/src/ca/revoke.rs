@@ -30,7 +30,7 @@ use anyhow::Context as _;
 /// adds the node-id to this peer's ban list so the identity can't
 /// re-enroll, and fires a best-effort Bus event.
 ///
-/// `qnm_root` is the QNM-Shared / mesh-home root (used to locate
+/// `workgroup_root` is the QNM-Shared / mesh-home root (used to locate
 /// the local ban-list file). `self_node_id` is the local peer's
 /// stable node-id (the ban list is keyed by it).
 ///
@@ -44,7 +44,7 @@ use anyhow::Context as _;
 /// best-effort and any error is logged + ignored.
 pub fn revoke_peer(
     conn: &rusqlite::Connection,
-    qnm_root: &Path,
+    workgroup_root: &Path,
     self_node_id: &str,
     node_id: &str,
 ) -> anyhow::Result<u32> {
@@ -61,7 +61,7 @@ pub fn revoke_peer(
         )
         .context("revoke: update nebula_peer_certs")?;
 
-    crate::ca::ban_list::add_banned(qnm_root, self_node_id, node_id)
+    crate::ca::ban_list::add_banned(workgroup_root, self_node_id, node_id)
         .map_err(|e| anyhow::anyhow!("revoke: ban-list write failed: {e}"))?;
 
     publish_revoke_event(node_id);
@@ -111,10 +111,10 @@ mod tests {
         .expect("insert rows");
 
         let tmp = tempfile::tempdir().expect("tempdir");
-        let qnm_root = tmp.path();
+        let workgroup_root = tmp.path();
         let self_id = "peer:lighthouse";
 
-        let count = revoke_peer(&conn, qnm_root, self_id, "peer:anvil").expect("revoke");
+        let count = revoke_peer(&conn, workgroup_root, self_id, "peer:anvil").expect("revoke");
 
         assert_eq!(count, 2, "both rows marked revoked");
 
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(still_active, 0);
 
         assert!(
-            crate::ca::ban_list::is_banned(qnm_root, "peer:anvil"),
+            crate::ca::ban_list::is_banned(workgroup_root, "peer:anvil"),
             "node should be in ban list"
         );
     }

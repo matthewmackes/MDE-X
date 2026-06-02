@@ -48,7 +48,7 @@ pub const TICK_INTERVAL: Duration = Duration::from_secs(30);
 /// Worker handle. Cheap to construct; the heavy lifting (sqlite
 /// open + nebula-cert subprocess) happens in `run()`.
 pub struct NebulaCsrWatcher {
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     db_path: PathBuf,
     mesh_id: String,
     paths: SignCsrPaths,
@@ -84,14 +84,14 @@ impl NebulaCsrWatcher {
     /// SubprocessBackend (shells out to nebula-cert).
     #[must_use]
     pub fn new(
-        qnm_root: PathBuf,
+        workgroup_root: PathBuf,
         db_path: PathBuf,
         mesh_id: String,
         local_node_id: String,
         lighthouse_addr: String,
     ) -> Self {
         Self {
-            qnm_root,
+            workgroup_root,
             db_path,
             mesh_id,
             paths: SignCsrPaths::production_defaults(),
@@ -170,12 +170,12 @@ impl NebulaCsrWatcher {
     /// One scan pass. Pulled out for direct testing without
     /// the tokio scheduler.
     pub fn tick_once(&self) {
-        let peers = match discover_pending_peers(&self.qnm_root) {
+        let peers = match discover_pending_peers(&self.workgroup_root) {
             Ok(ps) => ps,
             Err(e) => {
                 tracing::debug!(
                     error = %e,
-                    qnm_root = %self.qnm_root.display(),
+                    workgroup_root = %self.workgroup_root.display(),
                     "nebula-csr-watcher: scan failed (QNM-Shared may not be mounted)",
                 );
                 return;
@@ -199,7 +199,7 @@ impl NebulaCsrWatcher {
             }
         };
         for peer_id in peers {
-            if !needs_signing(&self.qnm_root, &peer_id).unwrap_or(true) {
+            if !needs_signing(&self.workgroup_root, &peer_id).unwrap_or(true) {
                 continue;
             }
             let lighthouses = vec![crate::ca::bundle::LighthouseEntry {
@@ -217,7 +217,7 @@ impl NebulaCsrWatcher {
             match crate::nebula_enroll::sign_pending_csr(
                 &*self.backend,
                 &conn,
-                &self.qnm_root,
+                &self.workgroup_root,
                 &peer_id,
                 &self.mesh_id,
                 &self.paths,
@@ -264,20 +264,20 @@ impl NebulaCsrWatcher {
     }
 }
 
-/// Pure helper — scan `qnm_root` for `*/mackesd/pending-enroll.json`
+/// Pure helper — scan `workgroup_root` for `*/mackesd/pending-enroll.json`
 /// entries and return the peer_id slugs (the directory name under
-/// qnm_root). Empty Vec on a missing root.
+/// workgroup_root). Empty Vec on a missing root.
 ///
 /// # Errors
 ///
-/// Surfaces I/O errors from reading qnm_root. Permission denied
+/// Surfaces I/O errors from reading workgroup_root. Permission denied
 /// counts as "no peers" (worker logs at debug + moves on).
-pub fn discover_pending_peers(qnm_root: &Path) -> std::io::Result<Vec<String>> {
-    if !qnm_root.exists() {
+pub fn discover_pending_peers(workgroup_root: &Path) -> std::io::Result<Vec<String>> {
+    if !workgroup_root.exists() {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for entry in std::fs::read_dir(qnm_root)? {
+    for entry in std::fs::read_dir(workgroup_root)? {
         let entry = entry?;
         let path = entry.path();
         if !path.is_dir() {
@@ -304,9 +304,9 @@ pub fn discover_pending_peers(qnm_root: &Path) -> std::io::Result<Vec<String>> {
 /// make a decision unsafe (the caller treats Err as "try anyway"
 /// per the unwrap_or(true) in tick_once — better to attempt a
 /// race-condition-safe sign than silently skip).
-pub fn needs_signing(qnm_root: &Path, peer_id: &str) -> std::io::Result<bool> {
-    let csr = pending_enroll_path(qnm_root, peer_id);
-    let bundle = bundle_path(qnm_root, peer_id);
+pub fn needs_signing(workgroup_root: &Path, peer_id: &str) -> std::io::Result<bool> {
+    let csr = pending_enroll_path(workgroup_root, peer_id);
+    let bundle = bundle_path(workgroup_root, peer_id);
     if !bundle.exists() {
         return Ok(true);
     }
@@ -347,11 +347,11 @@ mod tests {
         (ca_crt, ca_key)
     }
 
-    fn place_csr(qnm_root: &Path, peer_id: &str) {
+    fn place_csr(workgroup_root: &Path, peer_id: &str) {
         let identity = crate::enrollment::build_identity();
         let token = parse_join_token("mesh:test-mesh@10.0.0.5:4242#bearer").unwrap();
         let pending = build_pending(&identity, peer_id, "anvil", token);
-        publish_enrollment_request(qnm_root, peer_id, &pending).expect("publish");
+        publish_enrollment_request(workgroup_root, peer_id, &pending).expect("publish");
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn tick_once_is_noop_on_empty_qnm_root() {
+    fn tick_once_is_noop_on_empty_workgroup_root() {
         let tmp = tempdir().unwrap();
         let db = tmp.path().join("mded.db");
         let conn = rusqlite::Connection::open(&db).expect("open db");

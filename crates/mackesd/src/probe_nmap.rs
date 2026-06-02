@@ -289,7 +289,7 @@ pub fn scan(
 // `workers::probe::ProbeWorker` (gated) wraps `run_probe_cycle` with
 // the two-tier cadence timer.
 
-/// Inventory filename under `<qnm_root>/<self>/mackesd/`.
+/// Inventory filename under `<workgroup_root>/<self>/mackesd/`.
 pub const INVENTORY_FILENAME: &str = "probe-inventory.json";
 /// Bus topic published when the inventory materially changes (Q2).
 pub const CHANGED_TOPIC: &str = "probe/changed";
@@ -298,8 +298,8 @@ pub const CHANGED_TOPIC: &str = "probe/changed";
 /// GFS layout of `ban_list_path` / `pending_enroll_path` so mesh-home
 /// replication fans it out to every peer.
 #[must_use]
-pub fn inventory_path(qnm_root: &Path, self_node_id: &str) -> PathBuf {
-    qnm_root
+pub fn inventory_path(workgroup_root: &Path, self_node_id: &str) -> PathBuf {
+    workgroup_root
         .join(self_node_id)
         .join("mackesd")
         .join(INVENTORY_FILENAME)
@@ -308,8 +308,8 @@ pub fn inventory_path(qnm_root: &Path, self_node_id: &str) -> PathBuf {
 /// Resolve the mesh-peer scan targets: every peer's Nebula overlay IP
 /// from the GFS-replicated bundles (the same source app_sync uses).
 #[must_use]
-pub fn mesh_targets(qnm_root: &Path) -> Vec<String> {
-    crate::mesh_media::peer_overlay_ips(qnm_root)
+pub fn mesh_targets(workgroup_root: &Path) -> Vec<String> {
+    crate::mesh_media::peer_overlay_ips(workgroup_root)
         .into_iter()
         .map(|(_node_id, ip)| ip)
         .collect()
@@ -339,14 +339,14 @@ pub struct HostService {
     pub service: ServiceFacts,
 }
 
-/// Merge every peer's `<qnm_root>/*/mackesd/probe-inventory.json` into
+/// Merge every peer's `<workgroup_root>/*/mackesd/probe-inventory.json` into
 /// one `Vec<Card>` (the union of all host cards across the mesh).
 /// Fail-open per file: a missing/malformed/unreadable inventory is
 /// skipped (logged at debug) so one corrupt peer can't blind the
-/// reader to the others. Missing `qnm_root` → empty.
+/// reader to the others. Missing `workgroup_root` → empty.
 #[must_use]
-pub fn inventory(qnm_root: &Path) -> Vec<Card> {
-    let entries = match std::fs::read_dir(qnm_root) {
+pub fn inventory(workgroup_root: &Path) -> Vec<Card> {
+    let entries = match std::fs::read_dir(workgroup_root) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
     };
@@ -373,10 +373,10 @@ pub fn inventory(qnm_root: &Path) -> Vec<Card> {
 /// kind matches `kind` (case-insensitive). The query app_sync uses to
 /// locate media peers (`peers_with_service("airsonic")`).
 #[must_use]
-pub fn peers_with_service(qnm_root: &Path, kind: &str) -> Vec<HostService> {
+pub fn peers_with_service(workgroup_root: &Path, kind: &str) -> Vec<HostService> {
     let want = kind.to_ascii_lowercase();
     let mut out = Vec::new();
-    for host_card in inventory(qnm_root) {
+    for host_card in inventory(workgroup_root) {
         let Some(host) = host_facts(&host_card) else {
             continue;
         };
@@ -400,9 +400,9 @@ pub fn peers_with_service(qnm_root: &Path, kind: &str) -> Vec<HostService> {
 /// avoiding a full JSON parse every tick. Order-independent (sums per
 /// file) so directory iteration order doesn't matter.
 #[must_use]
-pub fn inventory_fingerprint(qnm_root: &Path) -> u64 {
+pub fn inventory_fingerprint(workgroup_root: &Path) -> u64 {
     use std::hash::{Hash, Hasher};
-    let Ok(entries) = std::fs::read_dir(qnm_root) else {
+    let Ok(entries) = std::fs::read_dir(workgroup_root) else {
         return 0;
     };
     let mut acc: u64 = 0;
@@ -561,14 +561,14 @@ pub fn merge_targets(mesh: &[String], lan: &[String], arbitrary: &[String]) -> V
     out
 }
 
-/// Resolve the full scan scope (Q5): mesh peers (from `qnm_root`) ∪
+/// Resolve the full scan scope (Q5): mesh peers (from `workgroup_root`) ∪
 /// detected LAN CIDRs ∪ operator-arbitrary targets (from
 /// `~/.config/mde/probe-targets.toml`), minus the do-not-scan list
 /// (`~/.config/mde/probe-do-not-scan.toml`, passed to nmap
 /// `--exclude`). `home` locates the config files (injected for tests).
 #[must_use]
-pub fn resolve_targets(qnm_root: &Path, home: &Path) -> TargetSet {
-    let mesh = mesh_targets(qnm_root);
+pub fn resolve_targets(workgroup_root: &Path, home: &Path) -> TargetSet {
+    let mesh = mesh_targets(workgroup_root);
     let lan = detect_lan_cidrs();
     let cfg = home.join(".config").join("mde");
     let arbitrary = read_toml_string_list(&cfg.join(ARBITRARY_TARGETS_FILE), "targets");
@@ -646,7 +646,7 @@ fn publish_changed(host_count: usize) {
 /// as input keeps this deterministic + testable (no env / LAN probe);
 /// [`run_probe_cycle`] is the resolving wrapper the worker + CLI use.
 pub fn run_probe_cycle_with(
-    qnm_root: &Path,
+    workgroup_root: &Path,
     self_node_id: &str,
     binary: &str,
     targets: &TargetSet,
@@ -671,7 +671,7 @@ pub fn run_probe_cycle_with(
         now,
     );
     let payload = serialize_inventory(&cards);
-    let path = inventory_path(qnm_root, self_node_id);
+    let path = inventory_path(workgroup_root, self_node_id);
     if write_inventory_if_changed(&path, &payload) {
         publish_changed(cards.len());
         tracing::info!(
@@ -686,18 +686,18 @@ pub fn run_probe_cycle_with(
 }
 
 /// Resolve the full scan scope (mesh ∪ LAN ∪ arbitrary, minus
-/// do-not-scan) from `qnm_root` + `home`, then run one cycle. Shared
+/// do-not-scan) from `workgroup_root` + `home`, then run one cycle. Shared
 /// by the scheduled worker + the `mackesd probe refresh` CLI.
 pub fn run_probe_cycle(
-    qnm_root: &Path,
+    workgroup_root: &Path,
     self_node_id: &str,
     home: &Path,
     binary: &str,
     nse_dir: &str,
     deep: bool,
 ) -> usize {
-    let targets = resolve_targets(qnm_root, home);
-    run_probe_cycle_with(qnm_root, self_node_id, binary, &targets, nse_dir, deep)
+    let targets = resolve_targets(workgroup_root, home);
+    run_probe_cycle_with(workgroup_root, self_node_id, binary, &targets, nse_dir, deep)
 }
 
 #[cfg(test)]
@@ -1091,7 +1091,7 @@ mod tests {
 
     #[test]
     fn resolve_targets_merges_arbitrary_and_reads_excludes() {
-        // qnm_root with one peer + a home with arbitrary + exclude
+        // workgroup_root with one peer + a home with arbitrary + exclude
         // config. LAN detection is environment-dependent so we only
         // assert the mesh + arbitrary + exclude pieces are present.
         let root = tmp_root("resolve");

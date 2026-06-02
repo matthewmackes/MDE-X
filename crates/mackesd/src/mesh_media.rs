@@ -75,14 +75,14 @@ pub fn server_from_probe(kind: &str, host: &str, ip: &str, port: u16) -> MediaSe
 }
 
 /// Enumerate every peer's `(node_id, overlay_ip)` from the
-/// GFS-replicated nebula bundles under `qnm_root`. Includes the local
+/// GFS-replicated nebula bundles under `workgroup_root`. Includes the local
 /// peer's own bundle. Missing root or unreadable/malformed bundles are
 /// skipped (best-effort). Used by the probe worker
 /// ([`crate::probe_nmap::mesh_targets`]) to resolve mesh-peer scan
 /// targets.
 #[must_use]
-pub fn peer_overlay_ips(qnm_root: &Path) -> Vec<(String, String)> {
-    let entries = match std::fs::read_dir(qnm_root) {
+pub fn peer_overlay_ips(workgroup_root: &Path) -> Vec<(String, String)> {
+    let entries = match std::fs::read_dir(workgroup_root) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
     };

@@ -338,7 +338,7 @@ fn reconcile_drives_desired_to_observed() {
         &[
             "reconcile",
             "--once",
-            "--qnm-root",
+            "--workgroup-root",
             &qnm_str,
             "--node-id",
             "peer:test",

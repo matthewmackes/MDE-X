@@ -33,7 +33,7 @@ pub const DEFAULT_NSE_DIR: &str = "/usr/share/mde/nmap";
 
 /// The scheduled probe worker.
 pub struct ProbeWorker {
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     self_node_id: String,
     home: PathBuf,
     nmap_binary: String,
@@ -45,14 +45,14 @@ pub struct ProbeWorker {
 
 impl ProbeWorker {
     /// Construct the worker for `self_node_id` scanning the mesh rooted
-    /// at `qnm_root`. Uses the system `nmap` + the bundled NSE dir +
+    /// at `workgroup_root`. Uses the system `nmap` + the bundled NSE dir +
     /// `$HOME` for the arbitrary-target / do-not-scan config files.
     #[must_use]
-    pub fn new(qnm_root: PathBuf, self_node_id: String) -> Self {
+    pub fn new(workgroup_root: PathBuf, self_node_id: String) -> Self {
         let home = std::env::var_os("HOME")
             .map_or_else(|| PathBuf::from("/root"), PathBuf::from);
         Self {
-            qnm_root,
+            workgroup_root,
             self_node_id,
             home,
             nmap_binary: DEFAULT_NMAP_BINARY.to_owned(),
@@ -83,7 +83,7 @@ impl ProbeWorker {
     fn tick_once(&self) {
         let deep = self.deep_due();
         run_probe_cycle(
-            &self.qnm_root,
+            &self.workgroup_root,
             &self.self_node_id,
             &self.home,
             &self.nmap_binary,

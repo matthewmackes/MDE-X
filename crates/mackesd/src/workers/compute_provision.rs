@@ -542,7 +542,7 @@ fn local_nebula_addr(interface: &str) -> String {
 #[derive(Clone)]
 struct ProvisionCtx {
     bus_root: PathBuf,
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     node_id: String,
     hostname: String,
     own_addr: String,
@@ -617,7 +617,7 @@ fn provision(ctx: &ProvisionCtx, persist: &Persist, req: &CreateRequest) -> Resu
 
     // 5. Guest Nebula config (peer config minus the host-only route).
     //    The lighthouse roster comes from this peer's own bundle.
-    let bundle_path = crate::ca::bundle::bundle_path(&ctx.qnm_root, &ctx.node_id);
+    let bundle_path = crate::ca::bundle::bundle_path(&ctx.workgroup_root, &ctx.node_id);
     let bundle = crate::ca::bundle::read_bundle(&bundle_path)
         .map_err(|e| format!("load host nebula bundle {}: {e}", bundle_path.display()))?;
     let guest_config = nebula_supervisor::render_guest_config_yaml(&bundle);
@@ -763,7 +763,7 @@ fn default_bus_root() -> Option<PathBuf> {
 /// Worker handle.
 pub struct ComputeProvisionWorker {
     hostname: String,
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     node_id: String,
     nebula_interface: String,
     nebula_addr_hint: String,
@@ -774,14 +774,14 @@ pub struct ComputeProvisionWorker {
 }
 
 impl ComputeProvisionWorker {
-    /// Construct with production defaults. `qnm_root` + `node_id`
+    /// Construct with production defaults. `workgroup_root` + `node_id`
     /// locate this peer's `nebula-bundle.json` (for the guest
     /// lighthouse roster).
     #[must_use]
-    pub fn new(hostname: String, qnm_root: PathBuf, node_id: String) -> Self {
+    pub fn new(hostname: String, workgroup_root: PathBuf, node_id: String) -> Self {
         Self {
             hostname,
-            qnm_root,
+            workgroup_root,
             node_id,
             nebula_interface: DEFAULT_NEBULA_INTERFACE.into(),
             nebula_addr_hint: String::new(),
@@ -816,7 +816,7 @@ impl ComputeProvisionWorker {
     fn ctx(&self, own_addr: String, bus_root: PathBuf) -> ProvisionCtx {
         ProvisionCtx {
             bus_root,
-            qnm_root: self.qnm_root.clone(),
+            workgroup_root: self.workgroup_root.clone(),
             node_id: self.node_id.clone(),
             hostname: self.hostname.clone(),
             own_addr,

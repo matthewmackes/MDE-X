@@ -674,7 +674,7 @@ pub struct NetAssessWorker {
     /// [`with_mesh_context`](NetAssessWorker::with_mesh_context)).
     /// QNM-Shared root — locates this peer's Nebula bundle for the
     /// lighthouse trace targets.
-    qnm_root: Option<PathBuf>,
+    workgroup_root: Option<PathBuf>,
     /// This peer's stable node-id — excludes itself from the peer
     /// trace targets.
     node_id: Option<String>,
@@ -694,7 +694,7 @@ impl NetAssessWorker {
             nebula_iface: DEFAULT_NEBULA_INTERFACE.into(),
             tick: DEFAULT_TICK_INTERVAL,
             bus_root_override: None,
-            qnm_root: None,
+            workgroup_root: None,
             node_id: None,
             db_path: None,
         }
@@ -723,11 +723,11 @@ impl NetAssessWorker {
     #[must_use]
     pub fn with_mesh_context(
         mut self,
-        qnm_root: PathBuf,
+        workgroup_root: PathBuf,
         node_id: String,
         db_path: PathBuf,
     ) -> Self {
-        self.qnm_root = Some(qnm_root);
+        self.workgroup_root = Some(workgroup_root);
         self.node_id = Some(node_id);
         self.db_path = Some(db_path);
         self
@@ -754,9 +754,9 @@ impl NetAssessWorker {
         let mut targets = Vec::new();
 
         // Lighthouses — this peer's bundle at
-        // <qnm_root>/<host>/mackesd/nebula-bundle.json.
-        if let Some(qnm_root) = &self.qnm_root {
-            let path = bundle_path(qnm_root, &self.host);
+        // <workgroup_root>/<host>/mackesd/nebula-bundle.json.
+        if let Some(workgroup_root) = &self.workgroup_root {
+            let path = bundle_path(workgroup_root, &self.host);
             match read_bundle(&path) {
                 Ok(bundle) => targets.extend(lighthouse_trace_targets(&bundle.lighthouses)),
                 Err(e) => {
@@ -778,7 +778,7 @@ impl NetAssessWorker {
 
         // Mesh-storage leader — the floating VIP, present whenever this
         // peer carries any mesh context (i.e. it is enrolled).
-        if self.qnm_root.is_some() || self.db_path.is_some() {
+        if self.workgroup_root.is_some() || self.db_path.is_some() {
             targets.push(leader_trace_target(DEFAULT_VIP));
         }
 

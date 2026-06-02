@@ -26,7 +26,7 @@ use super::{ShutdownToken, Worker};
 /// disk failure (QNM-Shared umount, e.g.) doesn't keep the worker
 /// pinned to a stale path.
 pub struct HeartbeatWorker {
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     node_id: String,
 }
 
@@ -34,8 +34,8 @@ impl HeartbeatWorker {
     /// Construct a new worker pinned to the given QNM-Shared root
     /// and stable node id.
     #[must_use]
-    pub fn new(qnm_root: PathBuf, node_id: String) -> Self {
-        Self { qnm_root, node_id }
+    pub fn new(workgroup_root: PathBuf, node_id: String) -> Self {
+        Self { workgroup_root, node_id }
     }
 }
 
@@ -51,7 +51,7 @@ impl Worker for HeartbeatWorker {
         // async ShutdownToken into the sync AtomicBool it expects.
         let flag = Arc::new(AtomicBool::new(false));
         let handle = crate::telemetry::spawn_heartbeat_worker(
-            self.qnm_root.clone(),
+            self.workgroup_root.clone(),
             self.node_id.clone(),
             Arc::clone(&flag),
         );

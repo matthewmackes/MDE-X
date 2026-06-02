@@ -9,8 +9,8 @@
 //! ## Storage + mesh-wide union
 //!
 //! Each peer owns a ban list at
-//! `<qnm_root>/<self-node-id>/mackesd/ban-list.json` — the same
-//! per-peer `<qnm_root>/<node-id>/mackesd/` layout that pending
+//! `<workgroup_root>/<self-node-id>/mackesd/ban-list.json` — the same
+//! per-peer `<workgroup_root>/<node-id>/mackesd/` layout that pending
 //! enrollments + bundles use (see
 //! [`crate::nebula_enroll::pending_enroll_path`]). Because the
 //! QNM-Shared / mesh-home root is GFS-replicated, a ban written on
@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// On-disk ban list. One per peer, under
-/// `<qnm_root>/<node-id>/mackesd/ban-list.json`.
+/// `<workgroup_root>/<node-id>/mackesd/ban-list.json`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BanList {
     /// Banned node-ids (e.g. `peer:anvil`). A set, so a re-ban is
@@ -72,11 +72,11 @@ impl std::error::Error for BanListError {}
 const BAN_LIST_FILENAME: &str = "ban-list.json";
 
 /// Per-peer ban-list path:
-/// `<qnm_root>/<self_node_id>/mackesd/ban-list.json`. Mirrors
+/// `<workgroup_root>/<self_node_id>/mackesd/ban-list.json`. Mirrors
 /// [`crate::nebula_enroll::pending_enroll_path`]'s layout.
 #[must_use]
-pub fn ban_list_path(qnm_root: &Path, self_node_id: &str) -> PathBuf {
-    qnm_root
+pub fn ban_list_path(workgroup_root: &Path, self_node_id: &str) -> PathBuf {
+    workgroup_root
         .join(self_node_id)
         .join("mackesd")
         .join(BAN_LIST_FILENAME)
@@ -121,15 +121,15 @@ pub fn save_file(path: &Path, list: &BanList) -> Result<(), BanListError> {
     Ok(())
 }
 
-/// Union of every peer's ban list under `qnm_root`. Walks each
-/// immediate `<qnm_root>/<peer>/mackesd/ban-list.json`, unioning the
+/// Union of every peer's ban list under `workgroup_root`. Walks each
+/// immediate `<workgroup_root>/<peer>/mackesd/ban-list.json`, unioning the
 /// node-ids. Per-file failures (missing / malformed) are logged +
 /// skipped so one bad file doesn't blind the gate. A missing or
-/// unreadable `qnm_root` yields an empty union.
+/// unreadable `workgroup_root` yields an empty union.
 #[must_use]
-pub fn load_union(qnm_root: &Path) -> BTreeSet<String> {
+pub fn load_union(workgroup_root: &Path) -> BTreeSet<String> {
     let mut union = BTreeSet::new();
-    let entries = match std::fs::read_dir(qnm_root) {
+    let entries = match std::fs::read_dir(workgroup_root) {
         Ok(e) => e,
         Err(_) => return union, // pre-mesh-home boot: nothing banned.
     };
@@ -158,8 +158,8 @@ pub fn load_union(qnm_root: &Path) -> BTreeSet<String> {
 /// `true` when `node_id` appears in any peer's ban list. Thin
 /// convenience over [`load_union`] for the enrollment gate.
 #[must_use]
-pub fn is_banned(qnm_root: &Path, node_id: &str) -> bool {
-    load_union(qnm_root).contains(node_id)
+pub fn is_banned(workgroup_root: &Path, node_id: &str) -> bool {
+    load_union(workgroup_root).contains(node_id)
 }
 
 /// Add `node_id` to the local peer's ban list (creating the file +
@@ -170,11 +170,11 @@ pub fn is_banned(qnm_root: &Path, node_id: &str) -> bool {
 /// # Errors
 /// Per [`load_file`] / [`save_file`].
 pub fn add_banned(
-    qnm_root: &Path,
+    workgroup_root: &Path,
     self_node_id: &str,
     node_id: &str,
 ) -> Result<bool, BanListError> {
-    let path = ban_list_path(qnm_root, self_node_id);
+    let path = ban_list_path(workgroup_root, self_node_id);
     let mut list = load_file(&path)?;
     let newly = list.node_ids.insert(node_id.to_string());
     save_file(&path, &list)?;
@@ -189,11 +189,11 @@ pub fn add_banned(
 /// # Errors
 /// Per [`load_file`] / [`save_file`].
 pub fn remove_banned(
-    qnm_root: &Path,
+    workgroup_root: &Path,
     self_node_id: &str,
     node_id: &str,
 ) -> Result<bool, BanListError> {
-    let path = ban_list_path(qnm_root, self_node_id);
+    let path = ban_list_path(workgroup_root, self_node_id);
     let mut list = load_file(&path)?;
     let removed = list.node_ids.remove(node_id);
     if removed {
@@ -206,11 +206,11 @@ pub fn remove_banned(
 mod tests {
     use super::*;
 
-    fn write_peer_ban(qnm_root: &Path, peer: &str, ids: &[&str]) {
+    fn write_peer_ban(workgroup_root: &Path, peer: &str, ids: &[&str]) {
         let list = BanList {
             node_ids: ids.iter().map(|s| s.to_string()).collect(),
         };
-        save_file(&ban_list_path(qnm_root, peer), &list).unwrap();
+        save_file(&ban_list_path(workgroup_root, peer), &list).unwrap();
     }
 
     #[test]

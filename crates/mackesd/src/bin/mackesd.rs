@@ -368,11 +368,11 @@ enum Cmd {
         /// Optional display name; defaults to the system hostname.
         #[arg(long)]
         name: Option<String>,
-        /// Override the QNM-Shared root (defaults to
-        /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`). v2.5 token flow
-        /// uses this to locate where the CSR + signed bundle live.
+        /// Override the workgroup root (`$QNM_SHARED_ROOT` env or the
+        /// `~/QNM-Shared` default fallback, per EPIC-RETIRE-QNM Phase C).
+        /// v2.5 token flow locates the CSR + signed bundle here.
         #[arg(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
     },
 
     /// Decommission a peer (Phase 12.3.4). Soft-deletes the node
@@ -455,7 +455,7 @@ enum Cmd {
         /// Override the QNM-Shared root (defaults to
         /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`). Useful for tests.
         #[arg(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
         /// Override the stable node id (defaults to
         /// `peer:<hostname>`). Recorded as the `actor` field on
         /// every emitted audit event.
@@ -563,7 +563,7 @@ enum Cmd {
         /// Override the QNM-Shared root (defaults to
         /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`).
         #[arg(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
         /// Override the stable node id (defaults to `peer:<hostname>`).
         #[arg(long)]
         node_id: Option<String>,
@@ -686,7 +686,7 @@ enum ProbeCmd {
     Refresh {
         /// Mesh-home root (defaults to `$QNM_SHARED_ROOT` / `~/QNM-Shared`).
         #[clap(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
         /// This peer's node-id (defaults to the daemon default).
         #[clap(long)]
         node_id: Option<String>,
@@ -700,7 +700,7 @@ enum ProbeCmd {
     List {
         /// Mesh-home root (defaults to `$QNM_SHARED_ROOT` / `~/QNM-Shared`).
         #[clap(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
         /// Filter to hosts running this service kind (e.g. `jellyfin`).
         #[clap(long)]
         service: Option<String>,
@@ -842,7 +842,7 @@ enum CaCmd {
         /// Override QNM-Shared root (defaults to
         /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`).
         #[arg(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
         /// Mesh id (defaults to `mesh-<hostname>`).
         #[arg(long, value_name = "MESH_ID")]
         mesh_id: Option<String>,
@@ -893,7 +893,7 @@ enum CaCmd {
         /// Override QNM-Shared / mesh-home root (defaults to
         /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`).
         #[clap(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<std::path::PathBuf>,
+        workgroup_root: Option<std::path::PathBuf>,
         /// This peer's own node-id (used to locate the local
         /// ban-list file). Defaults to reading `/etc/mde/node-id`.
         #[clap(long)]
@@ -910,7 +910,7 @@ enum CaCmd {
         /// Override QNM-Shared / mesh-home root (defaults to
         /// `$QNM_SHARED_ROOT` or `~/QNM-Shared`).
         #[arg(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
     },
     /// EPIC-SEC-BANLIST (Q53) — remove a node-id from this peer's
     /// ban list. Only lifts the entry THIS peer set; a ban another
@@ -920,14 +920,14 @@ enum CaCmd {
         node_id: String,
         /// Override QNM-Shared / mesh-home root.
         #[arg(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
     },
     /// EPIC-SEC-BANLIST (Q53) — print the union of every peer's ban
     /// list (the set the enrollment gate enforces).
     BanList {
         /// Override QNM-Shared / mesh-home root.
         #[arg(long, env = "QNM_SHARED_ROOT")]
-        qnm_root: Option<PathBuf>,
+        workgroup_root: Option<PathBuf>,
     },
 }
 
@@ -1347,24 +1347,24 @@ fn main() -> anyhow::Result<()> {
                     println!("{}", serde_json::to_string(card)?);
                 }
             }
-            ProbeCmd::Refresh { qnm_root, node_id, nse_dir } => {
+            ProbeCmd::Refresh { workgroup_root, node_id, nse_dir } => {
                 // MESH-PROBE-4 manual refresh — one deep cycle that
                 // writes probe-inventory.json + announces probe/changed.
-                let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                let workgroup_root = workgroup_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
                 let node_id = node_id.unwrap_or_else(default_node_id);
                 let home = std::env::var_os("HOME")
                     .map_or_else(|| PathBuf::from("/root"), PathBuf::from);
                 let n = mackesd_core::probe_nmap::run_probe_cycle(
-                    &qnm_root, &node_id, &home, "nmap", &nse_dir, true,
+                    &workgroup_root, &node_id, &home, "nmap", &nse_dir, true,
                 );
                 println!("probe refresh: {n} host(s) in inventory");
             }
-            ProbeCmd::List { qnm_root, service } => {
+            ProbeCmd::List { workgroup_root, service } => {
                 // MESH-PROBE-6 — read the merged mesh-wide inventory.
-                let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                let workgroup_root = workgroup_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
                 match service {
                     Some(kind) => {
-                        for hs in mackesd_core::probe_nmap::peers_with_service(&qnm_root, &kind) {
+                        for hs in mackesd_core::probe_nmap::peers_with_service(&workgroup_root, &kind) {
                             println!(
                                 "{}\t{}\t{}:{}",
                                 hs.host.ip, hs.service.service_kind, hs.host.hostname, hs.service.port
@@ -1372,7 +1372,7 @@ fn main() -> anyhow::Result<()> {
                         }
                     }
                     None => {
-                        for card in &mackesd_core::probe_nmap::inventory(&qnm_root) {
+                        for card in &mackesd_core::probe_nmap::inventory(&workgroup_root) {
                             println!("{}", serde_json::to_string(card)?);
                         }
                     }
@@ -1708,7 +1708,7 @@ fn main() -> anyhow::Result<()> {
             passcode,
             token,
             name,
-            qnm_root,
+            workgroup_root,
         } => {
             let display = name.unwrap_or_else(|| {
                 std::env::var("HOSTNAME").unwrap_or_else(|_| {
@@ -1758,7 +1758,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 (None, Some(tok)) => {
                     // NF-3.6.a — v2.5 Nebula join-token flow.
-                    let qnm_root = qnm_root
+                    let workgroup_root = workgroup_root
                         .unwrap_or_else(mackesd_core::default_qnm_shared_root);
                     let node_id = default_node_id();
                     eprintln!(
@@ -1767,7 +1767,7 @@ fn main() -> anyhow::Result<()> {
                         mackesd_core::nebula_enroll::ENROLL_WAIT_TIMEOUT.as_secs(),
                     );
                     match mackesd_core::nebula_enroll::enroll_with_token(
-                        &qnm_root, &node_id, &display, &tok,
+                        &workgroup_root, &node_id, &display, &tok,
                     ) {
                         Ok(outcome) => {
                             println!(
@@ -1948,18 +1948,18 @@ fn main() -> anyhow::Result<()> {
         }
         Cmd::Reconcile {
             once,
-            qnm_root,
+            workgroup_root,
             node_id,
         } => {
             // Phase 12.5 wiring — the reconcile worker thread.
-            let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+            let workgroup_root = workgroup_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
             let node_id = node_id.unwrap_or_else(default_node_id);
 
             if once {
                 // Single-tick dry-run path: useful for CI smoke
                 // tests + operator inspection. No background
                 // thread, no signal handler.
-                let outcome = mackesd_core::worker::tick(&qnm_root, &node_id, &db_path)
+                let outcome = mackesd_core::worker::tick(&workgroup_root, &node_id, &db_path)
                     .with_context(|| format!("one-shot reconcile tick on {}", db_path.display()))?;
                 println!("{}", serde_json::to_string_pretty(&outcome)?);
             } else {
@@ -1971,7 +1971,7 @@ fn main() -> anyhow::Result<()> {
                 let shutdown = Arc::new(AtomicBool::new(false));
                 install_signal_handlers(Arc::clone(&shutdown))?;
                 let handle = mackesd_core::worker::spawn_reconcile_worker(
-                    qnm_root,
+                    workgroup_root,
                     node_id,
                     db_path,
                     Arc::clone(&shutdown),
@@ -2013,11 +2013,11 @@ fn main() -> anyhow::Result<()> {
             }
         }
         #[cfg(feature = "async-services")]
-        Cmd::Serve { qnm_root, node_id } => {
+        Cmd::Serve { workgroup_root, node_id } => {
             // v2.0.0 Phase B.12 — unified meta-daemon entry point.
             // Boots the tokio runtime, registers the worker pool +
             // the existing reconcile worker, blocks on SIGTERM.
-            run_serve(qnm_root, node_id, db_path)?;
+            run_serve(workgroup_root, node_id, db_path)?;
         }
         Cmd::Ca { sub } => {
             // NF-2.6 (v2.5) — mackesd ca {mint, rotate, list,
@@ -2218,7 +2218,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 CaCmd::SignCsr {
                     node_id,
-                    qnm_root,
+                    workgroup_root,
                     mesh_id,
                     ca_crt,
                     ca_key,
@@ -2229,7 +2229,7 @@ fn main() -> anyhow::Result<()> {
                 } => {
                     // NF-3.6.b — sign the peer's pending-enroll
                     // CSR + write the bundle back to QNM-Shared.
-                    let qnm_root = qnm_root
+                    let workgroup_root = workgroup_root
                         .unwrap_or_else(mackesd_core::default_qnm_shared_root);
                     let mesh = mesh_id.unwrap_or(default_mesh);
                     let mut paths =
@@ -2270,7 +2270,7 @@ fn main() -> anyhow::Result<()> {
                     match mackesd_core::nebula_enroll::sign_pending_csr(
                         &mackesd_core::ca::SubprocessBackend,
                         &conn,
-                        &qnm_root,
+                        &workgroup_root,
                         &node_id,
                         &mesh,
                         &paths,
@@ -2305,19 +2305,19 @@ fn main() -> anyhow::Result<()> {
                 }
                 CaCmd::Revoke {
                     node_id,
-                    qnm_root,
+                    workgroup_root,
                     self_node_id,
                 } => {
                     // INST-7 prerequisite — revoke a peer's cert +
                     // ban the identity. CLI surface replaces the
                     // originally-planned D-Bus method (D-Bus retires
                     // by 1.0 per AI_GOVERNANCE §3.3).
-                    let qnm_root =
-                        qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                    let workgroup_root =
+                        workgroup_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
                     let self_id =
                         self_node_id.unwrap_or_else(default_node_id);
                     let rows = mackesd_core::ca::revoke::revoke_peer(
-                        &conn, &qnm_root, &self_id, &node_id,
+                        &conn, &workgroup_root, &self_id, &node_id,
                     )
                     .context("ca revoke")?;
                     println!(
@@ -2325,14 +2325,14 @@ fn main() -> anyhow::Result<()> {
                          added to ban list at {self_id}'s QNM-Shared entry."
                     );
                 }
-                CaCmd::Ban { node_id, qnm_root } => {
+                CaCmd::Ban { node_id, workgroup_root } => {
                     // EPIC-SEC-BANLIST (Q53) — add node-id to this
                     // peer's ban list. GFS replication propagates it.
-                    let qnm_root =
-                        qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                    let workgroup_root =
+                        workgroup_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
                     let self_id = default_node_id();
                     match mackesd_core::ca::ban_list::add_banned(
-                        &qnm_root, &self_id, &node_id,
+                        &workgroup_root, &self_id, &node_id,
                     ) {
                         Ok(true) => println!(
                             "banned '{node_id}' (recorded in {}'s ban list; \
@@ -2343,21 +2343,21 @@ fn main() -> anyhow::Result<()> {
                         Err(e) => return Err(anyhow::anyhow!("ca ban: {e}")),
                     }
                 }
-                CaCmd::Unban { node_id, qnm_root } => {
+                CaCmd::Unban { node_id, workgroup_root } => {
                     // EPIC-SEC-BANLIST (Q53) — lift a ban THIS peer
                     // set. Bans set on other peers must be lifted
                     // there (the gate enforces the union).
-                    let qnm_root =
-                        qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                    let workgroup_root =
+                        workgroup_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
                     let self_id = default_node_id();
                     match mackesd_core::ca::ban_list::remove_banned(
-                        &qnm_root, &self_id, &node_id,
+                        &workgroup_root, &self_id, &node_id,
                     ) {
                         Ok(true) => println!("unbanned '{node_id}' from {self_id}'s ban list."),
                         Ok(false) => {
                             // Still surface the union state so the
                             // operator knows if another peer banned it.
-                            if mackesd_core::ca::ban_list::is_banned(&qnm_root, &node_id) {
+                            if mackesd_core::ca::ban_list::is_banned(&workgroup_root, &node_id) {
                                 println!(
                                     "'{node_id}' isn't in {self_id}'s ban list, but ANOTHER \
                                      peer still bans it — unban it on that peer too."
@@ -2369,12 +2369,12 @@ fn main() -> anyhow::Result<()> {
                         Err(e) => return Err(anyhow::anyhow!("ca unban: {e}")),
                     }
                 }
-                CaCmd::BanList { qnm_root } => {
+                CaCmd::BanList { workgroup_root } => {
                     // EPIC-SEC-BANLIST (Q53) — print the enforced
                     // union across every peer's ban list.
-                    let qnm_root =
-                        qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
-                    let union = mackesd_core::ca::ban_list::load_union(&qnm_root);
+                    let workgroup_root =
+                        workgroup_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+                    let union = mackesd_core::ca::ban_list::load_union(&workgroup_root);
                     if union.is_empty() {
                         println!("ban list empty (no node-ids banned across the mesh).");
                     } else {
@@ -3007,7 +3007,7 @@ fn print_revisions_table(rows: &[serde_json::Value]) {
 /// correlation_id + node_id via a top-level tracing span.
 #[cfg(feature = "async-services")]
 fn run_serve(
-    qnm_root: Option<PathBuf>,
+    workgroup_root: Option<PathBuf>,
     node_id: Option<String>,
     db_path: PathBuf,
 ) -> anyhow::Result<()> {
@@ -3022,7 +3022,7 @@ fn run_serve(
         sshd_overlay_bind::SshdOverlayBindWorker, voice_config::VoiceConfigWorker,
         RestartPolicy, Spawn, Supervisor,
     };
-    let qnm_root = qnm_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
+    let workgroup_root = workgroup_root.unwrap_or_else(mackesd_core::default_qnm_shared_root);
     let node_id = node_id.unwrap_or_else(default_node_id);
 
     // v3.0.3 — daemon-scope tracing span so every log line below
@@ -3121,7 +3121,7 @@ fn run_serve(
         sup.spawn(Spawn::new(FsSyncWorker::new(), RestartPolicy::OnFailure));
         worker_names.lock().expect("worker_names mutex").push("fs_sync".into());
         sup.spawn(Spawn::new(
-            HeartbeatWorker::new(qnm_root.clone(), node_id.clone()),
+            HeartbeatWorker::new(workgroup_root.clone(), node_id.clone()),
             RestartPolicy::OnFailure,
         ));
         worker_names.lock().expect("worker_names mutex").push("heartbeat".into());
@@ -3136,7 +3136,7 @@ fn run_serve(
         // reconcile tick.
         sup.spawn(Spawn::new(
             mackesd_core::workers::health_reconciler::HealthReconcilerWorker::new(
-                qnm_root.clone(),
+                workgroup_root.clone(),
                 db_path.clone(),
                 node_id.clone(),
                 std::sync::Arc::clone(&nebula_signal_slot),
@@ -3234,7 +3234,7 @@ fn run_serve(
                 let sup_store = Arc::new(tokio::sync::Mutex::new(conn));
                 // Bundle path mirrors the existing heartbeat
                 // convention: QNM-Shared/<self>/mackesd/...
-                let bundle_path = qnm_root
+                let bundle_path = workgroup_root
                     .join(&node_id)
                     .join("mackesd")
                     .join(mackesd_core::ca::bundle::BUNDLE_FILENAME);
@@ -3287,7 +3287,7 @@ fn run_serve(
         };
         sup.spawn(Spawn::new(
             mackesd_core::workers::nebula_csr_watcher::NebulaCsrWatcher::new(
-                qnm_root.clone(),
+                workgroup_root.clone(),
                 db_path.clone(),
                 csr_watcher_mesh_id,
                 node_id.clone(),
@@ -3314,7 +3314,7 @@ fn run_serve(
                     .unwrap_or_else(|_| format!("mesh-{node_id}"));
                 sup.spawn(Spawn::new(
                     mackesd_core::workers::nebula_ca_backup::NebulaCaBackup::new(
-                        qnm_root.clone(),
+                        workgroup_root.clone(),
                         node_id.clone(),
                         backup_mesh,
                         backup_store,
@@ -3383,7 +3383,7 @@ fn run_serve(
         // Silent no-op when mfsmaster/mfschunkserver binaries are absent.
         sup.spawn(Spawn::new(
             mackesd_core::workers::meshfs_worker::MeshFsWorker::new()
-                .with_qnm_peer_discovery(qnm_root.clone(), node_id.clone()),
+                .with_qnm_peer_discovery(workgroup_root.clone(), node_id.clone()),
             RestartPolicy::Always,
         ));
         worker_names
@@ -3403,7 +3403,7 @@ fn run_serve(
         // the peer roster in the PEERVER peers dir.
         sup.spawn(Spawn::new(
             mackesd_core::workers::upgrade_intent_watcher::UpgradeIntentWatcher::new(
-                qnm_root.clone(),
+                workgroup_root.clone(),
                 node_id.clone(),
             ),
             RestartPolicy::Always,
@@ -3546,13 +3546,13 @@ fn run_serve(
         // nebula-cert keygen + the cert-sign RPC, builds the NoCloud
         // seed, virt-installs the VM (with virtiofs MeshFS share when
         // requested + mounted), acks on compute/create-ack/<ulid>, and
-        // fires an immediate inventory publish. qnm_root + node_id
+        // fires an immediate inventory publish. workgroup_root + node_id
         // locate this peer's nebula-bundle.json for the guest
         // lighthouse roster.
         sup.spawn(Spawn::new(
             mackesd_core::workers::compute_provision::ComputeProvisionWorker::new(
                 fw_host.clone(),
-                qnm_root.clone(),
+                workgroup_root.clone(),
                 node_id.clone(),
             ),
             RestartPolicy::Always,
@@ -3571,7 +3571,7 @@ fn run_serve(
             let netassess_base = data_dir.join("mde").join("netassess");
             sup.spawn(Spawn::new(
                 mackesd_core::workers::netassess::NetAssessWorker::new(fw_host.clone(), netassess_base)
-                    .with_mesh_context(qnm_root.clone(), node_id.clone(), db_path.clone()),
+                    .with_mesh_context(workgroup_root.clone(), node_id.clone(), db_path.clone()),
                 RestartPolicy::Always,
             ));
             worker_names
@@ -3632,7 +3632,7 @@ fn run_serve(
         // probe/changed on the Bus when the inventory changes. The
         // `mackesd probe scan/refresh` CLI shares the same engine.
         sup.spawn(Spawn::new(
-            mackesd_core::workers::probe::ProbeWorker::new(qnm_root.clone(), node_id.clone()),
+            mackesd_core::workers::probe::ProbeWorker::new(workgroup_root.clone(), node_id.clone()),
             RestartPolicy::Always,
         ));
         worker_names
@@ -3668,7 +3668,7 @@ fn run_serve(
                     mackesd_core::workers::netdata_aggregator::NetdataAggregator::new(
                         netdata_store,
                         node_id.clone(),
-                        qnm_root.clone(),
+                        workgroup_root.clone(),
                         api_key,
                     ),
                     RestartPolicy::Always,
@@ -3827,7 +3827,7 @@ fn run_serve(
                             node_id.clone(),
                             host.clone(),
                         )
-                        .with_qnm_root(qnm_root.clone());
+                        .with_workgroup_root(workgroup_root.clone());
                         match mackesd_core::ipc::nebula::register_nebula_status_on(
                             &conn, nebula,
                         )
@@ -4180,7 +4180,7 @@ fn run_serve(
         // supervisor children.
         worker_names.lock().expect("worker_names mutex").push("reconcile".into());
         let reconcile = mackesd_core::worker::spawn_reconcile_worker(
-            qnm_root,
+            workgroup_root,
             node_id,
             db_path,
             Arc::clone(&shutdown),

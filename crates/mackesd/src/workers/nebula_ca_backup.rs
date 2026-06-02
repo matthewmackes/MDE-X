@@ -49,7 +49,7 @@ pub const LEGACY_BACKUP_FILENAME: &str = "ca-backup.enc";
 
 /// Worker handle. Cheap to construct.
 pub struct NebulaCaBackup {
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     self_node_id: String,
     mesh_id: String,
     store: Arc<Mutex<rusqlite::Connection>>,
@@ -70,13 +70,13 @@ impl NebulaCaBackup {
     /// `MDE_BACKUP_PASSPHRASE`.
     #[must_use]
     pub fn new(
-        qnm_root: PathBuf,
+        workgroup_root: PathBuf,
         self_node_id: String,
         mesh_id: String,
         store: Arc<Mutex<rusqlite::Connection>>,
     ) -> Self {
         Self {
-            qnm_root,
+            workgroup_root,
             self_node_id,
             mesh_id,
             store,
@@ -111,15 +111,15 @@ impl NebulaCaBackup {
     /// QNM-Shared root + self_node_id.
     #[must_use]
     pub fn backup_path(&self) -> PathBuf {
-        backup_path_for(&self.qnm_root, &self.self_node_id)
+        backup_path_for(&self.workgroup_root, &self.self_node_id)
     }
 }
 
 /// Pure helper — compute the backup file path for a given root
 /// + node-id. Mirrors `ca::bundle::bundle_path` convention.
 #[must_use]
-pub fn backup_path_for(qnm_root: &Path, node_id: &str) -> PathBuf {
-    qnm_root.join(node_id).join("mackesd").join(BACKUP_FILENAME)
+pub fn backup_path_for(workgroup_root: &Path, node_id: &str) -> PathBuf {
+    workgroup_root.join(node_id).join("mackesd").join(BACKUP_FILENAME)
 }
 
 #[async_trait::async_trait]

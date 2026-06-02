@@ -5,8 +5,8 @@
 //! [`crate::reconcile`]; this module owns the cadence + I/O around
 //! them. Every `RECONCILE_INTERVAL_S` seconds the worker:
 //!
-//!   1. Reads each peer's `<qnm_root>/<peer>/mackesd/heartbeat.json`
-//!      and each peer's `<qnm_root>/<peer>/mackesd/links.json` to
+//!   1. Reads each peer's `<workgroup_root>/<peer>/mackesd/heartbeat.json`
+//!      and each peer's `<workgroup_root>/<peer>/mackesd/links.json` to
 //!      build an *observed* `TopologySnapshot`.
 //!   2. Reads the latest applied / verified `desired_config` row
 //!      from the local SQL store and deserializes its `spec_json` into
@@ -161,7 +161,7 @@ impl From<&TickPlan> for TickPlanJson {
 /// run anyway, so panic is the correct surfacing.
 #[must_use]
 pub fn spawn_reconcile_worker(
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     node_id: String,
     db_path: PathBuf,
     shutdown: Arc<AtomicBool>,
@@ -171,12 +171,12 @@ pub fn spawn_reconcile_worker(
         .spawn(move || {
             info!(
                 node_id = %node_id,
-                qnm_root = %qnm_root.display(),
+                workgroup_root = %workgroup_root.display(),
                 db = %db_path.display(),
                 interval_s = RECONCILE_INTERVAL_S,
                 "reconcile worker starting",
             );
-            run_loop(&qnm_root, &node_id, &db_path, &shutdown);
+            run_loop(&workgroup_root, &node_id, &db_path, &shutdown);
             info!(node_id = %node_id, "reconcile worker exited");
         })
         .expect("spawning mackesd-reconcile thread")
@@ -186,9 +186,9 @@ pub fn spawn_reconcile_worker(
 /// `--once`) can run the loop on the foreground thread for
 /// systemd's `Type=simple` unit. Same shutdown semantics as the
 /// spawned variant.
-pub fn run_loop(qnm_root: &Path, node_id: &str, db_path: &Path, shutdown: &Arc<AtomicBool>) {
+pub fn run_loop(workgroup_root: &Path, node_id: &str, db_path: &Path, shutdown: &Arc<AtomicBool>) {
     while !shutdown.load(Ordering::Relaxed) {
-        match tick(qnm_root, node_id, db_path) {
+        match tick(workgroup_root, node_id, db_path) {
             Ok(outcome) => {
                 info!(
                     observed_heartbeats = outcome.observed_heartbeats,
@@ -233,12 +233,12 @@ fn interruptible_sleep(total: Duration, shutdown: &Arc<AtomicBool>) {
 /// audit-event INSERT fails. FS errors on individual peer files are
 /// logged and skipped — one corrupt heartbeat doesn't poison the
 /// whole tick.
-pub fn tick(qnm_root: &Path, node_id: &str, db_path: &Path) -> Result<TickOutcome> {
+pub fn tick(workgroup_root: &Path, node_id: &str, db_path: &Path) -> Result<TickOutcome> {
     let started = Instant::now();
     let started_at_ms = now_ms();
 
-    let heartbeats = read_all_heartbeats(qnm_root);
-    let observed_edges_set = read_all_observed_edges(qnm_root);
+    let heartbeats = read_all_heartbeats(workgroup_root);
+    let observed_edges_set = read_all_observed_edges(workgroup_root);
     debug!(
         observed_heartbeats = heartbeats.len(),
         observed_edges = observed_edges_set.edges.len(),
@@ -261,7 +261,7 @@ pub fn tick(qnm_root: &Path, node_id: &str, db_path: &Path) -> Result<TickOutcom
     materialize_voice_desired_for_tick(
         &desired_snapshot,
         node_id,
-        qnm_root,
+        workgroup_root,
         &crate::voice::materialize::default_desired_json_path(),
     );
 
@@ -285,19 +285,19 @@ pub fn tick(qnm_root: &Path, node_id: &str, db_path: &Path) -> Result<TickOutcom
     })
 }
 
-/// Walk `<qnm_root>/*/mackesd/heartbeat.json` and deserialize every
+/// Walk `<workgroup_root>/*/mackesd/heartbeat.json` and deserialize every
 /// readable row. Unreadable / malformed files are skipped with a
 /// warn-level log — the reconcile tick stays best-effort by design.
 #[must_use]
-pub fn read_all_heartbeats(qnm_root: &Path) -> Vec<Heartbeat> {
+pub fn read_all_heartbeats(workgroup_root: &Path) -> Vec<Heartbeat> {
     let mut out = Vec::new();
-    let entries = match std::fs::read_dir(qnm_root) {
+    let entries = match std::fs::read_dir(workgroup_root) {
         Ok(e) => e,
         Err(e) => {
             // ENOENT is normal on a fresh peer — only warn for
             // anything else.
             if e.kind() != std::io::ErrorKind::NotFound {
-                warn!(error = %e, root = %qnm_root.display(), "scanning qnm_root failed");
+                warn!(error = %e, root = %workgroup_root.display(), "scanning workgroup_root failed");
             }
             return out;
         }
@@ -326,7 +326,7 @@ pub fn read_all_heartbeats(qnm_root: &Path) -> Vec<Heartbeat> {
     out
 }
 
-/// Walk `<qnm_root>/*/mackesd/links.json` and build the observed
+/// Walk `<workgroup_root>/*/mackesd/links.json` and build the observed
 /// `TopologySnapshot`.
 ///
 /// An observed edge exists between peer A and B when A's `links.json`
@@ -335,14 +335,14 @@ pub fn read_all_heartbeats(qnm_root: &Path) -> Vec<Heartbeat> {
 /// once the transport classifier ships (12.14+), the worker fills in
 /// `NebulaLighthouseRelay` / `NebulaHttps443` from the probe metadata.
 #[must_use]
-pub fn read_all_observed_edges(qnm_root: &Path) -> TopologySnapshot {
+pub fn read_all_observed_edges(workgroup_root: &Path) -> TopologySnapshot {
     use std::collections::BTreeSet;
     let mut edges: BTreeSet<Edge> = BTreeSet::new();
-    let entries = match std::fs::read_dir(qnm_root) {
+    let entries = match std::fs::read_dir(workgroup_root) {
         Ok(e) => e,
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
-                warn!(error = %e, root = %qnm_root.display(), "scanning qnm_root failed");
+                warn!(error = %e, root = %workgroup_root.display(), "scanning workgroup_root failed");
             }
             return TopologySnapshot::default();
         }
@@ -432,13 +432,13 @@ pub fn load_desired_snapshot(conn: &Connection) -> Result<DesiredSnapshot> {
 fn materialize_voice_desired_for_tick(
     snapshot: &DesiredSnapshot,
     node_id: &str,
-    qnm_root: &Path,
+    workgroup_root: &Path,
     desired_json_path: &Path,
 ) {
     match crate::voice::materialize::materialize_voice_desired(
         snapshot,
         node_id,
-        qnm_root,
+        workgroup_root,
         desired_json_path,
     ) {
         Ok(crate::voice::materialize::MaterializeOutcome::Wrote) => {
@@ -609,7 +609,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    fn make_hb(qnm_root: &Path, id: &str) {
+    fn make_hb(workgroup_root: &Path, id: &str) {
         let hb = Heartbeat {
             node_id: id.to_owned(),
             at_ms: 1,
@@ -617,10 +617,10 @@ mod tests {
             applied_revision: None,
             health: HealthState::Healthy,
         };
-        write_heartbeat(qnm_root, &hb).unwrap();
+        write_heartbeat(workgroup_root, &hb).unwrap();
     }
 
-    fn make_links(qnm_root: &Path, from: &str, to: &str, rtt: Option<u32>) {
+    fn make_links(workgroup_root: &Path, from: &str, to: &str, rtt: Option<u32>) {
         let samples = vec![LinkSample {
             from_id: from.to_owned(),
             to_id: to.to_owned(),
@@ -629,7 +629,7 @@ mod tests {
             throughput_mbps: None,
             at_ms: 1,
         }];
-        write_links(qnm_root, from, &samples).unwrap();
+        write_links(workgroup_root, from, &samples).unwrap();
     }
 
     #[test]
@@ -749,11 +749,11 @@ mod tests {
     #[test]
     fn tick_returns_outcome_against_empty_fixture() {
         let dir = tempfile::tempdir().unwrap();
-        let qnm_root = dir.path().join("qnm-shared");
+        let workgroup_root = dir.path().join("qnm-shared");
         let db_path = dir.path().join("mackesd.db");
         // Bootstrap an empty store so `tick` can open it.
         let _ = crate::store::open(&db_path).unwrap();
-        let outcome = tick(&qnm_root, "peer:test", &db_path).unwrap();
+        let outcome = tick(&workgroup_root, "peer:test", &db_path).unwrap();
         assert_eq!(outcome.observed_heartbeats, 0);
         assert_eq!(outcome.observed_edges, 0);
         assert_eq!(outcome.desired_edges, 0);
@@ -764,13 +764,13 @@ mod tests {
     #[test]
     fn tick_routes_extra_observed_edge_to_inbox() {
         let dir = tempfile::tempdir().unwrap();
-        let qnm_root = dir.path().join("qnm-shared");
-        std::fs::create_dir_all(&qnm_root).unwrap();
+        let workgroup_root = dir.path().join("qnm-shared");
+        std::fs::create_dir_all(&workgroup_root).unwrap();
         let db_path = dir.path().join("mackesd.db");
         let _ = crate::store::open(&db_path).unwrap();
         // No desired config → an observed edge is "extra" → manual review.
-        make_links(&qnm_root, "peer:a", "peer:b", Some(10));
-        let outcome = tick(&qnm_root, "peer:test", &db_path).unwrap();
+        make_links(&workgroup_root, "peer:a", "peer:b", Some(10));
+        let outcome = tick(&workgroup_root, "peer:test", &db_path).unwrap();
         assert_eq!(outcome.observed_edges, 1);
         assert_eq!(outcome.plan.repair_now.len(), 0);
         assert_eq!(outcome.plan.inbox.len(), 1);
@@ -780,8 +780,8 @@ mod tests {
     #[test]
     fn tick_routes_missing_edge_to_repair_now_and_writes_audit_row() {
         let dir = tempfile::tempdir().unwrap();
-        let qnm_root = dir.path().join("qnm-shared");
-        std::fs::create_dir_all(&qnm_root).unwrap();
+        let workgroup_root = dir.path().join("qnm-shared");
+        std::fs::create_dir_all(&workgroup_root).unwrap();
         let db_path = dir.path().join("mackesd.db");
         // Seed the store with a desired config that expects peer:a ↔ peer:b.
         let conn = crate::store::open(&db_path).unwrap();
@@ -806,7 +806,7 @@ mod tests {
         .unwrap();
         drop(conn);
         // No observed link → desired edge is "missing" → auto-repairable.
-        let outcome = tick(&qnm_root, "peer:test", &db_path).unwrap();
+        let outcome = tick(&workgroup_root, "peer:test", &db_path).unwrap();
         assert_eq!(outcome.desired_edges, 1);
         assert_eq!(outcome.plan.repair_now.len(), 1);
         assert_eq!(outcome.plan.repair_now[0].severity, "auto_repairable");
@@ -821,12 +821,12 @@ mod tests {
     #[test]
     fn spawn_reconcile_worker_exits_when_shutdown_flips() {
         let dir = tempfile::tempdir().unwrap();
-        let qnm_root = dir.path().join("qnm-shared");
+        let workgroup_root = dir.path().join("qnm-shared");
         let db_path = dir.path().join("mackesd.db");
         let _ = crate::store::open(&db_path).unwrap();
         let shutdown = Arc::new(AtomicBool::new(false));
         let handle =
-            spawn_reconcile_worker(qnm_root, "peer:test".into(), db_path, Arc::clone(&shutdown));
+            spawn_reconcile_worker(workgroup_root, "peer:test".into(), db_path, Arc::clone(&shutdown));
         // Let one tick complete before we flip.
         std::thread::sleep(Duration::from_millis(200));
         shutdown.store(true, Ordering::Relaxed);

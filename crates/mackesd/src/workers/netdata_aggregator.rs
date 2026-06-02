@@ -62,7 +62,7 @@ pub const DEFAULT_OVERLAY_IP_SOURCE: &str = "/var/lib/mackesd/nebula/overlay-ip"
 pub const DEFAULT_ROLE_HOST_MARKER: &str = "/var/lib/mackesd/nebula/role.host";
 
 /// Published-pointer schema. Mesh-replicated under
-/// `<qnm_root>/<self>/mackesd/netdata-aggregator.json`. The
+/// `<workgroup_root>/<self>/mackesd/netdata-aggregator.json`. The
 /// `epoch_s` field carries the publish timestamp so the
 /// reader picks the freshest pointer when more than one peer
 /// has held the leader role recently.
@@ -108,7 +108,7 @@ pub enum StreamRewriteOutcome {
 pub struct NetdataAggregator {
     store: Arc<Mutex<rusqlite::Connection>>,
     node_id: String,
-    qnm_root: PathBuf,
+    workgroup_root: PathBuf,
     aggregator_ip_path: PathBuf,
     netdata_conf_path: PathBuf,
     overlay_ip_source: PathBuf,
@@ -134,13 +134,13 @@ impl NetdataAggregator {
     pub fn new(
         store: Arc<Mutex<rusqlite::Connection>>,
         node_id: String,
-        qnm_root: PathBuf,
+        workgroup_root: PathBuf,
         api_key: String,
     ) -> Self {
         Self {
             store,
             node_id,
-            qnm_root,
+            workgroup_root,
             aggregator_ip_path: PathBuf::from(DEFAULT_AGGREGATOR_IP_PATH),
             netdata_conf_path: PathBuf::from(DEFAULT_NETDATA_CONF),
             overlay_ip_source: PathBuf::from(DEFAULT_OVERLAY_IP_SOURCE),
@@ -212,7 +212,7 @@ impl NetdataAggregator {
 
         // 2. Always: pick the freshest pointer from the
         //    mesh + materialize it locally.
-        let pointers = scan_aggregator_pointers(&self.qnm_root);
+        let pointers = scan_aggregator_pointers(&self.workgroup_root);
         let chosen = latest_aggregator(pointers);
         let desired_ip = chosen.as_ref().map(|p| p.overlay_ip.clone());
 
@@ -260,7 +260,7 @@ impl NetdataAggregator {
                 return Ok(());
             }
         }
-        let path = self_pointer_path(&self.qnm_root, &self.node_id);
+        let path = self_pointer_path(&self.workgroup_root, &self.node_id);
         write_pointer(&path, &pointer)?;
         self.last_published = Some(pointer);
         Ok(())
@@ -333,8 +333,8 @@ pub fn read_overlay_ip(path: &Path) -> Result<String, String> {
 
 /// Path the worker writes its own pointer to.
 #[must_use]
-pub fn self_pointer_path(qnm_root: &Path, node_id: &str) -> PathBuf {
-    qnm_root
+pub fn self_pointer_path(workgroup_root: &Path, node_id: &str) -> PathBuf {
+    workgroup_root
         .join(node_id)
         .join("mackesd")
         .join("netdata-aggregator.json")
@@ -358,16 +358,16 @@ pub fn write_pointer(path: &Path, pointer: &AggregatorPointer) -> Result<(), Str
     atomic_write(path, &body)
 }
 
-/// Walk `<qnm_root>/*/mackesd/netdata-aggregator.json` and
+/// Walk `<workgroup_root>/*/mackesd/netdata-aggregator.json` and
 /// deserialize every pointer that parses. Pointers that
 /// fail to parse are skipped (the readwriter is forward-
 /// compatible to unknown fields via `serde_json` default
 /// behavior, but a wholly malformed file shouldn't kill the
 /// scan).
 #[must_use]
-pub fn scan_aggregator_pointers(qnm_root: &Path) -> Vec<AggregatorPointer> {
+pub fn scan_aggregator_pointers(workgroup_root: &Path) -> Vec<AggregatorPointer> {
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(qnm_root) else {
+    let Ok(entries) = std::fs::read_dir(workgroup_root) else {
         return out;
     };
     for entry in entries.flatten() {

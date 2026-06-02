@@ -18,7 +18,7 @@
 //! mass-rewrite every peer's file on upgrade.
 //!
 //! Per-peer mesh addresses are sourced from each peer's
-//! `<qnm_root>/<peer_id>/mackesd/nebula-bundle.json`
+//! `<workgroup_root>/<peer_id>/mackesd/nebula-bundle.json`
 //! ([`crate::ca::bundle::NebulaBundle::overlay_ip`]); a peer with
 //! no bundle yet gets `0.0.0.0` as its dispatcher destination
 //! (Kamailio answers `503` on the row until the bundle lands,
@@ -70,8 +70,8 @@ pub enum MaterializeOutcome {
 /// `node_id` is THIS peer's stable id — used to find this peer's
 /// own VoicePublic row and to look up its own overlay IP.
 ///
-/// `qnm_root` is the QNM-Shared root; the function reads
-/// `<qnm_root>/<peer_id>/mackesd/nebula-bundle.json` for each
+/// `workgroup_root` is the QNM-Shared root; the function reads
+/// `<workgroup_root>/<peer_id>/mackesd/nebula-bundle.json` for each
 /// peer named in a `VoiceMesh` rule to resolve the dispatcher
 /// destination address.
 ///
@@ -87,7 +87,7 @@ pub enum MaterializeOutcome {
 pub fn materialize_voice_desired(
     snapshot: &DesiredSnapshot,
     node_id: &str,
-    qnm_root: &Path,
+    workgroup_root: &Path,
     desired_json_path: &Path,
 ) -> io::Result<MaterializeOutcome> {
     let has_voice = snapshot
@@ -99,7 +99,7 @@ pub fn materialize_voice_desired(
     }
 
     let desired = build_voice_desired(snapshot, node_id, |peer_id| {
-        read_overlay_ip(qnm_root, peer_id)
+        read_overlay_ip(workgroup_root, peer_id)
     });
     write_if_changed(&desired, desired_json_path)
 }
@@ -110,7 +110,7 @@ pub fn materialize_voice_desired(
 /// Splitting this out from [`materialize_voice_desired`] keeps
 /// the I/O-free part testable without a tempdir of nebula
 /// bundles. The reconciler call passes a closure that reads
-/// `<qnm_root>/<peer_id>/mackesd/nebula-bundle.json`; tests pass
+/// `<workgroup_root>/<peer_id>/mackesd/nebula-bundle.json`; tests pass
 /// a closure backed by a `HashMap`.
 pub fn build_voice_desired<F>(
     snapshot: &DesiredSnapshot,
@@ -187,12 +187,12 @@ where
     out
 }
 
-/// Resolve `<qnm_root>/<peer_id>/mackesd/nebula-bundle.json`
+/// Resolve `<workgroup_root>/<peer_id>/mackesd/nebula-bundle.json`
 /// → `overlay_ip`. Returns `None` for any missing / unreadable /
 /// malformed bundle (those are non-fatal — the materializer
 /// falls back to `0.0.0.0`).
-fn read_overlay_ip(qnm_root: &Path, peer_id: &str) -> Option<String> {
-    let path = bundle_path(qnm_root, peer_id);
+fn read_overlay_ip(workgroup_root: &Path, peer_id: &str) -> Option<String> {
+    let path = bundle_path(workgroup_root, peer_id);
     let bytes = std::fs::read(&path).ok()?;
     let bundle: NebulaBundle = serde_json::from_slice(&bytes).ok()?;
     Some(bundle.overlay_ip)

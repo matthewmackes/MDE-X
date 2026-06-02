@@ -14,7 +14,7 @@
 //!      the `mesh-storage` export root directory.
 //!
 //!   3. **Goal convergence (MESHFS-2.1 Q4).** Counts enrolled
-//!      peers from QNM-Shared (`<qnm_root>/*/mackesd/nebula-
+//!      peers from QNM-Shared (`<workgroup_root>/*/mackesd/nebula-
 //!      bundle.json`); if the count N > current goal, raises the
 //!      goal via `mfssetgoal -r N /mnt/mesh-storage`. This handles
 //!      both `EnrollmentCompleted` (goal increases) and CA-revoke
@@ -148,7 +148,7 @@ pub struct MeshFsWorker {
     admin_binary: String,
     setgoal_binary: String,
     vip: String,
-    qnm_root: Option<PathBuf>,
+    workgroup_root: Option<PathBuf>,
     self_node_id: Option<String>,
     setquota_binary: String,
     /// Unix timestamp (seconds) of the last quota tick. Stored in a Mutex
@@ -185,7 +185,7 @@ impl MeshFsWorker {
             admin_binary: DEFAULT_ADMIN_BINARY.to_owned(),
             setgoal_binary: DEFAULT_SETGOAL_BINARY.to_owned(),
             vip: DEFAULT_VIP.to_owned(),
-            qnm_root: None,
+            workgroup_root: None,
             self_node_id: None,
             setquota_binary: DEFAULT_SETQUOTA_BINARY.to_owned(),
             last_quota_s: std::sync::Mutex::new(0),
@@ -202,8 +202,8 @@ impl MeshFsWorker {
     /// supplied or the worker skips goal-convergence and eviction
     /// (silent no-op).
     #[must_use]
-    pub fn with_qnm_peer_discovery(mut self, qnm_root: PathBuf, self_node_id: String) -> Self {
-        self.qnm_root = Some(qnm_root);
+    pub fn with_qnm_peer_discovery(mut self, workgroup_root: PathBuf, self_node_id: String) -> Self {
+        self.workgroup_root = Some(workgroup_root);
         self.self_node_id = Some(self_node_id);
         self
     }
@@ -329,10 +329,10 @@ impl MeshFsWorker {
         }
 
         // 5. Goal convergence + eviction via QNM-Shared peer count.
-        if let (Some(qnm_root), Some(self_id)) =
-            (self.qnm_root.as_ref(), self.self_node_id.as_ref())
+        if let (Some(workgroup_root), Some(self_id)) =
+            (self.workgroup_root.as_ref(), self.self_node_id.as_ref())
         {
-            let enrolled = enrolled_peer_ips(qnm_root, self_id);
+            let enrolled = enrolled_peer_ips(workgroup_root, self_id);
             let peer_count = enrolled.len();
             if peer_count > 0 {
                 // Raise/lower goal to match enrolled peer count.
@@ -554,7 +554,7 @@ impl MeshFsWorker {
                 cursors.insert(topic.clone(), msg.ulid.clone());
                 let body = msg.body.as_deref().unwrap_or("{}");
                 let enrolled = self
-                    .qnm_root
+                    .workgroup_root
                     .as_ref()
                     .zip(self.self_node_id.as_ref())
                     .map(|(qnm, id)| enrolled_peer_ips(qnm, id).len())
@@ -897,12 +897,12 @@ pub fn vip_is_local(vip: &str, iface: &str) -> bool {
     parse_ip_addr_output(&text, vip)
 }
 
-/// Scan `<qnm_root>/*/mackesd/nebula-bundle.json` to discover
+/// Scan `<workgroup_root>/*/mackesd/nebula-bundle.json` to discover
 /// enrolled peers' overlay IPs. Skips self + bundles that don't
 /// parse. Returns a sorted, deduplicated list.
 #[must_use]
-pub fn enrolled_peer_ips(qnm_root: &Path, self_node_id: &str) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(qnm_root) else {
+pub fn enrolled_peer_ips(workgroup_root: &Path, self_node_id: &str) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(workgroup_root) else {
         return Vec::new();
     };
     let mut ips: Vec<String> = Vec::new();

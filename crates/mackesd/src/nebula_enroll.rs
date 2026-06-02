@@ -172,8 +172,8 @@ pub struct PendingEnrollment {
 /// Compute the per-peer pending-enrollment path under a
 /// QNM-Shared root. Mirrors the `bundle_path` convention.
 #[must_use]
-pub fn pending_enroll_path(qnm_root: &Path, peer_id: &str) -> PathBuf {
-    qnm_root
+pub fn pending_enroll_path(workgroup_root: &Path, peer_id: &str) -> PathBuf {
+    workgroup_root
         .join(peer_id)
         .join("mackesd")
         .join(PENDING_ENROLL_FILENAME)
@@ -260,11 +260,11 @@ impl std::error::Error for EnrollError {}
 ///
 /// Surfaces filesystem errors as [`EnrollError::PublishFailed`].
 pub fn publish_enrollment_request(
-    qnm_root: &Path,
+    workgroup_root: &Path,
     node_id: &str,
     pending: &PendingEnrollment,
 ) -> Result<PathBuf, EnrollError> {
-    let path = pending_enroll_path(qnm_root, node_id);
+    let path = pending_enroll_path(workgroup_root, node_id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| EnrollError::PublishFailed { reason: e.to_string() })?;
@@ -293,12 +293,12 @@ pub fn publish_enrollment_request(
 /// - [`EnrollError::BundleCorrupt`] when a bundle appears but
 ///   doesn't parse.
 pub fn wait_for_signed_bundle(
-    qnm_root: &Path,
+    workgroup_root: &Path,
     node_id: &str,
     poll_interval: Duration,
     timeout: Duration,
 ) -> Result<(crate::ca::bundle::NebulaBundle, Duration), EnrollError> {
-    let path = bundle_path(qnm_root, node_id);
+    let path = bundle_path(workgroup_root, node_id);
     let started = Instant::now();
     loop {
         if path.exists() {
@@ -333,7 +333,7 @@ pub fn wait_for_signed_bundle(
 ///
 /// Per [`EnrollError`].
 pub fn enroll_with_token(
-    qnm_root: &Path,
+    workgroup_root: &Path,
     node_id: &str,
     display_name: &str,
     raw_token: &str,
@@ -343,9 +343,9 @@ pub fn enroll_with_token(
     })?;
     let identity = build_identity();
     let pending = build_pending(&identity, node_id, display_name, token);
-    publish_enrollment_request(qnm_root, node_id, &pending)?;
+    publish_enrollment_request(workgroup_root, node_id, &pending)?;
     let (bundle, waited) =
-        wait_for_signed_bundle(qnm_root, node_id, ENROLL_POLL_INTERVAL, ENROLL_WAIT_TIMEOUT)?;
+        wait_for_signed_bundle(workgroup_root, node_id, ENROLL_POLL_INTERVAL, ENROLL_WAIT_TIMEOUT)?;
     Ok(EnrollOutcome {
         overlay_ip: bundle.overlay_ip,
         mesh_id: bundle.mesh_id,
@@ -538,7 +538,7 @@ impl std::error::Error for SignCsrError {}
 /// a signed bundle the peer can materialize. End-to-end:
 ///
 ///   1. Read PendingEnrollment from
-///      `qnm_root/<peer_id>/mackesd/pending-enroll.json`.
+///      `workgroup_root/<peer_id>/mackesd/pending-enroll.json`.
 ///   2. Call `ca::sign::sign_peer_cert` with `PeerRole::Peer`
 ///      under the active CA epoch (allocates overlay IP).
 ///   3. Read the unsealed peer key bytes back from the sealed
@@ -547,7 +547,7 @@ impl std::error::Error for SignCsrError {}
 ///   4. Build a [`crate::ca::bundle::NebulaBundle`] containing
 ///      the signed cert + key + CA cert + lighthouse roster.
 ///   5. Write the bundle to
-///      `qnm_root/<peer_id>/mackesd/nebula-bundle.json` via
+///      `workgroup_root/<peer_id>/mackesd/nebula-bundle.json` via
 ///      [`crate::ca::bundle::write_bundle`].
 ///   6. Return [`SignOutcome`] for the CLI to display.
 ///
@@ -563,7 +563,7 @@ impl std::error::Error for SignCsrError {}
 pub fn sign_pending_csr<B: crate::ca::NebulaCertBackend + ?Sized>(
     backend: &B,
     conn: &rusqlite::Connection,
-    qnm_root: &Path,
+    workgroup_root: &Path,
     peer_id: &str,
     mesh_id: &str,
     paths: &SignCsrPaths,
@@ -571,7 +571,7 @@ pub fn sign_pending_csr<B: crate::ca::NebulaCertBackend + ?Sized>(
     cert_lifetime_days: u32,
     allow_override: bool,
 ) -> Result<SignOutcome, SignCsrError> {
-    let csr_path = pending_enroll_path(qnm_root, peer_id);
+    let csr_path = pending_enroll_path(workgroup_root, peer_id);
     if !csr_path.exists() {
         return Err(SignCsrError::CsrMissing { path: csr_path });
     }
@@ -586,8 +586,8 @@ pub fn sign_pending_csr<B: crate::ca::NebulaCertBackend + ?Sized>(
     // cap check + before any signing work. A ban is a deliberate,
     // permanent block that survives CA rotation; there is no
     // override (unlike the cap). The union spans every peer's ban
-    // list under qnm_root, so a ban set anywhere blocks everywhere.
-    if crate::ca::ban_list::is_banned(qnm_root, &csr.node_id) {
+    // list under workgroup_root, so a ban set anywhere blocks everywhere.
+    if crate::ca::ban_list::is_banned(workgroup_root, &csr.node_id) {
         tracing::warn!(
             target: "mackesd::ban_list",
             event = "enroll.banned.refused",
@@ -683,7 +683,7 @@ pub fn sign_pending_csr<B: crate::ca::NebulaCertBackend + ?Sized>(
         lighthouses,
         created_at,
     };
-    let bundle_path = crate::ca::bundle::bundle_path(qnm_root, peer_id);
+    let bundle_path = crate::ca::bundle::bundle_path(workgroup_root, peer_id);
     crate::ca::bundle::write_bundle(&bundle_path, &bundle).map_err(|e| {
         SignCsrError::BundleWriteFailed { reason: e.to_string() }
     })?;
@@ -963,12 +963,12 @@ mod tests {
         (ca_crt, ca_key)
     }
 
-    /// Write a pending-enroll CSR under qnm_root/peer_id/mackesd/.
-    fn place_csr(qnm_root: &Path, peer_id: &str) -> PendingEnrollment {
+    /// Write a pending-enroll CSR under workgroup_root/peer_id/mackesd/.
+    fn place_csr(workgroup_root: &Path, peer_id: &str) -> PendingEnrollment {
         let identity = build_identity();
         let token = parse_join_token("mesh:test-mesh@10.0.0.5:4242#bearer").unwrap();
         let pending = build_pending(&identity, peer_id, "anvil", token);
-        publish_enrollment_request(qnm_root, peer_id, &pending).expect("publish");
+        publish_enrollment_request(workgroup_root, peer_id, &pending).expect("publish");
         pending
     }
 

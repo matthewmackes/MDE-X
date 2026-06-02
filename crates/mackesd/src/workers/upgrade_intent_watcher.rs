@@ -243,13 +243,13 @@ impl UpgradeIntentWatcher {
     /// `$MDE_MESH_HOME`/`~/.mde-mesh`, this host's name, the standard
     /// leader lock, and the real `dnf` / `mde-install` binaries.
     #[must_use]
-    pub fn new(qnm_root: PathBuf, node_id: String) -> Self {
+    pub fn new(workgroup_root: PathBuf, node_id: String) -> Self {
         Self {
             tick: DEFAULT_TICK_INTERVAL,
             mesh_home: mackes_mesh_types::peers::default_mesh_home(),
             hostname: local_hostname(),
             node_id,
-            leader_lock: qnm_root.join(".mackesd-leader.lock"),
+            leader_lock: workgroup_root.join(".mackesd-leader.lock"),
             dnf_binary: "dnf".to_string(),
             install_binary: "mde-install".to_string(),
         }

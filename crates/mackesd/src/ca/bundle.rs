@@ -68,8 +68,8 @@ pub const BUNDLE_FILENAME: &str = "nebula-bundle.json";
 /// peer name. Mirrors the existing `heartbeat.json`
 /// convention so both files sit in the same per-peer dir.
 #[must_use]
-pub fn bundle_path(qnm_root: &Path, peer_name: &str) -> PathBuf {
-    qnm_root
+pub fn bundle_path(workgroup_root: &Path, peer_name: &str) -> PathBuf {
+    workgroup_root
         .join(peer_name)
         .join("mackesd")
         .join(BUNDLE_FILENAME)
