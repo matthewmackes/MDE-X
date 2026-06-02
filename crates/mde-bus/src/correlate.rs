@@ -1062,7 +1062,7 @@ rules:
             "disk-pressure",
             "mesh-degraded",
             "vpn-flap",
-            "gfs-quota-trending",
+            "meshfs-quota-trending",
         ] {
             assert!(names.contains(expected), "missing rule: {expected}");
         }
