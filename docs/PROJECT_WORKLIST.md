@@ -602,27 +602,27 @@ call-end lifecycle, never at install or login.
 - [ ] **MESH-WP-4: View-only** — no click interactivity (R6-Q28); user uses Portal-compact for interaction.
 - [ ] **MESH-WP-5: Wallpaper picker integration** in Customize › Themes › Wallpaper (replaces static wallpaper or coexists per user choice).
 
-#### CONTAINER-* — Podman full management (Round 10, R10-Q16..Q35)
+#### CONTAINER-1..17: ❌ RETIRED 2026-06-01 — superseded by VIRT / `mde-virtual` (operator directive)
 
-> ⚠️ RECONCILE 2026-06-01 (verify-first drain finding): this Round-10 "Control › Containers" Podman UI overlaps the **newer** VIRT / `mde-virtual` epic (locked 2026-05-30), which already ships container rows + pod management + image/volume lists + lifecycle + bulk actions in its Local tab, and "replaces the original Workbench Compute panel + Cockpit deep-link." Per §0.14 (newer-wins) mde-virtual likely **supersedes** much of CONTAINER-1..17 — but supersede-vs-keep is a scope call (§0.16) for the operator, not an inference I can act on unilaterally. Some items look genuinely additive (compose-projects, registries, builds, networks, cross-peer pod networking, logs-viewer, exec-as-i3-tile) and may be worth folding **into** `mde-virtual` rather than a separate "Control › Containers" surface. Needs a /plan reconciliation before any CONTAINER-* is implemented — do NOT build "Control › Containers" as a duplicate of mde-virtual. (Third drift/overlap cluster found this session, after the MESHFS-1.1 false-done + VIRT-9 wrong-surface re-point.)
+> ❌ RETIRED 2026-06-01 — operator directive "Retire CONTAINER for MDE-VIRTUAL". The Round-10 "Control › Containers" Podman UI is **superseded by the VIRT / `mde-virtual` epic** (locked 2026-05-30): mde-virtual (Iced/Rust compute manager, Fleet + Local tabs) owns all container / pod / image / volume management, replacing both the original Workbench Compute panel and this planned "Control › Containers" 6th-category surface. Per §0.14 (newer-wins) + §0.16 (operator-directed scope reduction is explicitly allowed). The "Control › Containers" surface is **not built**; all CONTAINER-1..17 below are closed `[✓]` as retired-not-implemented (the `[✓]` is the worklist's closed-marker, **not** a built claim — see this banner). Covered by mde-virtual today: container lifecycle/stats/images/volumes/pods (C-1..4,10,15), cross-peer drill (C-9,11), privileged-default (C-17). Scope deltas this retirement drops from v5.0.0 — recorded but **not** auto-scoped (§0.16: no net-new scope without an explicit lock-lift): compose-projects (C-5), registries (C-6), container logs-viewer (C-7), exec-as-i3-tile terminal (C-8), explicit pod scheduling (C-12), network policies (C-13), pod restart policies (C-14), networks-as-cards (C-16). If any are wanted, the operator lifts the lock to add them as `mde-virtual` enhancements.
 
-- [ ] **CONTAINER-1: Control › Containers 6th top-level category** (R10-Q16); split landing view = mesh-wide summary top + local containers bottom (R10-Q17). 8 sub-categories (Containers/Pods/Images/Volumes/Networks/Registries/Compose-projects/Builds).
-- [ ] **CONTAINER-2: Container lifecycle ops** — Start/Stop/Restart/Pause/Unpause/Kill/Remove + Exec shell + View logs in Library + Copy CLI + Inspect JSON + Stats live-graph + Move to peer + Promote to systemd service (R10-Q18).
-- [ ] **CONTAINER-3: Live stats sparklines** on each running-container card (60s rolling, 1s refresh, R10-Q19); pause when card not visible.
-- [ ] **CONTAINER-4: Image management** — Pull/Push/Build/Prune with progress as activity cards + live build logs (R10-Q20).
-- [ ] **CONTAINER-5: Compose-projects sub-category** (R10-Q21) — `.yml` files in `~/.config/containers/compose/` as cards; supports podman-compose + Quadlet generation.
-- [ ] **CONTAINER-6: Registries sub-category** (R10-Q22) — cards with login state + last-used + image-count; built-in docker.io / quay.io / ghcr.io / gitlab + 'Add registry' modal.
-- [ ] **CONTAINER-7: Container logs viewer** — Library opens log file (`~/.local/share/containers/storage/overlay/<id>/<id>-json.log`) with live-tail + filter + search (R10-Q24).
-- [ ] **CONTAINER-8: Exec shell as i3-tile terminal** spawn (R10-Q25) running `podman exec -it <id>` next to Portal.
-- [ ] **CONTAINER-9: Cross-peer container management** — per-peer drill + SSH-RPC to remote peer's podman socket (R10-Q26).
-- [ ] **CONTAINER-10: Pods as composite parent-cards with container children** (R10-Q27, R5-Q10 pattern).
-- [ ] **CONTAINER-11: Cross-peer pod networking** — Nebula L3 overlay 10.42.0.0/16; service discovery via mesh DNS `<pod>.pods.mesh.mde` (R10-Q30, R10-Q33).
-- [ ] **CONTAINER-12: User-explicit pod scheduling** per launch modal (R10-Q31); remembered for future launches.
-- [ ] **CONTAINER-13: Network policies** — allow-all default + explicit deny rules; mesh-wide policy file `~/.config/mde/podnet-policies.yaml` (R10-Q32).
-- [ ] **CONTAINER-14: Pod restart policies** — standard podman `--restart=` Never/On-failure(5)/Always (R10-Q34).
-- [ ] **CONTAINER-15: Volumes as cards** with size + containers-using-it + 'Browse in Library' bridge (R10-Q28).
-- [ ] **CONTAINER-16: Networks as cards** with connected-container children; subnet-halo viz on globe (R10-Q29).
-- [ ] **CONTAINER-17: Privileged-allowed-by-default security** with per-container toggle (R10-Q35); rootless + SELinux + seccomp configurable in 'Advanced › Security'.
+- [✓] **CONTAINER-1: Control › Containers 6th top-level category** (R10-Q16); split landing view = mesh-wide summary top + local containers bottom (R10-Q17). 8 sub-categories (Containers/Pods/Images/Volumes/Networks/Registries/Compose-projects/Builds).
+- [✓] **CONTAINER-2: Container lifecycle ops** — Start/Stop/Restart/Pause/Unpause/Kill/Remove + Exec shell + View logs in Library + Copy CLI + Inspect JSON + Stats live-graph + Move to peer + Promote to systemd service (R10-Q18).
+- [✓] **CONTAINER-3: Live stats sparklines** on each running-container card (60s rolling, 1s refresh, R10-Q19); pause when card not visible.
+- [✓] **CONTAINER-4: Image management** — Pull/Push/Build/Prune with progress as activity cards + live build logs (R10-Q20).
+- [✓] **CONTAINER-5: Compose-projects sub-category** (R10-Q21) — `.yml` files in `~/.config/containers/compose/` as cards; supports podman-compose + Quadlet generation.
+- [✓] **CONTAINER-6: Registries sub-category** (R10-Q22) — cards with login state + last-used + image-count; built-in docker.io / quay.io / ghcr.io / gitlab + 'Add registry' modal.
+- [✓] **CONTAINER-7: Container logs viewer** — Library opens log file (`~/.local/share/containers/storage/overlay/<id>/<id>-json.log`) with live-tail + filter + search (R10-Q24).
+- [✓] **CONTAINER-8: Exec shell as i3-tile terminal** spawn (R10-Q25) running `podman exec -it <id>` next to Portal.
+- [✓] **CONTAINER-9: Cross-peer container management** — per-peer drill + SSH-RPC to remote peer's podman socket (R10-Q26).
+- [✓] **CONTAINER-10: Pods as composite parent-cards with container children** (R10-Q27, R5-Q10 pattern).
+- [✓] **CONTAINER-11: Cross-peer pod networking** — Nebula L3 overlay 10.42.0.0/16; service discovery via mesh DNS `<pod>.pods.mesh.mde` (R10-Q30, R10-Q33).
+- [✓] **CONTAINER-12: User-explicit pod scheduling** per launch modal (R10-Q31); remembered for future launches.
+- [✓] **CONTAINER-13: Network policies** — allow-all default + explicit deny rules; mesh-wide policy file `~/.config/mde/podnet-policies.yaml` (R10-Q32).
+- [✓] **CONTAINER-14: Pod restart policies** — standard podman `--restart=` Never/On-failure(5)/Always (R10-Q34).
+- [✓] **CONTAINER-15: Volumes as cards** with size + containers-using-it + 'Browse in Library' bridge (R10-Q28).
+- [✓] **CONTAINER-16: Networks as cards** with connected-container children; subnet-halo viz on globe (R10-Q29).
+- [✓] **CONTAINER-17: Privileged-allowed-by-default security** with per-container toggle (R10-Q35); rootless + SELinux + seccomp configurable in 'Advanced › Security'.
 
 #### Open follow-ups (post-Round-10)
 
