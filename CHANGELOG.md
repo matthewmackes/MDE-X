@@ -12,6 +12,10 @@ unreleased; tag versions get a date when they ship.
   FLAC, MP3, Ogg Vorbis, AAC, and WAV are supported.
 - `mde-musicd play <song-id>…` plays one or more tracks back to back,
   with volume, pause/resume, and a live playhead.
+- Playback is controllable over the mesh Bus — play / pause / resume /
+  stop / set-volume / get-state on `action/music/*` — so the music app
+  (and any peer) drives the daemon, which heartbeats who is playing what
+  so playback can hand off across the workgroup.
 
 **KVM + Podman mesh-native compute — `mde-virtual` app (2026-05-31)**
 - A new **Virtual** app manages the KVM virtual machines and Podman

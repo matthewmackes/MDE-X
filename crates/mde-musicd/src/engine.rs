@@ -387,6 +387,14 @@ impl Engine {
         }
     }
 
+    /// Whether the engine is in the playing (not paused) state. Distinct
+    /// from [`is_active`](Engine::is_active): a paused engine with samples
+    /// still buffered is active but not playing.
+    #[must_use]
+    pub fn is_playing(&self) -> bool {
+        self.shared.playing.load(Ordering::Relaxed)
+    }
+
     /// Whether anything is still playing or buffered.
     #[must_use]
     pub fn is_active(&self) -> bool {

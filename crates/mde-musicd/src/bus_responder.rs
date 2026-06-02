@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use mde_bus::hooks::config::Priority;
 use mde_bus::persist::Persist;
@@ -25,7 +25,9 @@ use serde_json::json;
 
 use crate::airsonic::Client;
 use crate::creds;
+use crate::engine::{Engine, SourceCodec};
 use crate::queue::{self, Queue};
+use crate::state::{self, MusicState};
 
 /// Poll cadence for the action topics.
 pub const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -38,6 +40,15 @@ pub const ACTION_VERBS: [&str; 6] =
 /// The library-browse verbs served on `action/music/<verb>`
 /// (asynchronous — each proxies an Airsonic REST call).
 pub const BROWSE_VERBS: [&str; 3] = ["list-albums", "list-artists", "search"];
+
+/// The transport verbs served on `action/music/<verb>` (AIR-2.d — drive
+/// the AIR-5 playback engine).
+pub const TRANSPORT_VERBS: [&str; 6] =
+    ["play", "pause", "resume", "stop", "set-volume", "get-state"];
+
+/// Authoritative-state write cadence while playing (AIR-8's 5 s heartbeat,
+/// so a stale owner frees the mesh after `STATE_STALE_MS`).
+pub const STATE_WRITE_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Result of dispatching one action: the JSON reply + whether the queue
 /// changed (and so must be persisted).
@@ -185,18 +196,218 @@ pub fn poll_browse(
     }
 }
 
-/// Run the Bus responder loop: poll the queue-control + library-browse
-/// `action/music/<verb>` topics for new requests, dispatch them, and
-/// reply on `reply/<ulid>`. Loops until `should_stop()` returns true.
+// ───────────────────────── transport (AIR-2.d) ─────────────────────────
+
+/// A parsed transport request — the pure half of the play flow, decided
+/// from the verb + body without touching the engine (so it's
+/// unit-testable). [`apply_transport`] runs the side effects.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TransportCommand {
+    /// Play the queue from the current track, gaplessly.
+    Play,
+    /// Pause (the buffer is preserved; resume is seamless).
+    Pause,
+    /// Resume after a pause.
+    Resume,
+    /// Stop + clear the buffer.
+    Stop,
+    /// Set the volume multiplier (`0.0..=1.0`, clamped by the engine).
+    SetVolume(f32),
+    /// Report the current playback state (no side effect).
+    GetState,
+}
+
+/// Parse an `action/music/<verb>` transport request into a command. The
+/// `set-volume` body is a bare number or `{"volume": N}`. `None` for an
+/// unknown verb.
+#[must_use]
+pub fn parse_transport(verb: &str, body: &str) -> Option<TransportCommand> {
+    match verb {
+        "play" => Some(TransportCommand::Play),
+        "pause" => Some(TransportCommand::Pause),
+        "resume" => Some(TransportCommand::Resume),
+        "stop" => Some(TransportCommand::Stop),
+        "get-state" => Some(TransportCommand::GetState),
+        "set-volume" => parse_volume(body).map(TransportCommand::SetVolume),
+        _ => None,
+    }
+}
+
+/// Volume from a bare number (`"0.6"`) or `{"volume": 0.6}`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // serde_json f64 → engine f32
+fn parse_volume(body: &str) -> Option<f32> {
+    let trimmed = body.trim();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if let Some(n) = v.get("volume").and_then(serde_json::Value::as_f64) {
+            return Some(n as f32);
+        }
+        if let Some(n) = v.as_f64() {
+            return Some(n as f32);
+        }
+    }
+    trimmed.parse::<f32>().ok()
+}
+
+/// Write this peer's authoritative [`MusicState`] (AIR-8) — the playing
+/// peer heartbeats it so the mesh knows who owns playback.
+fn write_playback_state(playing: bool, song_id: &str, position_ms: u64) {
+    let st = MusicState {
+        peer: state::local_host(),
+        playing,
+        song_id: song_id.to_string(),
+        position_ms,
+        updated_ms: state::now_ms(),
+    };
+    let _ = state::write_state(&state::data_dir(), &st);
+}
+
+/// Apply one transport request to the engine + queue, returning the reply
+/// JSON. Side effects (engine + the AIR-8 state write); the pure
+/// verb→command parse is [`parse_transport`].
+fn apply_transport(
+    verb: &str,
+    body: &str,
+    engine: Option<&Engine>,
+    client: Option<&Client>,
+    queue: &Queue,
+) -> String {
+    let Some(cmd) = parse_transport(verb, body) else {
+        return json!({ "ok": false, "error": format!("unknown transport verb: {verb}") })
+            .to_string();
+    };
+    let Some(engine) = engine else {
+        return json!({ "ok": false, "error": "no audio output device on this peer" }).to_string();
+    };
+    match cmd {
+        TransportCommand::Play => {
+            let Some(client) = client else {
+                return json!({ "ok": false, "error": "no Airsonic server configured" })
+                    .to_string();
+            };
+            // Gapless album: hand the engine current..end in one list.
+            let upcoming: Vec<(String, SourceCodec)> = queue
+                .songs
+                .iter()
+                .skip(queue.current)
+                .map(|id| (client.stream_url(id), SourceCodec::Unknown))
+                .collect();
+            if upcoming.is_empty() {
+                return json!({ "ok": false, "error": "queue is empty" }).to_string();
+            }
+            engine.play(upcoming);
+            let song = queue.current().unwrap_or("");
+            write_playback_state(true, song, 0);
+            json!({ "ok": true, "playing": true, "song_id": song }).to_string()
+        }
+        TransportCommand::Pause => {
+            engine.pause();
+            write_playback_state(false, queue.current().unwrap_or(""), engine.position_ms());
+            json!({ "ok": true, "playing": false }).to_string()
+        }
+        TransportCommand::Resume => {
+            engine.resume();
+            write_playback_state(true, queue.current().unwrap_or(""), engine.position_ms());
+            json!({ "ok": true, "playing": true }).to_string()
+        }
+        TransportCommand::Stop => {
+            engine.stop();
+            write_playback_state(false, "", 0);
+            json!({ "ok": true, "playing": false }).to_string()
+        }
+        TransportCommand::SetVolume(v) => {
+            engine.set_volume(v);
+            json!({ "ok": true, "volume": engine.volume() }).to_string()
+        }
+        TransportCommand::GetState => json!({
+            "ok": true,
+            "playing": engine.is_playing(),
+            "active": engine.is_active(),
+            "position_ms": engine.position_ms(),
+            "volume": engine.volume(),
+            "song_id": queue.current(),
+        })
+        .to_string(),
+    }
+}
+
+/// One transport-poll sweep: dispatch new `action/music/{play,pause,…}`
+/// requests to the engine. A fresh Airsonic client is loaded per sweep so
+/// a mid-session connect is picked up.
+pub fn poll_transport(
+    persist: &Persist,
+    queue_path: &Path,
+    engine: Option<&Engine>,
+    cursors: &mut HashMap<String, String>,
+) {
+    let client = creds::load()
+        .ok()
+        .map(|c| Client::new(&c.server_url, &c.username, &c.password));
+    let queue = queue::read_from(queue_path);
+    for verb in TRANSPORT_VERBS {
+        let topic = format!("action/music/{verb}");
+        let since = cursors.get(&topic).map(String::as_str);
+        let msgs = match persist.list_since(&topic, since) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        for msg in msgs {
+            cursors.insert(topic.clone(), msg.ulid.clone());
+            let reply = apply_transport(
+                verb,
+                msg.body.as_deref().unwrap_or(""),
+                engine,
+                client.as_ref(),
+                &queue,
+            );
+            let _ = persist.write(&reply_topic(&msg.ulid), Priority::Default, None, Some(&reply));
+        }
+    }
+}
+
+/// Heartbeat this peer's playback state every [`STATE_WRITE_INTERVAL`]
+/// while playing (AIR-8).
+fn write_periodic_state(engine: Option<&Engine>, queue_path: &Path) {
+    let Some(engine) = engine else { return };
+    if !engine.is_playing() {
+        return;
+    }
+    let queue = queue::read_from(queue_path);
+    write_playback_state(true, queue.current().unwrap_or(""), engine.position_ms());
+}
+
+/// Run the Bus responder loop.
+///
+/// Polls the queue-control, library-browse, and transport
+/// `action/music/<verb>` topics, dispatches them (queue + browse + the
+/// AIR-5 engine), and replies on `reply/<ulid>`. Heartbeats the AIR-8
+/// playback state while playing. Loops until `should_stop()` returns true.
+///
+/// # Panics
+/// If the internal tokio runtime (for the async browse proxy) can't be
+/// built — an environment fault, not a runtime condition.
 pub fn serve<F: Fn() -> bool>(persist: &Persist, queue_path: &Path, should_stop: F) {
     let mut cursors: HashMap<String, String> = HashMap::new();
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("tokio runtime for browse proxy");
+    // The engine grabs the default output device; on a headless peer (no
+    // audio) it's absent and transport verbs reply with an error while
+    // queue + browse keep working.
+    let engine = Engine::new()
+        .map_err(|e| {
+            eprintln!("mde-musicd: no audio output — playback disabled ({e}); queue + browse still served");
+        })
+        .ok();
+    let mut last_state_write = Instant::now();
     while !should_stop() {
         poll_once(persist, queue_path, &mut cursors);
         poll_browse(persist, &rt, &mut cursors);
+        poll_transport(persist, queue_path, engine.as_ref(), &mut cursors);
+        if last_state_write.elapsed() >= STATE_WRITE_INTERVAL {
+            write_periodic_state(engine.as_ref(), queue_path);
+            last_state_write = Instant::now();
+        }
         std::thread::sleep(POLL_INTERVAL);
     }
 }
@@ -308,5 +519,28 @@ mod tests {
         // Unknown verb.
         let u = dispatch_queue_action("frobnicate", "", &mut q);
         assert!(u.reply_json.contains("unknown verb"));
+    }
+
+    #[test]
+    fn parse_transport_verbs() {
+        assert_eq!(parse_transport("play", ""), Some(TransportCommand::Play));
+        assert_eq!(parse_transport("pause", ""), Some(TransportCommand::Pause));
+        assert_eq!(parse_transport("resume", ""), Some(TransportCommand::Resume));
+        assert_eq!(parse_transport("stop", ""), Some(TransportCommand::Stop));
+        assert_eq!(parse_transport("get-state", ""), Some(TransportCommand::GetState));
+        assert_eq!(parse_transport("teleport", ""), None);
+    }
+
+    #[test]
+    fn parse_transport_set_volume_forms() {
+        // bare number, JSON object, and an out-of-range value (engine clamps).
+        assert_eq!(parse_transport("set-volume", "0.6"), Some(TransportCommand::SetVolume(0.6)));
+        assert_eq!(
+            parse_transport("set-volume", r#"{"volume":0.25}"#),
+            Some(TransportCommand::SetVolume(0.25))
+        );
+        assert_eq!(parse_transport("set-volume", "2"), Some(TransportCommand::SetVolume(2.0)));
+        // Non-numeric body → no command.
+        assert_eq!(parse_transport("set-volume", "loud"), None);
     }
 }

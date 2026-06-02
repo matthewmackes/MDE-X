@@ -114,6 +114,30 @@ pub fn data_dir() -> PathBuf {
     Path::new(&home).join(".local/share/mde")
 }
 
+/// This peer's hostname — the `peer` field on every [`MusicState`] this
+/// host writes.
+///
+/// Falls back to `localhost` when the `hostname` command is unavailable.
+#[must_use]
+pub fn local_host() -> String {
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "localhost".to_string())
+}
+
+/// Epoch-ms now (the `updated_ms` / `issued_ms` timestamp source).
+#[must_use]
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
 /// Path of the authoritative `music-state.json` within `dir`.
 #[must_use]
 pub fn state_path(dir: &Path) -> PathBuf {
