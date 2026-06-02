@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use iced::widget::{column, container, mouse_area, row, scrollable, text, Space};
+use iced::widget::{column, container, mouse_area, row, scrollable, text, text_input, Space};
 use iced::{Background, Border, Color, Element, Length, Padding, Shadow, Subscription, Task, Theme};
 use mde_theme::motion::list::{STAGGER_CAP, STAGGER_REVEAL_MS, STAGGER_STEP_MS};
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
@@ -273,6 +273,14 @@ pub enum Message {
     /// BUS-2.7.b — operator clicked a notification action button;
     /// dispatch its `url` (an `mde://…` deep-link) via `mde-open`.
     OpenAction(String),
+    /// BUS-2.7.d — open the inline reply composer on the row with this ULID.
+    ReplyOpen(String),
+    /// BUS-2.7.d — close the reply composer without sending.
+    ReplyCancel,
+    /// BUS-2.7.d — the reply draft text changed.
+    ReplyChanged(String),
+    /// BUS-2.7.d — publish the draft as a reply (`--reply-to <parent>`).
+    ReplySend,
 }
 
 /// BUG-8.c — group layout selector. Default is `Peer` so existing
@@ -309,6 +317,11 @@ pub struct App {
     /// ack-start time. Row fades out, then moves to `bus_acked` once
     /// `DISMISS_ANIM_MS` has elapsed.
     dismissing: HashMap<String, Instant>,
+    /// BUS-2.7.d — ULID of the message whose inline reply box is open,
+    /// or `None`. One composer open at a time.
+    replying_to: Option<String>,
+    /// BUS-2.7.d — current reply draft text for the open composer.
+    reply_draft: String,
 }
 
 fn namespace() -> String {
@@ -373,6 +386,44 @@ fn update(state: &mut App, msg: Message) -> Task<Message> {
             // the farewell/window-action spawn idiom; the dispatched
             // surface grabs focus, which dismisses this popover.
             let _ = std::process::Command::new("mde-open").arg(&url).spawn();
+            Task::none()
+        }
+        Message::ReplyOpen(ulid) => {
+            // BUS-2.7.d — open the composer on this row. The operator
+            // clicks the input to focus it (the popover's OnDemand
+            // keyboard then routes keystrokes to it).
+            state.replying_to = Some(ulid);
+            state.reply_draft.clear();
+            Task::none()
+        }
+        Message::ReplyCancel => {
+            state.replying_to = None;
+            state.reply_draft.clear();
+            Task::none()
+        }
+        Message::ReplyChanged(text) => {
+            state.reply_draft = text;
+            Task::none()
+        }
+        Message::ReplySend => {
+            // BUS-2.7.d — publish the draft as a threaded reply to the
+            // open row's message, on its own topic, via the mde-bus CLI
+            // (the documented producer). Fire-and-forget; the reply lands
+            // in the bus tree and shows on the next popover open.
+            if let Some(ulid) = state.replying_to.clone() {
+                let draft = state.reply_draft.trim().to_string();
+                let topic = state
+                    .bus_messages
+                    .iter()
+                    .find(|m| m.ulid == ulid)
+                    .map(|m| m.topic.clone());
+                if let (false, Some(topic)) = (draft.is_empty(), topic) {
+                    let argv = reply_publish_argv(&topic, &draft, &ulid);
+                    let _ = std::process::Command::new("mde-bus").args(&argv).spawn();
+                }
+            }
+            state.replying_to = None;
+            state.reply_draft.clear();
             Task::none()
         }
         Message::AnimTick => {
@@ -565,7 +616,7 @@ fn view(state: &App) -> Element<'_, Message> {
                         stagger_alpha(row_idx, opened_ms)
                     };
                     row_idx += 1;
-                    list = list.push(render_bus_row(msg, alpha));
+                    list = list.push(render_bus_row(msg, alpha, reply_draft_for(state, &msg.ulid)));
                 }
             }
             // High bucket
@@ -582,7 +633,7 @@ fn view(state: &App) -> Element<'_, Message> {
                         stagger_alpha(row_idx, opened_ms)
                     };
                     row_idx += 1;
-                    list = list.push(render_bus_row(msg, alpha));
+                    list = list.push(render_bus_row(msg, alpha, reply_draft_for(state, &msg.ulid)));
                 }
             }
             // Default bucket
@@ -599,7 +650,7 @@ fn view(state: &App) -> Element<'_, Message> {
                         stagger_alpha(row_idx, opened_ms)
                     };
                     row_idx += 1;
-                    list = list.push(render_bus_row(msg, alpha));
+                    list = list.push(render_bus_row(msg, alpha, reply_draft_for(state, &msg.ulid)));
                 }
             }
             // Empty state
@@ -864,6 +915,8 @@ pub fn run() -> iced_layershell::Result {
                 bus_acked: std::collections::HashSet::new(),
                 opened_at: Instant::now(),
                 dismissing: HashMap::new(),
+                replying_to: None,
+                reply_draft: String::new(),
             }
         },
         namespace,
@@ -922,7 +975,11 @@ fn action_button<'a>(label: &str, url: &str) -> Element<'a, Message> {
         .into()
 }
 
-fn render_bus_row(msg: &BusPopoverMessage, alpha: f32) -> Element<'_, Message> {
+fn render_bus_row<'a>(
+    msg: &'a BusPopoverMessage,
+    alpha: f32,
+    reply_draft: Option<&'a str>,
+) -> Element<'a, Message> {
     let priority_color = match msg.priority.as_str() {
         "urgent" => BUS_URGENT_COLOR,
         "high"   => BUS_HIGH_COLOR,
@@ -971,6 +1028,18 @@ fn render_bus_row(msg: &BusPopoverMessage, alpha: f32) -> Element<'_, Message> {
         Space::new().into()
     };
 
+    // BUS-2.7.d — "Reply" opens the inline composer on this row.
+    let reply_ulid = msg.ulid.clone();
+    let reply_btn: Element<'_, Message> = if alpha >= 0.99 {
+        iced::widget::Button::new(text("Reply").size(10).color(FG_MUTED))
+            .padding(Padding { top: 2.0, right: 6.0, bottom: 2.0, left: 6.0 })
+            .style(bus_secondary_btn_style)
+            .on_press(Message::ReplyOpen(reply_ulid))
+            .into()
+    } else {
+        Space::new().into()
+    };
+
     // BUS-2.7.b — action buttons under the body. Hidden while the row
     // fades (alpha < full) so a dismissing card doesn't accept clicks.
     let mut text_col = column![topic_label, title_label, body_label].spacing(1);
@@ -986,12 +1055,39 @@ fn render_bus_row(msg: &BusPopoverMessage, alpha: f32) -> Element<'_, Message> {
     let content_row = row![
         text_col,
         Space::new().width(Length::Fill),
+        reply_btn,
         ack_btn,
     ]
     .align_y(iced::Alignment::Center)
     .spacing(6);
 
-    container(content_row)
+    // BUS-2.7.d — when this row's composer is open, stack a text_input +
+    // Send/Cancel beneath the content row.
+    let mut card = column![content_row].spacing(6);
+    if let Some(draft) = reply_draft {
+        let input = text_input("Reply…", draft)
+            .id("bus-reply-input")
+            .on_input(Message::ReplyChanged)
+            .on_submit(Message::ReplySend)
+            .padding(Padding { top: 5.0, right: 8.0, bottom: 5.0, left: 8.0 })
+            .size(11)
+            .style(reply_input_style);
+        let send = iced::widget::Button::new(text("Send").size(10).color(FG_TEXT))
+            .padding(Padding { top: 2.0, right: 8.0, bottom: 2.0, left: 8.0 })
+            .style(bus_secondary_btn_style)
+            .on_press(Message::ReplySend);
+        let cancel = iced::widget::Button::new(text("Cancel").size(10).color(FG_MUTED))
+            .padding(Padding { top: 2.0, right: 8.0, bottom: 2.0, left: 8.0 })
+            .style(bus_secondary_btn_style)
+            .on_press(Message::ReplyCancel);
+        card = card.push(
+            row![input, send, cancel]
+                .spacing(6)
+                .align_y(iced::Alignment::Center),
+        );
+    }
+
+    container(card)
         .padding(Padding { top: 5.0, right: 8.0, bottom: 5.0, left: 8.0 })
         .style(move |_: &Theme| container::Style {
             background: Some(Background::Color(Color {
@@ -1016,6 +1112,63 @@ fn render_bus_row(msg: &BusPopoverMessage, alpha: f32) -> Element<'_, Message> {
         })
         .width(Length::Fill)
         .into()
+}
+
+/// BUS-2.7.d — the open reply draft for `ulid`, or None if its composer
+/// isn't open. Lets `render_bus_row` stay a free fn while reading state.
+fn reply_draft_for<'a>(state: &'a App, ulid: &str) -> Option<&'a str> {
+    if state.replying_to.as_deref() == Some(ulid) {
+        Some(state.reply_draft.as_str())
+    } else {
+        None
+    }
+}
+
+/// BUS-2.7.d — build the `mde-bus publish` argv for an inline reply.
+/// Pure, so the reply wiring is unit-testable without spawning.
+fn reply_publish_argv(topic: &str, body: &str, parent_ulid: &str) -> Vec<String> {
+    vec![
+        "publish".to_string(),
+        topic.to_string(),
+        "--body".to_string(),
+        body.to_string(),
+        "--reply-to".to_string(),
+        parent_ulid.to_string(),
+    ]
+}
+
+/// BUS-2.7.d — secondary-button style (subtle white outline, hover-fill)
+/// shared by the row's Reply / Send / Cancel controls; matches Ack.
+fn bus_secondary_btn_style(
+    _t: &Theme,
+    status: iced::widget::button::Status,
+) -> iced::widget::button::Style {
+    let bg = match status {
+        iced::widget::button::Status::Hovered => Color { r: 0.18, g: 0.18, b: 0.20, a: 1.0 },
+        _ => Color::TRANSPARENT,
+    };
+    iced::widget::button::Style {
+        background: Some(Background::Color(bg)),
+        text_color: FG_MUTED,
+        border: Border { color: Color { a: 0.12, ..Color::WHITE }, width: 1.0, radius: 3.0.into() },
+        shadow: Shadow::default(),
+        snap: false,
+    }
+}
+
+/// BUS-2.7.d — compact charcoal text-input style for the inline reply box.
+fn reply_input_style(
+    _t: &Theme,
+    _s: iced::widget::text_input::Status,
+) -> iced::widget::text_input::Style {
+    iced::widget::text_input::Style {
+        background: Background::Color(Color { r: 0.106, g: 0.106, b: 0.114, a: 1.0 }),
+        border: Border { color: Color { a: 0.12, ..Color::WHITE }, width: 1.0, radius: 6.0.into() },
+        icon: FG_MUTED,
+        placeholder: FG_MUTED,
+        value: FG_TEXT,
+        selection: ACCENT,
+    }
 }
 
 /// ANIM-3.b.2 — `alpha` is the entrance stagger value (0.0→1.0).
@@ -1340,6 +1493,20 @@ mod tests {
             body: "body".to_string(),
             actions: Vec::new(),
         }
+    }
+
+    #[test]
+    fn reply_publish_argv_builds_reply_to_command() {
+        // BUS-2.7.d — the composer shells out to `mde-bus publish` with
+        // the parent ULID; this is the exact argv it builds.
+        let argv = reply_publish_argv("fleet/announce", "on it", "01PARENT");
+        assert_eq!(argv.len(), 6);
+        assert_eq!(argv[0], "publish");
+        assert_eq!(argv[1], "fleet/announce");
+        assert_eq!(argv[2], "--body");
+        assert_eq!(argv[3], "on it");
+        assert_eq!(argv[4], "--reply-to");
+        assert_eq!(argv[5], "01PARENT");
     }
 
     #[test]
