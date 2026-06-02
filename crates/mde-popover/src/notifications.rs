@@ -122,6 +122,10 @@ pub struct BusPopoverMessage {
     /// (`mde-bus publish --action LABEL=URL`). Empty for pre-2.7
     /// messages + any message published without `--action`.
     pub actions: Vec<BusAction>,
+    /// BUS-6.1.a — parent ULID when this message is a threaded reply
+    /// (`--reply-to`), else `None`. Surfaced as a `↳ re:` marker so
+    /// threads are legible in the popover.
+    pub reply_to: Option<String>,
 }
 
 /// Resolve `$XDG_DATA_HOME/mde/bus` (or `~/.local/share/mde/bus`).
@@ -173,6 +177,11 @@ pub fn parse_bus_message(path: &Path, ulid: &str, topic: &str) -> Option<BusPopo
                 .collect()
         })
         .unwrap_or_default();
+    // BUS-6.1.a — the parent ULID when this message is a threaded reply.
+    let reply_to = outer
+        .get("reply_to")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     Some(BusPopoverMessage {
         ulid: ulid.to_string(),
         topic: topic.to_string(),
@@ -180,6 +189,7 @@ pub fn parse_bus_message(path: &Path, ulid: &str, topic: &str) -> Option<BusPopo
         title,
         body,
         actions,
+        reply_to,
     })
 }
 
@@ -985,7 +995,16 @@ fn render_bus_row<'a>(
         "high"   => BUS_HIGH_COLOR,
         _        => BUS_DEFAULT_COLOR,
     };
-    let topic_label = text(format!("[{}]", msg.topic))
+    // BUS-6.1.a — when this message is a reply, surface the parent ULID
+    // inline on the topic line so threads read as threads (mirrors `tail`'s ↳).
+    let topic_text = match &msg.reply_to {
+        Some(parent) => {
+            let short: String = parent.chars().take(10).collect();
+            format!("[{}]  ↳ re: {short}", msg.topic)
+        }
+        None => format!("[{}]", msg.topic),
+    };
+    let topic_label = text(topic_text)
         .size(10)
         .color(Color { a: priority_color.a * alpha, ..priority_color });
     let title_label = text(if msg.title.is_empty() { msg.topic.as_str() } else { msg.title.as_str() })
@@ -1492,7 +1511,38 @@ mod tests {
             title: format!("{priority} message"),
             body: "body".to_string(),
             actions: Vec::new(),
+            reply_to: None,
         }
+    }
+
+    #[test]
+    fn parse_bus_message_reads_reply_to() {
+        // BUS-6.1.a — a threaded reply carries its parent ULID.
+        let dir = tempfile::tempdir().unwrap();
+        let ulid = "01JREPLYCHILD";
+        let path = dir.path().join(format!("{ulid}.json"));
+        std::fs::write(
+            &path,
+            r#"{"ulid":"01JREPLYCHILD","topic":"fleet/announce","priority":"default","title":"re","body":"b","ts_unix_ms":0,"file_path":"","reply_to":"01JPARENT"}"#,
+        )
+        .unwrap();
+        let msg = parse_bus_message(&path, ulid, "fleet/announce").expect("parses");
+        assert_eq!(msg.reply_to.as_deref(), Some("01JPARENT"));
+    }
+
+    #[test]
+    fn parse_bus_message_no_reply_to_is_none() {
+        // Backward-compat: pre-2.7.d messages have no reply_to key.
+        let dir = tempfile::tempdir().unwrap();
+        let ulid = "01JTOPLEVEL";
+        let path = dir.path().join(format!("{ulid}.json"));
+        std::fs::write(
+            &path,
+            r#"{"ulid":"01JTOPLEVEL","topic":"t","priority":"default","title":"t","body":"b","ts_unix_ms":0,"file_path":""}"#,
+        )
+        .unwrap();
+        let msg = parse_bus_message(&path, ulid, "t").expect("parses");
+        assert_eq!(msg.reply_to, None);
     }
 
     #[test]
