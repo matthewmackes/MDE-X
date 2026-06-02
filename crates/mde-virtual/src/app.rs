@@ -444,6 +444,16 @@ pub(crate) fn image_delete_command(image_ref: &str) -> (&'static str, Vec<String
     ("podman", vec!["rmi".into(), image_ref.into()])
 }
 
+/// The `podman pull <ref>` argv for the image-pull sheet (VIRT-19.b.2).
+/// Returns `None` for a blank reference (nothing to pull). Pure.
+pub(crate) fn pull_command(image_ref: &str) -> Option<(&'static str, Vec<String>)> {
+    let r = image_ref.trim();
+    if r.is_empty() {
+        return None;
+    }
+    Some(("podman", vec!["pull".into(), r.into()]))
+}
+
 /// True when `image_ref` is the image of a running container (VIRT-19.b
 /// in-use guard — podman would refuse the removal, so the UI refuses up
 /// front with an inline message instead of opening the confirmation).
@@ -1328,6 +1338,16 @@ pub(crate) enum Message {
     RequestImageDelete(String),
     /// Confirm the pending image delete (`podman rmi`).
     ConfirmImageDelete,
+    /// VIRT-19.b.2: open the `[Pull image…]` sheet.
+    OpenPullSheet,
+    /// VIRT-19.b.2: close the pull sheet without pulling.
+    ClosePullSheet,
+    /// VIRT-19.b.2: the pull sheet's image-reference input changed.
+    PullRefInput(String),
+    /// VIRT-19.b.2: run `podman pull <ref>` for the sheet's reference.
+    SubmitPull,
+    /// VIRT-19.b.2: a pull finished — carries the result summary line.
+    PullCompleted(String),
     /// Dismiss the image delete confirmation.
     CancelImageDelete,
     /// VIRT-20: toggle a Local row's bulk selection.
@@ -1387,6 +1407,12 @@ pub(crate) struct VirtualApp {
     pending_pod_delete: Option<String>,
     /// VIRT-19.b: the image ref awaiting delete confirmation, if any.
     pending_image_delete: Option<String>,
+    /// VIRT-19.b.2: the `[Pull image…]` sheet's image-reference input
+    /// (`Some` = sheet open).
+    pull_sheet: Option<String>,
+    /// VIRT-19.b.2: the pull progress / result summary shown in the
+    /// Images section after a pull is started.
+    pull_status: Option<String>,
     /// VIRT-20: selected Local-row keys for bulk actions.
     selected_bulk: HashSet<String>,
     /// VIRT-20: the bulk verb awaiting confirmation, if any.
@@ -1422,6 +1448,8 @@ impl VirtualApp {
             pending_container_delete: None,
             pending_pod_delete: None,
             pending_image_delete: None,
+            pull_sheet: None,
+            pull_status: None,
             selected_bulk: HashSet::new(),
             pending_bulk: None,
         }
@@ -1560,6 +1588,48 @@ impl VirtualApp {
                     },
                     |()| Message::Refresh,
                 )
+            }
+            Message::OpenPullSheet => {
+                self.pull_sheet = Some(String::new());
+                self.pull_status = None;
+                Task::none()
+            }
+            Message::ClosePullSheet => {
+                self.pull_sheet = None;
+                Task::none()
+            }
+            Message::PullRefInput(s) => {
+                if let Some(r) = self.pull_sheet.as_mut() {
+                    *r = s;
+                }
+                Task::none()
+            }
+            Message::SubmitPull => {
+                let Some((bin, args)) = self.pull_sheet.as_deref().and_then(pull_command) else {
+                    return Task::none(); // blank ref — keep the sheet open
+                };
+                let image_ref = args.last().cloned().unwrap_or_default();
+                self.pull_sheet = None;
+                self.pull_status = Some(format!("Pulling {image_ref}…"));
+                Task::perform(
+                    async move {
+                        match std::process::Command::new(bin).args(&args).output() {
+                            Ok(out) if out.status.success() => format!("Pulled {image_ref}"),
+                            Ok(out) => {
+                                let err = String::from_utf8_lossy(&out.stderr);
+                                let line = err.trim().lines().last().unwrap_or("pull failed");
+                                format!("Pull failed: {line}")
+                            }
+                            Err(e) => format!("Pull failed: {e}"),
+                        }
+                    },
+                    Message::PullCompleted,
+                )
+            }
+            Message::PullCompleted(summary) => {
+                self.pull_status = Some(summary);
+                // Refresh so a newly-pulled image appears in the list.
+                Task::perform(async {}, |()| Message::Refresh)
             }
             Message::ToggleBulk(key) => {
                 if !self.selected_bulk.remove(&key) {
@@ -2413,7 +2483,7 @@ impl VirtualApp {
         let space = self.tokens.space;
         let palette = self.tokens.palette;
         let fs = self.tokens.font_size;
-        let body: Element<'_, Message> = if self.images.is_empty() {
+        let list: Element<'_, Message> = if self.images.is_empty() {
             self.section_note("No local images.")
         } else {
             let mut rows = column![].spacing(f32::from(space.xs));
@@ -2440,7 +2510,44 @@ impl VirtualApp {
             }
             rows.into()
         };
-        self.titled_card("Images", body)
+        // VIRT-19.b.2: the [Pull image…] control always shows (it always
+        // makes sense to pull); the sheet + progress line render above the
+        // list when a pull is active / just finished.
+        let mut body = column![self.simple_button("Pull image…", Message::OpenPullSheet)]
+            .spacing(f32::from(space.sm));
+        if let Some(ref_input) = self.pull_sheet.as_deref() {
+            body = body.push(self.pull_sheet_view(ref_input));
+        }
+        if let Some(status) = self.pull_status.as_deref() {
+            body = body.push(
+                text(status.to_string())
+                    .size(TypeRole::Caption.size_in(fs))
+                    .color(rgba(palette.text_muted)),
+            );
+        }
+        body = body.push(list);
+        self.titled_card("Images", body.into())
+    }
+
+    /// VIRT-19.b.2: the `[Pull image…]` sheet — image-reference input
+    /// (Enter or `Pull` submits) + Cancel.
+    fn pull_sheet_view<'a>(&'a self, ref_input: &'a str) -> Element<'a, Message> {
+        let space = self.tokens.space;
+        let input = text_input("repository:tag (e.g. docker.io/library/redis:7)", ref_input)
+            .on_input(Message::PullRefInput)
+            .on_submit(Message::SubmitPull)
+            .padding(f32::from(space.xs))
+            .size(TypeRole::Body.size_in(self.tokens.font_size));
+        column![
+            input,
+            row![
+                self.simple_button("Pull", Message::SubmitPull),
+                self.simple_button("Cancel", Message::ClosePullSheet),
+            ]
+            .spacing(f32::from(space.sm)),
+        ]
+        .spacing(f32::from(space.sm))
+        .into()
     }
 
     /// VIRT-19.a: read-only Volumes list (name, mount point, driver).
@@ -3486,6 +3593,45 @@ mod tests {
         assert_eq!(app.pending_image_delete.as_deref(), Some("redis:7"));
         let _ = app.update(Message::CancelImageDelete);
         assert!(app.pending_image_delete.is_none());
+    }
+
+    #[test]
+    fn pull_command_builds_podman_pull() {
+        assert_eq!(
+            pull_command("redis:7"),
+            Some(("podman", vec!["pull".to_string(), "redis:7".to_string()]))
+        );
+        // Surrounding whitespace is trimmed.
+        assert_eq!(
+            pull_command("  alpine  "),
+            Some(("podman", vec!["pull".to_string(), "alpine".to_string()]))
+        );
+        // Blank / whitespace-only reference → nothing to pull.
+        assert_eq!(pull_command(""), None);
+        assert_eq!(pull_command("   "), None);
+    }
+
+    #[test]
+    fn pull_sheet_open_input_submit_state() {
+        let mut app = VirtualApp::new();
+        let _ = app.update(Message::OpenPullSheet);
+        assert_eq!(app.pull_sheet.as_deref(), Some(""));
+        let _ = app.update(Message::PullRefInput("redis:7".into()));
+        assert_eq!(app.pull_sheet.as_deref(), Some("redis:7"));
+        // A valid submit closes the sheet + posts a "Pulling…" status
+        // (the actual pull Task isn't executed in a unit test).
+        let _ = app.update(Message::SubmitPull);
+        assert!(app.pull_sheet.is_none());
+        assert_eq!(app.pull_status.as_deref(), Some("Pulling redis:7…"));
+        // Completion replaces the status line.
+        let _ = app.update(Message::PullCompleted("Pulled redis:7".into()));
+        assert_eq!(app.pull_status.as_deref(), Some("Pulled redis:7"));
+        // A blank submit is a no-op that keeps the sheet open; Cancel clears.
+        let _ = app.update(Message::OpenPullSheet);
+        let _ = app.update(Message::SubmitPull);
+        assert!(app.pull_sheet.is_some());
+        let _ = app.update(Message::ClosePullSheet);
+        assert!(app.pull_sheet.is_none());
     }
 
     #[test]
