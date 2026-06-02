@@ -331,6 +331,8 @@ locked work appears under **Active** with `[ ] Open`.
 
 #### VOIP-* — SIP / VoIP layer (Round 9 + R11 lock 2026-05-26 retires Kamailio)
 
+> 🔎 AUDIT 2026-06-01 (foundation pass): most VOIP-* depend on two surfaces that are **largely unbuilt** — PJSIP integration in `mded` (VOIP-1: two-account PJSIP lifecycle) + a **dialer UI** (there is no `voip` crate and no `crates/mde-portal/src/voip/`; only the backend RTT primitive VOIP-4.a in `mackesd/voip_rtt.rs` shipped). Verdict FINISH (PSTN calling is wanted) but **foundation-first**: the keystones are **PJSIP-in-`mded`** + the **dialer UI surface** — build those before VOIP-2..30 (registration, bare-hostname dialing, SMS threads, telemetry UI, sub-account admin), which are leaf tasks on top of them.
+
 **R11 architecture lock 2026-05-26:** Kamailio-per-peer container model is
 retired. PJSIP registers directly to a per-peer Vitelity sub-account using
 multi-account support — no SIP server in the signaling path. Trades: smart
@@ -633,6 +635,8 @@ call-end lifecycle, never at install or login.
 ---
 
 ### Sway-native shell + maximum animation (SWAY-* / ANIM-*, locked 2026-05-28 via 150-Q survey)
+
+> 🔎 AUDIT 2026-06-01 (foundation pass): ANIM-* is **toolkit-gated + foundation-blocked, per the tasks' own notes** — ANIM-1.b "iced-0.13 transform-gated, revisit with iced 0.14"; ANIM-3.b.3 "needs OSD widget surface to exist first"; ANIM-2 needs the Portal motion-layer surfaces. No transform/animation infra exists in `mde-*` today. Verdict FINISH (sway-native motion is locked) but **gated**: the keystones are the **iced-0.14 transform upgrade** for mde-portal + the **OSD widget + Portal motion-layer surfaces** — don't pick an ANIM leaf before its surface + toolkit support exist. (SWAY-* compositor/IPC tasks not assessed in this pass.)
 
 > **Authority:** `docs/design/sway-native-shell.md` (150 locks: 100 sway-integration/animation + 50 correction). Memory `sway-native-reversal`. §11 1.0-roadmap item #19 (replaces the removed Hyprland migration).
 > **Decision:** Hyprland removed; compositor is **vanilla sway**, permanently. Windows snap; ALL animation lives in MDE iced layer-shell surfaces via the `mde-motion` crate. Verification = automated/headless/CI (extend HW-3), not per-machine bench.
