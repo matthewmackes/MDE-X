@@ -305,3 +305,27 @@ crates/mde-portal/src/app.rs:3142
 crates/mde-portal/src/app.rs:3158
 crates/mde-workbench/src/app.rs:75
 crates/mde-workbench/src/app.rs:80
+
+# BUS-2.7.c (2026-06-02) — mde-portal/src/app.rs pre-existing token
+# literals re-anchored after the BusAction struct + spawn_urgent_theater
+# actions-env insertions shifted their line numbers (added no new tokens).
+crates/mde-portal/src/app.rs:2270
+crates/mde-portal/src/app.rs:2458
+crates/mde-portal/src/app.rs:2783
+crates/mde-portal/src/app.rs:2785
+crates/mde-portal/src/app.rs:2787
+crates/mde-portal/src/app.rs:2789
+crates/mde-portal/src/app.rs:2791
+crates/mde-portal/src/app.rs:3167
+crates/mde-portal/src/app.rs:3169
+crates/mde-portal/src/app.rs:3171
+crates/mde-portal/src/app.rs:3187
+crates/mde-portal/src/app.rs:3357
+crates/mde-portal/src/app.rs:3365
+crates/mde-portal/src/app.rs:3370
+crates/mde-portal/src/app.rs:3374
+crates/mde-portal/src/app.rs:4402
+crates/mde-portal/src/app.rs:5336
+crates/mde-portal/src/app.rs:5344
+crates/mde-portal/src/app.rs:5354
+crates/mde-portal/src/app.rs:572

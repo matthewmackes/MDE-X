@@ -508,6 +508,23 @@ pub struct BusAnnounceSegment {
     /// pills use the priority palette; `Clipboard` pills always
     /// render neutral grey per the design lock.
     pub topic: BusSegmentTopic,
+    /// BUS-2.7.c: action buttons from the envelope's `actions` array
+    /// (≤`MAX_BUS_ACTIONS`). Empty unless the publisher set `--action`.
+    /// The urgent theater renders them; breadcrumb pills ignore them.
+    pub actions: Vec<BusAction>,
+}
+
+/// BUS-2.7.c — max action buttons carried per message
+/// (`v6.x-mackes-bus.md` §9). The publisher caps at this too.
+pub const MAX_BUS_ACTIONS: usize = 5;
+
+/// BUS-2.7.c — one action button on a Bus message: a `label` the urgent
+/// theater renders + a `url` (typically `mde://…`) dispatched via
+/// `mde-open`. Handed to the theater through `MDE_URGENT_ACTIONS`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BusAction {
+    pub label: String,
+    pub url: String,
 }
 
 /// BUS-2.2.b: source-topic discriminator for breadcrumb segments.
@@ -1853,6 +1870,18 @@ fn spawn_urgent_theater(segment: &BusAnnounceSegment) {
     }
     if let Some(body) = &segment.body {
         cmd.env("MDE_URGENT_BODY", body);
+    }
+    // BUS-2.7.c: hand the action buttons to the theater as a JSON array;
+    // it renders them and dispatches each `url` via `mde-open`.
+    if !segment.actions.is_empty() {
+        let arr = serde_json::Value::Array(
+            segment
+                .actions
+                .iter()
+                .map(|a| serde_json::json!({ "label": a.label, "url": a.url }))
+                .collect(),
+        );
+        cmd.env("MDE_URGENT_ACTIONS", arr.to_string());
     }
     if let Err(e) = cmd.spawn() {
         tracing::debug!("bus urgent: failed to spawn mde-popover urgent theater: {e}");
@@ -4610,6 +4639,7 @@ mod tests {
             body: body.map(String::from),
             spawned_at: chrono::Local::now(),
             topic: BusSegmentTopic::Announce,
+            actions: Vec::new(),
         }
     }
 
@@ -4621,6 +4651,7 @@ mod tests {
             body: body.map(String::from),
             spawned_at: chrono::Local::now(),
             topic: BusSegmentTopic::Clipboard,
+            actions: Vec::new(),
         }
     }
 
@@ -4634,6 +4665,7 @@ mod tests {
             body: Some("body".to_string()),
             spawned_at: chrono::Local::now(),
             topic: BusSegmentTopic::Announce,
+            actions: Vec::new(),
         }
     }
 

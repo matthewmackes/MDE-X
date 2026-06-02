@@ -517,6 +517,23 @@ pub fn parse_breadcrumb_file(
         .get("body")
         .and_then(|v| v.as_str())
         .map(String::from);
+    // BUS-2.7.c — lift the optional action buttons. Missing / non-array
+    // → none (backward-compat with pre-2.7 envelopes); entries missing
+    // label or url are skipped; capped at MAX_BUS_ACTIONS per §9.
+    let actions = outer
+        .get("actions")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| {
+                    let label = a.get("label").and_then(|v| v.as_str())?.to_string();
+                    let url = a.get("url").and_then(|v| v.as_str())?.to_string();
+                    Some(crate::app::BusAction { label, url })
+                })
+                .take(crate::app::MAX_BUS_ACTIONS)
+                .collect()
+        })
+        .unwrap_or_default();
     Some(crate::app::BusAnnounceSegment {
         ulid: ulid.to_string(),
         priority,
@@ -524,6 +541,7 @@ pub fn parse_breadcrumb_file(
         body,
         spawned_at: chrono::Local::now(),
         topic,
+        actions,
     })
 }
 
