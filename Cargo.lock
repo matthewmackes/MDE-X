@@ -4971,6 +4971,7 @@ dependencies = [
  "image 0.25.10",
  "mde-bus",
  "mde-musicd",
+ "serde",
  "serde_json",
  "tokio",
 ]

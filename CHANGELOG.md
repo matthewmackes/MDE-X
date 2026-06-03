@@ -44,6 +44,8 @@ unreleased; tag versions get a date when they ship.
 - **Album art + colour:** album pages now show the real cover image
   (fetched over the Bus) and tint their header to the cover's dominant
   colour, with automatically-readable contrast text.
+- **Sort your library:** album / artist / genre grids lay out as cards
+  with a Name A–Z / Z–A sort toggle that persists across launches.
 
 **KVM + Podman mesh-native compute — `mde-virtual` app (2026-05-31)**
 - A new **Virtual** app manages the KVM virtual machines and Podman

@@ -11,4 +11,5 @@ pub mod hub;
 pub mod library;
 pub mod nav;
 pub mod nowplaying;
+pub mod prefs;
 pub mod search;

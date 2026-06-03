@@ -17,6 +17,7 @@ use mde_music::album::{self, AlbumView};
 use mde_music::color;
 use mde_music::nav::{NavState, Route};
 use mde_music::nowplaying::{self, NowState};
+use mde_music::prefs::{self, SortKey};
 use mde_music::search::{self, SearchResults};
 use mde_musicd::creds::{self, Creds};
 
@@ -77,6 +78,8 @@ struct State {
     /// AIR-12/AIR-16 — the open album's decoded cover art (None until it
     /// resolves; the source for both the rendered image + the tint colour).
     album_art: Option<image::Handle>,
+    /// AIR-11.b — the persisted library-grid sort order.
+    sort: SortKey,
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +128,8 @@ enum Message {
     /// AIR-12/AIR-16 — the album cover art resolved (decoded image +
     /// dominant + contrast colours).
     ArtReady(Option<image::Handle>, (u8, u8, u8), (u8, u8, u8)),
+    /// AIR-11.b — flip the library-grid sort order (+ persist it).
+    ToggleSort,
     /// AIR-15 — now-playing footer: poll the live snapshot + transport.
     PollState,
     StateLoaded(NowState),
@@ -163,6 +168,7 @@ impl State {
             album_color: color::INDIGO,
             album_text_color: (255, 255, 255),
             album_art: None,
+            sort: prefs::load().sort,
         }
     }
 
@@ -357,6 +363,11 @@ impl State {
                 self.album_text_color = text;
                 Task::none()
             }
+            Message::ToggleSort => {
+                self.sort = self.sort.toggled();
+                prefs::save(&prefs::MusicPrefs { sort: self.sort });
+                Task::none()
+            }
             Message::AlbumFailed(e) => {
                 self.album = None;
                 self.album_loading = false;
@@ -532,7 +543,16 @@ impl State {
             }
             Route::Album(..) => self.album_page(),
             route => {
-                let mut col = column![text(route.segment()).size(20)].spacing(6);
+                // AIR-11.b — title + a sort toggle; items lay out in a
+                // wrapping 160×160 card grid, ordered by the persisted sort.
+                let title_row = row![
+                    text(route.segment()).size(20),
+                    Space::with_width(Length::Fill),
+                    button(text(format!("Sort: {}", self.sort.label())).size(12))
+                        .on_press(Message::ToggleSort),
+                ]
+                .spacing(8);
+                let mut col = column![title_row].spacing(10);
                 if self.loading {
                     col = col.push(text("Loading…").size(13));
                 } else if let Some(err) = &self.load_error {
@@ -542,22 +562,37 @@ impl State {
                         text("Nothing here yet — start mde-musicd to load your library.").size(13),
                     );
                 } else {
-                    // Album + artist rows navigate into their page; other
-                    // categories' rows aren't navigable yet (AIR-13+).
-                    for item in &self.items {
-                        let mut btn = button(text(item.label.clone()));
-                        btn = match route {
-                            Route::Category(HubCard::Albums) | Route::Genre(_) => btn
-                                .on_press(Message::OpenAlbum(item.id.clone(), item.label.clone())),
-                            Route::Category(HubCard::Artists) => btn
-                                .on_press(Message::OpenArtist(item.id.clone(), item.label.clone())),
-                            Route::Category(HubCard::Genres) => {
-                                btn.on_press(Message::OpenGenre(item.label.clone()))
-                            }
-                            _ => btn,
-                        };
-                        col = col.push(btn);
+                    let mut items = self.items.clone();
+                    prefs::apply_sort(&mut items, self.sort);
+                    // Wrapping grid of 160×160 cards (fixed columns for now;
+                    // width-adaptivity + per-card art + scroll-position
+                    // persistence are the AIR-11.b.b follow-on). Album /
+                    // artist / genre cards navigate; others aren't yet.
+                    const COLS: usize = 5;
+                    let mut grid = column![].spacing(8);
+                    for chunk in items.chunks(COLS) {
+                        let mut r = row![].spacing(8);
+                        for item in chunk {
+                            let mut btn = button(text(item.label.clone()))
+                                .width(Length::Fixed(160.0))
+                                .height(Length::Fixed(160.0));
+                            btn = match route {
+                                Route::Category(HubCard::Albums) | Route::Genre(_) => btn.on_press(
+                                    Message::OpenAlbum(item.id.clone(), item.label.clone()),
+                                ),
+                                Route::Category(HubCard::Artists) => btn.on_press(
+                                    Message::OpenArtist(item.id.clone(), item.label.clone()),
+                                ),
+                                Route::Category(HubCard::Genres) => {
+                                    btn.on_press(Message::OpenGenre(item.label.clone()))
+                                }
+                                _ => btn,
+                            };
+                            r = r.push(btn);
+                        }
+                        grid = grid.push(r);
                     }
+                    col = col.push(scrollable(grid));
                 }
                 col.into()
             }
