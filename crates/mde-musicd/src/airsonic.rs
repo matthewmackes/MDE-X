@@ -419,6 +419,26 @@ impl Client {
             .await?;
         Ok(parse_podcast_episodes(&inner))
     }
+
+    /// `getPlaylists` — the server's playlists (AIR-4.b Playlists tile).
+    ///
+    /// # Errors
+    /// Transport / API / parse failures.
+    pub async fn get_playlists(&self) -> Result<Vec<Playlist>, AirsonicError> {
+        let inner = self.get("getPlaylists", &[]).await?;
+        Ok(parse_playlists(&inner))
+    }
+
+    /// `getPlaylist?id=` — one playlist's ordered songs. The GUI enqueues
+    /// these to play the playlist on click (AIR-4.b, landed with its
+    /// consumer — never a dead client method per §0.12).
+    ///
+    /// # Errors
+    /// Transport / API / parse failures.
+    pub async fn get_playlist(&self, id: &str) -> Result<Vec<Song>, AirsonicError> {
+        let inner = self.get("getPlaylist", &[("id", id)]).await?;
+        Ok(parse_playlist_entries(&inner))
+    }
 }
 
 // ───────────────────────── pure parse helpers ─────────────────────────
@@ -480,6 +500,46 @@ pub fn parse_album_list2(inner: &Value) -> Vec<Album> {
             albums
                 .iter()
                 .filter_map(|a| serde_json::from_value(a.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One playlist row (AIR-4.b Playlists tile). Subsonic `getPlaylists`
+/// returns `playlists.playlist[]`; only id + name drive the grid (extra
+/// server fields are ignored on deserialize).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct Playlist {
+    pub id: String,
+    pub name: String,
+}
+
+/// Parse `getPlaylists` → `playlists.playlist[]`.
+#[must_use]
+pub fn parse_playlists(inner: &Value) -> Vec<Playlist> {
+    inner
+        .get("playlists")
+        .and_then(|p| p.get("playlist"))
+        .and_then(Value::as_array)
+        .map(|pls| {
+            pls.iter()
+                .filter_map(|p| serde_json::from_value(p.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Parse `getPlaylist` → `playlist.entry[]` (the playlist's ordered songs).
+#[must_use]
+pub fn parse_playlist_entries(inner: &Value) -> Vec<Song> {
+    inner
+        .get("playlist")
+        .and_then(|p| p.get("entry"))
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|e| serde_json::from_value(e.clone()).ok())
                 .collect()
         })
         .unwrap_or_default()
@@ -796,6 +856,31 @@ mod tests {
         assert_eq!(albums[0].name, "Moon Safari");
         assert_eq!(albums[0].year, Some(1998));
         assert_eq!(albums[0].cover_art, "al-a1");
+    }
+
+    #[test]
+    fn parse_playlists_reads_roster() {
+        let inner = json!({"playlists": {"playlist": [
+            {"id": "pl1", "name": "Roadtrip", "songCount": 42},
+            {"id": "pl2", "name": "Focus"}
+        ]}});
+        let pls = parse_playlists(&inner);
+        assert_eq!(pls.len(), 2);
+        assert_eq!(pls[0].id, "pl1");
+        assert_eq!(pls[0].name, "Roadtrip");
+        assert_eq!(pls[1].name, "Focus");
+    }
+
+    #[test]
+    fn parse_playlist_entries_reads_songs() {
+        let inner = json!({"playlist": {"id": "pl1", "name": "Roadtrip", "entry": [
+            {"id": "s1", "title": "Intro"},
+            {"id": "s2", "title": "Drive", "suffix": "flac"}
+        ]}});
+        let songs = parse_playlist_entries(&inner);
+        assert_eq!(songs.len(), 2);
+        assert_eq!(songs[0].id, "s1");
+        assert_eq!(songs[1].title, "Drive");
     }
 
     #[test]

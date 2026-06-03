@@ -197,6 +197,30 @@ pub async fn play_ids(ids: Vec<String>) -> Result<(), String> {
     .await
 }
 
+/// AIR-4.b — play a whole playlist by id: fetch its songs over the Bus
+/// (`action/music/get-playlist`), then clear → enqueue each → play. The
+/// Playlists hub card's click action. Reuses [`crate::library::parse_items`]
+/// to pull the song ids out of the daemon's `{songs:[…]}` reply.
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn play_playlist(id: String) -> Result<(), String> {
+    with_bus(move |persist, rt| {
+        let reply = req(persist, rt, "action/music/get-playlist", Some(&id))?;
+        let ids: Vec<String> = crate::library::parse_items(&reply)
+            .into_iter()
+            .map(|item| item.id)
+            .collect();
+        req(persist, rt, "action/music/clear", None)?;
+        for sid in &ids {
+            req(persist, rt, "action/music/enqueue", Some(sid))?;
+        }
+        req(persist, rt, "action/music/play", None)?;
+        Ok(())
+    })
+    .await
+}
+
 /// Append `ids` to the queue without disrupting playback (Add to Queue).
 ///
 /// # Errors

@@ -28,6 +28,8 @@ pub fn verb_for(card: HubCard) -> Option<&'static str> {
         HubCard::Artists => Some("list-artists"),
         HubCard::Genres => Some("list-genres"),
         HubCard::Podcasts => Some("list-podcasts"),
+        HubCard::Recents => Some("list-recents"),
+        HubCard::Playlists => Some("list-playlists"),
         _ => None,
     }
 }
@@ -61,6 +63,7 @@ pub fn parse_items(reply_json: &str) -> Vec<LibraryItem> {
     for (section, label_key) in [
         ("albums", "name"),
         ("artists", "name"),
+        ("playlists", "name"),
         ("songs", "title"),
         ("podcasts", "title"),
         ("episodes", "title"),
@@ -246,5 +249,23 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0], LibraryItem { id: "Jazz".into(), label: "Jazz".into() });
         assert_eq!(items[1].label, "Rock");
+    }
+
+    #[test]
+    fn verb_for_recents_and_playlists() {
+        assert_eq!(verb_for(HubCard::Recents), Some("list-recents"));
+        assert_eq!(verb_for(HubCard::Playlists), Some("list-playlists"));
+        assert_eq!(verb_for(HubCard::Radio), None);
+    }
+
+    #[test]
+    fn parse_playlists_section() {
+        let reply = r#"{"ok":true,"result":{"playlists":[
+            {"id":"pl1","name":"Roadtrip"},{"id":"pl2","name":"Focus"}
+        ]}}"#;
+        let items = parse_items(reply);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0], LibraryItem { id: "pl1".into(), label: "Roadtrip".into() });
+        assert_eq!(items[1].label, "Focus");
     }
 }

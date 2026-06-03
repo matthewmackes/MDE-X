@@ -39,7 +39,7 @@ pub const ACTION_VERBS: [&str; 6] =
 
 /// The library-browse verbs served on `action/music/<verb>`
 /// (asynchronous — each proxies an Airsonic REST call).
-pub const BROWSE_VERBS: [&str; 10] = [
+pub const BROWSE_VERBS: [&str; 13] = [
     "list-albums",
     "list-artists",
     "search",
@@ -50,6 +50,9 @@ pub const BROWSE_VERBS: [&str; 10] = [
     "get-cover-art",
     "list-podcasts",
     "podcast-episodes",
+    "list-recents",
+    "list-playlists",
+    "get-playlist",
 ];
 
 /// The transport verbs served on `action/music/<verb>` (AIR-2.d — drive
@@ -222,6 +225,28 @@ fn dispatch_browse(verb: &str, body: &str, client: &Client, rt: &tokio::runtime:
                     .get_podcast_episodes(&id)
                     .await
                     .map(|e| json!({ "episodes": e }))
+                    .map_err(|e| e.to_string())
+            }
+            // AIR-4.b — Recents hub card: recently-added albums (reuses
+            // getAlbumList2 with type=recent).
+            "list-recents" => client
+                .get_album_list2("recent", 100)
+                .await
+                .map(|a| json!({ "albums": a }))
+                .map_err(|e| e.to_string()),
+            // AIR-4.b — Playlists hub card: the playlist roster, then a
+            // single playlist's songs (the GUI enqueues these to play it).
+            "list-playlists" => client
+                .get_playlists()
+                .await
+                .map(|p| json!({ "playlists": p }))
+                .map_err(|e| e.to_string()),
+            "get-playlist" => {
+                let id = song_id_from(body).unwrap_or_default();
+                client
+                    .get_playlist(&id)
+                    .await
+                    .map(|s| json!({ "songs": s }))
                     .map_err(|e| e.to_string())
             }
             other => Err(format!("unknown browse verb: {other}")),

@@ -117,6 +117,8 @@ enum Message {
     OpenPodcast(String, String),
     /// Play a podcast episode by its streamId (clear queue + enqueue + play).
     PlayEpisode(String),
+    /// AIR-4.b — play a whole playlist by id (fetch its songs → clear+enqueue+play).
+    PlayPlaylist(String),
     /// Add a song result to the queue; the reply closes the sheet.
     EnqueueSong(String),
     SearchEnqueued(Result<(), String>),
@@ -347,6 +349,9 @@ impl State {
             }
             Message::PlayEpisode(stream_id) => {
                 Task::perform(album::play_ids(vec![stream_id]), Message::AlbumActionDone)
+            }
+            Message::PlayPlaylist(id) => {
+                Task::perform(album::play_playlist(id), Message::AlbumActionDone)
             }
             Message::EnqueueSong(id) => Task::perform(search::enqueue(id), Message::SearchEnqueued),
             Message::SearchEnqueued(result) => {
@@ -595,7 +600,9 @@ impl State {
                                 .width(Length::Fixed(160.0))
                                 .height(Length::Fixed(160.0));
                             btn = match route {
-                                Route::Category(HubCard::Albums) | Route::Genre(_) => btn.on_press(
+                                Route::Category(HubCard::Albums)
+                                | Route::Genre(_)
+                                | Route::Category(HubCard::Recents) => btn.on_press(
                                     Message::OpenAlbum(item.id.clone(), item.label.clone()),
                                 ),
                                 Route::Category(HubCard::Artists) => btn.on_press(
@@ -607,6 +614,9 @@ impl State {
                                 Route::Category(HubCard::Podcasts) => btn.on_press(
                                     Message::OpenPodcast(item.id.clone(), item.label.clone()),
                                 ),
+                                Route::Category(HubCard::Playlists) => {
+                                    btn.on_press(Message::PlayPlaylist(item.id.clone()))
+                                }
                                 Route::Podcast(..) => {
                                     btn.on_press(Message::PlayEpisode(item.id.clone()))
                                 }
