@@ -86,6 +86,9 @@ struct State {
     /// AIR-11.c.2 — per-route grid scroll offset (y) so navigating away from
     /// a category and back preserves the scroll position within a session.
     grid_scroll: std::collections::HashMap<String, f32>,
+    /// AIR-11.c.3 — per-card cover-art cache (LibraryItem.id → decoded
+    /// thumbnail handle), populated by the ItemsLoaded fan-out.
+    art_cache: std::collections::HashMap<String, image::Handle>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +105,8 @@ enum Message {
     WindowResized(f32),
     /// AIR-11.c.2 — the library grid scrolled; record the offset per route.
     GridScrolled(f32),
+    /// AIR-11.c.3 — a grid card's cover art fetched (id, decoded handle or None).
+    ArtLoaded(String, Option<image::Handle>),
     /// First-run form field edits.
     UrlChanged(String),
     UserChanged(String),
@@ -187,6 +192,7 @@ impl State {
             sort: prefs::load().sort,
             grid_width: 1100.0,
             grid_scroll: std::collections::HashMap::new(),
+            art_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -217,15 +223,32 @@ impl State {
                     .get(&self.nav.current().segment())
                     .copied()
                     .unwrap_or(0.0);
-                iced::widget::scrollable::scroll_to(
+                let restore = iced::widget::scrollable::scroll_to(
                     grid_scroll_id(),
                     iced::widget::scrollable::AbsoluteOffset { x: 0.0, y },
-                )
+                );
+                // AIR-11.c.3 — fan out per-card cover-art fetches (the AIR-7
+                // mesh cache makes re-fetches cheap; visible perf is §0.15 bench).
+                let art = Task::batch(self.items.iter().filter_map(|it| {
+                    it.art_id.clone().map(|aid| {
+                        let id = it.id.clone();
+                        Task::perform(color::fetch_cover_art(aid), move |r| {
+                            Message::ArtLoaded(id.clone(), r.ok().map(|b| image::Handle::from_bytes(b)))
+                        })
+                    })
+                }));
+                Task::batch([restore, art])
             }
             Message::ItemsFailed(e) => {
                 self.items.clear();
                 self.loading = false;
                 self.load_error = Some(e);
+                Task::none()
+            }
+            Message::ArtLoaded(id, handle) => {
+                if let Some(h) = handle {
+                    self.art_cache.insert(id, h);
+                }
                 Task::none()
             }
             Message::Ascend(index) => {
@@ -643,7 +666,20 @@ impl State {
                     for chunk in items.chunks(cols) {
                         let mut r = row![].spacing(8);
                         for item in chunk {
-                            let mut btn = button(text(item.label.clone()))
+                            let card_content: Element<'_, Message> =
+                                if let Some(handle) = self.art_cache.get(&item.id) {
+                                    column![
+                                        image(handle.clone())
+                                            .width(Length::Fill)
+                                            .height(Length::Fixed(120.0)),
+                                        text(item.label.clone()).size(12),
+                                    ]
+                                    .spacing(4)
+                                    .into()
+                                } else {
+                                    text(item.label.clone()).into()
+                                };
+                            let mut btn = button(card_content)
                                 .width(Length::Fixed(160.0))
                                 .height(Length::Fixed(160.0));
                             btn = match route {

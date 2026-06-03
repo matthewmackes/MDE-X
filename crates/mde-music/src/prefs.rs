@@ -125,9 +125,9 @@ mod tests {
     #[test]
     fn apply_sort_orders_by_label_case_insensitive() {
         let mut items = vec![
-            LibraryItem { id: "1".into(), label: "Zoo".into() },
-            LibraryItem { id: "2".into(), label: "apple".into() },
-            LibraryItem { id: "3".into(), label: "Mango".into() },
+            LibraryItem { id: "1".into(), label: "Zoo".into(), art_id: None },
+            LibraryItem { id: "2".into(), label: "apple".into(), art_id: None },
+            LibraryItem { id: "3".into(), label: "Mango".into(), art_id: None },
         ];
         apply_sort(&mut items, SortKey::NameAsc);
         assert_eq!(

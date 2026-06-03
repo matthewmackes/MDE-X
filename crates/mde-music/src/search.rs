@@ -49,7 +49,7 @@ fn section(result: &Value, key: &str, label_key: &str) -> Vec<LibraryItem> {
                         .get(label_key)
                         .and_then(Value::as_str)
                         .unwrap_or(id);
-                    Some(LibraryItem { id: id.to_string(), label: label.to_string() })
+                    Some(LibraryItem { id: id.to_string(), label: label.to_string(), art_id: None })
                 })
                 .collect()
         })
@@ -151,7 +151,7 @@ mod tests {
             "songs":[{"id":"s1","title":"So What"}]
         }}"#;
         let r = parse_search(reply);
-        assert_eq!(r.artists, vec![LibraryItem { id: "ar1".into(), label: "Miles Davis".into() }]);
+        assert_eq!(r.artists, vec![LibraryItem { id: "ar1".into(), label: "Miles Davis".into(), art_id: None }]);
         assert_eq!(r.albums[0].label, "Kind of Blue");
         assert_eq!(r.songs[0].label, "So What");
         assert!(!r.is_empty());
