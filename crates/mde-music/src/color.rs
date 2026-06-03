@@ -74,15 +74,14 @@ pub fn extract(bytes: &[u8]) -> Option<((u8, u8, u8), (u8, u8, u8))> {
     Some((dom, contrast_text(dom)))
 }
 
-/// Fetch the cover art over the Bus (`action/music/get-cover-art`, the
-/// coverArt id in the body) + extract its dominant + contrast colours.
-/// Falls back to [`INDIGO`] (+ white) when there's no art or decode fails.
+/// Fetch the raw cover-art bytes over the Bus (`action/music/get-cover-art`,
+/// the coverArt id in the body; the daemon base64s them into its reply).
+/// The caller renders the image (iced) + runs [`extract`] for the dominant
+/// colour off the same bytes (one fetch). Empty `Vec` when there's no art.
 ///
 /// # Errors
 /// Bus-store / request / timeout failures.
-pub async fn fetch_cover_color(
-    cover_id: String,
-) -> Result<((u8, u8, u8), (u8, u8, u8)), String> {
+pub async fn fetch_cover_art(cover_id: String) -> Result<Vec<u8>, String> {
     with_bus(move |p, rt| {
         let reply = req(p, rt, "action/music/get-cover-art", Some(&cover_id))?;
         let v: serde_json::Value = serde_json::from_str(&reply).map_err(|e| e.to_string())?;
@@ -91,10 +90,9 @@ pub async fn fetch_cover_color(
             .and_then(|r| r.get("art"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        let bytes = base64::engine::general_purpose::STANDARD
+        Ok(base64::engine::general_purpose::STANDARD
             .decode(b64)
-            .unwrap_or_default();
-        Ok(extract(&bytes).unwrap_or((INDIGO, (255, 255, 255))))
+            .unwrap_or_default())
     })
     .await
 }

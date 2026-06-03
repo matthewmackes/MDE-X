@@ -41,8 +41,9 @@ unreleased; tag versions get a date when they ship.
 - **Now-playing controls:** a footer shows the current track with Prev /
   Play-Pause / Next, updating live — the first in-app transport once
   playback is going (it also reflects media-key / mesh changes).
-- **Album colour:** album pages now tint their header to the cover's
-  dominant colour, with automatically-readable contrast text.
+- **Album art + colour:** album pages now show the real cover image
+  (fetched over the Bus) and tint their header to the cover's dominant
+  colour, with automatically-readable contrast text.
 
 **KVM + Podman mesh-native compute — `mde-virtual` app (2026-05-31)**
 - A new **Virtual** app manages the KVM virtual machines and Podman

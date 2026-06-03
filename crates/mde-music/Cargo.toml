@@ -17,7 +17,7 @@ name = "mde_music"
 path = "src/lib.rs"
 
 [dependencies]
-iced       = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced"] }
+iced       = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio", "advanced", "image"] }
 # The credential loader (shared with the daemon) — the hub banner reads
 # the configured server.
 mde-musicd = { path = "../mde-musicd" }

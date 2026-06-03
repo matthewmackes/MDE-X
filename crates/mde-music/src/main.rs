@@ -7,7 +7,7 @@
 //! entry point that makes the [`hub`]/[`nav`] models live.
 
 use iced::widget::{
-    button, column, container, row, scrollable, stack, text, text_input, Space,
+    button, column, container, image, row, scrollable, stack, text, text_input, Space,
 };
 use iced::{Element, Length, Size, Subscription, Task};
 
@@ -74,6 +74,9 @@ struct State {
     /// (Indigo until the cover art resolves).
     album_color: (u8, u8, u8),
     album_text_color: (u8, u8, u8),
+    /// AIR-12/AIR-16 — the open album's decoded cover art (None until it
+    /// resolves; the source for both the rendered image + the tint colour).
+    album_art: Option<image::Handle>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,8 +122,9 @@ enum Message {
     PlayTrackNext(String),
     AddTrackToQueue(String),
     AlbumActionDone(Result<(), String>),
-    /// AIR-16 — the album cover's dominant + contrast colours resolved.
-    AlbumColorLoaded((u8, u8, u8), (u8, u8, u8)),
+    /// AIR-12/AIR-16 — the album cover art resolved (decoded image +
+    /// dominant + contrast colours).
+    ArtReady(Option<image::Handle>, (u8, u8, u8), (u8, u8, u8)),
     /// AIR-15 — now-playing footer: poll the live snapshot + transport.
     PollState,
     StateLoaded(NowState),
@@ -158,6 +162,7 @@ impl State {
             now_artist: String::new(),
             album_color: color::INDIGO,
             album_text_color: (255, 255, 255),
+            album_art: None,
         }
     }
 
@@ -297,6 +302,7 @@ impl State {
                 self.album_loading = true;
                 self.album_color = color::INDIGO;
                 self.album_text_color = (255, 255, 255);
+                self.album_art = None;
                 Task::perform(album::fetch_album(id), |r| match r {
                     Ok(a) => Message::AlbumLoaded(a),
                     Err(e) => Message::AlbumFailed(e),
@@ -334,13 +340,19 @@ impl State {
                 if cover.is_empty() {
                     Task::none()
                 } else {
-                    Task::perform(color::fetch_cover_color(cover), |r| {
-                        let (d, t) = r.unwrap_or((color::INDIGO, (255, 255, 255)));
-                        Message::AlbumColorLoaded(d, t)
+                    Task::perform(color::fetch_cover_art(cover), |r| match r {
+                        Ok(bytes) if !bytes.is_empty() => {
+                            let handle = image::Handle::from_bytes(bytes.clone());
+                            let (d, t) =
+                                color::extract(&bytes).unwrap_or((color::INDIGO, (255, 255, 255)));
+                            Message::ArtReady(Some(handle), d, t)
+                        }
+                        _ => Message::ArtReady(None, color::INDIGO, (255, 255, 255)),
                     })
                 }
             }
-            Message::AlbumColorLoaded(dominant, text) => {
+            Message::ArtReady(handle, dominant, text) => {
+                self.album_art = handle;
                 self.album_color = dominant;
                 self.album_text_color = text;
                 Task::none()
@@ -673,10 +685,17 @@ impl State {
 
         // Art placeholder (left) + header/tracks (right). The art-over-Bus
         // image fetch is a follow-on; a glyph stands in for now.
-        let art = container(text("♪").size(48))
-            .width(Length::Fixed(220.0))
-            .height(Length::Fixed(220.0))
-            .padding(86);
+        let art: Element<'_, Message> = match &self.album_art {
+            Some(handle) => image(handle.clone())
+                .width(Length::Fixed(220.0))
+                .height(Length::Fixed(220.0))
+                .into(),
+            None => container(text("♪").size(48))
+                .width(Length::Fixed(220.0))
+                .height(Length::Fixed(220.0))
+                .padding(86)
+                .into(),
+        };
         // AIR-16 — tint the header band to the cover's dominant colour
         // (Indigo until it resolves) with a WCAG-contrast text colour.
         let (cr, cg, cb) = self.album_color;
