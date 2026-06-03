@@ -38,6 +38,10 @@ mde-bus    = { path = "../mde-bus" }
 # (Symphonia 0.5 ships no opus codec; routed through libopus there).
 symphonia  = { version = "0.5", default-features = false, features = ["flac", "mp3", "vorbis", "aac", "isomp4", "ogg", "pcm", "wav"] }
 cpal       = "0.17"
+# AIR-5.b Opus decode. Symphonia 0.5 ships no Opus codec, but its Ogg
+# demuxer still yields Opus packets; those are decoded through libopus.
+# Links the system libopus (opus-devel 1.6) via pkg-config.
+opus       = "0.3"
 # AIR-6 MPRIS surface. `org.mpris.MediaPlayer2` is an FDO-standard
 # remote-control interface — the allowed D-Bus interop carve-out per
 # EPIC-RETIRE-DBUS (MDE-internal control stays on the Bus; the FDO +

@@ -9,7 +9,9 @@ unreleased; tag versions get a date when they ship.
 - The music daemon now decodes and plays your Airsonic library locally
   through the system audio (PipeWire), with **gapless album playback**:
   queued tracks flow into each other with no silence at the boundaries.
-  FLAC, MP3, Ogg Vorbis, AAC, and WAV are supported.
+  FLAC, MP3, Ogg Vorbis, AAC, WAV, and **Opus** (the last decoded through
+  libopus, since the pure-Rust decoder set ships none, honoring the
+  Ogg-Opus pre-skip) are supported.
 - `mde-musicd play <song-id>…` plays one or more tracks back to back,
   with volume, pause/resume, and a live playhead.
 - Playback is controllable over the mesh Bus — play / pause / resume /

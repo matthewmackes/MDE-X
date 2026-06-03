@@ -7,9 +7,9 @@
 //! playback is **gapless by construction** — the next track's samples
 //! land immediately after the current track's, with no drain in between.
 //!
-//! Opus is decoded through libopus in AIR-5.b — Symphonia 0.5 ships no
-//! Opus codec, so [`SourceCodec::Opus`] is reported as unsupported by
-//! this build rather than mis-probed.
+//! Opus (Ogg-Opus) is decoded through **libopus** (AIR-5.b): Symphonia 0.5
+//! ships no Opus codec, but its Ogg demuxer still maps the stream + yields
+//! Opus audio packets, so [`decode_opus`] feeds those to libopus.
 //!
 //! Per §0.12 the engine is reachable from a runtime entry point
 //! (`mde-musicd play <song-id>…`); per §0.15 the audible-output
@@ -49,9 +49,9 @@ use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{CodecParameters, DecoderOptions, CODEC_TYPE_NULL, CODEC_TYPE_OPUS};
 use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
@@ -80,7 +80,7 @@ pub enum SourceCodec {
     Aac,
     /// PCM WAV (`.wav`).
     Wav,
-    /// Opus — decoded in AIR-5.b via libopus; unsupported by this build.
+    /// Opus (Ogg-Opus) — decoded via libopus (AIR-5.b).
     Opus,
     /// Unknown suffix: probe from the bytes with no extension hint.
     Unknown,
@@ -120,13 +120,6 @@ impl SourceCodec {
             Self::Wav => Some("wav"),
             Self::Opus | Self::Unknown => None,
         }
-    }
-
-    /// Whether this build can decode the codec (everything but Opus,
-    /// which is AIR-5.b).
-    #[must_use]
-    pub fn is_supported(self) -> bool {
-        !matches!(self, Self::Opus)
     }
 }
 
@@ -493,12 +486,6 @@ where
 /// into the shared ring. Returns when the track is exhausted or `stop` is
 /// signalled.
 fn decode_track(url: &str, codec: SourceCodec, shared: &Shared) -> Result<(), String> {
-    if !codec.is_supported() {
-        return Err(format!(
-            "{url}: opus is not supported by this build (Symphonia 0.5 ships no opus decoder; tracked as AIR-5.b)"
-        ));
-    }
-
     let bytes = reqwest::blocking::get(url)
         .and_then(reqwest::blocking::Response::error_for_status)
         .and_then(reqwest::blocking::Response::bytes)
@@ -532,6 +519,16 @@ fn decode_track(url: &str, codec: SourceCodec, shared: &Shared) -> Result<(), St
         .ok_or_else(|| format!("{url}: no decodable audio track"))?;
     let track_id = track.id;
     let codec_params = track.codec_params.clone();
+
+    // Opus has no Symphonia decoder (0.5 ships none), but Symphonia's Ogg
+    // demuxer still maps it — OpusHead/OpusTags are consumed, the params
+    // carry the 48 kHz rate + pre-skip delay + channel layout, and
+    // `next_packet` yields raw Opus audio packets. Decode those with
+    // libopus. Detection keys off the *probed* codec, not the suffix hint:
+    // the play paths hand decode_track `SourceCodec::Unknown`.
+    if codec_params.codec == CODEC_TYPE_OPUS {
+        return decode_opus(format.as_mut(), track_id, &codec_params, shared);
+    }
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&codec_params, &DecoderOptions::default())
@@ -580,6 +577,90 @@ fn decode_track(url: &str, codec: SourceCodec, shared: &Shared) -> Result<(), St
     Ok(())
 }
 
+/// Opus output is always 48 kHz.
+const OPUS_RATE: u32 = 48_000;
+/// Maximum Opus frame size, samples per channel (120 ms @ 48 kHz) — the
+/// decode output buffer must hold at least this much.
+const OPUS_MAX_FRAME: usize = 5_760;
+
+/// Drop the first `to_skip` frames (per channel) of interleaved `samples`,
+/// returning the kept slice + the frames still left to skip. The Ogg-Opus
+/// `OpusHead` pre-skip is discarded this way, carrying any remainder across
+/// the first few packets.
+#[must_use]
+fn drop_pre_skip(samples: &[f32], channels: usize, to_skip: usize) -> (&[f32], usize) {
+    if to_skip == 0 || channels == 0 {
+        return (samples, 0);
+    }
+    let frames = samples.len() / channels;
+    let skip = to_skip.min(frames);
+    (&samples[skip * channels..], to_skip - skip)
+}
+
+/// Decode an Ogg-Opus stream's packets with libopus, resample + channel-map
+/// to the device, and enqueue into the shared ring. Symphonia has already
+/// demuxed the Ogg container (consuming the OpusHead/OpusTags headers);
+/// `params` carries the fixed 48 kHz rate, the channel layout, and the
+/// pre-skip `delay`. Mono + stereo are supported (the libopus simple
+/// decoder's range); a surround stream returns an error rather than
+/// mis-rendering. Mirrors [`decode_track`]'s resample → channel-map → ring
+/// → back-pressure contract.
+fn decode_opus(
+    format: &mut dyn FormatReader,
+    track_id: u32,
+    params: &CodecParameters,
+    shared: &Shared,
+) -> Result<(), String> {
+    let channels = params.channels.map_or(2, |c| c.count()).max(1);
+    let opus_channels = match channels {
+        1 => opus::Channels::Mono,
+        2 => opus::Channels::Stereo,
+        n => {
+            return Err(format!(
+                "opus: {n}-channel (surround) streams are not supported — mono/stereo only"
+            ))
+        }
+    };
+    let mut decoder = opus::Decoder::new(OPUS_RATE, opus_channels)
+        .map_err(|e| format!("opus decoder init: {e}"))?;
+    // Pre-skip: samples per channel (at 48 kHz) to discard from the front.
+    let mut to_skip = params.delay.unwrap_or(0) as usize;
+    let dst_rate = shared.device_rate;
+    let dst_ch = shared.device_channels as usize;
+    let mut pcm = vec![0.0_f32; OPUS_MAX_FRAME * channels];
+
+    loop {
+        if shared.stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let Ok(packet) = format.next_packet() else {
+            break;
+        };
+        if packet.track_id() != track_id {
+            continue;
+        }
+        // A corrupt packet is recoverable — skip it, keep the stream alive.
+        let Ok(frames) = decoder.decode_float(packet.buf(), &mut pcm, false) else {
+            continue;
+        };
+        let (samples, remaining) = drop_pre_skip(&pcm[..frames * channels], channels, to_skip);
+        to_skip = remaining;
+        if samples.is_empty() {
+            continue;
+        }
+        let resampled = resample_linear(samples, channels, OPUS_RATE, dst_rate);
+        let mapped = map_channels(&resampled, channels, dst_ch);
+        while !shared.stop.load(Ordering::Relaxed)
+            && shared.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+                > shared.target_ring
+        {
+            std::thread::sleep(Duration::from_millis(8));
+        }
+        shared.ring.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend(mapped);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -596,14 +677,49 @@ mod tests {
     }
 
     #[test]
-    fn codec_hint_and_support() {
+    fn codec_hint() {
         assert_eq!(SourceCodec::Flac.hint_ext(), Some("flac"));
         assert_eq!(SourceCodec::Vorbis.hint_ext(), Some("ogg"));
         assert_eq!(SourceCodec::Unknown.hint_ext(), None);
+        // Opus rides the Ogg container — probed from bytes, no suffix hint.
         assert_eq!(SourceCodec::Opus.hint_ext(), None);
-        // Opus is the one codec this build can't decode (AIR-5.b).
-        assert!(SourceCodec::Flac.is_supported());
-        assert!(!SourceCodec::Opus.is_supported());
+    }
+
+    #[test]
+    fn opus_round_trip_decodes_an_encoded_frame() {
+        // Prove the libopus binding works end-to-end in this build: encode a
+        // 20 ms stereo frame (960 samples/ch @ 48 kHz) then decode it back —
+        // the same `opus::Decoder::decode_float` path `decode_opus` drives.
+        let mut enc =
+            opus::Encoder::new(OPUS_RATE, opus::Channels::Stereo, opus::Application::Audio)
+                .expect("opus encoder");
+        let frame = 960; // 20 ms @ 48 kHz
+        let input = vec![0.0_f32; frame * 2];
+        let mut packet = vec![0u8; 4000];
+        let n = enc.encode_float(&input, &mut packet).expect("opus encode");
+        packet.truncate(n);
+
+        let mut dec = opus::Decoder::new(OPUS_RATE, opus::Channels::Stereo).expect("opus decoder");
+        let mut out = vec![0.0_f32; OPUS_MAX_FRAME * 2];
+        let frames = dec.decode_float(&packet, &mut out, false).expect("opus decode");
+        assert_eq!(frames, frame, "decoded frame count matches the encoded frame");
+    }
+
+    #[test]
+    fn pre_skip_drops_leading_frames() {
+        // 4 stereo frames; skip 2 → keep the last 2 (4 samples), 0 remaining.
+        let s = [0., 1., 2., 3., 4., 5., 6., 7.];
+        let (kept, rem) = drop_pre_skip(&s, 2, 2);
+        assert_eq!(kept, &[4., 5., 6., 7.]);
+        assert_eq!(rem, 0);
+        // Skip more than present → keep nothing, carry the remainder onward.
+        let (kept, rem) = drop_pre_skip(&s, 2, 6);
+        assert!(kept.is_empty());
+        assert_eq!(rem, 2);
+        // No skip → passthrough.
+        let (kept, rem) = drop_pre_skip(&s, 2, 0);
+        assert_eq!(kept.len(), 8);
+        assert_eq!(rem, 0);
     }
 
     #[test]
