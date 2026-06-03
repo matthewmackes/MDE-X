@@ -49,6 +49,9 @@ opus       = "0.3"
 # media keys (sway → playerctl → MPRIS), and the lock-screen now-playing
 # widget read. Same zbus 5 + tokio build as the rest of the workspace.
 zbus       = { version = "5", default-features = false, features = ["tokio"] }
+# AIR-16 — the get-cover-art Bus verb base64-encodes the fetched image
+# bytes into its JSON reply (the GUI decodes + runs dominant-colour).
+base64     = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

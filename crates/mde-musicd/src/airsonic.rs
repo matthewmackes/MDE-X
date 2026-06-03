@@ -350,6 +350,29 @@ impl Client {
             .await?;
         Ok(parse_album_list2(&inner))
     }
+
+    /// Fetch raw cover-art bytes for a `coverArt` id (`getCoverArt` returns
+    /// the image binary, not a JSON envelope). Powers the AIR-16
+    /// dominant-colour pass.
+    ///
+    /// # Errors
+    /// Transport / HTTP-status failures.
+    pub async fn get_cover_art_bytes(&self, cover_id: &str) -> Result<Vec<u8>, AirsonicError> {
+        let url = self.cover_art_url(cover_id);
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| AirsonicError::Http(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(AirsonicError::Http(format!("HTTP {}", resp.status())));
+        }
+        resp.bytes()
+            .await
+            .map(|b| b.to_vec())
+            .map_err(|e| AirsonicError::Http(e.to_string()))
+    }
 }
 
 // ───────────────────────── pure parse helpers ─────────────────────────

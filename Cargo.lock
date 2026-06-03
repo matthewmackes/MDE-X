@@ -4927,7 +4927,9 @@ dependencies = [
 name = "mde-music"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "iced 0.13.1",
+ "image",
  "mde-bus",
  "mde-musicd",
  "serde_json",
@@ -4938,6 +4940,7 @@ dependencies = [
 name = "mde-musicd"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "clap",
  "cpal",
  "md5",

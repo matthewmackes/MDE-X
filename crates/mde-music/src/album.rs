@@ -29,6 +29,8 @@ pub struct AlbumView {
     pub name: String,
     pub artist: String,
     pub year: Option<u32>,
+    /// The `coverArt` id (AIR-16 dominant-colour fetch); empty when absent.
+    pub cover_art: String,
     pub tracks: Vec<Track>,
 }
 
@@ -59,6 +61,11 @@ pub fn parse_album(reply_json: &str) -> Option<AlbumView> {
     let id = album.get("id").and_then(Value::as_str)?.to_string();
     let name = album.get("name").and_then(Value::as_str).unwrap_or(&id).to_string();
     let artist = album.get("artist").and_then(Value::as_str).unwrap_or("").to_string();
+    let cover_art = album
+        .get("coverArt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let year = album
         .get("year")
         .and_then(Value::as_u64)
@@ -86,7 +93,7 @@ pub fn parse_album(reply_json: &str) -> Option<AlbumView> {
                 .collect()
         })
         .unwrap_or_default();
-    Some(AlbumView { id, name, artist, year, tracks })
+    Some(AlbumView { id, name, artist, year, cover_art, tracks })
 }
 
 /// Format seconds as `M:SS` for the duration column.

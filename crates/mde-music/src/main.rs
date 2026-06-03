@@ -14,6 +14,7 @@ use iced::{Element, Length, Size, Subscription, Task};
 use mde_music::hub::HubCard;
 use mde_music::library::{self, LibraryItem};
 use mde_music::album::{self, AlbumView};
+use mde_music::color;
 use mde_music::nav::{NavState, Route};
 use mde_music::nowplaying::{self, NowState};
 use mde_music::search::{self, SearchResults};
@@ -69,6 +70,10 @@ struct State {
     now_state: NowState,
     now_title: String,
     now_artist: String,
+    /// AIR-16 — the open album's dominant cover colour + contrast text
+    /// (Indigo until the cover art resolves).
+    album_color: (u8, u8, u8),
+    album_text_color: (u8, u8, u8),
 }
 
 #[derive(Debug, Clone)]
@@ -114,6 +119,8 @@ enum Message {
     PlayTrackNext(String),
     AddTrackToQueue(String),
     AlbumActionDone(Result<(), String>),
+    /// AIR-16 — the album cover's dominant + contrast colours resolved.
+    AlbumColorLoaded((u8, u8, u8), (u8, u8, u8)),
     /// AIR-15 — now-playing footer: poll the live snapshot + transport.
     PollState,
     StateLoaded(NowState),
@@ -149,6 +156,8 @@ impl State {
             now_state: NowState::default(),
             now_title: String::new(),
             now_artist: String::new(),
+            album_color: color::INDIGO,
+            album_text_color: (255, 255, 255),
         }
     }
 
@@ -286,6 +295,8 @@ impl State {
                 self.album = None;
                 self.album_error = None;
                 self.album_loading = true;
+                self.album_color = color::INDIGO;
+                self.album_text_color = (255, 255, 255);
                 Task::perform(album::fetch_album(id), |r| match r {
                     Ok(a) => Message::AlbumLoaded(a),
                     Err(e) => Message::AlbumFailed(e),
@@ -317,8 +328,21 @@ impl State {
                 Task::none()
             }
             Message::AlbumLoaded(a) => {
+                let cover = a.cover_art.clone();
                 self.album = Some(a);
                 self.album_loading = false;
+                if cover.is_empty() {
+                    Task::none()
+                } else {
+                    Task::perform(color::fetch_cover_color(cover), |r| {
+                        let (d, t) = r.unwrap_or((color::INDIGO, (255, 255, 255)));
+                        Message::AlbumColorLoaded(d, t)
+                    })
+                }
+            }
+            Message::AlbumColorLoaded(dominant, text) => {
+                self.album_color = dominant;
+                self.album_text_color = text;
                 Task::none()
             }
             Message::AlbumFailed(e) => {
@@ -653,9 +677,25 @@ impl State {
             .width(Length::Fixed(220.0))
             .height(Length::Fixed(220.0))
             .padding(86);
-        let content = column![header, Space::with_height(Length::Fixed(16.0)), scrollable(list)]
-            .spacing(8)
-            .width(Length::Fill);
+        // AIR-16 — tint the header band to the cover's dominant colour
+        // (Indigo until it resolves) with a WCAG-contrast text colour.
+        let (cr, cg, cb) = self.album_color;
+        let (tr, tg, tb) = self.album_text_color;
+        let header_band = container(header)
+            .padding(16)
+            .width(Length::Fill)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(iced::Color::from_rgb8(cr, cg, cb).into()),
+                text_color: Some(iced::Color::from_rgb8(tr, tg, tb)),
+                ..Default::default()
+            });
+        let content = column![
+            header_band,
+            Space::with_height(Length::Fixed(16.0)),
+            scrollable(list)
+        ]
+        .spacing(8)
+        .width(Length::Fill);
         row![art, content].spacing(20).into()
     }
 
