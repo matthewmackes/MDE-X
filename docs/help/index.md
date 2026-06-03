@@ -45,6 +45,7 @@ MDE ships a complete peer-to-peer mesh built on five layers:
 
 - **[Getting Started](getting-started.md)** — first-run wizard walkthrough
 - **[Presets](presets.md)** — the 4+1 shipped presets explained
+- **[Music](music.md)** — the native Airsonic / Subsonic player (mde-music)
 - **[CLI Reference](cli-reference.md)** — every `mde` subcommand
 - **[Keyboard shortcuts](keybindings.md)**
 - **[Wayland support](wayland.md)** — what works on Wayland today (and
