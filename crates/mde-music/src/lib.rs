@@ -9,4 +9,5 @@ pub mod album;
 pub mod hub;
 pub mod library;
 pub mod nav;
+pub mod nowplaying;
 pub mod search;

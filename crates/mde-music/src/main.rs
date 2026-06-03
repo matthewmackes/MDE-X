@@ -15,6 +15,7 @@ use mde_music::hub::HubCard;
 use mde_music::library::{self, LibraryItem};
 use mde_music::album::{self, AlbumView};
 use mde_music::nav::{NavState, Route};
+use mde_music::nowplaying::{self, NowState};
 use mde_music::search::{self, SearchResults};
 use mde_musicd::creds::{self, Creds};
 
@@ -64,6 +65,10 @@ struct State {
     album: Option<AlbumView>,
     album_loading: bool,
     album_error: Option<String>,
+    /// AIR-15 — the now-playing footer's live snapshot + resolved title.
+    now_state: NowState,
+    now_title: String,
+    now_artist: String,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +114,14 @@ enum Message {
     PlayTrackNext(String),
     AddTrackToQueue(String),
     AlbumActionDone(Result<(), String>),
+    /// AIR-15 — now-playing footer: poll the live snapshot + transport.
+    PollState,
+    StateLoaded(NowState),
+    SongResolved(String, String, String),
+    PlayPause,
+    SkipNext,
+    SkipPrev,
+    TransportDone(Result<(), String>),
 }
 
 impl State {
@@ -133,6 +146,9 @@ impl State {
             album: None,
             album_loading: false,
             album_error: None,
+            now_state: NowState::default(),
+            now_title: String::new(),
+            now_artist: String::new(),
         }
     }
 
@@ -340,6 +356,41 @@ impl State {
                 }
                 Task::none()
             }
+            Message::PollState => Task::perform(nowplaying::fetch_state(), |r| {
+                Message::StateLoaded(r.unwrap_or_default())
+            }),
+            Message::StateLoaded(s) => {
+                let changed = s.song_id != self.now_state.song_id;
+                self.now_state = s;
+                if changed {
+                    self.now_title.clear();
+                    self.now_artist.clear();
+                    let id = self.now_state.song_id.clone();
+                    if !id.is_empty() {
+                        return Task::perform(nowplaying::resolve_song(id.clone()), move |r| {
+                            let (t, a) = r.unwrap_or_else(|_| (id.clone(), String::new()));
+                            Message::SongResolved(id.clone(), t, a)
+                        });
+                    }
+                }
+                Task::none()
+            }
+            Message::SongResolved(id, title, artist) => {
+                if id == self.now_state.song_id {
+                    self.now_title = title;
+                    self.now_artist = artist;
+                }
+                Task::none()
+            }
+            Message::PlayPause => Task::perform(
+                nowplaying::play_pause(self.now_state.playing),
+                Message::TransportDone,
+            ),
+            Message::SkipNext => Task::perform(nowplaying::skip_next(), Message::TransportDone),
+            Message::SkipPrev => Task::perform(nowplaying::skip_prev(), Message::TransportDone),
+            Message::TransportDone(_) => Task::perform(nowplaying::fetch_state(), |r| {
+                Message::StateLoaded(r.unwrap_or_default())
+            }),
         }
     }
 
@@ -354,7 +405,7 @@ impl State {
 
     /// Keyboard shortcuts: Cmd/Ctrl-F focuses search, Esc dismisses it.
     fn subscription(&self) -> Subscription<Message> {
-        iced::keyboard::on_key_press(|key, modifiers| {
+        let keys = iced::keyboard::on_key_press(|key, modifiers| {
             use iced::keyboard::key::Named;
             use iced::keyboard::Key;
             match key {
@@ -364,7 +415,17 @@ impl State {
                 Key::Named(Named::Escape) => Some(Message::DismissSearch),
                 _ => None,
             }
-        })
+        });
+        // Poll the now-playing snapshot once the library is shown (there's
+        // no daemon to ask on the first-run connect form).
+        if self.form.is_some() {
+            keys
+        } else {
+            Subscription::batch([
+                keys,
+                iced::time::every(nowplaying::POLL).map(|_| Message::PollState),
+            ])
+        }
     }
 
     fn view(&self) -> Element<'_, Message> {
@@ -478,20 +539,20 @@ impl State {
         ]
         .spacing(12);
 
-        let page = container(
-            column![
-                header,
-                Space::with_height(Length::Fixed(12.0)),
-                crumbs,
-                Space::with_height(Length::Fixed(16.0)),
-                body,
-            ]
-            .padding(20)
-            .width(Length::Fill)
-            .height(Length::Fill),
-        )
+        let mut page_col = column![
+            header,
+            Space::with_height(Length::Fixed(12.0)),
+            crumbs,
+            Space::with_height(Length::Fixed(16.0)),
+            body,
+        ]
+        .padding(20)
         .width(Length::Fill)
         .height(Length::Fill);
+        if let Some(footer) = self.now_playing_footer() {
+            page_col = page_col.push(footer);
+        }
+        let page = container(page_col).width(Length::Fill).height(Length::Fill);
 
         // AIR-14 — overlay the results sheet while a search is active.
         if self.search_open {
@@ -596,6 +657,46 @@ impl State {
             .spacing(8)
             .width(Length::Fill);
         row![art, content].spacing(20).into()
+    }
+
+    /// AIR-15 — the always-visible now-playing + transport footer (shown
+    /// once a track is loaded). The maxi-player's Queue / Lyrics / Peers
+    /// tabs + scrub + volume slider are follow-ons; this is the in-app
+    /// transport core (the first play/pause/skip after playback starts).
+    fn now_playing_footer(&self) -> Option<Element<'_, Message>> {
+        if !self.now_state.has_track() {
+            return None;
+        }
+        let title = if self.now_title.is_empty() {
+            self.now_state.song_id.clone()
+        } else {
+            self.now_title.clone()
+        };
+        let label = if self.now_artist.is_empty() {
+            title
+        } else {
+            format!("{title} — {}", self.now_artist)
+        };
+        let play_pause = if self.now_state.playing { "Pause" } else { "Play" };
+        let status = if self.now_state.playing {
+            "Playing"
+        } else if self.now_state.active {
+            "Paused"
+        } else {
+            "Stopped"
+        };
+        Some(
+            row![
+                text(label).size(13).width(Length::Fill),
+                button(text("Prev").size(12)).on_press(Message::SkipPrev),
+                button(text(play_pause).size(12)).on_press(Message::PlayPause),
+                button(text("Next").size(12)).on_press(Message::SkipNext),
+                text(status).size(12),
+            ]
+            .spacing(10)
+            .padding(10)
+            .into(),
+        )
     }
 }
 

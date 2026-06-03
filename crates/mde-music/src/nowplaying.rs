@@ -1,0 +1,180 @@
+//! AIR-15 core (v6.1) — now-playing state + transport, over the Bus.
+//!
+//! The now-playing footer polls `action/music/get-state` for the live
+//! transport snapshot and resolves the current `song_id` to a title via
+//! `action/music/get-song`. Transport buttons drive `action/music/{pause,
+//! resume}` + the queue `{next,prev}` (each followed by `play` to skip
+//! during playback). Per the Q96 Bus-canonical lock the GUI never calls
+//! Airsonic directly. [`parse_state`] / [`parse_song_meta`] are pure +
+//! unit-tested; the Bus round-trips reuse [`crate::album`]'s helpers.
+//!
+//! The maxi-player's Queue / Lyrics / Peers tabs + the scrub bar + volume
+//! slider are AIR-15 follow-ons; this is the transport core (the app's
+//! first in-app play/pause/skip after playback starts).
+
+use serde_json::Value;
+
+use crate::album::{req, with_bus};
+
+/// Poll cadence for the live now-playing snapshot.
+pub const POLL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The live transport snapshot from `get-state`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NowState {
+    pub playing: bool,
+    pub active: bool,
+    pub song_id: String,
+    pub position_ms: u64,
+}
+
+impl NowState {
+    /// Whether anything is loaded (a footer is worth showing).
+    #[must_use]
+    pub fn has_track(&self) -> bool {
+        !self.song_id.is_empty()
+    }
+}
+
+/// Parse the `get-state` reply (`{ok, playing, active, position_ms,
+/// song_id}` — a transport verb, so flat, not `{result}`-wrapped). The
+/// idle default on `ok:false` / malformed.
+#[must_use]
+pub fn parse_state(reply_json: &str) -> NowState {
+    let Ok(v) = serde_json::from_str::<Value>(reply_json) else {
+        return NowState::default();
+    };
+    if v.get("ok").and_then(Value::as_bool) != Some(true) {
+        return NowState::default();
+    }
+    NowState {
+        playing: v.get("playing").and_then(Value::as_bool).unwrap_or(false),
+        active: v.get("active").and_then(Value::as_bool).unwrap_or(false),
+        song_id: v
+            .get("song_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        position_ms: v.get("position_ms").and_then(Value::as_u64).unwrap_or(0),
+    }
+}
+
+/// Parse a `get-song` reply (`{ok, result:{song:{...}}}` — a browse verb,
+/// so `{result}`-wrapped) into `(title, artist)`. `None` on failure.
+#[must_use]
+pub fn parse_song_meta(reply_json: &str) -> Option<(String, String)> {
+    let v: Value = serde_json::from_str(reply_json).ok()?;
+    if v.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let song = v.get("result")?.get("song")?;
+    let title = song.get("title").and_then(Value::as_str)?.to_string();
+    let artist = song
+        .get("artist")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    Some((title, artist))
+}
+
+// ───────────────────────── Bus actions ─────────────────────────
+
+/// Fetch the live transport snapshot.
+///
+/// # Errors
+/// Bus-store / request / timeout failures (daemon not running).
+pub async fn fetch_state() -> Result<NowState, String> {
+    with_bus(|p, rt| Ok(parse_state(&req(p, rt, "action/music/get-state", None)?))).await
+}
+
+/// Resolve a song id to `(title, artist)` via `get-song`, falling back to
+/// the id as the title when the lookup fails (so the footer never blanks).
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn resolve_song(id: String) -> Result<(String, String), String> {
+    with_bus(move |p, rt| {
+        let reply = req(p, rt, "action/music/get-song", Some(&id))?;
+        Ok(parse_song_meta(&reply).unwrap_or((id.clone(), String::new())))
+    })
+    .await
+}
+
+/// Toggle play/pause based on the current state (`pause` when playing,
+/// `resume` otherwise).
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn play_pause(currently_playing: bool) -> Result<(), String> {
+    let verb = if currently_playing {
+        "action/music/pause"
+    } else {
+        "action/music/resume"
+    };
+    with_bus(move |p, rt| {
+        req(p, rt, verb, None)?;
+        Ok(())
+    })
+    .await
+}
+
+/// Skip to the next queued track + (re)play it.
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn skip_next() -> Result<(), String> {
+    with_bus(|p, rt| {
+        req(p, rt, "action/music/next", None)?;
+        req(p, rt, "action/music/play", None)?;
+        Ok(())
+    })
+    .await
+}
+
+/// Skip to the previous queued track + (re)play it.
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn skip_prev() -> Result<(), String> {
+    with_bus(|p, rt| {
+        req(p, rt, "action/music/prev", None)?;
+        req(p, rt, "action/music/play", None)?;
+        Ok(())
+    })
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_state_reads_transport_snapshot() {
+        let r = parse_state(
+            r#"{"ok":true,"playing":true,"active":true,"position_ms":42000,"song_id":"s7"}"#,
+        );
+        assert!(r.playing);
+        assert!(r.active);
+        assert_eq!(r.song_id, "s7");
+        assert_eq!(r.position_ms, 42_000);
+        assert!(r.has_track());
+        // ok:false / malformed → idle default.
+        assert_eq!(parse_state(r#"{"ok":false}"#), NowState::default());
+        assert_eq!(parse_state("not json"), NowState::default());
+        assert!(!NowState::default().has_track());
+    }
+
+    #[test]
+    fn parse_song_meta_reads_title_artist() {
+        let r = parse_song_meta(
+            r#"{"ok":true,"result":{"song":{"id":"s7","title":"So What","artist":"Miles Davis"}}}"#,
+        );
+        assert_eq!(r, Some(("So What".to_string(), "Miles Davis".to_string())));
+        // A missing artist → empty string, not failure.
+        let r2 = parse_song_meta(r#"{"ok":true,"result":{"song":{"id":"x","title":"T"}}}"#);
+        assert_eq!(r2, Some(("T".to_string(), String::new())));
+        // Failures → None.
+        assert_eq!(parse_song_meta(r#"{"ok":false}"#), None);
+        assert_eq!(parse_song_meta("nope"), None);
+    }
+}

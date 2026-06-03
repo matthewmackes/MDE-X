@@ -119,7 +119,7 @@ pub fn shuffle_ids(mut ids: Vec<String>) -> Vec<String> {
 /// Run `f` against a freshly-opened Bus store on a blocking thread (the
 /// rusqlite `Persist` isn't `Send`, so it can't cross Iced's executor); a
 /// local current-thread runtime drives the async requests inside.
-async fn with_bus<F, T>(f: F) -> Result<T, String>
+pub(crate) async fn with_bus<F, T>(f: F) -> Result<T, String>
 where
     F: FnOnce(&mde_bus::persist::Persist, &tokio::runtime::Runtime) -> Result<T, String>
         + Send
@@ -142,7 +142,7 @@ where
 }
 
 /// One `action/music/<topic>` request, returning the reply body.
-fn req(
+pub(crate) fn req(
     persist: &mde_bus::persist::Persist,
     rt: &tokio::runtime::Runtime,
     topic: &str,

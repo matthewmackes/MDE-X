@@ -38,6 +38,9 @@ unreleased; tag versions get a date when they ship.
   queue, and play-next or queue any individual track.
 - **Browse by genre:** the Genres tile lists your library's genres; open
   one to see its albums, then open an album to play it.
+- **Now-playing controls:** a footer shows the current track with Prev /
+  Play-Pause / Next, updating live — the first in-app transport once
+  playback is going (it also reflects media-key / mesh changes).
 
 **KVM + Podman mesh-native compute — `mde-virtual` app (2026-05-31)**
 - A new **Virtual** app manages the KVM virtual machines and Podman
