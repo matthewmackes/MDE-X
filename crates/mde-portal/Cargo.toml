@@ -27,7 +27,7 @@ path = "src/mde_open_main.rs"
 [dependencies]
 # v6.0 Portal-1 — same Iced + layer-shell pair as mde-panel + mde-popover.
 # `svg` for Carbon icon rendering; `image` for app thumbnails (Portal-7 Aero-peek).
-iced            = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "svg", "image", "tokio", "advanced", "wayland"] }
+iced            = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "svg", "image", "tokio", "advanced", "canvas", "wayland"] }
 iced_layershell = "0.18"
 
 # v6.0 Portal-1 — swayipc-async for sway IPC: workspace tree (Portal-5),

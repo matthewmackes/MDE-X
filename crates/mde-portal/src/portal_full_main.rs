@@ -16,8 +16,9 @@
 
 use anyhow::Context as _;
 use async_stream::stream;
+use iced::widget::canvas::{self, Canvas, Frame, Path, Stroke, Text};
 use iced::widget::{column, container, row, scrollable, text, Space};
-use iced::{Color, Element, Length, Subscription, Task, Theme};
+use iced::{Color, Element, Length, Point, Rectangle, Renderer, Subscription, Task, Theme};
 use std::sync::OnceLock;
 use tokio::sync::broadcast;
 
@@ -1939,42 +1940,130 @@ fn parse_nodes(raw: &str) -> Vec<PeerNode> {
 /// §3.5 sidebar peer-cards). The globe / wireframe canvas render on top of
 /// this foundation in MESH-G / MESH-W.
 fn build_network_layer(state: &PortalFull) -> Element<'_, Message> {
-    let mut col = column![].spacing(8);
     if let Some(err) = &state.network_peers_error {
-        col = col.push(text(format!("Peer roster unavailable — {err}")).size(14.0).color(FG));
-    } else if state.network_peers.is_empty() {
-        col = col.push(text("No mesh peers enrolled yet.").size(14.0).color(FG));
-    } else {
-        let n = state.network_peers.len();
-        col = col.push(
-            text(format!("{n} mesh peer{}", if n == 1 { "" } else { "s" }))
-                .size(13.0)
-                .color(FG),
-        );
-        for peer in &state.network_peers {
-            let line = row![
-                text("●").size(15.0).color(peer.status.color()),
-                text(peer.name.clone()).size(15.0).color(FG),
-                Space::new().width(Length::Fill),
-                text(peer.region.clone()).size(12.0).color(FG),
-                text(peer.role.clone()).size(12.0).color(FG),
-                text(peer.status.label()).size(11.0).color(peer.status.color()),
-            ]
-            .spacing(12)
-            .align_y(iced::Alignment::Center);
-            col = col.push(
-                container(line)
-                    .padding(10)
-                    .width(Length::Fill)
-                    .style(|_t: &Theme| container::Style {
-                        background: Some(iced::Background::Color(SURFACE_RAISED)),
-                        border: iced::Border { radius: 8.0.into(), ..Default::default() },
-                        ..Default::default()
-                    }),
-            );
-        }
+        return container(text(format!("Peer roster unavailable — {err}")).size(14.0).color(FG))
+            .padding(16)
+            .into();
     }
-    scrollable(col).into()
+    if state.network_peers.is_empty() {
+        return container(text("No mesh peers enrolled yet.").size(14.0).color(FG))
+            .padding(16)
+            .into();
+    }
+    // MESH-W-1 — the mesh graph canvas is the main view; the peer card-list
+    // is the side panel (v6.0-mde-portal §3.5: full-screen mesh-view +
+    // side-panel peer-cards list).
+    let graph = Canvas::new(MeshViewProgram { peers: state.network_peers.clone() })
+        .width(Length::Fill)
+        .height(Length::Fill);
+    let n = state.network_peers.len();
+    let mut list = column![text(format!("{n} mesh peer{}", if n == 1 { "" } else { "s" }))
+        .size(13.0)
+        .color(FG)]
+    .spacing(8);
+    for peer in &state.network_peers {
+        let line = row![
+            text("●").size(15.0).color(peer.status.color()),
+            text(peer.name.clone()).size(15.0).color(FG),
+            Space::new().width(Length::Fill),
+            text(peer.role.clone()).size(12.0).color(FG),
+            text(peer.status.label()).size(11.0).color(peer.status.color()),
+        ]
+        .spacing(10)
+        .align_y(iced::Alignment::Center);
+        list = list.push(
+            container(line)
+                .padding(10)
+                .width(Length::Fill)
+                .style(|_t: &Theme| container::Style {
+                    background: Some(iced::Background::Color(SURFACE_RAISED)),
+                    border: iced::Border { radius: 8.0.into(), ..Default::default() },
+                    ..Default::default()
+                }),
+        );
+    }
+    row![
+        container(graph)
+            .width(Length::FillPortion(3))
+            .height(Length::Fill),
+        container(scrollable(list))
+            .width(Length::FillPortion(2))
+            .height(Length::Fill),
+    ]
+    .spacing(16)
+    .into()
+}
+
+/// MESH-W-1 — the Network-layer mesh graph: the local node at center with
+/// each mesh peer arrayed in a ring, an edge to center, a status-coloured
+/// dot, and a name label. Simple radial layout (a true force-directed
+/// solver is a MESH-W-1 refinement); edge bandwidth/protocol encoding is
+/// MESH-W-2, eBPF flow MESH-W-4, the globe MESH-G.
+struct MeshViewProgram {
+    peers: Vec<PeerNode>,
+}
+
+impl<M> canvas::Program<M> for MeshViewProgram {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: iced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let size = bounds.size();
+        let center = Point::new(size.width / 2.0, size.height / 2.0);
+
+        // Center = the local node (accent-filled circle).
+        frame.fill(&Path::circle(center, 22.0), ACCENT_INDIGO);
+        frame.fill_text(Text {
+            content: "self".to_string(),
+            position: center,
+            color: FG,
+            size: 12.0.into(),
+            font: iced::Font::DEFAULT,
+            align_x: iced::alignment::Horizontal::Center.into(),
+            align_y: iced::alignment::Vertical::Center,
+            ..Text::default()
+        });
+
+        if self.peers.is_empty() {
+            return vec![frame.into_geometry()];
+        }
+
+        let ring = (size.width.min(size.height) * 0.36).max(120.0);
+        let n = self.peers.len() as f32;
+        let edge_color = Color { r: 0.30, g: 0.30, b: 0.34, a: 1.0 };
+        for (i, peer) in self.peers.iter().enumerate() {
+            let angle =
+                (i as f32 / n) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+            let pos = Point::new(center.x + angle.cos() * ring, center.y + angle.sin() * ring);
+            frame.stroke(
+                &Path::line(center, pos),
+                Stroke {
+                    style: canvas::Style::Solid(edge_color),
+                    width: 1.5,
+                    ..Stroke::default()
+                },
+            );
+            frame.fill(&Path::circle(pos, 10.0), peer.status.color());
+            frame.fill_text(Text {
+                content: peer.name.clone(),
+                position: Point::new(pos.x, pos.y + 20.0),
+                color: FG,
+                size: 12.0.into(),
+                font: iced::Font::DEFAULT,
+                align_x: iced::alignment::Horizontal::Center.into(),
+                align_y: iced::alignment::Vertical::Center,
+                ..Text::default()
+            });
+        }
+        vec![frame.into_geometry()]
+    }
 }
 
 fn build_control_placeholder(_state: &PortalFull) -> Element<'_, Message> {
