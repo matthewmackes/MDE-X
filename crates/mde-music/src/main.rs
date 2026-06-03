@@ -99,6 +99,16 @@ struct State {
     queue_current: usize,
     /// Resolved queue song-id -> title (fan-out via get-song).
     queue_titles: std::collections::HashMap<String, String>,
+    /// AIR-15.b.4 — maxi tab + the current track's lyrics lines.
+    maxi_tab: MaxiTab,
+    maxi_lyrics: Vec<String>,
+}
+
+/// AIR-15.b.4 — which maxi-player tab is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MaxiTab {
+    Queue,
+    Lyrics,
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +129,10 @@ enum Message {
     ArtLoaded(String, Option<image::Handle>),
     /// AIR-15.b — toggle the maxi-player full-window surface.
     ToggleMaxi,
+    /// AIR-15.b.4 — switch the maxi Queue/Lyrics tab.
+    MaxiTabSelected(MaxiTab),
+    /// AIR-15.b.4 — the current track's lyrics loaded.
+    LyricsLoaded(Vec<String>),
     /// AIR-15.b — the play queue snapshot loaded (song-ids, current index).
     QueueLoaded(Vec<String>, usize),
     /// AIR-15.b — a queue song-id resolved to a title.
@@ -221,6 +235,8 @@ impl State {
             queue_songs: Vec::new(),
             queue_current: 0,
             queue_titles: std::collections::HashMap::new(),
+            maxi_tab: MaxiTab::Queue,
+            maxi_lyrics: Vec::new(),
         }
     }
 
@@ -308,6 +324,24 @@ impl State {
             }
             Message::QueueTitle(id, title) => {
                 self.queue_titles.insert(id, title);
+                Task::none()
+            }
+            Message::MaxiTabSelected(t) => {
+                self.maxi_tab = t;
+                if t == MaxiTab::Lyrics
+                    && self.maxi_lyrics.is_empty()
+                    && !self.now_state.song_id.is_empty()
+                {
+                    Task::perform(
+                        nowplaying::fetch_lyrics(self.now_state.song_id.clone()),
+                        |r| Message::LyricsLoaded(r.unwrap_or_default()),
+                    )
+                } else {
+                    Task::none()
+                }
+            }
+            Message::LyricsLoaded(lines) => {
+                self.maxi_lyrics = lines;
                 Task::none()
             }
             Message::Ascend(index) => {
@@ -557,6 +591,7 @@ impl State {
                     self.now_title.clear();
                     self.now_artist.clear();
                     self.now_art = None;
+                    self.maxi_lyrics.clear();
                     let id = self.now_state.song_id.clone();
                     if !id.is_empty() {
                         let resolve = {
@@ -1084,12 +1119,36 @@ impl State {
             queue = queue.push(text(format!("{marker}{label}")).size(13));
         }
 
-        let page =
-            column![header, Space::with_height(Length::Fixed(16.0)), scrollable(queue)]
-                .spacing(8)
-                .padding(24)
-                .width(Length::Fill)
-                .height(Length::Fill);
+        let lyrics: Element<'_, Message> = if self.maxi_lyrics.is_empty() {
+            text("No lyrics for this track")
+                .size(13)
+                .color(iced::Color { r: 1.0, g: 1.0, b: 1.0, a: 0.6 })
+                .into()
+        } else {
+            let mut col = column![].spacing(2);
+            for line in &self.maxi_lyrics {
+                col = col.push(text(line.clone()).size(13));
+            }
+            col.into()
+        };
+        let tab = |label: &'static str, t: MaxiTab| {
+            let color = if self.maxi_tab == t {
+                iced::Color { r: 0.36, g: 0.42, b: 0.96, a: 1.0 }
+            } else {
+                iced::Color { r: 1.0, g: 1.0, b: 1.0, a: 0.6 }
+            };
+            button(text(label).size(13).color(color)).on_press(Message::MaxiTabSelected(t))
+        };
+        let tab_bar = row![tab("Queue", MaxiTab::Queue), tab("Lyrics", MaxiTab::Lyrics)].spacing(8);
+        let body: Element<'_, Message> = match self.maxi_tab {
+            MaxiTab::Queue => scrollable(queue).into(),
+            MaxiTab::Lyrics => scrollable(lyrics).into(),
+        };
+        let page = column![header, tab_bar, body]
+            .spacing(8)
+            .padding(24)
+            .width(Length::Fill)
+            .height(Length::Fill);
         container(page).width(Length::Fill).height(Length::Fill).into()
     }
 }

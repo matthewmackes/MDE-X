@@ -39,7 +39,7 @@ pub const ACTION_VERBS: [&str; 6] =
 
 /// The library-browse verbs served on `action/music/<verb>`
 /// (asynchronous — each proxies an Airsonic REST call).
-pub const BROWSE_VERBS: [&str; 13] = [
+pub const BROWSE_VERBS: [&str; 14] = [
     "list-albums",
     "list-artists",
     "search",
@@ -53,6 +53,7 @@ pub const BROWSE_VERBS: [&str; 13] = [
     "list-recents",
     "list-playlists",
     "get-playlist",
+    "get-lyrics",
 ];
 
 /// The transport verbs served on `action/music/<verb>` (AIR-2.d — drive
@@ -247,6 +248,14 @@ fn dispatch_browse(verb: &str, body: &str, client: &Client, rt: &tokio::runtime:
                     .get_playlist(&id)
                     .await
                     .map(|s| json!({ "songs": s }))
+                    .map_err(|e| e.to_string())
+            }
+            "get-lyrics" => {
+                let id = song_id_from(body).unwrap_or_default();
+                client
+                    .get_lyrics_by_song_id(&id)
+                    .await
+                    .map(|lines| json!({ "lyrics": lines }))
                     .map_err(|e| e.to_string())
             }
             other => Err(format!("unknown browse verb: {other}")),

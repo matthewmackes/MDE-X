@@ -439,6 +439,17 @@ impl Client {
         let inner = self.get("getPlaylist", &[("id", id)]).await?;
         Ok(parse_playlist_entries(&inner))
     }
+
+    /// `getLyricsBySongId` (OpenSubsonic) — lyrics for a song, flattened to
+    /// plain lines. Empty when the server has none or lacks the extension
+    /// (the GUI shows a fallback). AIR-4.b endpoint, lands with AIR-15.b.4.
+    ///
+    /// # Errors
+    /// Transport / API / parse failures.
+    pub async fn get_lyrics_by_song_id(&self, id: &str) -> Result<Vec<String>, AirsonicError> {
+        let inner = self.get("getLyricsBySongId", &[("id", id)]).await?;
+        Ok(parse_lyrics(&inner))
+    }
 }
 
 // ───────────────────────── pure parse helpers ─────────────────────────
@@ -543,6 +554,34 @@ pub fn parse_playlist_entries(inner: &Value) -> Vec<Song> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Parse a `getLyricsBySongId` reply into plain lines: the OpenSubsonic
+/// `lyricsList.structuredLyrics[].line[].value` shape, falling back to the
+/// classic `lyrics.value` (newline-split). Empty when neither is present.
+#[must_use]
+pub fn parse_lyrics(inner: &Value) -> Vec<String> {
+    if let Some(structured) = inner
+        .get("lyricsList")
+        .and_then(|l| l.get("structuredLyrics"))
+        .and_then(Value::as_array)
+    {
+        for entry in structured {
+            if let Some(lines) = entry.get("line").and_then(Value::as_array) {
+                let out: Vec<String> = lines
+                    .iter()
+                    .filter_map(|l| l.get("value").and_then(Value::as_str).map(str::to_string))
+                    .collect();
+                if !out.is_empty() {
+                    return out;
+                }
+            }
+        }
+    }
+    if let Some(val) = inner.get("lyrics").and_then(|l| l.get("value")).and_then(Value::as_str) {
+        return val.lines().map(str::to_string).collect();
+    }
+    Vec::new()
 }
 
 /// Parse `search3` → `searchResult3.{artist,album,song}[]`.
@@ -689,6 +728,17 @@ fn urlencode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_lyrics_structured_and_classic() {
+        let structured = json!({"lyricsList":{"structuredLyrics":[{"line":[
+            {"value":"line one"},{"value":"line two"}
+        ]}]}});
+        assert_eq!(parse_lyrics(&structured), vec!["line one".to_string(), "line two".to_string()]);
+        let classic = json!({"lyrics":{"value":"a\nb\nc"}});
+        assert_eq!(parse_lyrics(&classic), vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert!(parse_lyrics(&json!({"nope":1})).is_empty());
+    }
     use serde_json::json;
 
     #[test]

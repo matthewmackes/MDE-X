@@ -114,6 +114,28 @@ pub async fn fetch_queue() -> Result<(Vec<String>, usize), String> {
     with_bus(|p, rt| Ok(parse_queue(&req(p, rt, "action/music/get-queue", None)?))).await
 }
 
+/// Parse a `get-lyrics` reply (`{ok, result:{lyrics:[line]}}`) into lines.
+#[must_use]
+pub fn parse_lyrics_reply(reply_json: &str) -> Vec<String> {
+    serde_json::from_str::<Value>(reply_json)
+        .ok()
+        .and_then(|v| {
+            v.get("result")?
+                .get("lyrics")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        })
+        .unwrap_or_default()
+}
+
+/// Fetch the current song's lyrics over the Bus (`action/music/get-lyrics`).
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn fetch_lyrics(song_id: String) -> Result<Vec<String>, String> {
+    with_bus(move |p, rt| Ok(parse_lyrics_reply(&req(p, rt, "action/music/get-lyrics", Some(&song_id))?))).await
+}
+
 /// Resolve a song id to `(title, artist)` via `get-song`, falling back to
 /// the id as the title when the lookup fails (so the footer never blanks).
 ///
