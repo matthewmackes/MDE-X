@@ -45,10 +45,14 @@ impl SortKey {
 }
 
 /// Persisted library-view preferences.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MusicPrefs {
     #[serde(default)]
     pub sort: SortKey,
+    /// AIR-11.c.4 — per-route library-grid scroll offset (y), persisted so
+    /// the scroll position survives a relaunch. Keyed by breadcrumb segment.
+    #[serde(default)]
+    pub scroll: std::collections::BTreeMap<String, f32>,
 }
 
 /// `$HOME/.local/share/mde/music-prefs.json`.
@@ -117,7 +121,7 @@ mod tests {
         let p = std::env::temp_dir().join(format!("mde-music-prefs-{}.json", std::process::id()));
         let _ = std::fs::remove_file(&p);
         assert_eq!(read_from(&p), MusicPrefs::default()); // absent → default
-        write_to(&p, &MusicPrefs { sort: SortKey::NameDesc });
+        write_to(&p, &MusicPrefs { sort: SortKey::NameDesc, ..Default::default() });
         assert_eq!(read_from(&p).sort, SortKey::NameDesc);
         let _ = std::fs::remove_file(&p);
     }

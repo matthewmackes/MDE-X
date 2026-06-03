@@ -191,7 +191,7 @@ impl State {
             album_art: None,
             sort: prefs::load().sort,
             grid_width: 1100.0,
-            grid_scroll: std::collections::HashMap::new(),
+            grid_scroll: prefs::load().scroll.into_iter().collect(),
             art_cache: std::collections::HashMap::new(),
         }
     }
@@ -404,6 +404,12 @@ impl State {
             Message::GridScrolled(y) => {
                 let key = self.nav.current().segment();
                 self.grid_scroll.insert(key, y);
+                // AIR-11.c.4 — persist scroll offsets for cross-launch restore
+                // (a tiny non-fsync write; negligible per frame).
+                prefs::save(&prefs::MusicPrefs {
+                    sort: self.sort,
+                    scroll: self.grid_scroll.clone().into_iter().collect(),
+                });
                 Task::none()
             }
             Message::EnqueueSong(id) => Task::perform(search::enqueue(id), Message::SearchEnqueued),
@@ -441,7 +447,10 @@ impl State {
             }
             Message::ToggleSort => {
                 self.sort = self.sort.toggled();
-                prefs::save(&prefs::MusicPrefs { sort: self.sort });
+                prefs::save(&prefs::MusicPrefs {
+                    sort: self.sort,
+                    scroll: self.grid_scroll.clone().into_iter().collect(),
+                });
                 Task::none()
             }
             Message::AlbumFailed(e) => {
