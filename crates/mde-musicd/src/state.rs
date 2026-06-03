@@ -200,6 +200,29 @@ pub fn read_intents(dir: &Path) -> Vec<HandoffIntent> {
     out
 }
 
+/// Read every peer's last activity snapshot from `music-state-by-peer/`
+/// (the AIR-15.b.5 Peers-tab roster) — the dir [`write_state`] heartbeats
+/// each peer's snapshot into. Skips malformed files; sorted by host.
+#[must_use]
+pub fn read_all_peer_states(dir: &Path) -> Vec<MusicState> {
+    let mut out = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(dir.join("music-state-by-peer")) {
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.extension().is_some_and(|x| x == "json") {
+                if let Some(st) = std::fs::read_to_string(&p)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<MusicState>(&s).ok())
+                {
+                    out.push(st);
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.peer.cmp(&b.peer));
+    out
+}
+
 /// Drop a take-over intent from `from_peer` targeting `to_peer`. Returns
 /// the written intent (its `intent_id` is the file basename).
 ///
@@ -235,6 +258,18 @@ pub fn clear_intent(dir: &Path, intent_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_all_peer_states_collects_and_sorts_snapshots() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_state(dir.path(), &MusicState { peer: "forge".into(), playing: false, song_id: String::new(), position_ms: 0, updated_ms: 1000 }).unwrap();
+        write_state(dir.path(), &MusicState { peer: "anvil".into(), playing: true, song_id: "s1".into(), position_ms: 0, updated_ms: 1000 }).unwrap();
+        let all = read_all_peer_states(dir.path());
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].peer, "anvil");
+        assert_eq!(all[1].peer, "forge");
+        assert!(read_all_peer_states(tempfile::TempDir::new().unwrap().path()).is_empty());
+    }
     use tempfile::tempdir;
 
     fn state(peer: &str, playing: bool, updated: u64) -> MusicState {

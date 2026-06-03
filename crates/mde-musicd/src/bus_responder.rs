@@ -61,6 +61,11 @@ pub const BROWSE_VERBS: [&str; 14] = [
 pub const TRANSPORT_VERBS: [&str; 6] =
     ["play", "pause", "resume", "stop", "set-volume", "get-state"];
 
+/// AIR-15.b.5 — peer-roster + take-over verbs. They read/write the AIR-8
+/// state files (`music-state-by-peer/`, handoff intents) and need neither
+/// the engine nor the airsonic client.
+pub const PEER_VERBS: [&str; 2] = ["peer-states", "take-over"];
+
 /// Authoritative-state write cadence while playing (AIR-8's 5 s heartbeat,
 /// so a stale owner frees the mesh after `STATE_STALE_MS`).
 pub const STATE_WRITE_INTERVAL: Duration = Duration::from_secs(5);
@@ -112,6 +117,28 @@ fn error_reply(message: &str) -> Dispatch {
     Dispatch {
         reply_json: json!({ "ok": false, "error": message }).to_string(),
         mutated: false,
+    }
+}
+
+/// Dispatch a peer verb against the AIR-8 state `dir`. `peer-states`
+/// returns every peer's last snapshot (the Peers-tab roster);
+/// `take-over` posts a handoff intent asking `<body>` (a host, or empty
+/// to claim an idle mesh) to yield, via AIR-8 `post_takeover`.
+#[must_use]
+pub fn dispatch_peer(verb: &str, body: &str, dir: &Path) -> String {
+    match verb {
+        "peer-states" => {
+            json!({ "ok": true, "result": { "peers": state::read_all_peer_states(dir) } }).to_string()
+        }
+        "take-over" => {
+            let to = body.trim().trim_matches('"').to_string();
+            let to_peer = if to.is_empty() { None } else { Some(to) };
+            match state::post_takeover(dir, &state::local_host(), to_peer, state::now_ms()) {
+                Ok(intent) => json!({ "ok": true, "intent_id": intent.intent_id }).to_string(),
+                Err(e) => json!({ "ok": false, "error": e.to_string() }).to_string(),
+            }
+        }
+        other => json!({ "ok": false, "error": format!("unknown peer verb: {other}") }).to_string(),
     }
 }
 
@@ -510,6 +537,7 @@ pub fn serve<F: Fn() -> bool>(persist: &Persist, queue_path: &Path, should_stop:
         poll_once(persist, queue_path, &mut cursors);
         poll_browse(persist, &rt, &mut cursors);
         poll_transport(persist, queue_path, engine.as_ref(), &mut cursors);
+        poll_peers(persist, &mut cursors);
         if last_state_write.elapsed() >= STATE_WRITE_INTERVAL {
             write_periodic_state(engine.as_ref(), queue_path);
             last_state_write = Instant::now();
@@ -520,6 +548,25 @@ pub fn serve<F: Fn() -> bool>(persist: &Persist, queue_path: &Path, should_stop:
 
 /// One poll sweep across the action verbs (extracted so a test can drive
 /// it deterministically without the sleep loop).
+/// One poll sweep over the AIR-15.b.5 peer verbs (`peer-states`,
+/// `take-over`) — reads/writes the AIR-8 state dir, replies on reply/<ulid>.
+pub fn poll_peers(persist: &Persist, cursors: &mut HashMap<String, String>) {
+    let dir = state::data_dir();
+    for verb in PEER_VERBS {
+        let topic = format!("action/music/{verb}");
+        let since = cursors.get(&topic).map(String::as_str);
+        let msgs = match persist.list_since(&topic, since) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        for msg in msgs {
+            cursors.insert(topic.clone(), msg.ulid.clone());
+            let reply = dispatch_peer(verb, msg.body.as_deref().unwrap_or(""), &dir);
+            let _ = persist.write(&reply_topic(&msg.ulid), Priority::Default, None, Some(&reply));
+        }
+    }
+}
+
 pub fn poll_once(persist: &Persist, queue_path: &Path, cursors: &mut HashMap<String, String>) {
     let mut q = queue::read_from(queue_path);
     for verb in ACTION_VERBS {
@@ -548,6 +595,16 @@ pub fn poll_once(persist: &Persist, queue_path: &Path, cursors: &mut HashMap<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dispatch_peer_roster_and_take_over() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(dispatch_peer("peer-states", "", dir.path()).contains("\"peers\":[]"));
+        let t = dispatch_peer("take-over", "anvil", dir.path());
+        assert!(t.contains("\"ok\":true") && t.contains("intent_id"));
+        assert_eq!(state::read_intents(dir.path()).len(), 1);
+        assert!(dispatch_peer("bogus", "", dir.path()).contains("\"ok\":false"));
+    }
 
     #[test]
     fn song_id_parsing_forms() {

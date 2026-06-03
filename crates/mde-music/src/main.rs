@@ -102,6 +102,8 @@ struct State {
     /// AIR-15.b.4 — maxi tab + the current track's lyrics lines.
     maxi_tab: MaxiTab,
     maxi_lyrics: Vec<String>,
+    /// AIR-15.b.5 — the mesh peer roster (Peers tab).
+    maxi_peers: Vec<nowplaying::PeerState>,
 }
 
 /// AIR-15.b.4 — which maxi-player tab is showing.
@@ -109,6 +111,7 @@ struct State {
 enum MaxiTab {
     Queue,
     Lyrics,
+    Peers,
 }
 
 #[derive(Debug, Clone)]
@@ -133,6 +136,10 @@ enum Message {
     MaxiTabSelected(MaxiTab),
     /// AIR-15.b.4 — the current track's lyrics loaded.
     LyricsLoaded(Vec<String>),
+    /// AIR-15.b.5 — the mesh peer roster loaded.
+    PeersLoaded(Vec<nowplaying::PeerState>),
+    /// AIR-15.b.5 — ask a peer to yield playback (AIR-8 handoff).
+    TakeOver(String),
     /// AIR-15.b — the play queue snapshot loaded (song-ids, current index).
     QueueLoaded(Vec<String>, usize),
     /// AIR-15.b — a queue song-id resolved to a title.
@@ -237,6 +244,7 @@ impl State {
             queue_titles: std::collections::HashMap::new(),
             maxi_tab: MaxiTab::Queue,
             maxi_lyrics: Vec::new(),
+            maxi_peers: Vec::new(),
         }
     }
 
@@ -328,22 +336,32 @@ impl State {
             }
             Message::MaxiTabSelected(t) => {
                 self.maxi_tab = t;
-                if t == MaxiTab::Lyrics
-                    && self.maxi_lyrics.is_empty()
-                    && !self.now_state.song_id.is_empty()
-                {
-                    Task::perform(
-                        nowplaying::fetch_lyrics(self.now_state.song_id.clone()),
-                        |r| Message::LyricsLoaded(r.unwrap_or_default()),
-                    )
-                } else {
-                    Task::none()
+                match t {
+                    MaxiTab::Lyrics
+                        if self.maxi_lyrics.is_empty() && !self.now_state.song_id.is_empty() =>
+                    {
+                        Task::perform(
+                            nowplaying::fetch_lyrics(self.now_state.song_id.clone()),
+                            |r| Message::LyricsLoaded(r.unwrap_or_default()),
+                        )
+                    }
+                    MaxiTab::Peers => Task::perform(nowplaying::fetch_peer_states(), |r| {
+                        Message::PeersLoaded(r.unwrap_or_default())
+                    }),
+                    _ => Task::none(),
                 }
             }
             Message::LyricsLoaded(lines) => {
                 self.maxi_lyrics = lines;
                 Task::none()
             }
+            Message::PeersLoaded(peers) => {
+                self.maxi_peers = peers;
+                Task::none()
+            }
+            Message::TakeOver(peer) => Task::perform(nowplaying::take_over(peer), |_| {
+                Message::MaxiTabSelected(MaxiTab::Peers)
+            }),
             Message::Ascend(index) => {
                 self.nav.ascend_to(index);
                 Task::none()
@@ -1131,6 +1149,28 @@ impl State {
             }
             col.into()
         };
+        let peers: Element<'_, Message> = if self.maxi_peers.is_empty() {
+            text("No peers on the mesh")
+                .size(13)
+                .color(iced::Color { r: 1.0, g: 1.0, b: 1.0, a: 0.6 })
+                .into()
+        } else {
+            let mut col = column![].spacing(6);
+            for p in &self.maxi_peers {
+                let status = if p.playing { "● playing" } else { "paused" };
+                col = col.push(
+                    row![
+                        text(p.host.clone()).size(14).width(Length::Fixed(150.0)),
+                        text(status)
+                            .size(12)
+                            .color(iced::Color { r: 1.0, g: 1.0, b: 1.0, a: 0.6 }),
+                        button(text("Take over").size(12)).on_press(Message::TakeOver(p.host.clone())),
+                    ]
+                    .spacing(12),
+                );
+            }
+            col.into()
+        };
         let tab = |label: &'static str, t: MaxiTab| {
             let color = if self.maxi_tab == t {
                 iced::Color { r: 0.36, g: 0.42, b: 0.96, a: 1.0 }
@@ -1139,10 +1179,16 @@ impl State {
             };
             button(text(label).size(13).color(color)).on_press(Message::MaxiTabSelected(t))
         };
-        let tab_bar = row![tab("Queue", MaxiTab::Queue), tab("Lyrics", MaxiTab::Lyrics)].spacing(8);
+        let tab_bar = row![
+            tab("Queue", MaxiTab::Queue),
+            tab("Lyrics", MaxiTab::Lyrics),
+            tab("Peers", MaxiTab::Peers)
+        ]
+        .spacing(8);
         let body: Element<'_, Message> = match self.maxi_tab {
             MaxiTab::Queue => scrollable(queue).into(),
             MaxiTab::Lyrics => scrollable(lyrics).into(),
+            MaxiTab::Peers => scrollable(peers).into(),
         };
         let page = column![header, tab_bar, body]
             .spacing(8)

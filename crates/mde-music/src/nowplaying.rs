@@ -136,6 +136,56 @@ pub async fn fetch_lyrics(song_id: String) -> Result<Vec<String>, String> {
     with_bus(move |p, rt| Ok(parse_lyrics_reply(&req(p, rt, "action/music/get-lyrics", Some(&song_id))?))).await
 }
 
+/// AIR-15.b.5 — a peer's last music activity snapshot (Peers-tab roster).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerState {
+    pub host: String,
+    pub playing: bool,
+    pub song_id: String,
+}
+
+/// Parse a `peer-states` reply (`{ok, result:{peers:[{peer,playing,song_id}]}}`).
+#[must_use]
+pub fn parse_peer_states(reply_json: &str) -> Vec<PeerState> {
+    serde_json::from_str::<Value>(reply_json)
+        .ok()
+        .and_then(|v| {
+            v.get("result")?.get("peers").and_then(Value::as_array).map(|a| {
+                a.iter()
+                    .filter_map(|p| {
+                        Some(PeerState {
+                            host: p.get("peer").and_then(Value::as_str)?.to_string(),
+                            playing: p.get("playing").and_then(Value::as_bool).unwrap_or(false),
+                            song_id: p.get("song_id").and_then(Value::as_str).unwrap_or("").to_string(),
+                        })
+                    })
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+}
+
+/// Fetch the peer roster over the Bus (`action/music/peer-states`).
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn fetch_peer_states() -> Result<Vec<PeerState>, String> {
+    with_bus(|p, rt| Ok(parse_peer_states(&req(p, rt, "action/music/peer-states", None)?))).await
+}
+
+/// Post an AIR-8 take-over intent asking `peer` to yield
+/// (`action/music/take-over`, the peer host in the body).
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn take_over(peer: String) -> Result<(), String> {
+    with_bus(move |p, rt| {
+        req(p, rt, "action/music/take-over", Some(&peer))?;
+        Ok(())
+    })
+    .await
+}
+
 /// Resolve a song id to `(title, artist)` via `get-song`, falling back to
 /// the id as the title when the lookup fails (so the footer never blanks).
 ///
@@ -250,6 +300,29 @@ pub async fn skip_prev() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_lyrics_reply_reads_lines() {
+        let r = r#"{"ok":true,"result":{"lyrics":["one","two"]}}"#;
+        assert_eq!(parse_lyrics_reply(r), vec!["one".to_string(), "two".to_string()]);
+        assert!(parse_lyrics_reply(r#"{"ok":true,"result":{}}"#).is_empty());
+    }
+
+    #[test]
+    fn parse_peer_states_reads_roster() {
+        let r = r#"{"ok":true,"result":{"peers":[
+            {"peer":"anvil","playing":true,"song_id":"s1"},
+            {"peer":"forge","playing":false}
+        ]}}"#;
+        let ps = parse_peer_states(r);
+        assert_eq!(ps.len(), 2);
+        assert_eq!(ps[0].host, "anvil");
+        assert!(ps[0].playing);
+        assert_eq!(ps[0].song_id, "s1");
+        assert_eq!(ps[1].host, "forge");
+        assert!(!ps[1].playing);
+        assert!(parse_peer_states("nope").is_empty());
+    }
 
     #[test]
     fn parse_queue_reads_songs_and_current() {
