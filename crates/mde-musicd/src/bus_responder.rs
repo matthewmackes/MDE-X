@@ -399,6 +399,14 @@ pub fn serve<F: Fn() -> bool>(persist: &Persist, queue_path: &Path, should_stop:
             eprintln!("mde-musicd: no audio output — playback disabled ({e}); queue + browse still served");
         })
         .ok();
+    // AIR-6: bring up the MPRIS surface sharing this engine, so media keys
+    // (sway → playerctl → MPRIS) + the lock-screen widget drive the same
+    // playback the Bus does. Held for the serve loop's lifetime; dropping
+    // it (when serve returns) stops the surface thread. A headless peer
+    // with no audio engine — or no session bus — simply skips it.
+    let _mpris = engine
+        .as_ref()
+        .map(|e| crate::mpris::spawn(e.handle(), queue_path.to_path_buf(), state::data_dir()));
     let mut last_state_write = Instant::now();
     while !should_stop() {
         poll_once(persist, queue_path, &mut cursors);

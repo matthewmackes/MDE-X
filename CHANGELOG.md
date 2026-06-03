@@ -16,6 +16,13 @@ unreleased; tag versions get a date when they ship.
   stop / set-volume / get-state on `action/music/*` — so the music app
   (and any peer) drives the daemon, which heartbeats who is playing what
   so playback can hand off across the workgroup.
+- **Media keys + lock-screen control:** the daemon now exposes the
+  standard `org.mpris.MediaPlayer2` interface, so the keyboard's
+  Play/Pause/Next/Previous media keys, the `playerctl` tool, and any
+  desktop or lock-screen now-playing widget control playback. Volume,
+  the current track's title / artist / album / cover art, and shuffle +
+  repeat all read and drive the same playback the music app and the mesh
+  Bus use.
 
 **KVM + Podman mesh-native compute — `mde-virtual` app (2026-05-31)**
 - A new **Virtual** app manages the KVM virtual machines and Podman

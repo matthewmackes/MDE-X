@@ -16,6 +16,7 @@ pub mod bus_responder;
 pub mod cache;
 pub mod creds;
 pub mod engine;
+pub mod mpris;
 pub mod queue;
 pub mod reconnect;
 pub mod state;

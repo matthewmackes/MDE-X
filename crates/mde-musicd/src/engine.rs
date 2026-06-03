@@ -240,15 +240,34 @@ struct Shared {
     target_ring: usize,
 }
 
-/// The native playback engine: a live cpal output stream fed by a decode
-/// thread. Construct once (it grabs the default output device), then
-/// drive it with [`play`](Engine::play) / [`pause`](Engine::pause) /
-/// [`stop`](Engine::stop).
-pub struct Engine {
+/// A cheap-to-clone, `Send + Sync` control surface for the engine. All
+/// playback control (play / pause / resume / stop / volume / position)
+/// lives here because it only touches the lock-free [`Shared`] state + the
+/// decode-thread handle — never the thread-pinned cpal stream. AIR-6's
+/// MPRIS thread holds one of these to drive playback off the audio thread.
+#[derive(Clone)]
+pub struct EngineHandle {
     shared: Arc<Shared>,
-    decode: Mutex<Option<JoinHandle<()>>>,
+    decode: Arc<Mutex<Option<JoinHandle<()>>>>,
+}
+
+/// The native playback engine: a live cpal output stream fed by a decode
+/// thread. Construct once (it grabs the default output device), then drive
+/// it with [`play`](EngineHandle::play) / [`pause`](EngineHandle::pause) /
+/// [`stop`](EngineHandle::stop). The engine derefs to its [`EngineHandle`],
+/// so those calls work directly on an `Engine`; [`handle`](Engine::handle)
+/// hands a clone to another thread.
+pub struct Engine {
+    handle: EngineHandle,
     /// Kept alive for the engine's lifetime — dropping it stops audio.
     _stream: cpal::Stream,
+}
+
+impl std::ops::Deref for Engine {
+    type Target = EngineHandle;
+    fn deref(&self) -> &EngineHandle {
+        &self.handle
+    }
 }
 
 impl Engine {
@@ -296,12 +315,24 @@ impl Engine {
             .map_err(|e| format!("start output stream: {e}"))?;
 
         Ok(Self {
-            shared,
-            decode: Mutex::new(None),
+            handle: EngineHandle {
+                shared,
+                decode: Arc::new(Mutex::new(None)),
+            },
             _stream: stream,
         })
     }
 
+    /// A cheap-to-clone, `Send + Sync` control handle to this engine — the
+    /// surface the MPRIS thread (AIR-6) drives without touching the
+    /// thread-pinned cpal stream.
+    #[must_use]
+    pub fn handle(&self) -> EngineHandle {
+        self.handle.clone()
+    }
+}
+
+impl EngineHandle {
     /// Play the given tracks back-to-back, gaplessly. Each entry is a
     /// stream URL plus its (hinted) codec. Replaces any current playback.
     pub fn play(&self, tracks: Vec<(String, SourceCodec)>) {
@@ -412,10 +443,10 @@ impl Engine {
 
 impl Drop for Engine {
     fn drop(&mut self) {
-        self.shared.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.decode.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
-            let _ = handle.join();
-        }
+        // Stop audio + join the decode thread. Clones of the handle held
+        // elsewhere (the AIR-6 MPRIS thread) stay valid but produce no
+        // sound once this stream is dropped.
+        self.handle.stop();
     }
 }
 

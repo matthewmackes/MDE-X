@@ -107,6 +107,10 @@ pub struct Song {
     pub track: Option<u32>,
     #[serde(default)]
     pub suffix: String,
+    /// `coverArt` token — resolve via [`Client::cover_art_url`] for the
+    /// MPRIS `mpris:artUrl` + the AIR-12 album art.
+    #[serde(default, rename = "coverArt")]
+    pub cover_art: String,
 }
 
 /// Result of `search3` — three independently-scrollable sections.
@@ -275,6 +279,19 @@ impl Client {
             .await?;
         Ok(parse_search3(&inner))
     }
+
+    /// `getSong` — full metadata for one song id. Powers the AIR-6 MPRIS
+    /// `Metadata` surface (title / artist / album / length / art) + the
+    /// AIR-12 track rows. This is an AIR-4.b endpoint, landed early with
+    /// its first consumer (AIR-6) per the §0.12 "an endpoint ships with a
+    /// runtime caller, never a dead client method" rule.
+    ///
+    /// # Errors
+    /// Transport / API / parse failures.
+    pub async fn get_song(&self, id: &str) -> Result<Song, AirsonicError> {
+        let inner = self.get("getSong", &[("id", id)]).await?;
+        parse_song(&inner)
+    }
 }
 
 // ───────────────────────── pure parse helpers ─────────────────────────
@@ -367,6 +384,20 @@ pub fn parse_search3(inner: &Value) -> SearchResult3 {
     }
 }
 
+/// Parse `getSong` → the inner `song` object.
+///
+/// # Errors
+/// [`AirsonicError::Parse`] when the `song` object is missing or malformed.
+pub fn parse_song(inner: &Value) -> Result<Song, AirsonicError> {
+    inner
+        .get("song")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|e| AirsonicError::Parse(e.to_string()))?
+        .ok_or_else(|| AirsonicError::Parse("getSong: missing song object".into()))
+}
+
 /// Minimal percent-encoding for query values (space + the reserved
 /// chars that break a Subsonic query). Avoids a `url`/`percent-encoding`
 /// dep for the handful of chars that actually occur in ids + search
@@ -434,6 +465,23 @@ mod tests {
         assert_eq!(urlencode("miles davis"), "miles%20davis");
         assert_eq!(urlencode("a/b&c"), "a%2Fb%26c");
         assert_eq!(urlencode("plain-id_1.2~"), "plain-id_1.2~");
+    }
+
+    #[test]
+    fn parse_song_reads_song_object() {
+        let inner = json!({"song": {
+            "id": "tr-9", "title": "So What", "album": "Kind of Blue",
+            "artist": "Miles Davis", "duration": 545, "track": 1,
+            "suffix": "flac", "coverArt": "al-7"
+        }});
+        let s = parse_song(&inner).unwrap();
+        assert_eq!(s.id, "tr-9");
+        assert_eq!(s.title, "So What");
+        assert_eq!(s.artist, "Miles Davis");
+        assert_eq!(s.duration, 545);
+        assert_eq!(s.cover_art, "al-7");
+        // A missing `song` object is a parse error, not a panic.
+        assert!(parse_song(&json!({"nope": 1})).is_err());
     }
 
     #[test]
