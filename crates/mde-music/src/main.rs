@@ -83,6 +83,9 @@ struct State {
     /// AIR-11.c — last-known window width (tracked via the WindowResized
     /// subscription); the library grid derives its column count from it.
     grid_width: f32,
+    /// AIR-11.c.2 — per-route grid scroll offset (y) so navigating away from
+    /// a category and back preserves the scroll position within a session.
+    grid_scroll: std::collections::HashMap<String, f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +100,8 @@ enum Message {
     ItemsFailed(String),
     /// AIR-11.c — the window resized; updates the adaptive-grid column count.
     WindowResized(f32),
+    /// AIR-11.c.2 — the library grid scrolled; record the offset per route.
+    GridScrolled(f32),
     /// First-run form field edits.
     UrlChanged(String),
     UserChanged(String),
@@ -181,6 +186,7 @@ impl State {
             album_art: None,
             sort: prefs::load().sort,
             grid_width: 1100.0,
+            grid_scroll: std::collections::HashMap::new(),
         }
     }
 
@@ -205,7 +211,16 @@ impl State {
             Message::ItemsLoaded(items) => {
                 self.items = items;
                 self.loading = false;
-                Task::none()
+                // AIR-11.c.2 — restore this category's saved scroll offset.
+                let y = self
+                    .grid_scroll
+                    .get(&self.nav.current().segment())
+                    .copied()
+                    .unwrap_or(0.0);
+                iced::widget::scrollable::scroll_to(
+                    grid_scroll_id(),
+                    iced::widget::scrollable::AbsoluteOffset { x: 0.0, y },
+                )
             }
             Message::ItemsFailed(e) => {
                 self.items.clear();
@@ -361,6 +376,11 @@ impl State {
             }
             Message::WindowResized(w) => {
                 self.grid_width = w;
+                Task::none()
+            }
+            Message::GridScrolled(y) => {
+                let key = self.nav.current().segment();
+                self.grid_scroll.insert(key, y);
                 Task::none()
             }
             Message::EnqueueSong(id) => Task::perform(search::enqueue(id), Message::SearchEnqueued),
@@ -653,7 +673,11 @@ impl State {
                         }
                         grid = grid.push(r);
                     }
-                    col = col.push(scrollable(grid));
+                    col = col.push(
+                        scrollable(grid)
+                            .id(grid_scroll_id())
+                            .on_scroll(|vp| Message::GridScrolled(vp.absolute_offset().y)),
+                    );
                 }
                 col.into()
             }
@@ -858,6 +882,12 @@ impl State {
 /// The stable widget id for the AIR-14 search field (so Cmd-F can focus it).
 fn search_id() -> text_input::Id {
     text_input::Id::new("mde-music-search")
+}
+
+/// AIR-11.c.2 — stable id for the library card grid's scrollable, so the
+/// scroll position can be saved on scroll + restored on category re-entry.
+fn grid_scroll_id() -> iced::widget::scrollable::Id {
+    iced::widget::scrollable::Id::new("mde-music-grid")
 }
 
 /// Render one search section: a heading + a clickable row per item. An
