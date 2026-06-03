@@ -17,7 +17,7 @@
 use anyhow::Context as _;
 use async_stream::stream;
 use iced::widget::canvas::{self, Canvas, Frame, Path, Stroke, Text};
-use iced::widget::{column, container, row, scrollable, text, Space};
+use iced::widget::{button, column, container, row, scrollable, text, Space};
 use iced::{Color, Element, Length, Point, Rectangle, Renderer, Subscription, Task, Theme};
 use std::sync::OnceLock;
 use tokio::sync::broadcast;
@@ -171,6 +171,12 @@ struct PortalFull {
     /// Set when the peer-roster load fails (mackesd absent/offline); the
     /// Network layer renders it as an honest empty-state hint.
     network_peers_error: Option<String>,
+    /// MESH-PROBE-9.b — the probe host/service inventory shown in the
+    /// Network layer's Hosts tab (read from mesh-storage on entry).
+    network_hosts: HostInventory,
+    network_hosts_error: Option<String>,
+    /// MESH-PROBE-9.b — which Network-layer tab is showing.
+    network_tab: NetworkTab,
 }
 
 /// Portal-18.b — Edit-tag modal form state. Seeded from the
@@ -247,6 +253,9 @@ impl Default for PortalFull {
             hub_cascade_stack: Vec::new(),
             network_peers: Vec::new(),
             network_peers_error: None,
+            network_hosts: HostInventory::default(),
+            network_hosts_error: None,
+            network_tab: NetworkTab::Peers,
         }
     }
 }
@@ -261,6 +270,8 @@ pub const HUB_CASCADE_DEPTH_CAP: usize = 3;
 enum Message {
     /// D-Bus `Goto` received — switch content layer.
     GotoLayer(Layer),
+    /// MESH-PROBE-9.b — switch the Network layer's Peers/Hosts tab.
+    NetworkTabSelected(NetworkTab),
     /// Portal-17.a — user clicked a Hub system-tag or user-tag
     /// card. Placeholder for cascade-card expansion (Portal-17.b)
     /// + right-click iconic menu (Portal-17.c).
@@ -391,7 +402,21 @@ fn update(state: &mut PortalFull, msg: Message) -> Task<Message> {
                         state.network_peers_error = Some(e);
                     }
                 }
+                // MESH-PROBE-9.b — also load the probe host/service
+                // inventory for the Hosts tab (synchronous, like the roster).
+                let root = hosts_workgroup_root();
+                if root.exists() {
+                    state.network_hosts = inventory_from_cards(&read_inventory_cards(&root));
+                    state.network_hosts_error = None;
+                } else {
+                    state.network_hosts = HostInventory::default();
+                    state.network_hosts_error =
+                        Some(format!("workgroup root {} not present", root.display()));
+                }
             }
+        }
+        Message::NetworkTabSelected(tab) => {
+            state.network_tab = tab;
         }
         Message::HubTagClicked(tag_name) => {
             // Portal-17.b — push the clicked tag onto the cascade
@@ -1939,7 +1964,49 @@ fn parse_nodes(raw: &str) -> Vec<PeerNode> {
 /// Portal-22 — the Network layer: the mesh peer roster as a card list (the
 /// §3.5 sidebar peer-cards). The globe / wireframe canvas render on top of
 /// this foundation in MESH-G / MESH-W.
+/// MESH-PROBE-9.b — which Network-layer view is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NetworkTab {
+    Peers,
+    Hosts,
+}
+
 fn build_network_layer(state: &PortalFull) -> Element<'_, Message> {
+    let body = match state.network_tab {
+        NetworkTab::Peers => build_peers_view(state),
+        NetworkTab::Hosts => build_hosts_view(state),
+    };
+    column![network_tab_toggle(state.network_tab), body]
+        .spacing(12)
+        .into()
+}
+
+/// The Peers / Hosts segmented toggle at the top of the Network layer.
+fn network_tab_toggle(active: NetworkTab) -> Element<'static, Message> {
+    let mut bar = row![].spacing(8);
+    for (label, tab) in [("Peers", NetworkTab::Peers), ("Hosts", NetworkTab::Hosts)] {
+        let is_active = tab == active;
+        bar = bar.push(
+            button(text(label).size(14.0).color(FG))
+                .padding([6, 16])
+                .on_press(Message::NetworkTabSelected(tab))
+                .style(move |_t: &Theme, _s: button::Status| button::Style {
+                    background: Some(iced::Background::Color(if is_active {
+                        ACCENT_INDIGO
+                    } else {
+                        SURFACE_RAISED
+                    })),
+                    text_color: FG,
+                    border: iced::Border { radius: 8.0.into(), ..Default::default() },
+                    shadow: iced::Shadow::default(),
+                    snap: false,
+                }),
+        );
+    }
+    bar.into()
+}
+
+fn build_peers_view(state: &PortalFull) -> Element<'_, Message> {
     if let Some(err) = &state.network_peers_error {
         return container(text(format!("Peer roster unavailable — {err}")).size(14.0).color(FG))
             .padding(16)
@@ -1992,6 +2059,176 @@ fn build_network_layer(state: &PortalFull) -> Element<'_, Message> {
     ]
     .spacing(16)
     .into()
+}
+
+/// MESH-PROBE-9.b — the Hosts tab: the probe host/service inventory (read
+/// from <workgroup_root>/*/mackesd/probe-inventory.json — the same on-disk
+/// contract the Workbench Network Hosts panel serves), as host cards with
+/// their open-port services + a trust badge.
+fn build_hosts_view(state: &PortalFull) -> Element<'_, Message> {
+    if let Some(err) = &state.network_hosts_error {
+        return container(text(format!("Host inventory unavailable — {err}")).size(14.0).color(FG))
+            .padding(16)
+            .into();
+    }
+    if state.network_hosts.hosts.is_empty() {
+        return container(text("No hosts in the probe inventory yet.").size(14.0).color(FG))
+            .padding(16)
+            .into();
+    }
+    let nh = state.network_hosts.hosts.len();
+    let ns: usize = state.network_hosts.hosts.iter().map(|h| h.services.len()).sum();
+    let mut col = column![text(format!(
+        "{nh} host{} · {ns} service{}",
+        if nh == 1 { "" } else { "s" },
+        if ns == 1 { "" } else { "s" }
+    ))
+    .size(13.0)
+    .color(FG)]
+    .spacing(8);
+    for h in &state.network_hosts.hosts {
+        let mut head = row![text("●").size(13.0).color(host_trust_color(&h.trust))]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
+        head = head.push(text(h.display.clone()).size(15.0).color(FG));
+        if h.display != h.ip {
+            head = head.push(text(format!("· {}", h.ip)).size(11.0).color(FG_DIM));
+        }
+        head = head.push(Space::new().width(Length::Fill));
+        head = head.push(text(h.source.clone()).size(11.0).color(FG_DIM));
+        head = head.push(text(host_trust_label(&h.trust)).size(11.0).color(host_trust_color(&h.trust)));
+        let mut card = column![head].spacing(2);
+        if h.services.is_empty() {
+            card = card.push(text("  no open ports identified").size(11.0).color(FG_DIM));
+        } else {
+            for svc in &h.services {
+                let detail = if svc.product.is_empty() {
+                    format!("  :{} {}", svc.port, svc.kind)
+                } else {
+                    format!("  :{} {} ({})", svc.port, svc.kind, svc.product)
+                };
+                card = card.push(text(detail).size(11.0).color(FG_DIM));
+            }
+        }
+        col = col.push(
+            container(card)
+                .padding(10)
+                .width(Length::Fill)
+                .style(|_t: &Theme| container::Style {
+                    background: Some(iced::Background::Color(SURFACE_RAISED)),
+                    border: iced::Border { radius: 8.0.into(), ..Default::default() },
+                    ..Default::default()
+                }),
+        );
+    }
+    scrollable(col).into()
+}
+
+fn host_trust_label(trust: &str) -> String {
+    if trust.is_empty() {
+        "unscored".to_string()
+    } else {
+        trust.to_string()
+    }
+}
+
+fn host_trust_color(trust: &str) -> Color {
+    match trust.to_ascii_lowercase().as_str() {
+        "trusted" | "mesh" | "enrolled" => Color { r: 0.4, g: 0.82, b: 0.45, a: 1.0 },
+        "untrusted" | "blocked" | "denied" => Color { r: 1.0, g: 0.35, b: 0.35, a: 1.0 },
+        _ => FG_DIM,
+    }
+}
+
+// ── MESH-PROBE-9.b — probe host/service inventory reader ─────────────────────
+// Reuses the mde-card probe model (the same on-disk contract
+// mackesd::probe_nmap::inventory + the Workbench network_hosts panel use).
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ServiceRow {
+    port: u16,
+    kind: String,
+    product: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HostRow {
+    display: String,
+    ip: String,
+    source: String,
+    trust: String,
+    services: Vec<ServiceRow>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct HostInventory {
+    hosts: Vec<HostRow>,
+}
+
+fn hosts_workgroup_root() -> std::path::PathBuf {
+    std::env::var_os("MDE_WORKGROUP_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/mnt/mesh-storage"))
+}
+
+fn read_inventory_cards(root: &std::path::Path) -> Vec<mde_card::Card> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path().join("mackesd").join("probe-inventory.json");
+        let Ok(body) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Ok(cards) = serde_json::from_str::<Vec<mde_card::Card>>(&body) {
+            out.extend(cards);
+        }
+    }
+    out
+}
+
+fn host_source_label(source: mde_card::probe::HostSource) -> &'static str {
+    match source {
+        mde_card::probe::HostSource::Mesh => "mesh",
+        mde_card::probe::HostSource::Lan => "LAN",
+        mde_card::probe::HostSource::Arbitrary => "manual",
+    }
+}
+
+fn inventory_from_cards(cards: &[mde_card::Card]) -> HostInventory {
+    let mut hosts: Vec<HostRow> = Vec::new();
+    for card in cards {
+        let Some(hf) = mde_card::probe::host_facts(card) else {
+            continue;
+        };
+        let mut services: Vec<ServiceRow> = card
+            .children
+            .iter()
+            .filter_map(|child| {
+                mde_card::probe::service_facts(child).map(|sf| ServiceRow {
+                    port: sf.port,
+                    kind: sf.service_kind,
+                    product: sf.product,
+                })
+            })
+            .collect();
+        services.sort_by_key(|svc| svc.port);
+        let display = if hf.hostname.is_empty() {
+            hf.ip.clone()
+        } else {
+            hf.hostname.clone()
+        };
+        hosts.push(HostRow {
+            display,
+            ip: hf.ip,
+            source: host_source_label(hf.source).to_string(),
+            trust: hf.trust_state,
+            services,
+        });
+    }
+    hosts.sort_by(|a, b| a.display.cmp(&b.display));
+    HostInventory { hosts }
 }
 
 /// MESH-W-1 — the Network-layer mesh graph: the local node at center with
@@ -2235,6 +2472,38 @@ mod tests {
     fn parse_nodes_malformed_is_empty() {
         assert!(parse_nodes("not json").is_empty());
         assert!(parse_nodes("{}").is_empty());
+    }
+
+    #[test]
+    fn inventory_from_cards_flattens_and_sorts() {
+        use mde_card::probe::{host_card, service_card, HostFacts, HostSource, ServiceFacts};
+        let svc = service_card(
+            &ServiceFacts {
+                port: 443,
+                service_kind: "https".into(),
+                product: String::new(),
+                version: String::new(),
+                fingerprint: String::new(),
+            },
+            0,
+        );
+        let host = host_card(
+            &HostFacts {
+                ip: "10.0.0.9".into(),
+                hostname: "router".into(),
+                source: HostSource::Lan,
+                trust_state: String::new(),
+                last_seen: 0,
+            },
+            vec![svc],
+            0,
+        );
+        let inv = inventory_from_cards(&[host]);
+        assert_eq!(inv.hosts.len(), 1);
+        assert_eq!(inv.hosts[0].display, "router");
+        assert_eq!(inv.hosts[0].source, "LAN");
+        assert_eq!(inv.hosts[0].services.len(), 1);
+        assert_eq!(inv.hosts[0].services[0].port, 443);
     }
 
     #[test]
