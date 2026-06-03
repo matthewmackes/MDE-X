@@ -89,6 +89,12 @@ struct State {
     /// AIR-11.c.3 — per-card cover-art cache (LibraryItem.id → decoded
     /// thumbnail handle), populated by the ItemsLoaded fan-out.
     art_cache: std::collections::HashMap<String, image::Handle>,
+    /// AIR-15.b — maxi-player (full-window) open flag + its queue snapshot.
+    maxi_open: bool,
+    queue_songs: Vec<String>,
+    queue_current: usize,
+    /// Resolved queue song-id -> title (fan-out via get-song).
+    queue_titles: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +113,12 @@ enum Message {
     GridScrolled(f32),
     /// AIR-11.c.3 — a grid card's cover art fetched (id, decoded handle or None).
     ArtLoaded(String, Option<image::Handle>),
+    /// AIR-15.b — toggle the maxi-player full-window surface.
+    ToggleMaxi,
+    /// AIR-15.b — the play queue snapshot loaded (song-ids, current index).
+    QueueLoaded(Vec<String>, usize),
+    /// AIR-15.b — a queue song-id resolved to a title.
+    QueueTitle(String, String),
     /// First-run form field edits.
     UrlChanged(String),
     UserChanged(String),
@@ -193,6 +205,10 @@ impl State {
             grid_width: 1100.0,
             grid_scroll: prefs::load().scroll.into_iter().collect(),
             art_cache: std::collections::HashMap::new(),
+            maxi_open: false,
+            queue_songs: Vec::new(),
+            queue_current: 0,
+            queue_titles: std::collections::HashMap::new(),
         }
     }
 
@@ -249,6 +265,37 @@ impl State {
                 if let Some(h) = handle {
                     self.art_cache.insert(id, h);
                 }
+                Task::none()
+            }
+            Message::ToggleMaxi => {
+                self.maxi_open = !self.maxi_open;
+                if self.maxi_open {
+                    Task::perform(nowplaying::fetch_queue(), |r| match r {
+                        Ok((songs, current)) => Message::QueueLoaded(songs, current),
+                        Err(_) => Message::QueueLoaded(Vec::new(), 0),
+                    })
+                } else {
+                    Task::none()
+                }
+            }
+            Message::QueueLoaded(songs, current) => {
+                self.queue_current = current;
+                self.queue_songs = songs;
+                let tasks: Vec<Task<Message>> = self
+                    .queue_songs
+                    .iter()
+                    .filter(|id| !self.queue_titles.contains_key(*id))
+                    .map(|id| {
+                        let key = id.clone();
+                        Task::perform(nowplaying::resolve_song(id.clone()), move |r| {
+                            Message::QueueTitle(key.clone(), r.map(|(t, _)| t).unwrap_or_default())
+                        })
+                    })
+                    .collect();
+                Task::batch(tasks)
+            }
+            Message::QueueTitle(id, title) => {
+                self.queue_titles.insert(id, title);
                 Task::none()
             }
             Message::Ascend(index) => {
@@ -573,6 +620,9 @@ impl State {
     fn view(&self) -> Element<'_, Message> {
         if let Some(f) = &self.form {
             return self.first_run_view(f);
+        }
+        if self.maxi_open {
+            return self.maxi_view();
         }
         self.library_view()
     }
@@ -915,12 +965,63 @@ impl State {
                 button(text("Prev").size(12)).on_press(Message::SkipPrev),
                 button(text(play_pause).size(12)).on_press(Message::PlayPause),
                 button(text("Next").size(12)).on_press(Message::SkipNext),
+                button(text("Maximize").size(12)).on_press(Message::ToggleMaxi),
                 text(status).size(12),
             ]
             .spacing(10)
             .padding(10)
             .into(),
         )
+    }
+
+    /// AIR-15.b — the maxi-player full-window surface: now-playing header
+    /// (title/artist + transport) + the Queue tab (the play queue with the
+    /// current track marked). Large art + scrub-progress + volume slider +
+    /// Lyrics/Peers tabs are the AIR-15.b.2 follow-on.
+    fn maxi_view(&self) -> Element<'_, Message> {
+        let title = if self.now_title.is_empty() {
+            self.now_state.song_id.clone()
+        } else {
+            self.now_title.clone()
+        };
+        let play_pause = if self.now_state.playing { "Pause" } else { "Play" };
+        let header = column![
+            row![
+                text("Now Playing").size(22).width(Length::Fill),
+                button(text("Close").size(13)).on_press(Message::ToggleMaxi),
+            ]
+            .align_y(iced::Alignment::Center),
+            text(title).size(28),
+            text(self.now_artist.clone()).size(16),
+            row![
+                button(text("Prev").size(13)).on_press(Message::SkipPrev),
+                button(text(play_pause).size(13)).on_press(Message::PlayPause),
+                button(text("Next").size(13)).on_press(Message::SkipNext),
+            ]
+            .spacing(10),
+        ]
+        .spacing(8);
+
+        let mut queue =
+            column![text(format!("Queue ({} tracks)", self.queue_songs.len())).size(15)].spacing(4);
+        for (i, sid) in self.queue_songs.iter().enumerate() {
+            let label = self
+                .queue_titles
+                .get(sid)
+                .filter(|t| !t.is_empty())
+                .cloned()
+                .unwrap_or_else(|| sid.clone());
+            let marker = if i == self.queue_current { "▶ " } else { "   " };
+            queue = queue.push(text(format!("{marker}{label}")).size(13));
+        }
+
+        let page =
+            column![header, Space::with_height(Length::Fixed(16.0)), scrollable(queue)]
+                .spacing(8)
+                .padding(24)
+                .width(Length::Fill)
+                .height(Length::Fill);
+        container(page).width(Length::Fill).height(Length::Fill).into()
     }
 }
 

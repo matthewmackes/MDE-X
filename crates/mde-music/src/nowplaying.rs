@@ -87,6 +87,30 @@ pub async fn fetch_state() -> Result<NowState, String> {
     with_bus(|p, rt| Ok(parse_state(&req(p, rt, "action/music/get-state", None)?))).await
 }
 
+/// Parse the `get-queue` reply (`{ok, len, current, songs:[id]}`) into the
+/// queue song-ids + the current-track index.
+#[must_use]
+pub fn parse_queue(reply_json: &str) -> (Vec<String>, usize) {
+    let Ok(v) = serde_json::from_str::<Value>(reply_json) else {
+        return (Vec::new(), 0);
+    };
+    let songs = v
+        .get("songs")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let current = v.get("current").and_then(Value::as_u64).unwrap_or(0) as usize;
+    (songs, current)
+}
+
+/// Fetch the play queue over the Bus (`action/music/get-queue`).
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn fetch_queue() -> Result<(Vec<String>, usize), String> {
+    with_bus(|p, rt| Ok(parse_queue(&req(p, rt, "action/music/get-queue", None)?))).await
+}
+
 /// Resolve a song id to `(title, artist)` via `get-song`, falling back to
 /// the id as the title when the lookup fails (so the footer never blanks).
 ///
@@ -147,6 +171,15 @@ pub async fn skip_prev() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_queue_reads_songs_and_current() {
+        let (songs, current) =
+            parse_queue(r#"{"ok":true,"len":2,"current":1,"songs":["s1","s2"]}"#);
+        assert_eq!(songs, vec!["s1".to_string(), "s2".to_string()]);
+        assert_eq!(current, 1);
+        assert_eq!(parse_queue("nope"), (Vec::new(), 0));
+    }
 
     #[test]
     fn parse_state_reads_transport_snapshot() {
