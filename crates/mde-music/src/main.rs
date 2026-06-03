@@ -71,6 +71,8 @@ struct State {
     now_state: NowState,
     now_title: String,
     now_artist: String,
+    /// AIR-15.b.2 — the current track's decoded cover art (maxi header).
+    now_art: Option<image::Handle>,
     /// AIR-16 — the open album's dominant cover colour + contrast text
     /// (Indigo until the cover art resolves).
     album_color: (u8, u8, u8),
@@ -167,6 +169,10 @@ enum Message {
     PollState,
     StateLoaded(NowState),
     SongResolved(String, String, String),
+    /// AIR-15.b.2 — the current track's coverArt token resolved.
+    NowCoverResolved(Option<String>),
+    /// AIR-15.b.2 — the current track's cover art decoded.
+    NowArtReady(Option<image::Handle>),
     PlayPause,
     SkipNext,
     SkipPrev,
@@ -198,6 +204,7 @@ impl State {
             now_state: NowState::default(),
             now_title: String::new(),
             now_artist: String::new(),
+            now_art: None,
             album_color: color::INDIGO,
             album_text_color: (255, 255, 255),
             album_art: None,
@@ -544,12 +551,20 @@ impl State {
                 if changed {
                     self.now_title.clear();
                     self.now_artist.clear();
+                    self.now_art = None;
                     let id = self.now_state.song_id.clone();
                     if !id.is_empty() {
-                        return Task::perform(nowplaying::resolve_song(id.clone()), move |r| {
-                            let (t, a) = r.unwrap_or_else(|_| (id.clone(), String::new()));
-                            Message::SongResolved(id.clone(), t, a)
+                        let resolve = {
+                            let id = id.clone();
+                            Task::perform(nowplaying::resolve_song(id.clone()), move |r| {
+                                let (t, a) = r.unwrap_or_else(|_| (id.clone(), String::new()));
+                                Message::SongResolved(id.clone(), t, a)
+                            })
+                        };
+                        let art = Task::perform(nowplaying::resolve_cover_id(id), |r| {
+                            Message::NowCoverResolved(r.ok().flatten())
                         });
+                        return Task::batch([resolve, art]);
                     }
                 }
                 Task::none()
@@ -559,6 +574,16 @@ impl State {
                     self.now_title = title;
                     self.now_artist = artist;
                 }
+                Task::none()
+            }
+            Message::NowCoverResolved(cover) => match cover {
+                Some(c) => Task::perform(color::fetch_cover_art(c), |r| {
+                    Message::NowArtReady(r.ok().map(|b| image::Handle::from_bytes(b)))
+                }),
+                None => Task::none(),
+            },
+            Message::NowArtReady(handle) => {
+                self.now_art = handle;
                 Task::none()
             }
             Message::PlayPause => Task::perform(
@@ -985,12 +1010,20 @@ impl State {
             self.now_title.clone()
         };
         let play_pause = if self.now_state.playing { "Pause" } else { "Play" };
+        let art: Element<'_, Message> = match &self.now_art {
+            Some(h) => image(h.clone())
+                .width(Length::Fixed(240.0))
+                .height(Length::Fixed(240.0))
+                .into(),
+            None => Space::with_height(Length::Fixed(0.0)).into(),
+        };
         let header = column![
             row![
                 text("Now Playing").size(22).width(Length::Fill),
                 button(text("Close").size(13)).on_press(Message::ToggleMaxi),
             ]
             .align_y(iced::Alignment::Center),
+            art,
             text(title).size(28),
             text(self.now_artist.clone()).size(16),
             row![

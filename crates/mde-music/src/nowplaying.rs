@@ -124,6 +124,31 @@ pub async fn resolve_song(id: String) -> Result<(String, String), String> {
     .await
 }
 
+/// Extract the `coverArt` token from a `get-song` reply
+/// (`{ok, result:{song:{coverArt}}}`), if present + non-empty.
+#[must_use]
+pub fn parse_cover_id(reply_json: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(reply_json).ok()?;
+    if v.get("ok").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let cover = v.get("result")?.get("song")?.get("coverArt").and_then(Value::as_str)?;
+    (!cover.is_empty()).then(|| cover.to_string())
+}
+
+/// Resolve a song id to its `coverArt` token via `get-song` (for the maxi /
+/// now-playing cover art).
+///
+/// # Errors
+/// Bus-store / request / timeout failures.
+pub async fn resolve_cover_id(song_id: String) -> Result<Option<String>, String> {
+    with_bus(move |p, rt| {
+        let reply = req(p, rt, "action/music/get-song", Some(&song_id))?;
+        Ok(parse_cover_id(&reply))
+    })
+    .await
+}
+
 /// Toggle play/pause based on the current state (`pause` when playing,
 /// `resume` otherwise).
 ///
@@ -179,6 +204,17 @@ mod tests {
         assert_eq!(songs, vec!["s1".to_string(), "s2".to_string()]);
         assert_eq!(current, 1);
         assert_eq!(parse_queue("nope"), (Vec::new(), 0));
+    }
+
+    #[test]
+    fn parse_cover_id_reads_cover_art() {
+        assert_eq!(
+            parse_cover_id(r#"{"ok":true,"result":{"song":{"title":"X","coverArt":"al-9"}}}"#)
+                .as_deref(),
+            Some("al-9")
+        );
+        assert_eq!(parse_cover_id(r#"{"ok":true,"result":{"song":{"title":"X"}}}"#), None);
+        assert_eq!(parse_cover_id("nope"), None);
     }
 
     #[test]
