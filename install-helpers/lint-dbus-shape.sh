@@ -59,7 +59,6 @@ crates/mackesd/src/ipc/healthz
 crates/mackesd/src/ipc/fleet
 crates/mackesd/src/ipc/settings
 crates/mackesd/src/ipc/files
-crates/mde-portal/src/portal_full_main.rs
 '
 
 # Comment-line allow-list (talking ABOUT D-Bus, not declaring it).

@@ -1,13 +1,10 @@
-//! `dev.mackes.MDE.Portal.Full` client proxy + shared Portal state.
+//! Shared Portal state + the goto-forward to the full surface.
 //!
-//! DBUS-2 retired the `dev.mackes.MDE.Portal` **server** interface that
-//! used to live here: mde-open + mackesd now drive the Portal over the
-//! Bus (`action/shell/<verb>` — see [`crate::bus_responder`]), per the
-//! Q96 Bus-canonical lock. What remains is the typed state the shell
-//! dispatch mutates ([`PortalState`]) and the client proxy that forwards
-//! a `Goto(layer)` to the `mde-portal-full` surface — whose own
-//! `dev.mackes.MDE.Portal.Full` interface is a separate D-Bus
-//! retirement, so this proxy stays for now.
+//! Historically the `dev.mackes.MDE.Portal` D-Bus surface; DBUS-2 +
+//! DBUS-2.b retired all of mde-portal's D-Bus. The module name is kept to
+//! limit churn — it now holds only `PortalState` (the DND state the shell
+//! dispatch mutates) and `portal_full_goto`, which forwards a layer switch
+//! to the mde-portal-full surface over the Bus (`action/shell/goto-full`).
 
 use std::sync::Arc;
 
@@ -45,31 +42,27 @@ impl PortalState {
     }
 }
 
-/// zbus-generated async proxy for the `dev.mackes.MDE.Portal.Full`
-/// interface exposed by the `mde-portal-full` binary. The Dock + the
-/// shell dispatch forward a `Goto(layer)` through it to switch the
-/// active content layer.
-#[zbus::proxy(
-    interface = "dev.mackes.MDE.Portal.Full",
-    default_service = "dev.mackes.MDE.Portal.Full",
-    default_path = "/dev/mackes/MDE/Portal/Full"
-)]
-trait PortalFull {
-    async fn goto(&self, layer: &str) -> zbus::Result<()>;
-}
-
-/// Forward a `Goto(layer)` call to the `mde-portal-full` surface.
-///
-/// Silently ignores all errors — the Portal-full binary may not be
-/// running yet; callers should never block on its availability.
+/// Forward a `Goto(layer)` to the mde-portal-full surface over the Bus
+/// (`action/shell/goto-full`). DBUS-2.b retired the `Portal.Full` D-Bus
+/// interface; this publish is fire-and-forget + durable — the full
+/// surface acts on its next poll, even if it was down at publish time.
 pub async fn portal_full_goto(layer: &str) {
-    let Ok(conn) = zbus::Connection::session().await else {
-        return;
-    };
-    let Ok(proxy) = PortalFullProxy::new(&conn).await else {
-        return;
-    };
-    let _ = proxy.goto(layer).await;
+    let layer = layer.to_string();
+    let _ = tokio::task::spawn_blocking(move || {
+        let Some(dir) = mde_bus::default_data_dir() else {
+            return;
+        };
+        let Ok(persist) = mde_bus::persist::Persist::open(dir) else {
+            return;
+        };
+        let _ = persist.write(
+            "action/shell/goto-full",
+            mde_bus::hooks::config::Priority::Default,
+            None,
+            Some(&layer),
+        );
+    })
+    .await;
 }
 
 #[cfg(test)]
@@ -90,11 +83,5 @@ mod tests {
     async fn portal_state_new_dnd_false() {
         let state = PortalState::new();
         assert!(!state.dnd_enabled().await, "DND starts disabled");
-    }
-
-    #[tokio::test]
-    async fn portal_full_goto_does_not_panic_when_service_absent() {
-        // Service not running in tests; the forward returns silently.
-        portal_full_goto("hub").await;
     }
 }

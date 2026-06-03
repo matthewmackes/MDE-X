@@ -37,11 +37,10 @@ iced_layershell = "0.18"
 # reversed 2026-05-28; sway-native shell is the locked direction).
 swayipc-async = "3.0.0"
 
-# DBUS-2 retired the dev.mackes.MDE.Portal *server* interface; zbus
-# remains only for the client proxy that forwards Goto(layer) to the
-# mde-portal-full surface (dev.mackes.MDE.Portal.Full — a separate
-# retirement). Same zbus 5 + tokio feature set as mde-session.
-zbus = { version = "5", default-features = false, features = ["tokio"] }
+# DBUS-2 + DBUS-2.b retired all of mde-portal's D-Bus (the outer
+# dev.mackes.MDE.Portal + the inner dev.mackes.MDE.Portal.Full). The
+# shell IPC is the Bus now (action/shell/<verb> + action/shell/goto-full)
+# — no zbus dependency remains.
 
 # Async runtime — shared with Iced + zbus + swayipc-async.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "process", "time"] }

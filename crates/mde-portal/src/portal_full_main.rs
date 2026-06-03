@@ -14,7 +14,6 @@
 
 #![forbid(unsafe_code)]
 
-use anyhow::Context as _;
 use async_stream::stream;
 use iced::widget::canvas::{self, Canvas, Frame, Path, Stroke, Text};
 use iced::widget::{button, column, container, row, scrollable, text, Space};
@@ -22,56 +21,51 @@ use iced::{Color, Element, Length, Point, Rectangle, Renderer, Subscription, Tas
 use std::sync::OnceLock;
 use tokio::sync::broadcast;
 
-// ── D-Bus broadcast channel ───────────────────────────────────────────────────
+// ── goto broadcast channel (DBUS-2.b: Bus-fed, was D-Bus) ──
 //
 // Initialized in `main()` before the Iced runtime starts so the
 // subscription stream never blocks on a missing sender.
 
-static DBUS_TX: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+static GOTO_TX: OnceLock<broadcast::Sender<String>> = OnceLock::new();
 
-fn dbus_sender() -> Option<&'static broadcast::Sender<String>> {
-    DBUS_TX.get()
+fn goto_sender() -> Option<&'static broadcast::Sender<String>> {
+    GOTO_TX.get()
 }
 
-// ── D-Bus interface ────────────────────────────────────────────────────────────
+// ── goto ingress (DBUS-2.b: action/shell/goto-full Bus poll) ──
 
-mod dbus {
-    use anyhow::Context as _;
-    use super::dbus_sender;
-    use zbus::{interface, Connection};
+mod goto_bus {
+    use super::goto_sender;
+    use mde_bus::persist::Persist;
 
-    struct PortalFullIface;
-
-    #[interface(name = "dev.mackes.MDE.Portal.Full")]
-    impl PortalFullIface {
-        /// Switch to the named content layer (hub / library / control).
-        async fn goto(&self, layer: String) -> zbus::fdo::Result<()> {
-            tracing::info!(%layer, "Portal.Full.Goto");
-            if let Some(tx) = dbus_sender() {
-                let _ = tx.send(layer);
+    /// Poll `action/shell/goto-full` and feed each layer string into the
+    /// broadcast channel `goto_subscription` drains. DBUS-2.b retired the
+    /// `dev.mackes.MDE.Portal.Full` D-Bus interface — the Dock forwards goto
+    /// over the Bus now. Runs on a background thread off the Iced render
+    /// thread; the 40 ms interactive cadence keeps a keybind→goto snappy.
+    ///
+    /// # Errors
+    /// If the Bus data dir is unavailable or the store can't open.
+    pub fn serve(should_stop: impl Fn() -> bool) -> anyhow::Result<()> {
+        let dir = mde_bus::default_data_dir()
+            .ok_or_else(|| anyhow::anyhow!("no Bus data dir for goto-full responder"))?;
+        let persist = Persist::open(dir)?;
+        let mut cursor: Option<String> = None;
+        tracing::info!("mde-portal-full: action/shell/goto-full responder serving");
+        while !should_stop() {
+            if let Ok(msgs) = persist.list_since("action/shell/goto-full", cursor.as_deref()) {
+                for msg in msgs {
+                    cursor = Some(msg.ulid.clone());
+                    if let Some(layer) = msg.body {
+                        if let Some(tx) = goto_sender() {
+                            let _ = tx.send(layer);
+                        }
+                    }
+                }
             }
-            Ok(())
+            std::thread::sleep(mde_bus::rpc::INTERACTIVE_POLL_INTERVAL);
         }
-
-        /// Smoke-test ping — returns `"pong"`.
-        async fn ping(&self) -> zbus::fdo::Result<String> {
-            Ok("pong".to_string())
-        }
-    }
-
-    pub async fn register() -> anyhow::Result<Connection> {
-        let conn = Connection::session()
-            .await
-            .context("connecting to session D-Bus")?;
-        conn.object_server()
-            .at("/dev/mackes/MDE/Portal/Full", PortalFullIface)
-            .await
-            .context("registering PortalFullIface")?;
-        conn.request_name("dev.mackes.MDE.Portal.Full")
-            .await
-            .context("requesting dev.mackes.MDE.Portal.Full")?;
-        tracing::info!("mde-portal-full: D-Bus registered");
-        Ok(conn)
+        Ok(())
     }
 }
 
@@ -2502,17 +2496,17 @@ fn subscription(_state: &PortalFull) -> Subscription<Message> {
                 _ => None,
             }
         }),
-        dbus_subscription(),
+        goto_subscription(),
     ])
 }
 
-fn dbus_subscription() -> Subscription<Message> {
-    Subscription::run_with("mde-portal-full-dbus", |_| stream! {
+fn goto_subscription() -> Subscription<Message> {
+    Subscription::run_with("mde-portal-full-goto", |_| stream! {
         // The sender is set in main() before iced starts, but subscription
         // streams are spawned by iced's runtime potentially very quickly.
         // Poll briefly until the OnceLock is populated.
         let tx = loop {
-            if let Some(tx) = DBUS_TX.get() {
+            if let Some(tx) = GOTO_TX.get() {
                 break tx;
             }
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -2547,21 +2541,20 @@ fn main() -> anyhow::Result<()> {
         .json()
         .init();
 
-    // Initialize D-Bus → Iced channel before the Iced runtime starts so the
-    // subscription stream always finds the sender in the OnceLock.
+    // Initialize the goto broadcast channel before the Iced runtime starts
+    // so the subscription stream always finds the sender in the OnceLock.
     let (tx, _rx) = broadcast::channel::<String>(32);
-    DBUS_TX.set(tx).expect("DBUS_TX initialized once in main");
+    GOTO_TX.set(tx).expect("GOTO_TX initialized once in main");
 
-    // D-Bus registration runs in a dedicated multi-thread runtime so zbus
-    // dispatch doesn't contend with the Iced render thread.
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("building tokio runtime for D-Bus")?;
-    let _conn = rt
-        .block_on(dbus::register())
-        .context("registering dev.mackes.MDE.Portal.Full")?;
-    let _rt_thread = std::thread::spawn(move || rt.block_on(std::future::pending::<()>()));
+    // DBUS-2.b: the Dock forwards goto over the Bus (action/shell/goto-full).
+    // Poll it on a background thread (off the Iced render thread) + feed the
+    // broadcast channel the subscription drains. Replaces the retired
+    // dev.mackes.MDE.Portal.Full D-Bus service.
+    let _goto_thread = std::thread::spawn(|| {
+        if let Err(e) = goto_bus::serve(|| false) {
+            tracing::error!(error = %e, "action/shell/goto-full responder exited");
+        }
+    });
 
     // Run the Portal-full Iced window.
     // - `decorations: false` removes the window border (sway draws none for scratchpad).
