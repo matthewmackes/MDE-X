@@ -3351,28 +3351,16 @@ fn run_serve(
         // bus or mde-portal aren't running at daemon startup
         // the relay skips the portal call and surfaces the
         // FDO notification alone.
-        let alert_relay = {
-            let mut worker = mackesd_core::workers::alert_relay::AlertRelayWorker::new();
-            match zbus::Connection::session().await {
-                Ok(bus) => {
-                    worker = worker.with_portal_client(
-                        mackesd_core::ipc::portal::PortalClient::new(bus),
-                    );
-                    tracing::info!(
-                        "alert_relay: PortalClient attached \
-                         (CRITICAL alerts will navigate Portal-full → Control)"
-                    );
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        error = %e,
-                        "alert_relay: session bus unavailable at startup; \
-                         portal goto(control) disabled"
-                    );
-                }
-            }
-            worker
-        };
+        // DBUS-2: the portal shell IPC is the Bus now. PortalClient is
+        // stateless (it appends to action/shell/<verb> per call), so the
+        // relay always attaches it — a CRITICAL alert's goto(control) is
+        // durable even if mde-portal is down at the time.
+        let alert_relay = mackesd_core::workers::alert_relay::AlertRelayWorker::new()
+            .with_portal_client(mackesd_core::ipc::portal::PortalClient::new());
+        tracing::info!(
+            "alert_relay: PortalClient attached \
+             (CRITICAL alerts publish action/shell/goto control)"
+        );
         sup.spawn(Spawn::new(alert_relay, RestartPolicy::Always));
         worker_names
             .lock()

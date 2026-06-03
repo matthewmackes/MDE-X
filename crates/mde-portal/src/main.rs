@@ -29,6 +29,9 @@ mod app;
 // Portal-31 — startup scan of ~/.local/share/mde/cards/ + one-line summary log.
 pub mod card_index;
 pub mod dbus;
+// DBUS-2 — action/shell/<verb> Bus responder (retires the
+// dev.mackes.MDE.Portal D-Bus interface; Q96 Bus-canonical).
+pub mod bus_responder;
 // Portal-3 — font + Material Symbols icon theme layer.
 pub mod fonts;
 // Portal-9.a — sysfs status polling (battery / network / backlight).
@@ -86,49 +89,30 @@ fn main() -> anyhow::Result<()> {
     run_layershell()
 }
 
-/// Headless mode: register D-Bus, confirm the bus name is reachable, exit.
+/// Headless mode: confirm the Bus store is reachable, exit. Used by CI /
+/// `mackesd portal-smoke` to verify the shell IPC surface is wired.
 fn run_headless() -> anyhow::Result<()> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("building tokio runtime for headless mode")?;
-
-    rt.block_on(async {
-        let state = dbus::PortalState::new();
-        let _conn = dbus::register(state)
-            .await
-            .context("registering dev.mackes.MDE.Portal")?;
-        tracing::info!(
-            object_path = "/dev/mackes/MDE/Portal",
-            "mde-portal: D-Bus registered (headless); exiting"
-        );
-        anyhow::Ok(())
-    })
+    let dir = mde_bus::default_data_dir().ok_or_else(|| anyhow::anyhow!("no Bus data dir"))?;
+    let _persist = mde_bus::persist::Persist::open(dir).context("opening Bus store")?;
+    tracing::info!("mde-portal: Bus store reachable (headless); exiting");
+    Ok(())
 }
 
-/// Normal mode: register D-Bus in a background thread and launch the
-/// Iced layer-shell Dock surface.
+/// Normal mode: serve the `action/shell/*` Bus responder on a background
+/// thread (off the Iced render thread) and launch the layer-shell Dock.
 fn run_layershell() -> anyhow::Result<()> {
-    // Spin up a separate multi-thread tokio runtime for the zbus
-    // connection so D-Bus dispatch doesn't contend with the Iced
-    // render thread.
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("building tokio runtime")?;
-
+    // DBUS-2: the shell IPC is the Bus now. The responder loop owns its
+    // own Persist + current-thread runtime; running it on a background
+    // thread keeps it off the Iced render thread (the same decoupling the
+    // zbus service had).
     let state = dbus::PortalState::new();
-    let _conn = rt.block_on(dbus::register(state)).context("registering dev.mackes.MDE.Portal")?;
-
-    // Keep the tokio runtime alive for the process lifetime so zbus
-    // tasks continue processing incoming D-Bus method calls while Iced
-    // owns the main thread.
-    let _rt_thread = std::thread::spawn(move || {
-        rt.block_on(std::future::pending::<()>());
+    let _responder = std::thread::spawn(move || {
+        if let Err(e) = bus_responder::serve(state, || false) {
+            tracing::error!(error = %e, "action/shell responder exited");
+        }
     });
 
-    app::run()
-        .map_err(|e| anyhow::anyhow!("running mde-portal layer-shell application: {e}"))?;
+    app::run().map_err(|e| anyhow::anyhow!("running mde-portal layer-shell application: {e}"))?;
 
     Ok(())
 }

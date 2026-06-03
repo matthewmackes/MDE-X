@@ -18,8 +18,8 @@ name = "mde-portal-full"
 path = "src/portal_full_main.rs"
 
 # Portal-35 — `mde://` URI dispatcher. Registered as the
-# `x-scheme-handler/mde` handler so `xdg-open mde://...` routes
-# through `dev.mackes.MDE.Portal.OpenUri` on the running portal.
+# `x-scheme-handler/mde` handler so `xdg-open mde://...` publishes to
+# `action/shell/open-uri` on the Bus (DBUS-2; was the Portal D-Bus).
 [[bin]]
 name = "mde-open"
 path = "src/mde_open_main.rs"
@@ -37,9 +37,10 @@ iced_layershell = "0.18"
 # reversed 2026-05-28; sway-native shell is the locked direction).
 swayipc-async = "3.0.0"
 
-# v6.0 Portal-1 — D-Bus surface: dev.mackes.MDE.Portal
-# {Goto, Focus, Lock, ToggleDND}. Same zbus 5 + tokio feature set as
-# mde-session / mde-workbench.
+# DBUS-2 retired the dev.mackes.MDE.Portal *server* interface; zbus
+# remains only for the client proxy that forwards Goto(layer) to the
+# mde-portal-full surface (dev.mackes.MDE.Portal.Full — a separate
+# retirement). Same zbus 5 + tokio feature set as mde-session.
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 
 # Async runtime — shared with Iced + zbus + swayipc-async.
@@ -86,6 +87,11 @@ mde-theme = { path = "../mde-theme", features = ["iced", "serde"] }
 # on-disk store and logs a summary so the runtime confirms the
 # crate is wired (no scaffold-only modules per §0.12).
 mde-card = { path = "../mde-card" }
+
+# DBUS-2 — the shell IPC (action/shell/<verb>) runs on the Mackes Bus:
+# mde-portal serves it (bus_responder) + mde-open publishes to it,
+# replacing the retired dev.mackes.MDE.Portal D-Bus interface (Q96).
+mde-bus = { path = "../mde-bus" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }

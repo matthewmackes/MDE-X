@@ -1,8 +1,12 @@
 //! `mde-open` — `mde://` URI dispatcher (Portal-35).
 //!
 //! Tiny binary registered as `x-scheme-handler/mde` so that
-//! `xdg-open mde://library/Downloads` routes to the running
-//! `dev.mackes.MDE.Portal` D-Bus service.
+//! `xdg-open mde://library/Downloads` routes to the running portal.
+//!
+//! DBUS-2: it publishes the URI to the Bus (`action/shell/open-uri`)
+//! instead of calling the retired `dev.mackes.MDE.Portal` D-Bus service.
+//! This is durable — the portal acts when it next polls the topic, even
+//! if it was down at publish time — and Bus-canonical per Q96.
 //!
 //! Usage:
 //!
@@ -14,19 +18,19 @@
 //! ```
 //!
 //! Exit codes:
-//!   0  — URI parsed and dispatched successfully
+//!   0  — URI parsed and published to the Bus
 //!   1  — usage error (missing argument)
-//!   2  — D-Bus dispatch failed (portal not running, etc.)
+//!   2  — Bus store unreachable
 //!   3  — URI did not parse to a known verb
 
 #![forbid(unsafe_code)]
 
 use std::process::ExitCode;
 
+use mde_bus::hooks::config::Priority;
 use mde_portal::uri::{parse_mde_uri, Action};
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("MDE_OPEN_LOG")
@@ -48,29 +52,25 @@ async fn main() -> ExitCode {
         return ExitCode::from(3);
     }
 
-    let conn = match zbus::Connection::session().await {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("mde-open: cannot reach session bus: {e}");
-            return ExitCode::from(2);
-        }
+    let Some(dir) = mde_bus::default_data_dir() else {
+        eprintln!("mde-open: no Bus data dir");
+        return ExitCode::from(2);
     };
-
-    let proxy = match mde_portal::dbus_proxy::PortalProxy::new(&conn).await {
+    let persist = match mde_bus::persist::Persist::open(dir) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("mde-open: cannot construct Portal proxy: {e}");
+            eprintln!("mde-open: cannot open Bus store: {e}");
             return ExitCode::from(2);
         }
     };
 
-    match proxy.open_uri(&uri).await {
-        Ok(canonical) => {
-            tracing::info!(canonical, "mde-open: dispatched");
+    match persist.write("action/shell/open-uri", Priority::Default, None, Some(&uri)) {
+        Ok(_) => {
+            tracing::info!(uri = %uri, "mde-open: published to action/shell/open-uri");
             ExitCode::from(0)
         }
         Err(e) => {
-            eprintln!("mde-open: Portal.OpenUri failed: {e}");
+            eprintln!("mde-open: publish to Bus failed: {e}");
             ExitCode::from(2)
         }
     }

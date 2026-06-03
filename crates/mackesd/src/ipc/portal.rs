@@ -1,124 +1,107 @@
-//! Client side of `dev.mackes.MDE.Portal` — mackesd calls these to drive
-//! the portal from daemon-side events (idle-lock, mesh alerts, DND sync).
+//! Client side of the Portal shell IPC — mackesd drives the portal from
+//! daemon-side events (CRITICAL-alert navigation, idle-lock, DND sync).
 //!
-//! v6.0 Portal-1: thin async proxy around the four Portal methods.
-//! mackesd callers (idle-lock worker, alert relay, etc.) import
-//! [`PortalClient::new`] + call `.lock()` / `.goto()` / `.toggle_dnd()`.
-//! The proxy silently drops calls when the portal is not running —
-//! operator-visible operations (like lock) log at warn level so the
-//! operator knows the portal was unreachable.
+//! DBUS-2: this publishes to the Bus (`action/shell/<verb>`) instead of
+//! calling the retired `dev.mackes.MDE.Portal` D-Bus service. Publishes
+//! are fire-and-forget + durable — the portal acts when its
+//! `bus_responder` next polls the topic, even if it was down at publish
+//! time. mackesd callers (alert relay, idle-lock) import
+//! [`PortalClient::new`] + call `.goto()` / `.lock()` / `.toggle_dnd()`.
 
 #[cfg(feature = "async-services")]
 mod inner {
-    /// Well-known D-Bus name registered by `mde-portal`.
-    pub const PORTAL_BUS_NAME: &str = "dev.mackes.MDE.Portal";
-    /// Object path where `dev.mackes.MDE.Portal` is served.
-    pub const PORTAL_OBJECT_PATH: &str = "/dev/mackes/MDE/Portal";
+    /// Bus topic prefix the portal's `bus_responder` serves.
+    pub const SHELL_TOPIC_PREFIX: &str = "action/shell";
 
-    /// Async proxy for `dev.mackes.MDE.Portal`.
-    ///
-    /// Wraps a `zbus::Connection`; each method call opens a one-shot
-    /// call-and-return message exchange.  The proxy is cheap to
-    /// construct — `zbus::Connection` is `Clone + Send + Sync`.
-    #[derive(Clone, Debug)]
-    pub struct PortalClient {
-        conn: zbus::Connection,
+    /// Append one shell command to `action/shell/<verb>` (fire-and-forget).
+    /// Opens the Bus store, writes, and returns — the non-`Send` `Persist`
+    /// never crosses an `.await`.
+    fn publish_shell(verb: &str, body: &str) -> anyhow::Result<()> {
+        let dir =
+            mde_bus::default_data_dir().ok_or_else(|| anyhow::anyhow!("no Bus data dir"))?;
+        let persist = mde_bus::persist::Persist::open(dir)?;
+        persist.write(
+            &format!("{SHELL_TOPIC_PREFIX}/{verb}"),
+            mde_bus::hooks::config::Priority::Default,
+            None,
+            Some(body),
+        )?;
+        Ok(())
     }
 
+    /// Bus client for the portal shell verbs.
+    ///
+    /// Stateless — each call opens the Bus store, appends the command, and
+    /// returns. Cheap to clone + construct.
+    #[derive(Clone, Debug, Default)]
+    pub struct PortalClient;
+
     impl PortalClient {
-        /// Construct a client from an already-open session-bus connection.
-        pub fn new(conn: zbus::Connection) -> Self {
-            Self { conn }
+        /// Construct a client.
+        #[must_use]
+        pub fn new() -> Self {
+            Self
         }
 
-        /// Call `Portal.Goto(layer)` — navigate to a named Portal-full layer.
+        /// Publish `action/shell/goto` — navigate to a named Portal-full layer.
         ///
-        /// Silently returns `Ok(())` when the portal bus name is absent
-        /// (binary not running). Logs at `info` level on success.
+        /// # Errors
+        /// Bus-store open / write failures.
         pub async fn goto(&self, layer: &str) -> anyhow::Result<()> {
-            let proxy = zbus::Proxy::new(
-                &self.conn,
-                PORTAL_BUS_NAME,
-                PORTAL_OBJECT_PATH,
-                "dev.mackes.MDE.Portal",
-            )
-            .await?;
-            proxy.call_method("Goto", &(layer,)).await?;
-            tracing::info!(layer, "PortalClient: Goto succeeded");
+            publish_shell("goto", layer)?;
+            tracing::info!(layer, "PortalClient: published action/shell/goto");
             Ok(())
         }
 
-        /// Call `Portal.Focus` — bring Portal-full to the foreground.
+        /// Publish `action/shell/focus` — bring Portal-full to the foreground.
+        ///
+        /// # Errors
+        /// Bus-store open / write failures.
         pub async fn focus(&self) -> anyhow::Result<()> {
-            let proxy = zbus::Proxy::new(
-                &self.conn,
-                PORTAL_BUS_NAME,
-                PORTAL_OBJECT_PATH,
-                "dev.mackes.MDE.Portal",
-            )
-            .await?;
-            proxy.call_method("Focus", &()).await?;
-            tracing::info!("PortalClient: Focus succeeded");
+            publish_shell("focus", "")?;
+            tracing::info!("PortalClient: published action/shell/focus");
             Ok(())
         }
 
-        /// Call `Portal.Lock` — activate the lock-screen surface.
+        /// Publish `action/shell/lock` — activate the lock-screen surface.
         ///
-        /// Logs at `warn` level when the portal is unreachable so an
-        /// operator debugging a failed lock can see why the screen
-        /// didn't lock.
+        /// # Errors
+        /// Bus-store open / write failures.
         pub async fn lock(&self) -> anyhow::Result<()> {
-            let proxy = zbus::Proxy::new(
-                &self.conn,
-                PORTAL_BUS_NAME,
-                PORTAL_OBJECT_PATH,
-                "dev.mackes.MDE.Portal",
-            )
-            .await?;
-            match proxy.call_method("Lock", &()).await {
-                Ok(_) => {
-                    tracing::info!("PortalClient: Lock succeeded");
-                    Ok(())
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "PortalClient: Lock failed — portal may not be running");
-                    Err(e.into())
-                }
-            }
+            publish_shell("lock", "")?;
+            tracing::info!("PortalClient: published action/shell/lock");
+            Ok(())
         }
 
-        /// Call `Portal.ToggleDND` — flip mesh-wide Do-Not-Disturb.
+        /// Publish `action/shell/toggle-dnd` — flip mesh-wide Do-Not-Disturb.
         ///
-        /// Returns the new DND state (`true` = enabled).
-        pub async fn toggle_dnd(&self) -> anyhow::Result<bool> {
-            let proxy = zbus::Proxy::new(
-                &self.conn,
-                PORTAL_BUS_NAME,
-                PORTAL_OBJECT_PATH,
-                "dev.mackes.MDE.Portal",
-            )
-            .await?;
-            let new_state: bool = proxy.call_method("ToggleDND", &()).await?.body().deserialize()?;
-            tracing::info!(dnd = new_state, "PortalClient: ToggleDND succeeded");
-            Ok(new_state)
+        /// Fire-and-forget: the portal owns the authoritative DND state, so
+        /// (unlike the old D-Bus call) no new state is returned here.
+        ///
+        /// # Errors
+        /// Bus-store open / write failures.
+        pub async fn toggle_dnd(&self) -> anyhow::Result<()> {
+            publish_shell("toggle-dnd", "")?;
+            tracing::info!("PortalClient: published action/shell/toggle-dnd");
+            Ok(())
         }
     }
 }
 
 #[cfg(feature = "async-services")]
-pub use inner::{PortalClient, PORTAL_BUS_NAME, PORTAL_OBJECT_PATH};
+pub use inner::{PortalClient, SHELL_TOPIC_PREFIX};
 
 #[cfg(test)]
 mod tests {
     #[test]
-    fn portal_bus_name_matches_mde_portal_constant() {
+    fn shell_topic_prefix_is_action_shell() {
         #[cfg(feature = "async-services")]
-        assert_eq!(super::PORTAL_BUS_NAME, "dev.mackes.MDE.Portal");
+        assert_eq!(super::SHELL_TOPIC_PREFIX, "action/shell");
     }
 
+    #[cfg(feature = "async-services")]
     #[test]
-    fn portal_object_path_matches_mde_portal_constant() {
-        #[cfg(feature = "async-services")]
-        assert_eq!(super::PORTAL_OBJECT_PATH, "/dev/mackes/MDE/Portal");
+    fn portal_client_constructs() {
+        let _ = super::PortalClient::new();
     }
 }
