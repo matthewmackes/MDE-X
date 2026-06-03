@@ -5171,6 +5171,7 @@ dependencies = [
  "futures",
  "iced 0.14.0",
  "mde-bus",
+ "mde-card",
  "mde-config",
  "mde-iced-components",
  "mde-mesh-types",

@@ -58,6 +58,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # `~/.config/mde/workbench/` once CB-1 closes; mde-config is the
 # typed read/write surface.
 mde-config = { path = "../mde-config" }
+# MESH-PROBE-9.a — the Network Hosts panel deserializes the probe
+# inventory (`Vec<mde_card::Card>`) + reuses `mde_card::probe`'s
+# Card→facts extractors, so the workbench depends on mde-card directly.
+mde-card = { path = "../mde-card" }
 # CB-1.5 (Fleet group) consumes the same mesh-types value objects
 # the panel + mackesd share, so the workbench depends on them
 # directly rather than re-importing through mackesd-core.

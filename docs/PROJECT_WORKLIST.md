@@ -3268,13 +3268,17 @@ reachability (the v3.x dead-module failure mode §0.12 + DoD gate-7 exist to cat
     - [ ] MESH-A-7's 12 well-known-port mappings read open ports from service Cards.
     - [ ] MESH-A-1/A-2 source their host/target list from `mackesd::probe::inventory()`.
 
-- [ ] **MESH-PROBE-9: v1.0 — Portal/Workbench render host + service Cards**
+- [>] **MESH-PROBE-9: v1.0 — Portal/Workbench render host + service Cards** *(session=opus-48-2026-06-03-mesh-A — split per §0.12: 9.a Workbench panel SHIPPED; 9.b Portal card-grid OPEN below. Premise drift: card_index only logs a startup summary — there is no Portal card grid to feed.)*
   **As** the operator,
   **I want** the probe inventory to appear in the Portal/Workbench via the existing `card_index`,
   **so that** "what's on my mesh/LAN" is visible with no probe-specific UI code (Q7/Q8).
   **Acceptance** (each bench-observable):
-    - [ ] Host + service Cards surface in the Portal card grid via `card_index` (visual bench).
-    - [ ] A Workbench network view lists hosts with their identified services + trust-state.
+    - [ ] Host + service Cards surface in the Portal card grid (→ **MESH-PROBE-9.b**; premise-drifted, see below).
+    - [✓] A Workbench network view lists hosts with their identified services + trust-state. *(MESH-PROBE-9.a — new Network → "Network Hosts" panel (`crates/mde-workbench/src/panels/network_hosts.rs`) reads + merges every peer's `<workgroup_root>/<peer>/mackesd/probe-inventory.json` — the same on-disk contract `mackesd::probe_nmap::inventory` serves — and flattens each Host card + its Service children via `mde_card::probe::{host_facts,service_facts}` into sorted rows: display name, IP, source (mesh/LAN/manual), open-port services, trust-state badge. Read-only (the worker owns scanning; Refresh re-reads). Wiring mirrors the mesh_storage panel; Network panel count 14→15; workbench gains an `mde-card` dep. `cargo test -p mde-workbench` 746/746 incl. 6 new tests.)*
+
+- [ ] **MESH-PROBE-9.b: v1.0 — Portal card-grid surface for host + service Cards** *(split from MESH-PROBE-9 2026-06-03 — premise drift. MESH-PROBE-9 assumed the inventory could surface "via the existing `card_index` with no probe-specific UI code", but `crates/mde-portal/src/card_index.rs` is only a startup *logger* — it scans `~/.local/share/mde/cards/*.json` and logs a one-line count; there is no Portal card-grid widget, and the probe inventory lives at a different path. Surfacing host/service Cards in the Portal needs an actual card-grid render surface built in mde-portal.)*
+  **Acceptance** (each bench-observable):
+    - [ ] Host + service Cards from the probe inventory render in a Portal card-grid surface (visual bench).
 
 - [ ] **MESH-PROBE-10: v1.0 — HW bench: active scanning on a real fleet + LAN [HW carve-out]**
   **Acceptance** (each bench-observable):

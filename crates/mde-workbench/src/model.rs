@@ -246,6 +246,7 @@ pub fn nav_model() -> Vec<NavEntry> {
                 Panel::new("mesh_ssh", "Mesh SSH"),
                 Panel::new("mesh_topology", "Mesh Topology"),
                 Panel::new("mesh_services", "Mesh Services"),
+                Panel::new("network_hosts", "Network Hosts"),
                 Panel::new("mesh_bus", "Mackes Bus"),
                 Panel::new("mesh_federation", "Mesh Federation"),
                 // NF-13.8 (v2.5) — service-publishing surface

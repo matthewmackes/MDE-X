@@ -35,6 +35,7 @@ use crate::panels::{
     mesh_services as mesh_services_panel,
     mesh_storage as mesh_storage_panel,
     mesh_topology as mesh_topology_panel,
+    network_hosts as network_hosts_panel,
     notifications as notifications_panel, panel_apps as panel_apps_panel,
     playbooks as playbooks_panel, power as power_panel,
     printers as printers_panel, remote_desktop as remote_desktop_panel,
@@ -185,6 +186,8 @@ pub enum Message {
     /// NF-13.8 — Network → Service Publishing sub-message.
     ServicePublishing(service_publishing_panel::Message),
     MeshStorage(mesh_storage_panel::Message),
+    /// MESH-PROBE-9.a — Network → Network Hosts panel sub-message.
+    NetworkHosts(network_hosts_panel::Message),
     MeshTopology(mesh_topology_panel::Message),
     PanelApps(panel_apps_panel::Message),
     RemoteDesktop(remote_desktop_panel::Message),
@@ -269,6 +272,9 @@ pub struct App {
     /// NF-13.8 — Network → Service Publishing panel state.
     service_publishing: service_publishing_panel::ServicePublishingPanel,
     mesh_storage: mesh_storage_panel::MeshStoragePanel,
+    /// MESH-PROBE-9.a — Network → Network Hosts panel state (the probe
+    /// host/service inventory read off mesh-storage).
+    network_hosts: network_hosts_panel::NetworkHostsPanel,
     mesh_topology: mesh_topology_panel::MeshTopologyPanel,
     panel_apps: panel_apps_panel::PanelAppsPanel,
     remote_desktop: remote_desktop_panel::RemoteDesktopPanel,
@@ -368,6 +374,7 @@ impl App {
             mesh_services: mesh_services_panel::MeshServicesPanel::new(),
             service_publishing: service_publishing_panel::ServicePublishingPanel::new(),
             mesh_storage: mesh_storage_panel::MeshStoragePanel::new(),
+            network_hosts: network_hosts_panel::NetworkHostsPanel::new(),
             mesh_topology: mesh_topology_panel::MeshTopologyPanel::new(),
             panel_apps: panel_apps_panel::PanelAppsPanel::new(),
             remote_desktop: remote_desktop_panel::RemoteDesktopPanel::new(),
@@ -735,6 +742,7 @@ impl App {
             Message::MeshServices(msg) => self.mesh_services.update(msg),
             Message::ServicePublishing(msg) => self.service_publishing.update(msg),
             Message::MeshStorage(msg) => self.mesh_storage.update(msg),
+            Message::NetworkHosts(msg) => self.network_hosts.update(msg),
             Message::MeshTopology(msg) => self.mesh_topology.update(msg),
             Message::PanelApps(msg) => self.panel_apps.update(msg),
             Message::RemoteDesktop(msg) => self.remote_desktop.update(msg),
@@ -817,6 +825,9 @@ impl App {
             // v4.0.1 WB-2.k — peer roster via `mackesd nodes list --json`.
             // MESHFS-13.1 — Mesh Storage status panel.
             (Group::Network, "mesh_storage") => mesh_storage_panel::MeshStoragePanel::load(),
+            // MESH-PROBE-9.a — Network Hosts reads the merged probe
+            // inventory off mesh-storage on first nav (read-only).
+            (Group::Network, "network_hosts") => network_hosts_panel::NetworkHostsPanel::load(),
             (Group::Network, "mesh_topology") => mesh_topology_panel::MeshTopologyPanel::load(),
             // v4.0.1 WB-2.j — same pattern for mesh services.
             (Group::Network, "mesh_services") => mesh_services_panel::MeshServicesPanel::load(),
@@ -1141,6 +1152,12 @@ impl App {
                 group: Group::Network,
                 panel: "mesh_storage",
             } => self.mesh_storage.view(),
+            // MESH-PROBE-9.a — Network → Network Hosts lists the probe
+            // inventory (hosts + identified services + trust-state).
+            View::Panel {
+                group: Group::Network,
+                panel: "network_hosts",
+            } => self.network_hosts.view(),
             View::Panel {
                 group: Group::Network,
                 panel: "mesh_topology",

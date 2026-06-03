@@ -36,6 +36,7 @@ pub mod mesh_pending;
 pub mod mesh_services;
 pub mod mesh_storage;
 pub mod mesh_topology;
+pub mod network_hosts;
 pub mod notifications;
 pub mod panel_apps;
 pub mod playbooks;
