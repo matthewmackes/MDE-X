@@ -1119,6 +1119,19 @@ install -D -m 0755 target/release/mde-virtual \
 install -D -m 0644 data/applications/mde-virtual.desktop \
     %{buildroot}%{_datadir}/applications/mde-virtual.desktop
 
+# v6.1 AIR-1 — mde-musicd (native Airsonic music daemon: Symphonia/cpal
+# engine, Opus via libopus, MPRIS, Bus control) + mde-music (the Iced
+# player GUI). Both are workspace members already built by the `cargo
+# build --release --workspace` above. The user unit auto-starts the
+# daemon so the MPRIS surface (AIR-6) + the action/music/* Bus control
+# (AIR-2) are live in every graphical session.
+install -D -m 0755 target/release/mde-musicd \
+    %{buildroot}%{_bindir}/mde-musicd
+install -D -m 0755 target/release/mde-music \
+    %{buildroot}%{_bindir}/mde-music
+install -m 0644 data/systemd/user/mde-musicd.service \
+    %{buildroot}%{_userunitdir}/
+
 # v2.0.0 Phase D.1 — mde-session Wayland session orchestrator.
 install -D -m 0755 target/release/mde-session \
     %{buildroot}%{_bindir}/mde-session
@@ -1534,6 +1547,11 @@ echo ">>> mde-desktop installed. Run \`sudo mde-install --profile=full\` to fini
 %{_datadir}/applications/mde-files.desktop
 %{_bindir}/mde-virtual
 %{_datadir}/applications/mde-virtual.desktop
+# v6.1 AIR-1 — native music daemon + Iced player. (mde-music has no
+# .desktop yet; menu integration lands with the AIR GUI epic.)
+%{_bindir}/mde-musicd
+%{_bindir}/mde-music
+%{_userunitdir}/mde-musicd.service
 %{_bindir}/mde-session
 %{_bindir}/mde-logout-dialog
 %{_bindir}/mde-wizard

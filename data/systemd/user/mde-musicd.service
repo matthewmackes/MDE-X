@@ -1,0 +1,42 @@
+[Unit]
+Description=MDE Music daemon — native Airsonic playback + MPRIS + Bus control
+Documentation=https://github.com/matthewmackes/MDE
+# AIR-1/2/5/6 (v6.1) — mde-musicd serves action/music/* on the Mackes Bus
+# (AIR-2), drives the native Symphonia/cpal playback engine (AIR-5, +Opus
+# via libopus AIR-5.b), and registers org.mpris.MediaPlayer2 (AIR-6) so the
+# XF86Audio* media keys, playerctl, and the lock-screen widget control
+# playback. Part of the graphical session: it needs the session D-Bus (for
+# MPRIS) and the audio device (PipeWire/ALSA).
+PartOf=graphical-session.target
+After=graphical-session.target
+# Back off restart storms on a hard crash loop. (These are [Unit] keys in
+# modern systemd — they are ignored under [Service].)
+StartLimitIntervalSec=30
+StartLimitBurst=5
+
+[Service]
+# The `serve` subcommand runs the Bus responder + MPRIS surface until
+# SIGTERM; it is not a D-Bus-activated service (MPRIS is registered from
+# inside the process), so Type=simple, not Type=dbus.
+Type=simple
+ExecStart=/usr/bin/mde-musicd serve
+# The media keys + player GUI expect the daemon present; restart on crash
+# but back off so a hard fault doesn't storm.
+Restart=on-failure
+RestartSec=2
+
+# Structured logging — same pattern as mde-session / mde-portal.
+StandardError=journal
+SyslogIdentifier=mde-musicd
+
+# Hardening — a userspace audio daemon needs no privilege escalation.
+# (RestrictRealtime is intentionally NOT set: the audio output path may
+# request realtime scheduling.)
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=graphical-session.target

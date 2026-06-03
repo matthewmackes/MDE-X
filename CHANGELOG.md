@@ -25,6 +25,10 @@ unreleased; tag versions get a date when they ship.
   the current track's title / artist / album / cover art, and shuffle +
   repeat all read and drive the same playback the music app and the mesh
   Bus use.
+- **Ships + auto-starts:** the `mde-musicd` daemon and the `mde-music`
+  player install with `mde-desktop`, and a systemd **user** unit starts
+  the daemon in every graphical session — so playback, the media-key /
+  MPRIS surface, and Bus control are live at login with no manual setup.
 
 **KVM + Podman mesh-native compute — `mde-virtual` app (2026-05-31)**
 - A new **Virtual** app manages the KVM virtual machines and Podman
